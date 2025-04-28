@@ -1,0 +1,21 @@
+# Core Application & Async
+python>=3.9
+asyncio; python_version >= '3.9' # asyncio is built-in
+websockets
+aiohttp
+asyncpg # For async PostgreSQL interaction
+PyYAML # For configuration files
+APScheduler # For scheduling tasks like retraining checks
+pypubsub # For internal event bus (as mentioned potential library)
+
+# Data Handling & ML
+pandas
+numpy
+scikit-learn
+xgboost
+
+# Exchange Interaction
+ccxt
+
+# Development & Testing
+pytest 
