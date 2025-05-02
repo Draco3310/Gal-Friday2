@@ -203,6 +203,22 @@ class ConfigManager:
             # Ensure the default is returned if the fetched value wasn't a list
             return default if isinstance(default, list) else [] 
 
+    def get_dict(self, key: str, default: Optional[dict] = None) -> dict:
+        """Retrieves a config value expected to be a dictionary."""
+        if default is None:
+            default = {}  # Default to empty dict if None specified
+            
+        value = self.get(key, default)
+        if isinstance(value, dict):
+            return value
+        else:
+            log.warning(
+                f"Value for key '{key}' is not a dict (type: {type(value)}). "
+                f"Returning default {default}."
+            )
+            # Ensure the default is returned if the fetched value wasn't a dict
+            return default if isinstance(default, dict) else {}
+
     # --- Optional specific getters (can be added as needed) ---
 
     # def get_trading_pairs(self) -> list[str]:
