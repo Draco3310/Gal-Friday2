@@ -53,6 +53,7 @@ This project plan follows a Waterfall methodology, proceeding sequentially throu
 | 1 | 1.8 | Review & Approve Risk Analysis | User reviews and approves the Risk Analysis. | 0.5 days | User | Approved Risk Analysis | **Complete** | 1.7 |
 | 1 | 1.9 | Draft Project Charter/PID | Outline project objectives, scope, resources, stakeholders. | 0.5 days | AI | PID Draft | **Complete** | 1.3 |
 | 1 | 1.10 | Review & Approve Project Charter/PID | User reviews and approves the PID. | 0.5 days | User | Approved PID | **Complete** | 1.9 |
+
 | **Phase 2: System Design** | | | | | | | | |
 | 2 | 2.1 | Design High-Level Architecture | Define overall structure (event-driven, modules). | 2 days | AI | Architecture Concept | **Complete** | 1.4, 1.6 |
 | 2 | 2.2 | Create Architecture Diagram | Visualize modules and data flow. | 1 day | AI | Architecture Diagram | **Complete** | 2.1 |
@@ -63,27 +64,32 @@ This project plan follows a Waterfall methodology, proceeding sequentially throu
 | 2 | 2.7 | Design Backtesting Engine Logic | Specify simulation mechanics (fees, slippage, data handling). | 1 day | AI | Backtester Design Doc | **Complete** | 2.1 |
 | 2 | 2.8 | Design Model Retraining Pipeline | Specify data flow, validation, scheduling approach. | 1 day | AI | Retraining Pipeline Design | **Complete** | 2.1 |
 | 2 | 2.9 | Review & Approve Design Documents | User reviews architecture, DB, interface designs. | 2 days | User | Approved Design Docs | **Complete** | 2.2, 2.3, 2.5, 2.6, 2.7, 2.8 |
+
 | **Phase 3: Implementation (MVP Focus)** | | | | | | | | |
-| 3 | 3.1 | Setup Development Environment | Configure local/cloud dev environment (Python, libs, IDE). | 1 day | AI | Dev Environment | Pending | 2.9 |
-| 3 | 3.2 | Setup Cloud Infrastructure (MVP) | Provision VM, install PostgreSQL/InfluxDB, configure network. | 2 days | AI | Cloud Infra Ready | Pending | 2.9 |
-| 3 | 3.3 | Implement Data Ingestor Module | Code WebSocket connection, data parsing, L2 book mgmt (FR-1xx MVP). | 4 days | AI | Data Ingestor Module Code | Pending | 3.1, 3.2 |
-| 3 | 3.4 | Implement Feature Engine Module | Code indicator/feature calculations (FR-2xx MVP). | 3 days | AI | Feature Engine Module Code | Pending | 3.3 |
-| 3 | 3.5 | Implement Predictive Modeling Module | Code model loading, preprocessing, prediction (XGBoost - FR-3xx MVP). | 3 days | AI | Prediction Module Code | Pending | 3.4 |
-| 3 | 3.6 | Implement Strategy/Signal Module | Code signal generation logic (FR-4xx MVP). | 2 days | AI | Strategy Module Code | Pending | 3.5 |
-| 3 | 3.7 | Implement Risk Management Module | Code pre-trade checks, sizing (FR-5xx MVP). | 3 days | AI | Risk Module Code | Pending | 3.8 |
-| 3 | 3.8 | Implement Portfolio Management Module | Code position/balance tracking (FR-7xx MVP). | 2 days | AI | Portfolio Module Code | Pending | 3.1, 3.2 |
-| 3 | 3.9 | Implement Execution Handler Module | Code Kraken Sandbox API interaction (FR-6xx MVP). | 4 days | AI | Execution Module Code | Pending | 3.7 |
-| 3 | 3.10 | Implement Logging Module | Code logging to files/Postgres (FR-8xx MVP). | 2 days | AI | Logging Module Code | Pending | 3.1, 3.2 |
-| 3 | 3.11 | Implement Monitoring/HALT Module | Code basic health checks, HALT triggers (FR-9xx MVP). | 2 days | AI | Monitoring Module Code | Pending | 3.7, 3.8, 3.10 |
-| 3 | 3.12 | Implement Basic CLI | Code command-line interface for basic control (NFR-201 MVP). | 1 day | AI | CLI Code | Pending | 3.11 |
-| 3 | 3.13 | Implement Configuration Handling | Code loading/parsing of config files (NFR-804 MVP). | 1 day | AI | Config Handling Code | Pending | 3.1 |
-| 3 | 3.14 | Implement Basic Backtesting Engine | Code historical data simulation core (FR-10xx). | 4 days | AI | Backtester Code | Pending | 3.4, 3.5, 3.6, 3.7, 3.8 |
-| 3 | 3.15 | Implement Model Training/Loading Script | Script to train initial MVP model and load it (FR-3xx MVP). | 2 days | AI | Training/Loading Script | Pending | 3.5 |
-| 3 | 3.16 | Code Review & Refinement | Internal review and cleanup of implemented code. | 3 days | AI | Internally Reviewed Codebase | Pending | 3.3 - 3.15 |
+| 3 | 3.1 | Setup Development Environment | Configure local/cloud dev environment (Python, libs, IDE). | 1 day | AI | Dev Environment | Completed | 2.9 |
+| 3 | 3.2 | Setup Cloud Infrastructure (MVP) | Provision VM, install PostgreSQL/InfluxDB, configure network. | 2 days | AI | Cloud Infra Ready | Completed | 2.9 |
+| 3 | 3.3 | Implement Data Ingestor Module | Code WebSocket connection, data parsing, L2 book mgmt (FR-1xx MVP). | 4 days | AI | Data Ingestor Module Code | Inital version completed... pending review| 3.1, 3.2 |
+| 3 | 3.4 | Implement Feature Engine Module | Code indicator/feature calculations (FR-2xx MVP). | 3 days | AI | Feature Engine Module Code | Initial Version completed... Pending review | 3.3 |
+| 3 | 3.5 | Implement Predictive Modeling Module | Code model loading, preprocessing, prediction (XGBoost - FR-3xx MVP). | 3 days | AI | Prediction Module Code | Initial Version completed... Pending review | 3.4 |
+| 3 | 3.6 | Implement Strategy/Signal Module | Code signal generation logic (FR-4xx MVP). | 2 days | AI | Strategy Module Code | Initial Version completed... Pending review | 3.5 |
+| 3 | 3.7 | Implement Risk Management Module | Code pre-trade checks, sizing (FR-5xx MVP). | 3 days | AI | Risk Module Code | Initial Version completed... Pending review | 3.8 |
+| 3 | 3.8 | Implement Portfolio Management Module | Code position/balance tracking (FR-7xx MVP). | 2 days | AI | Portfolio Module Code | Initial Version completed... Pending review | 3.1, 3.2 |
+| 3 | 3.9 | Implement Execution Handler Module | Code Kraken Sandbox API interaction (FR-6xx MVP). | 4 days | AI | Execution Module Code | Initial Version completed... Pending review | 3.7 |
+| 3 | 3.10 | Implement Logging Module | Code logging to files/Postgres (FR-8xx MVP). | 2 days | AI | Logging Module Code | Initial Version completed... Pending review | 3.1, 3.2 |
+| 3 | 3.10a | Create DB Schema for Logging | Define and create the PostgreSQL table schema required by LoggerService. | 0.5 days | AI | DB Schema Script/Definition | Initial Version completed... Pending review | 3.2 |
+| 3 | 3.11 | Implement Monitoring/HALT Module | Code basic health checks, HALT triggers (FR-9xx MVP). | 2 days | AI | Monitoring Module Code | Initial Version completed... Pending review | 3.7, 3.8, 3.10a |
+| 3 | 3.12 | Implement Basic CLI | Code command-line interface for basic control (NFR-201 MVP). | 1 day | AI | CLI Code | Initial Version completed... Pending review | 3.11 |
+| 3 | 3.13 | Implement Configuration Handling | Code loading/parsing of config files (NFR-804 MVP), including logging DB settings. | 1 day | AI | Config Handling Code | Initial Version completed... Pending review | 3.1 |
+| 3 | 3.14 | Implement Basic Backtesting Engine | Code historical data simulation core (FR-10xx). | 4 days | AI | Backtester Code | Initial Version completed... Pending review  | 3.4, 3.5, 3.6, 3.7, 3.8 |
+| 3 | 3.15 | Implement Model Training/Loading Script | Script to train initial MVP model and load it (FR-3xx MVP). | 2 days | AI | Training/Loading Script | Initial Version completed... Pending review | 3.5 |
+| 3 | 3.16 | Create Main Application Entry Point | Code main script (`main.py`) to initialize modules, executor, event buses, and manage lifecycle. | 1 day | AI | Main App Entry | Initial Version completed... Pending review | 3.3 - 3.15 |
+| 3 | 3.17 | Integrate LoggerService | Pass LoggerService instance to other modules and replace print/basic logging calls. | 1 day | AI | Integrated Logging | Initial Version completed... Pending review | 3.10a, 3.3 - 3.9, 3.11-3.16 |
+| 3 | 3.18 | Code Review & Refinement | Internal review and cleanup of implemented code. | 3 days | AI | Internally Reviewed Codebase | Pending | 3.17 |
+
 | **Phase 4: Testing (MVP Focus)** | | | | | | | | |
-| 4 | 4.1 | Develop Unit Tests | Create tests for individual functions/classes in each module. | 5 days | AI | Unit Test Suite | Pending | 3.16 |
+| 4 | 4.1 | Develop Unit Tests | Create tests for individual functions/classes in each module. | 5 days | AI | Unit Test Suite | Pending | 3.18 |
 | 4 | 4.2 | Execute & Debug Unit Tests | Run tests, fix failures until pass rate is high. | 3 days | AI | Passing Unit Tests Report | Pending | 4.1 |
-| 4 | 4.3 | Develop Integration Tests | Create tests for interactions between modules (e.g., Data -> Feature -> Predict -> Signal -> Risk -> Execute). | 4 days | AI | Integration Test Suite | Pending | 3.16 |
+| 4 | 4.3 | Develop Integration Tests | Create tests for interactions between modules (e.g., Data -> Feature -> Predict -> Signal -> Risk -> Execute). | 4 days | AI | Integration Test Suite | Pending | 3.18 |
 | 4 | 4.4 | Execute & Debug Integration Tests | Run integration tests, fix failures. | 3 days | AI | Passing Integration Tests Report | Pending | 4.3 |
 | 4 | 4.5 | Perform System Testing (Sandbox) | Test end-to-end flow using Kraken Sandbox API. | 3 days | AI | System Test Report (Sandbox) | Pending | 4.4 |
 | 4 | 4.6 | Perform Backtesting (MVP Strategy) | Run backtester on historical data with MVP settings. | 2 days | AI | Backtesting Results Report | Pending | 3.14, 4.4 |
@@ -91,8 +97,9 @@ This project plan follows a Waterfall methodology, proceeding sequentially throu
 | 4 | 4.8 | Perform Paper Trading (Sandbox) | Run bot in paper trading mode against live data. | 5 days | AI | Paper Trading Logs & Summary | Pending | 4.5 |
 | 4 | 4.9 | Analyze Paper Trading Results | Review performance in simulated live conditions. | 1 day | AI, User | Paper Trading Analysis | Pending | 4.8 |
 | 4 | 4.10 | Perform Basic Performance Testing | Assess latency and resource usage under simulated load. | 1 day | AI | Performance Test Notes | Pending | 4.5 |
-| 4 | 4.11 | Perform Security Checks | Verify API key handling, config security. | 1 day | AI | Security Check Report | Pending | 3.16 |
+| 4 | 4.11 | Perform Security Checks | Verify API key handling, config security. | 1 day | AI | Security Check Report | Pending | 3.18 |
 | 4 | 4.12 | User Acceptance Testing (UAT) | User reviews logs, backtest/paper trade results, confirms MVP functionality. | 2 days | User | UAT Sign-off | Pending | 4.7, 4.9, 4.5 |
+
 | **Phase 5: Deployment (MVP - Sandbox/Controlled Live)** | | | | | | | | |
 | 5 | 5.1 | Prepare Production Environment | Set up/configure the target live trading environment (VM, DBs). | 1 day | AI | Production Environment Ready | Pending | 4.12 |
 | 5 | 5.2 | Secure Production Environment | Implement firewall rules, access controls, monitoring setup. | 1 day | AI | Secured Environment Checklist | Pending | 5.1 |
@@ -101,6 +108,7 @@ This project plan follows a Waterfall methodology, proceeding sequentially throu
 | 5 | 5.5 | Configure Production Settings | Set live API keys (securely!), final parameters. | 0.5 days | User, AI | Production Configuration Set | Pending | 5.4 |
 | 5 | 5.6 | Perform Smoke Tests in Production | Basic checks to ensure the system runs and connects. | 0.5 days | AI | Smoke Test Pass | Pending | 5.5 |
 | 5 | 5.7 | Initiate Live Trading (Controlled) | Start bot with very small size or limited capital, monitor closely. | Ongoing | User, AI | Live Trading Active | Pending | 5.6 |
+
 | **Phase 6: Maintenance & Monitoring** | | | | | | | | |
 | 6 | 6.1 | Monitor System Health | Ongoing monitoring of logs, alerts, resources. | Ongoing | AI, User | Monitoring Reports/Alerts | Pending | 5.7 |
 | 6 | 6.2 | Monitor Trading Performance | Ongoing tracking of P&L, drawdown vs targets. | Ongoing | User, AI | Performance Reports | Pending | 5.7 |

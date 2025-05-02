@@ -48,12 +48,17 @@ Features are categorized, and initial thoughts on priority and complexity are pr
 | | STR-04 | Add **Time-Based Exits** | Medium | Small | FR-408 | Implement max holding period exit condition. |
 | | STR-05 | Add **Prediction Reversal Exits** | Medium | Small | FR-408 | Implement exit condition based on model prediction flipping. |
 | | STR-06 | Optimize **Order Placement Logic** | Medium | Medium | FR-604, FR-605 | More sophisticated limit order placement (e.g., mid-price targeting, passive placement), adaptive timeouts. |
+| | STR-07 | **ATR-Based SL/TP Calculation:** Calculate SL/TP within StrategyArbitrator using ATR values. | Medium | Medium | - | Requires StrategyArbitrator access to ATR feature (from FeatureEvent or cache). |
+| | STR-08 | **Multi-Strategy Arbitration:** Implement logic to load/run multiple strategies concurrently. | Medium | Medium | FR-408 (Future) | Requires config schema update and routing logic based on prediction metadata or external factors. |
+| | STR-09 | **Stateful Strategy Logic:** Add capability for strategies to maintain state between events. | Medium | Medium | - | E.g., For cooldown periods after signals, tracking recent trends within the strategy itself. |
+| | STR-10 | Implement **Post-Entry SL/TP Placement** | High | Medium | FR-406, FR-604 | Logic within ExecutionHandler (or triggered by Strategy) to place SL/TP orders after entry confirmation/fill. |
 | **Risk Management Enhancements** 
 | | RSK-01 | Implement **Volatility-Adjusted Position Sizing** | Medium | Medium | SRS 2.5 (Implied) | Adjust size based on current market volatility (e.g., reduce size in high vol). |
 | | RSK-02 | Add **Correlation Risk Checks** | Low | Medium | - | If adding more assets, check correlation before increasing exposure. |
 | | RSK-03 | Implement **Dynamic Stop-Loss Logic** | Medium | Medium | - | E.g., Trailing stops based on price movement or ATR. |
 | | RSK-04 | Add **Advanced HALT Triggers** | Medium | Medium | FR-905 | More sophisticated triggers (e.g., based on statistical deviations, specific news events). |
 | | RSK-05 | Implement **Automated Recovery Options** | Low | Large | FR-908 (Beyond MVP) | Define conditions and logic for automated system restart after certain HALT types (requires extreme caution). |
+| | RSK-06 | Track **Non-Quote Currency Balances** | Medium | Medium | - | Monitor balances of assets other than the quote currency (e.g., base asset) for overall portfolio exposure management. |
 | **Data Enhancements** 
 | | DAT-01 | Integrate **News Feed API** | Medium | Large | FR-109 (Future) | Ingest real-time news, potentially use NLP for sentiment/impact analysis as filter/feature. |
 | | DAT-02 | Integrate **Social Media Sentiment API** | Low | Large | FR-109 (Future) | Ingest sentiment scores (e.g., Twitter) as filter/feature. |
@@ -67,11 +72,17 @@ Features are categorized, and initial thoughts on priority and complexity are pr
 | | OPS-04 | Add **Scenario Replay / Debugging Tools** | Medium | Medium | FR-1008 | Tools to easily replay specific historical periods with detailed logging for debugging. |
 | | OPS-05 | Implement **Configuration Hot-Reloading** | Low | Medium | - | Allow updating certain configuration parameters without restarting the bot. |
 | | OPS-06 | Enhance **CLI Functionality** | Low | Small | FR-3.12 | Add more commands for detailed status, performance queries, manual order overrides (use with caution). |
+| | OPS-07 | Implement **Order Cancellation Logic** | Medium | Medium | FR-606 | Add `cancel_order` method using CancelOrder/CancelOrderBatch API endpoints. |
+| | OPS-08 | **Robust DB Logging Error Handling** | Low | Small | FR-806 | Implement fallback logging (e.g., to file) if DB handler fails repeatedly. |
+| | OPS-09 | **Code Readability Improvements** | Medium | Medium | NFR-401 | Refactor DataIngestor: split into smaller modules, extract event classes, improve error handling patterns. |
+| | OPS-10 | **Standardize Error Handling** | Medium | Small | NFR-401 | Create unified error handling utilities to reduce code duplication and improve consistency. |
+| | OPS-11 | **Configuration Management Refactor** | Low | Medium | NFR-401 | Move constants and configuration to dedicated files, implement enums for status and message types. |
 | **Scalability & Architecture Enhancements** 
 | | ARC-01 | Add **Support for Additional Exchanges** | Low | Large | SRS 1.4 (Out of Scope) | Abstract exchange interactions (e.g., via `ccxt`) further to support platforms beyond Kraken. |
 | | ARC-02 | **Optimize Database Performance** | Medium | Medium | - | Review indexing, query optimization, potential partitioning as data grows. |
 | | ARC-03 | **Refactor for Horizontal Scaling** (If Needed) | Low | Very Large | NFR-505 (Implied) | If performance bottlenecks necessitate, consider extracting modules (e.g., PredictionService) into separate microservices (major architectural change). |
 | | ARC-04 | Implement **Redundancy / High Availability** | Medium | Medium | NFR-801 (Implied) | More robust multi-instance deployment, potentially with leader election or load balancing. |
+| | ARC-05 | Implement **WebSocket Private Feed Integration** | High | Large | FR-702 (Implied) | Connect to Kraken WS for real-time order status/fills, reducing REST polling. |
 
 ## 3. Prioritization & Approach
 

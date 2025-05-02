@@ -1,21 +1,46 @@
-# Core Application & Async
-python>=3.9
-asyncio; python_version >= '3.9' # asyncio is built-in
-websockets
-aiohttp
-asyncpg # For async PostgreSQL interaction
-PyYAML # For configuration files
-APScheduler # For scheduling tasks like retraining checks
-pypubsub # For internal event bus (as mentioned potential library)
+# Core Async and Networking
+asyncio>=3.4.3
+aiohttp>=3.8.0
+websockets>=10.4  # Explicitly requiring a newer version that supports ClientProtocol
+aiodns>=3.0.0
+aiosignal>=1.2.0
+yarl>=1.7.0
+multidict>=6.0.0
 
-# Data Handling & ML
-pandas
-numpy
-scikit-learn
-xgboost
+# Database and Storage
+asyncpg>=0.27.0
+influxdb-client>=1.30.0
+
+# Event Handling and Message Queue
+pypubsub>=4.0.3
+sortedcontainers>=2.4.0
+APScheduler>=3.9.0
+
+# Configuration
+PyYAML>=6.0
+
+# Data Science and ML
+numpy>=1.22.0
+pandas>=1.5.0
+scikit-learn>=1.1.0
+xgboost>=1.6.0
+pandas-ta>=0.3.14b
 
 # Exchange Interaction
-ccxt
+ccxt>=4.0.0
 
-# Development & Testing
-pytest 
+# Development and Testing
+pytest>=7.0.0
+mypy>=1.0.0  # Added for type checking
+
+# Utilities
+python-dateutil>=2.8.2
+python-json-logger>=2.0.4
+typing-extensions>=4.0.0
+
+# HTTP-related dependencies 
+certifi>=2021.10.8
+charset-normalizer>=2.0.12
+urllib3>=1.26.9
+requests>=2.27.1
+idna>=3.3

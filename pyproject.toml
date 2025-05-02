@@ -1,0 +1,38 @@
+[tool.black]
+line-length = 99
+
+[tool.flake8]
+max-line-length = 99
+max-complexity = 12
+exclude = [
+    ".venv",
+    "__pycache__",
+]
+# Add specific ignores if necessary later, e.g.
+# ignore = ["E203", "W503"]
+
+[tool.mypy]
+python_version = "3.11" # Adjust if your project uses a different Python version
+# Add event_bus.py to exclusions
+exclude = ["\\.venv/", "src/gal_friday/event_bus.py"] # Regex for exclusion
+
+# Strictness flags
+check_untyped_defs = true
+disallow_untyped_defs = true # Enforce type hints on all functions
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true # Avoid returning Any implicitly or explicitly
+strict_optional = true # Handle Optionals properly
+
+# Module discovery
+ignore_missing_imports = false # Be explicit about missing types/stubs
+follow_imports = "normal" # Analyze imported modules 
+
+[[tool.mypy.overrides]]
+module = [
+    "sklearn.*",
+    "joblib.*",
+    "sortedcontainers.*",
+    "pandas_ta.*"
+]
+ignore_missing_imports = true 
