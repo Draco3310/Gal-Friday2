@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  app:
+    environment:
+      - ENV=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+    command: python -m src.gal_friday.main
