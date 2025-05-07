@@ -2,8 +2,8 @@ Code Review & Refinement Plan (Task 3.18)
 1. Setup & Automated Checks:
 [x] Configure Tools: Ensure flake8, black, and mypy are installed (preferably in the project's virtual environment) and configured appropriately (e.g., in pyproject.toml or dedicated config files) to match project standards (line length, specific checks).
 [x] Run black: Apply automatic formatting to the entire codebase (src/, scripts/, tests/ if present) for initial consistency.
-[ ] Run flake8: Execute the linter across the codebase. Document or immediately fix reported issues (e.g., unused imports, undefined names, style violations).
-[ ] Run mypy: Execute the type checker across the codebase. Document or fix type errors and inconsistencies. Pay special attention to Any types that could be more specific and issues related to Optional.
+[x] Run flake8: Execute the linter across the codebase. Document or immediately fix reported issues (e.g., unused imports, undefined names, style violations).
+[x] Run mypy: Execute the type checker across the codebase. Document or fix type errors and inconsistencies. Pay special attention to Any types that could be more specific and issues related to Optional.
 2. Manual Review Checklist (Apply to each module/key file):
 A. Correctness & Logic:
 [ ] Does the module's implementation align with its responsibilities defined in the architecture documents (architecture_concept_*.md, interface_definitions_*.md)?

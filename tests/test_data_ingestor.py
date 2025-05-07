@@ -39,7 +39,7 @@ def test_data_ingestor_initialization(data_config, event_bus):
     """Test that the DataIngestor initializes correctly."""
     config = ConfigManager(config_dict=data_config)
     data_ingestor = DataIngestor(config, event_bus)
-    
+
     assert data_ingestor is not None
     assert data_ingestor.symbols == data_config["data_collection"]["symbols"]
     assert data_ingestor.timeframes == data_config["data_collection"]["timeframes"]
@@ -48,41 +48,48 @@ def test_data_ingestor_initialization(data_config, event_bus):
 
 
 @patch("ccxt.kraken")
-def test_data_ingestor_fetch_historical_data(mock_ccxt_kraken, data_config, event_bus):
+def test_data_ingestor_fetch_historical_data(
+        mock_ccxt_kraken, data_config, event_bus):
     """Test fetching historical data."""
     # Set up mock exchange
     mock_exchange = MagicMock()
     mock_ccxt_kraken.return_value = mock_exchange
-    
+
     # Create sample OHLCV data
     now = datetime.now().timestamp() * 1000
     hour_ms = 60 * 60 * 1000
     sample_data = [
-        [now - (i * hour_ms), 100 + i, 105 + i, 95 + i, 102 + i, 1000 + i] 
+        [now - (i * hour_ms), 100 + i, 105 + i, 95 + i, 102 + i, 1000 + i]
         for i in range(10, 0, -1)
     ]
     mock_exchange.fetch_ohlcv.return_value = sample_data
-    
+
     # Initialize ingestor
     config = ConfigManager(config_dict=data_config)
     with patch("gal_friday.data_ingestor.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
-        
+
         data_ingestor = DataIngestor(config, event_bus)
         data_ingestor.exchange = mock_exchange
-        
+
         # Fetch historical data
         ohlcv_data = data_ingestor.fetch_historical_data(
-            symbol="BTC/USD", 
+            symbol="BTC/USD",
             timeframe="1h",
             start_date=datetime.now() - timedelta(days=1)
         )
-    
+
     # Verify data was fetched
     assert mock_exchange.fetch_ohlcv.call_count == 1
     assert len(ohlcv_data) == 10
     assert isinstance(ohlcv_data, pd.DataFrame)
-    assert all(col in ohlcv_data.columns for col in ['open', 'high', 'low', 'close', 'volume'])
+    assert all(
+        col in ohlcv_data.columns for col in [
+            'open',
+            'high',
+            'low',
+            'close',
+            'volume'])
 
 
 @patch("ccxt.kraken")
@@ -91,33 +98,34 @@ def test_data_ingestor_process_data(mock_ccxt_kraken, data_config, event_bus):
     # Set up mock exchange
     mock_exchange = MagicMock()
     mock_ccxt_kraken.return_value = mock_exchange
-    
+
     # Create sample OHLCV data
     now = datetime.now().timestamp() * 1000
     hour_ms = 60 * 60 * 1000
     sample_data = [
-        [now - (i * hour_ms), 100 + i, 105 + i, 95 + i, 102 + i, 1000 + i] 
+        [now - (i * hour_ms), 100 + i, 105 + i, 95 + i, 102 + i, 1000 + i]
         for i in range(10, 0, -1)
     ]
-    
+
     # Initialize ingestor
     config = ConfigManager(config_dict=data_config)
     with patch("gal_friday.data_ingestor.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
-        
+
         data_ingestor = DataIngestor(config, event_bus)
-        
+
         # Process raw data
         processed_data = data_ingestor.process_data(
-            sample_data, 
-            symbol="BTC/USD", 
+            sample_data,
+            symbol="BTC/USD",
             timeframe="1h"
         )
-    
+
     # Verify data was processed correctly
     assert len(processed_data) == 10
     assert isinstance(processed_data, pd.DataFrame)
-    assert all(col in processed_data.columns for col in ['open', 'high', 'low', 'close', 'volume'])
+    assert all(col in processed_data.columns for col in [
+               'open', 'high', 'low', 'close', 'volume'])
     assert processed_data['symbol'].iloc[0] == "BTC/USD"
     assert processed_data['timeframe'].iloc[0] == "1h"
 
@@ -129,7 +137,7 @@ def test_data_ingestor_store_data(mock_ccxt_kraken, data_config, event_bus):
     mock_exchange = MagicMock()
     mock_ccxt_kraken.return_value = mock_exchange
     mock_db = MagicMock()
-    
+
     # Create sample dataframe
     sample_df = pd.DataFrame({
         'timestamp': [datetime.now() - timedelta(hours=i) for i in range(10, 0, -1)],
@@ -141,41 +149,42 @@ def test_data_ingestor_store_data(mock_ccxt_kraken, data_config, event_bus):
         'symbol': ["BTC/USD"] * 10,
         'timeframe': ["1h"] * 10
     })
-    
+
     # Initialize ingestor
     config = ConfigManager(config_dict=data_config)
     with patch("gal_friday.data_ingestor.ccxt") as mock_ccxt:
         with patch("gal_friday.data_ingestor.create_engine") as mock_create_engine:
             mock_ccxt.kraken = mock_ccxt_kraken
             mock_create_engine.return_value = mock_db
-            
+
             data_ingestor = DataIngestor(config, event_bus)
             data_ingestor.db_engine = mock_db
-            
+
             # Store data
             data_ingestor.store_data(sample_df)
-    
+
     # Verify data was stored
     assert mock_db.execute.call_count >= 1 or mock_db.connect.call_count >= 1
 
 
 @patch("ccxt.kraken")
-def test_data_ingestor_publish_market_data(mock_ccxt_kraken, data_config, event_bus):
+def test_data_ingestor_publish_market_data(
+        mock_ccxt_kraken, data_config, event_bus):
     """Test publishing market data events."""
     # Set up mock exchange
     mock_exchange = MagicMock()
     mock_ccxt_kraken.return_value = mock_exchange
-    
+
     # Set up mock event bus
     mock_event_bus = MagicMock()
-    
+
     # Initialize ingestor
     config = ConfigManager(config_dict=data_config)
     with patch("gal_friday.data_ingestor.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
-        
+
         data_ingestor = DataIngestor(config, mock_event_bus)
-        
+
         # Create sample latest data
         latest_data = {
             "BTC/USD": {
@@ -187,16 +196,16 @@ def test_data_ingestor_publish_market_data(mock_ccxt_kraken, data_config, event_
                 "timestamp": datetime.now()
             }
         }
-        
+
         # Store sample data
         data_ingestor.latest_market_data = latest_data
-        
+
         # Publish market data
         data_ingestor.publish_market_data()
-    
+
     # Verify events were published
     assert mock_event_bus.publish.call_count == 2
-    
+
     # Check event types
     for call in mock_event_bus.publish.call_args_list:
         event = call.args[0]
@@ -223,18 +232,18 @@ def test_data_ingestor_update_data(mock_ccxt_kraken, data_config, event_bus):
         }
     }[symbol]
     mock_ccxt_kraken.return_value = mock_exchange
-    
+
     # Initialize ingestor
     config = ConfigManager(config_dict=data_config)
     with patch("gal_friday.data_ingestor.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
-        
+
         data_ingestor = DataIngestor(config, event_bus)
         data_ingestor.exchange = mock_exchange
-        
+
         # Update data
         data_ingestor.update_market_data()
-    
+
     # Verify data was updated
     assert len(data_ingestor.latest_market_data) == 2
     assert "BTC/USD" in data_ingestor.latest_market_data
@@ -244,32 +253,34 @@ def test_data_ingestor_update_data(mock_ccxt_kraken, data_config, event_bus):
 
 
 @patch("ccxt.kraken")
-def test_data_ingestor_error_handling(mock_ccxt_kraken, data_config, event_bus):
+def test_data_ingestor_error_handling(
+        mock_ccxt_kraken, data_config, event_bus):
     """Test error handling in data fetching."""
     # Set up mock exchange with error
     mock_exchange = MagicMock()
-    mock_exchange.fetch_ohlcv.side_effect = Exception("API rate limit exceeded")
+    mock_exchange.fetch_ohlcv.side_effect = Exception(
+        "API rate limit exceeded")
     mock_ccxt_kraken.return_value = mock_exchange
-    
+
     # Set up mock logger
     mock_logger = MagicMock()
-    
+
     # Initialize ingestor
     config = ConfigManager(config_dict=data_config)
     with patch("gal_friday.data_ingestor.ccxt") as mock_ccxt:
         with patch("gal_friday.data_ingestor.logger", mock_logger):
             mock_ccxt.kraken = mock_ccxt_kraken
-            
+
             data_ingestor = DataIngestor(config, event_bus)
             data_ingestor.exchange = mock_exchange
-            
+
             # Attempt to fetch data (should handle the error)
             result = data_ingestor.fetch_historical_data(
                 symbol="BTC/USD",
                 timeframe="1h",
                 start_date=datetime.now() - timedelta(days=1)
             )
-    
+
     # Verify error was logged
     assert mock_logger.error.call_count >= 1
     assert result is None or isinstance(result, pd.DataFrame)

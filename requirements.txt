@@ -7,6 +7,7 @@ aiosignal>=1.2.0
 yarl>=1.7.0
 multidict>=6.0.0
 
+
 # Database and Storage
 asyncpg>=0.27.0
 influxdb-client>=1.30.0
@@ -37,6 +38,10 @@ mypy>=1.0.0  # Added for type checking
 python-dateutil>=2.8.2
 python-json-logger>=2.0.4
 typing-extensions>=4.0.0
+
+# System Monitoring
+psutil>=5.9.0
+types-psutil>=5.9.0 # Added for mypy type checking
 
 # HTTP-related dependencies 
 certifi>=2021.10.8

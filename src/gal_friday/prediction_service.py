@@ -2,20 +2,18 @@
 
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass, field
 import logging
 import numpy as np
 import xgboost as xgb
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Set, Union, Coroutine, TypeVar, cast, Callable
+from typing import Dict, List, Optional, Any, Set, Coroutine, TypeVar, Callable
 
 # Import necessary components
 from .core.events import (
-    Event, 
-    EventType, 
-    FeatureEvent, 
-    PredictionEvent  # Import PredictionEvent from core.events
+    EventType,
+    FeatureEvent,
+    PredictionEvent,  # Import PredictionEvent from core.events
 )
 from .logger_service import LoggerService
 from .core.pubsub import PubSubManager
@@ -24,7 +22,7 @@ from .core.pubsub import PubSubManager
 log = logging.getLogger(__name__)
 
 # Define a type for futures to track
-T = TypeVar('T')
+T = TypeVar("T")
 InferenceTaskType = asyncio.Future[Dict[str, Any]]
 
 
@@ -50,10 +48,7 @@ def _run_inference_task(
         model.load_model(model_path)
 
         # --- Prepare data and predict ---
-        dmatrix = xgb.DMatrix(
-            feature_vector.reshape(1, -1),
-            feature_names=model_feature_names
-        )
+        dmatrix = xgb.DMatrix(feature_vector.reshape(1, -1), feature_names=model_feature_names)
         prediction = model.predict(dmatrix)
 
         # Prediction is usually a numpy array, get the single value
@@ -63,7 +58,8 @@ def _run_inference_task(
             # Handle unexpected prediction format
             return {
                 "error": (
-                    f"Unexpected prediction output format: {type(prediction)}, "
+                    f"Unexpected prediction output format: {
+                        type(prediction)}, "
                     f"value: {prediction}"
                 )
             }
@@ -114,9 +110,11 @@ class PredictionService:
         self._is_running = False
         self._main_task: Optional[asyncio.Task[Any]] = None
         self._source_module = self.__class__.__name__
-        
+
         # Store handler for unsubscribing
-        self._feature_event_handler: Callable[[FeatureEvent], Coroutine[Any, Any, None]] = self._handle_feature_event
+        self._feature_event_handler: Callable[[FeatureEvent], Coroutine[Any, Any, None]] = (
+            self._handle_feature_event
+        )
 
         # Model configuration
         self._model_path = self._config.get("model_path")
@@ -136,16 +134,16 @@ class PredictionService:
         """Loads model info and starts listening for feature events."""
         if self._is_running:
             self.logger.warning(
-                "PredictionService already running.",
-                source_module=self.__class__.__name__
+                "PredictionService already running.", source_module=self.__class__.__name__
             )
             return
         self._is_running = True
-        
+
         # Subscribe to FeatureEvent
         self.pubsub.subscribe(EventType.FEATURES_CALCULATED, self._feature_event_handler)
 
-        # self._main_task = asyncio.create_task(self._run_event_loop()) # Remove loop
+        # self._main_task = asyncio.create_task(self._run_event_loop()) #
+        # Remove loop
         self.logger.info(
             f"PredictionService started. Using model: {self._model_id} "
             f"from {self._model_path}",
@@ -169,20 +167,28 @@ class PredictionService:
         # Unsubscribe
         try:
             self.pubsub.unsubscribe(EventType.FEATURES_CALCULATED, self._feature_event_handler)
-            self.logger.info("Unsubscribed from FEATURES_CALCULATED.", source_module=self._source_module)
+            self.logger.info(
+                "Unsubscribed from FEATURES_CALCULATED.", source_module=self._source_module
+            )
         except Exception as e:
-            self.logger.error(f"Error unsubscribing PredictionService: {e}", exc_info=True, source_module=self._source_module)
-            
+            self.logger.error(
+                f"Error unsubscribing PredictionService: {e}",
+                exc_info=True,
+                source_module=self._source_module,
+            )
+
         # Cancel running inference tasks
         if self._active_inference_tasks:
-            self.logger.info(f"Cancelling {len(self._active_inference_tasks)} pending inference tasks...")
+            self.logger.info(
+                f"Cancelling {len(self._active_inference_tasks)} pending inference tasks..."
+            )
             for task in self._active_inference_tasks:
                 task.cancel()
             # Wait for cancellation to complete
             await asyncio.gather(*self._active_inference_tasks, return_exceptions=True)
             self._active_inference_tasks.clear()
             self.logger.info("Pending inference tasks cancelled.")
-            
+
         # Cancel main task if it existed
         # if self._main_task:
         #    ...
@@ -193,7 +199,9 @@ class PredictionService:
         """Handles incoming FeatureEvent directly."""
         # Check type
         if not isinstance(event, FeatureEvent):
-            self.logger.warning(f"Received non-FeatureEvent: {type(event)}", source_module=self._source_module)
+            self.logger.warning(
+                f"Received non-FeatureEvent: {type(event)}", source_module=self._source_module
+            )
             return
 
         # Check if executor is available
@@ -203,7 +211,7 @@ class PredictionService:
                 source_module=self.__class__.__name__,
             )
             return
-            
+
         # Schedule the prediction pipeline
         asyncio.create_task(self._run_prediction_pipeline(event))
 
@@ -221,60 +229,75 @@ class PredictionService:
             loop = asyncio.get_running_loop()
             inference_future: InferenceTaskType = loop.run_in_executor(
                 self._process_pool_executor,
-                _run_inference_task, # The function to run
-                self._model_path,     # Args for the function
+                _run_inference_task,  # The function to run
+                self._model_path,  # Args for the function
                 feature_vector,
-                self._model_feature_names
+                self._model_feature_names,
             )
             # Track the future
             self._active_inference_tasks.add(inference_future)
-            inference_future.add_done_callback(lambda _: self._active_inference_tasks.discard(inference_future))
+            inference_future.add_done_callback(
+                lambda _: self._active_inference_tasks.discard(inference_future)
+            )
 
             # 3. Await result
-            self.logger.debug(f"Waiting for inference result for event {event.event_id}")
+            self.logger.debug(
+                f"Waiting for inference result for event {
+                    event.event_id}"
+            )
             result = await inference_future
-            self.logger.debug(f"Received inference result for event {event.event_id}")
+            self.logger.debug(
+                f"Received inference result for event {
+                    event.event_id}"
+            )
 
             # 4. Process result and publish
             if "error" in result:
                 self.logger.error(
-                    f"Inference failed for event {event.event_id}: {result['error']}",
-                    source_module=self.__class__.__name__
+                    f"Inference failed for event {
+                        event.event_id}: {
+                        result['error']}",
+                    source_module=self.__class__.__name__,
                 )
             elif "prediction" in result:
-                 # Create PredictionEvent using the one from core.events
-                 event_id = uuid.uuid4()
-                 timestamp = datetime.utcnow()
-                 
-                 # Create the event directly without using a factory method
-                 prediction_event = PredictionEvent(
-                     source_module=self._source_module,
-                     event_id=event_id,
-                     timestamp=timestamp,
-                     trading_pair=event.trading_pair,
-                     exchange=event.exchange,
-                     timestamp_prediction_for=event.timestamp_features_for,
-                     model_id=self._model_id,
-                     prediction_target=self._prediction_target,
-                     prediction_value=result["prediction"],
-                     confidence=None,  # Add confidence if model provides it
-                     associated_features=event.features  # Pass original features
-                 )
-                 await self._publish_prediction(prediction_event)
+                # Create PredictionEvent using the one from core.events
+                event_id = uuid.uuid4()
+                timestamp = datetime.utcnow()
+
+                # Create the event directly without using a factory method
+                prediction_event = PredictionEvent(
+                    source_module=self._source_module,
+                    event_id=event_id,
+                    timestamp=timestamp,
+                    trading_pair=event.trading_pair,
+                    exchange=event.exchange,
+                    timestamp_prediction_for=event.timestamp_features_for,
+                    model_id=self._model_id,
+                    prediction_target=self._prediction_target,
+                    prediction_value=result["prediction"],
+                    confidence=None,  # Add confidence if model provides it
+                    associated_features=event.features,  # Pass original features
+                )
+                await self._publish_prediction(prediction_event)
             else:
                 self.logger.error(
-                    f"Invalid inference result format for event {event.event_id}: {result}",
-                    source_module=self.__class__.__name__
+                    f"Invalid inference result format for event {
+                        event.event_id}: {result}",
+                    source_module=self.__class__.__name__,
                 )
 
         except asyncio.CancelledError:
-             self.logger.info(f"Prediction pipeline cancelled for event {event.event_id}")
-             # No need to reraise typically, task was cancelled externally
+            self.logger.info(
+                f"Prediction pipeline cancelled for event {
+                    event.event_id}"
+            )
+            # No need to reraise typically, task was cancelled externally
         except Exception as e:
             self.logger.error(
-                f"Error in prediction pipeline for event {event.event_id}: {e}",
+                f"Error in prediction pipeline for event {
+                    event.event_id}: {e}",
                 source_module=self.__class__.__name__,
-                exc_info=True
+                exc_info=True,
             )
             # Optionally publish an error event or take other action
 
@@ -312,22 +335,17 @@ class PredictionService:
             self.logger.warning(msg, source_module=self.__class__.__name__)
 
         if type_errors:
-            msg = (
-                f"Type conversion error for features: {type_errors}. "
-                "Filling with NaN."
-            )
+            msg = f"Type conversion error for features: {type_errors}. " "Filling with NaN."
             self.logger.error(msg, source_module=self.__class__.__name__)
 
-        # Check if all values ended up being NaN (e.g., all features missing/invalid)
+        # Check if all values ended up being NaN (e.g., all features
+        # missing/invalid)
         if all(np.isnan(v) for v in ordered_feature_values):
             msg = (
                 f"All features resulted in NaN for model {self._model_id}. "
                 "Cannot make prediction."
             )
-            self.logger.error(
-                msg,
-                source_module=self.__class__.__name__
-            )
+            self.logger.error(msg, source_module=self.__class__.__name__)
             return None
 
         return np.array(ordered_feature_values, dtype=np.float32)
@@ -337,14 +355,16 @@ class PredictionService:
         try:
             await self.pubsub.publish(event)
             self.logger.debug(
-                f"Published PredictionEvent for {event.trading_pair} at {event.timestamp_prediction_for}",
-                source_module=self.__class__.__name__
+                f"Published PredictionEvent for {
+                    event.trading_pair} at {
+                    event.timestamp_prediction_for}",
+                source_module=self.__class__.__name__,
             )
         except Exception as e:
             self.logger.error(
                 f"Failed to publish PredictionEvent: {e}",
                 source_module=self.__class__.__name__,
-                exc_info=True
+                exc_info=True,
             )
 
 

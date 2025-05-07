@@ -2,17 +2,30 @@
 
 import asyncio
 import sys
+import threading
 import logging  # For example_main logging configuration
-from typing import TYPE_CHECKING, Any, Optional, Dict
+import time
+from typing import TYPE_CHECKING, Optional, Dict, Any, Union, List
+import typer
+from rich.console import Console
+from rich.table import Table
 
 if TYPE_CHECKING:
     from .monitoring_service import MonitoringService
-    from .logger_service import LoggerService  # Added import
+    from .logger_service import LoggerService
+    from .main import GalFridayApp
+    from .portfolio_manager import PortfolioManager
 
     # Define MainAppController interface for type hinting
     class MainAppController:
-        async def shutdown(self) -> None:
+        """Interface for the main application controller."""
+
+        async def stop(self) -> None:
+            """Stop the application."""
             raise NotImplementedError
+
+    # Allow GalFridayApp to be used where MainAppController is expected
+    MainAppControllerType = Union[MainAppController, "GalFridayApp"]
 
 else:
     # Placeholders if not type checking
@@ -27,250 +40,438 @@ else:
             print(f"RESUME triggered by {source}")
 
     class MainAppController:  # Placeholder
-        async def shutdown(self) -> None:
+        async def stop(self) -> None:
             print("Shutdown requested by CLI.")
 
+    class PortfolioManager:  # Placeholder
+        def get_current_state(self) -> Dict[str, Any]:
+            return {"total_drawdown_pct": 1.5}
 
-# log = logging.getLogger(__name__) # Removed module-level logger
+    # Allow GalFridayApp to be used where MainAppController is expected
+    MainAppControllerType = Union[MainAppController, "GalFridayApp"]
+
+# Create Typer application instance
+app = typer.Typer(help="Gal-Friday Trading System Control CLI")
+console = Console()
 
 
 class CLIService:
-    """Handles Command-Line Interface interactions for runtime control."""
+    """Handles Command-Line Interface interactions for runtime control through Typer."""
 
     def __init__(
         self,
         monitoring_service: "MonitoringService",
-        main_app_controller: "MainAppController",
+        main_app_controller: "MainAppControllerType",
         logger_service: "LoggerService",
-    ):  # Added logger_service
+        portfolio_manager: Optional["PortfolioManager"] = None,
+    ):
         """
         Initializes the CLIService.
 
         Args:
             monitoring_service: Instance of the MonitoringService.
             main_app_controller: Instance of the main application controller/orchestrator
-                                  which must have an async shutdown() method.
+                                 which must have an async shutdown() method.
             logger_service: The shared logger instance.
+            portfolio_manager: Optional portfolio manager for detailed status information.
         """
         self.monitoring_service = monitoring_service
         self.main_app_controller = main_app_controller
-        self.logger = logger_service  # Assigned injected logger
+        self.logger = logger_service
+        self.portfolio_manager = portfolio_manager
         self._running = False
-        # log.info("CLIService initialized.") # Replaced
+        self._stop_event = asyncio.Event()
+        self._input_thread: Optional[threading.Thread] = None
         self.logger.info("CLIService initialized.", source_module=self.__class__.__name__)
 
     async def start(self) -> None:
         """Starts listening for commands on stdin."""
         if self._running:
-            # log.warning("CLIService already running.") # Replaced
             self.logger.warning(
                 "CLIService already running.", source_module=self.__class__.__name__
             )
             return
 
-        # log.info("Starting CLIService input listener...") # Replaced
         self.logger.info(
             "Starting CLIService input listener...", source_module=self.__class__.__name__
         )
+        self._running = True
+        self._stop_event.clear()
+
         try:
             loop = asyncio.get_running_loop()
-            # Attempt to add reader. Note: May have limitations on Windows.
-            loop.add_reader(sys.stdin.fileno(), self._handle_stdin_input)
-            self._running = True
-            # Give user initial prompt only once
-            print("\n---")
-            print("Gal-Friday CLI Ready. Type command and press Enter.")
-            print("Available commands: halt, resume, status, stop")
+            # Try using add_reader for POSIX systems
+            loop.add_reader(sys.stdin.fileno(), self._handle_input_posix)
+            self.logger.info(
+                "Using asyncio.add_reader for CLI input.", source_module=self.__class__.__name__
+            )
+            print("\n--- Gal-Friday CLI Ready (POSIX Mode) ---")
+            print("Type a command (e.g., 'status', 'halt', 'stop') or '--help' and press Enter.")
             print("---")
-        except NotImplementedError:
-            self.logger.error(
-                "Failed to start CLI listener: loop.add_reader not supported on this "
-                "platform/loop implementation (e.g., standard Windows asyncio). "
-                "CLI commands unavailable.",
+        except (NotImplementedError, AttributeError):
+            # Fallback for Windows or other environments where add_reader isn't suitable for stdin
+            self.logger.warning(
+                "asyncio.add_reader not supported for stdin, falling back to threaded input.",
                 source_module=self.__class__.__name__,
             )
+            print("\n--- Gal-Friday CLI Ready (Fallback Mode) ---")
+            print("Type a command (e.g., 'status', 'halt', 'stop') or '--help' and press Enter.")
+            print("(Note: CLI runs in a separate thread)")
+            print("---")
+            self._input_thread = threading.Thread(target=self._threaded_input_loop, daemon=True)
+            self._input_thread.start()
+
+    def _handle_input_posix(self) -> None:
+        """Callback for add_reader (POSIX)."""
+        try:
+            line = sys.stdin.readline()
+            if not line:  # Handle EOF or empty line gracefully
+                self.logger.info(
+                    "EOF received on stdin, stopping CLI listener.",
+                    source_module=self.__class__.__name__,
+                )
+                asyncio.create_task(self.stop())  # Trigger graceful stop
+                return
+            command_args = line.strip().split()
+            if command_args:
+                # Schedule Typer app execution in the event loop
+                asyncio.create_task(self._run_typer_command(command_args))
         except Exception as e:
             self.logger.error(
-                f"Error starting CLIService listener: {str(e)}",
+                f"Error reading/parsing CLI input (POSIX): {e}",
                 source_module=self.__class__.__name__,
                 exc_info=True,
             )
+
+    def _threaded_input_loop(self) -> None:
+        """Input loop running in a separate thread for Windows compatibility."""
+        loop = asyncio.get_running_loop()
+        while not self._stop_event.is_set():
+            try:
+                # Blocking input call in the thread
+                line = input("gal-friday> ")  # Basic prompt
+                if line:
+                    command_args = line.strip().split()
+                    if command_args:
+                        # Schedule the async command execution from the thread
+                        asyncio.run_coroutine_threadsafe(
+                            self._run_typer_command(command_args), loop
+                        )
+            except EOFError:
+                self.logger.info(
+                    "EOF received on stdin (threaded), stopping CLI.",
+                    source_module=self.__class__.__name__,
+                )
+                asyncio.run_coroutine_threadsafe(
+                    self.main_app_controller.stop(), loop
+                )  # Trigger stop
+                break  # Exit thread loop
+            except Exception as e:
+                self.logger.error(
+                    f"Error in threaded CLI input loop: {e}",
+                    source_module=self.__class__.__name__,
+                    exc_info=True,
+                )
+                # Avoid busy-looping on persistent errors
+                time.sleep(0.5)
+
+    async def _run_typer_command(self, args: List[str]) -> None:
+        """Runs the Typer app with the given arguments."""
+        try:
+            # Register instance with global state for command access
+            global_cli_instance.set_instance(self)
+
+            # Run the Typer command
+            app(args=args, prog_name="gal-friday")
+        except SystemExit as e:
+            # Typer uses SystemExit for --help, completion, etc. This is normal.
+            if e.code != 0:
+                self.logger.warning(
+                    f"Typer exited with code {e.code}", source_module=self.__class__.__name__
+                )
+        except Exception as e:
+            self.logger.error(
+                f"Error executing Typer command '{' '.join(args)}': {e}",
+                source_module=self.__class__.__name__,
+                exc_info=True,
+            )
+            print("Error executing command. Check logs for details.")
 
     async def stop(self) -> None:
         """Stops listening for commands on stdin."""
         if not self._running:
-            # log.info("CLIService was not running.") # Replaced
-            self.logger.info("CLIService was not running.", source_module=self.__class__.__name__)
             return
 
-        # log.info("Stopping CLIService input listener...") # Replaced
         self.logger.info(
             "Stopping CLIService input listener...", source_module=self.__class__.__name__
         )
+        self._running = False
+        self._stop_event.set()  # Signal thread loop to stop
+
+        # Clean up add_reader if it was used
         try:
             loop = asyncio.get_running_loop()
-            # Check if remove_reader exists and is callable, handle potential NotImplementedError
-            if hasattr(loop, "remove_reader") and callable(loop.remove_reader):
-                loop.remove_reader(sys.stdin.fileno())
-            else:
-                self.logger.warning(
-                    "loop.remove_reader not available or not callable. "
-                    "Cannot remove stdin listener cleanly.",
-                    source_module=self.__class__.__name__,
-                )
-            self._running = False
-            print("CLIService stopped listening for commands.")
-        except NotImplementedError:
-            self.logger.error(
-                "Failed to stop CLI listener: loop.remove_reader not supported on this "
-                "platform/loop implementation.",
-                source_module=self.__class__.__name__,
-            )
-        except Exception as e:
-            self.logger.error(
-                f"Error stopping CLIService listener: {str(e)}",
-                source_module=self.__class__.__name__,
-                exc_info=True,
-            )
-
-    def _handle_stdin_input(self) -> None:
-        """Synchronous callback triggered when stdin is readable.
-        Reads a command and schedules its processing asynchronously.
-        """
-        try:
-            command = sys.stdin.readline().strip().lower()
-            if not command:  # Ignore empty input
-                return
-
-            self.logger.info(
-                f"CLI command received: '{command}'"
-            )  # Simplified - context implies source is CLI
-
-            if command == "halt":
-                print(">>> Issuing HALT command...")
-                # Schedule the async task without awaiting it here
-                asyncio.create_task(
-                    self.monitoring_service.trigger_halt(
-                        reason="Manual user command via CLI", source=self.__class__.__name__
+            if hasattr(loop, "remove_reader"):
+                try:
+                    loop.remove_reader(sys.stdin.fileno())
+                    self.logger.info(
+                        "Removed stdin reader.", source_module=self.__class__.__name__
                     )
-                )
-            elif command == "resume":
-                print(">>> Issuing RESUME command...")
-                asyncio.create_task(
-                    self.monitoring_service.trigger_resume(source=self.__class__.__name__)
-                )
-            elif command == "status":
-                # This part is synchronous as is_halted() is synchronous
-                halted_status = self.monitoring_service.is_halted()
-                print(f">>> System Status: {'HALTED' if halted_status else 'RUNNING'}")
-                # TODO: Future - Add call to an async method to get more detailed status
-            elif command == "stop" or command == "exit":
-                print(">>> Issuing STOP command... Initiating graceful shutdown.")
-                # Schedule the main application shutdown
-                asyncio.create_task(self.main_app_controller.shutdown())
-            else:
-                print(f">>> Unknown command: '{command}'. Available: halt, resume, status, stop")
-
+                except ValueError:  # Handle case where fd was not registered
+                    pass
         except Exception as e:
-            # Catch errors within the callback itself (e.g., issues reading stdin)
             self.logger.error(
-                f"Error processing CLI input: {str(e)}",
+                f"Error removing stdin reader: {e}",
                 source_module=self.__class__.__name__,
                 exc_info=True,
             )
+
+        # Join the input thread if it exists
+        if self._input_thread and self._input_thread.is_alive():
+            self.logger.info(
+                "Waiting for input thread to finish...", source_module=self.__class__.__name__
+            )
+            # Since it's a daemon thread, it might just exit when the main app exits
+            self._input_thread.join(timeout=1.0)  # Wait briefly
+            if self._input_thread.is_alive():
+                self.logger.warning(
+                    "Input thread did not exit cleanly.", source_module=self.__class__.__name__
+                )
+
+        print("CLIService stopped.")
+
+
+# Global state to allow Typer commands to access the CLIService instance
+class GlobalCLIInstance:
+    def __init__(self) -> None:
+        self._instance: Optional[CLIService] = None
+
+    def set_instance(self, instance: CLIService) -> None:
+        self._instance = instance
+
+    def get_instance(self) -> Optional[CLIService]:
+        return self._instance
+
+
+global_cli_instance = GlobalCLIInstance()
+
+
+# Define Typer commands
+@app.command()
+def status() -> None:
+    """Displays the current operational status of the system."""
+    cli = global_cli_instance.get_instance()
+    if not cli:
+        print("Error: CLI service not initialized")
+        return
+
+    halted = cli.monitoring_service.is_halted()
+
+    # Create a rich table for better formatting
+    table = Table(title="Gal-Friday System Status")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="magenta")
+
+    table.add_row("System State", "[bold red]HALTED[/]" if halted else "[bold green]RUNNING[/]")
+
+    # Add portfolio info if available
+    if cli.portfolio_manager:
+        try:
+            portfolio_state = cli.portfolio_manager.get_current_state()
+            if portfolio_state:
+                # Add portfolio metrics to the table
+                if "total_drawdown_pct" in portfolio_state:
+                    table.add_row(
+                        "Portfolio Drawdown",
+                        f"{portfolio_state.get('total_drawdown_pct', 'N/A')}%",
+                    )
+                # Add more portfolio metrics as needed
+        except Exception as e:
+            cli.logger.error(
+                f"Error fetching portfolio state: {e}", source_module=cli.__class__.__name__
+            )
+
+    console.print(table)
+
+
+@app.command()
+def halt(
+    reason: str = typer.Option("Manual user command via CLI", help="Reason for halting trading.")
+) -> None:
+    """Temporarily halts trading activity."""
+    cli = global_cli_instance.get_instance()
+    if not cli:
+        print("Error: CLI service not initialized")
+        return
+
+    if cli.monitoring_service.is_halted():
+        print("System is already halted.")
+        return
+
+    if typer.confirm("Are you sure you want to HALT trading?"):
+        print(">>> Issuing HALT command...")
+        asyncio.create_task(
+            cli.monitoring_service.trigger_halt(reason=reason, source=cli.__class__.__name__)
+        )
+    else:
+        print("Halt command cancelled.")
+
+
+@app.command()
+def resume() -> None:
+    """Resumes trading activity if halted."""
+    cli = global_cli_instance.get_instance()
+    if not cli:
+        print("Error: CLI service not initialized")
+        return
+
+    if not cli.monitoring_service.is_halted():
+        print("System is already running.")
+        return
+
+    print(">>> Issuing RESUME command...")
+    asyncio.create_task(cli.monitoring_service.trigger_resume(source=cli.__class__.__name__))
+
+
+@app.command(name="stop")
+def stop_command() -> None:
+    """Initiates a graceful shutdown of the application."""
+    cli = global_cli_instance.get_instance()
+    if not cli:
+        print("Error: CLI service not initialized")
+        return
+
+    if typer.confirm("Are you sure you want to STOP the application?"):
+        print(">>> Issuing STOP command... Initiating graceful shutdown.")
+        asyncio.create_task(cli.main_app_controller.stop())
+        cli._stop_event.set()  # Signal input loop to stop
+    else:
+        print("Stop command cancelled.")
 
 
 # Example Usage (requires running in a context where stdin is available)
-async def example_main() -> None:
+async def example_main() -> None:  # noqa: C901
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
     # Create a mock logger service
-    from typing import TypeVar, Generic, Any
+    from typing import TypeVar
     from .logger_service import LoggerService, PoolProtocol
-    
-    T = TypeVar('T', bound=PoolProtocol)
-    
+    from .core.pubsub import PubSubManager  # Import moved here to fix undefined name error
+
+    T = TypeVar("T", bound=PoolProtocol)
+
     class MockLoggerService(LoggerService[T]):
-        def info(self, message: str, source_module: Optional[str] = None, context: Optional[Dict[Any, Any]] = None) -> None:
+        def __init__(self, config_manager: "ConfigManager", pubsub_manager: PubSubManager) -> None:
+            # We don't need to do anything with these parameters in this mock class
+            # They're just required by the interface
+            pass
+
+        def info(
+            self,
+            message: str,
+            source_module: Optional[str] = None,
+            context: Optional[Dict[Any, Any]] = None,
+        ) -> None:
             print(f"INFO [{source_module}]: {message}")
-        def debug(self, message: str, source_module: Optional[str] = None, context: Optional[Dict[Any, Any]] = None) -> None:
+
+        def debug(
+            self,
+            message: str,
+            source_module: Optional[str] = None,
+            context: Optional[Dict[Any, Any]] = None,
+        ) -> None:
             print(f"DEBUG [{source_module}]: {message}")
-        def warning(self, message: str, source_module: Optional[str] = None, context: Optional[Dict[Any, Any]] = None) -> None:
+
+        def warning(
+            self,
+            message: str,
+            source_module: Optional[str] = None,
+            context: Optional[Dict[Any, Any]] = None,
+        ) -> None:
             print(f"WARN [{source_module}]: {message}")
-        def error(self, message: str, source_module: Optional[str] = None, context: Optional[Dict[Any, Any]] = None, exc_info: Optional[Any] = None) -> None:
+
+        def error(
+            self,
+            message: str,
+            source_module: Optional[str] = None,
+            context: Optional[Dict[Any, Any]] = None,
+            exc_info: Optional[Any] = None,
+        ) -> None:
             print(f"ERROR [{source_module}]: {message}")
-        def critical(self, message: str, source_module: Optional[str] = None, context: Optional[Dict[Any, Any]] = None, exc_info: Optional[Any] = None) -> None:
+
+        def critical(
+            self,
+            message: str,
+            source_module: Optional[str] = None,
+            context: Optional[Dict[Any, Any]] = None,
+            exc_info: Optional[Any] = None,
+        ) -> None:
             print(f"CRITICAL [{source_module}]: {message}")
 
     # Create a mock PubSubManager
-    from .event_bus import PubSubManager  # Import the correct PubSubManager
-    from asyncio import Queue
-    from typing import Callable, Awaitable, Any, Coroutine
-    
+    # Import PubSubManager from core.pubsub instead of event_bus for type consistency
     class MockPubSubManager(PubSubManager):  # Inherit from the correct PubSubManager
-        def __init__(self) -> None:
-            # PubSubManager doesn't accept logger parameter
-            super().__init__()
-            
-            # If we need custom logging, we can set up a module-level logger
-            self._mock_logger = logging.getLogger("mock_pubsub")
-            self._mock_logger.addHandler(logging.NullHandler())
+        def __init__(self, logger: logging.Logger, config_manager: "ConfigManager") -> None:
+            super().__init__(logger=logger, config_manager=config_manager)
 
-        async def publish(self, event: Any) -> None:
-            # Simple implementation that just logs the event
-            if hasattr(event, 'event_id'):
-                print(f"MockPubSubManager: Would publish event {event.event_id}")
-            else:
-                print(f"MockPubSubManager: Would publish event {event}")
+            # We can still use our custom logger for additional logging
+            # self._mock_logger = logger
+            # # This might be redundant if super init already stores logger
 
     # Create mock config manager
     from .config_manager import ConfigManager
-    
+
     class MockConfigManager(ConfigManager):
         def __init__(self) -> None:
             pass
+
         def get(self, key: str, default: Any = None) -> Any:
             return default
 
     # Create a mock portfolio manager
     from .portfolio_manager import PortfolioManager
-    
+
     class MockPortfolioManager(PortfolioManager):
         def __init__(self) -> None:
             pass
+
         def get_current_state(self) -> Dict[str, Any]:
             return {"total_drawdown_pct": 1.5}
 
     # Use placeholders
-    config_manager = MockConfigManager()
-    pubsub_manager = MockPubSubManager()
-    
+    config_manager_instance = MockConfigManager()
+    # MockPubSubManager needs logger and config_manager
+    mock_pubsub_logger = logging.getLogger("mock_pubsub_cli")
+    pubsub_manager = MockPubSubManager(
+        logger=mock_pubsub_logger, config_manager=config_manager_instance
+    )
+
     # Create logger service with required parameters and type annotation
     logger_service: LoggerService[Any] = MockLoggerService(
-        config_manager=config_manager,
-        pubsub_manager=pubsub_manager
+        config_manager=config_manager_instance, pubsub_manager=pubsub_manager
     )
-    
+
     # Create a mock portfolio manager for MonitoringService
     portfolio_manager = MockPortfolioManager()
-    
+
     # Create the monitoring service with all required arguments
     monitor = MonitoringService(
-        config_manager=config_manager,
-        pubsub_manager=pubsub_manager,  # type: ignore # MockPubSubManager inherits from PubSubManager and is compatible
+        config_manager=config_manager_instance,
+        pubsub_manager=pubsub_manager,
         portfolio_manager=portfolio_manager,
-        logger_service=logger_service
+        logger_service=logger_service,
     )
-    
+
     app_controller = MainAppController()
-    
+
     # Create CLIService with required logger_service parameter
     cli = CLIService(
         monitoring_service=monitor,
         main_app_controller=app_controller,
-        logger_service=logger_service
+        logger_service=logger_service,
+        portfolio_manager=portfolio_manager,
     )
 
     await cli.start()
@@ -282,19 +483,21 @@ async def example_main() -> None:
 
     # Example of how shutdown might be triggered elsewhere
     async def trigger_example_shutdown() -> None:
-        await asyncio.sleep(60)  # Shutdown after 60 seconds unless stopped by CLI
+        # Shutdown after 60 seconds unless stopped by CLI
+        await asyncio.sleep(60)
         if not shutdown_event.is_set():
             print("\nExample shutdown trigger fired.")
             shutdown_event.set()
 
-    # We need a way to replace the app_controller's shutdown to signal our local event
+    # We need a way to replace the app_controller's shutdown to signal our
+    # local event
     async def mock_shutdown() -> None:
         print("Mock shutdown called by CLI!")
         shutdown_event.set()
 
     # Fix method assignment by defining a new method on the class instead of replacing it
     # This addresses the "Cannot assign to a method" error
-    setattr(app_controller.__class__, 'shutdown', mock_shutdown)
+    setattr(app_controller.__class__, "stop", mock_shutdown)
 
     # Run example shutdown trigger concurrently
     shutdown_task = asyncio.create_task(trigger_example_shutdown())

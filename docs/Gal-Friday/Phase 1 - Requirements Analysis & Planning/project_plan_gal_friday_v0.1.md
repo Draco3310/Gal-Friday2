@@ -84,7 +84,7 @@ This project plan follows a Waterfall methodology, proceeding sequentially throu
 | 3 | 3.15 | Implement Model Training/Loading Script | Script to train initial MVP model and load it (FR-3xx MVP). | 2 days | AI | Training/Loading Script | Initial Version completed... Pending review | 3.5 |
 | 3 | 3.16 | Create Main Application Entry Point | Code main script (`main.py`) to initialize modules, executor, event buses, and manage lifecycle. | 1 day | AI | Main App Entry | Initial Version completed... Pending review | 3.3 - 3.15 |
 | 3 | 3.17 | Integrate LoggerService | Pass LoggerService instance to other modules and replace print/basic logging calls. | 1 day | AI | Integrated Logging | Initial Version completed... Pending review | 3.10a, 3.3 - 3.9, 3.11-3.16 |
-| 3 | 3.18 | Code Review & Refinement | Internal review and cleanup of implemented code. | 3 days | AI | Internally Reviewed Codebase | Pending | 3.17 |
+| 3 | 3.18 | Code Review & Refinement | Internal review and cleanup of implemented code. | 3 days | AI | Internally Reviewed Codebase | In-progress | 3.17 |
 
 | **Phase 4: Testing (MVP Focus)** | | | | | | | | |
 | 4 | 4.1 | Develop Unit Tests | Create tests for individual functions/classes in each module. | 5 days | AI | Unit Test Suite | Pending | 3.18 |

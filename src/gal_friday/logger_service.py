@@ -3,9 +3,16 @@ import logging
 import logging.handlers
 import sys
 from typing import (
-    Optional, Dict, Any, Callable, Tuple, TypeVar, Union, 
-    TYPE_CHECKING, Protocol, Generic, AsyncContextManager,
-    cast
+    Optional,
+    Dict,
+    Any,
+    Callable,
+    Tuple,
+    TypeVar,
+    TYPE_CHECKING,
+    Protocol,
+    Generic,
+    AsyncContextManager,
 )
 from datetime import datetime
 import os
@@ -14,38 +21,49 @@ import asyncio
 import asyncpg  # type: ignore[import-untyped]
 import queue
 import threading
-import uuid
-from types import TracebackType
-from typing_extensions import Self
+import random
+import re
+from decimal import Decimal
 
-from .config_manager import ConfigManager
-from .event_bus import PubSubManager
+from .core.pubsub import PubSubManager
+from .core.events import EventType, LogEvent
 
 # Import JSON Formatter
 from pythonjsonlogger import jsonlogger
 
 # Define a Protocol for ConfigManager to properly type hint its interface
+
+
 class ConfigManagerProtocol(Protocol):
     def get(self, key: str, default: Optional[Any] = None) -> Any: ...
     def get_int(self, key: str, default: int = 0) -> int: ...
 
+
 # Define a Protocol for database connection
+
+
 class DBConnection(Protocol):
     async def execute(self, query: str, *args: Any) -> Any: ...
 
+
 # Define a Protocol for the Pool interface we need
+
+
 class PoolProtocol(Protocol):
     def acquire(self) -> AsyncContextManager[DBConnection]: ...
     async def release(self, conn: DBConnection) -> None: ...
     async def close(self) -> None: ...
 
+
 # Define a proper type alias for the Pool type
-PoolType = TypeVar('PoolType', bound=PoolProtocol)
+PoolType = TypeVar("PoolType", bound=PoolProtocol)
 
 # Placeholder Type Hints (Refine later if needed)
 if TYPE_CHECKING:
     # Use actual type if stubs were available
     AsyncPostgresHandlerType = logging.Handler  # Placeholder for typing
+    from influxdb_client import InfluxDBClient
+    from influxdb_client.client.write_api import WriteApi
 else:
     # Define placeholders if not type checking to avoid runtime errors
     AsyncPostgresHandlerType = logging.Handler
@@ -66,7 +84,8 @@ class ContextFormatter(logging.Formatter):
             else:
                 context_str = str(record.context)  # Fallback if not a dict
 
-        # Replace the placeholder [%(context)s] - handle case where it might be missing
+        # Replace the placeholder [%(context)s] - handle case where it might be
+        # missing
         if "[%(context)s]" in self._style._fmt:
             if context_str:
                 s = s.replace("[%(context)s]", f"[{context_str}]")
@@ -74,7 +93,8 @@ class ContextFormatter(logging.Formatter):
                 s = s.replace(
                     " - [%(context)s]", ""
                 )  # Remove placeholder and separator if no context
-                s = s.replace("[%(context)s]", "")  # Remove just placeholder if at start/end
+                # Remove just placeholder if at start/end
+                s = s.replace("[%(context)s]", "")
 
         return s
 
@@ -103,7 +123,7 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
             # Use call_soon_threadsafe for thread safety
             self._loop.call_soon_threadsafe(
                 (lambda d: self._queue.put_nowait(d)) if not self._closed else (lambda _: None),
-                data
+                data,
             )
         except Exception:
             self.handleError(record)
@@ -115,7 +135,8 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
             try:
                 context_json = json.dumps(record.context)
             except TypeError:
-                context_json = json.dumps(str(record.context))  # Fallback for non-serializable
+                # Fallback for non-serializable
+                context_json = json.dumps(str(record.context))
 
         exc_text = None
         if record.exc_info:
@@ -144,45 +165,113 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
             "exception_text": exc_text,
         }
 
+    async def _attempt_db_insert(self, record_data: Dict[str, Any]) -> bool:
+        """Attempts to insert a single log record into the database."""
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    f"""
+                    INSERT INTO {self._table_name} (
+                        timestamp, logger_name, level_name, level_no, message,
+                        pathname, filename, lineno, func_name, context_json,
+                        exception_text
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    """,
+                    record_data["timestamp"],
+                    record_data["logger_name"],
+                    record_data["level_name"],
+                    record_data["level_no"],
+                    record_data["message"],
+                    record_data["pathname"],
+                    record_data["filename"],
+                    record_data["lineno"],
+                    record_data["func_name"],
+                    record_data["context_json"],
+                    record_data["exception_text"],
+                )
+            return True
+        except (
+            asyncpg.exceptions.ConnectionDoesNotExistError,
+            asyncpg.exceptions.ConnectionIsClosedError,
+            asyncpg.exceptions.InterfaceError,  # Can indicate connection issues
+            OSError,  # Can occur on network issues
+        ) as conn_err:
+            # This will be handled by the retry logic in _process_queue_with_retry
+            raise conn_err  # Re-raise to be caught by the retry mechanism
+        except Exception as e:
+            # Non-retryable error during DB operation
+            print(
+                f"AsyncPostgresHandler: Non-retryable error inserting log record: {e}",
+                file=sys.stderr,
+            )
+            return False  # Indicate non-retryable failure for this record
+
+    async def _process_queue_with_retry(self, record_data: Dict[str, Any]) -> None:
+        """Processes a single record with retry logic."""
+        max_retries = 3
+        base_backoff = 1.0  # seconds
+        attempt = 0
+        while attempt < max_retries:
+            try:
+                if await self._attempt_db_insert(record_data):
+                    return  # Success
+            except (
+                asyncpg.exceptions.ConnectionDoesNotExistError,
+                asyncpg.exceptions.ConnectionIsClosedError,
+                asyncpg.exceptions.InterfaceError,
+                OSError,
+            ) as conn_err:
+                attempt += 1
+                if attempt >= max_retries:
+                    print(
+                        f"AsyncPostgresHandler: DB connection error failed after {max_retries} "
+                        f"attempts: {conn_err}",
+                        file=sys.stderr,
+                    )
+                else:
+                    # Exponential backoff with jitter
+                    wait_time = min(base_backoff * (2**attempt), 30.0)  # Cap at 30s
+                    wait_time += random.uniform(0, wait_time * 0.1)
+                    print(
+                        f"AsyncPostgresHandler: DB connection error (Attempt {attempt}/"
+                        f"{max_retries}). Retrying in {wait_time:.2f}s. Error: {conn_err}",
+                        file=sys.stderr,
+                    )
+                    await asyncio.sleep(wait_time)
+            except Exception:  # Catches non-retryable errors from _attempt_db_insert
+                return  # Stop processing this record
+
     async def _process_queue(self) -> None:
-        """Continuously processes log records from the queue and inserts them into the DB."""
+        """Continuously processes log records from the queue."""
         while True:
+            record_data = None
             try:
                 record_data = await self._queue.get()
                 if record_data is None:  # Sentinel value to stop
                     self._queue.task_done()
                     break
 
-                async with self._pool.acquire() as conn:
-                    await conn.execute(
-                        f"""
-                        INSERT INTO {self._table_name} (
-                            timestamp, logger_name, level_name, level_no, message,
-                            pathname, filename, lineno, func_name, context_json,
-                            exception_text
-                        )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                    """,
-                        record_data["timestamp"],
-                        record_data["logger_name"],
-                        record_data["level_name"],
-                        record_data["level_no"],
-                        record_data["message"],
-                        record_data["pathname"],
-                        record_data["filename"],
-                        record_data["lineno"],
-                        record_data["func_name"],
-                        record_data["context_json"],
-                        record_data["exception_text"],
-                    )
-                    self._queue.task_done()
+                await self._process_queue_with_retry(record_data)
+                self._queue.task_done()
+
             except asyncio.CancelledError:
                 print("AsyncPostgresHandler queue processing cancelled.", file=sys.stderr)
+                if record_data is not None:
+                    try:
+                        self._queue.task_done()
+                    except ValueError:
+                        pass
                 break
             except Exception as e:
-                print(f"AsyncPostgresHandler queue processing error: {e}", file=sys.stderr)
-                if self._queue.empty() and record_data is not None:
-                    self._queue.task_done()
+                print(
+                    f"AsyncPostgresHandler: Error in outer processing loop: {e}", file=sys.stderr
+                )
+                if record_data is not None:
+                    try:
+                        self._queue.task_done()
+                    except ValueError:
+                        pass
                 await asyncio.sleep(1)
 
     def close(self) -> None:
@@ -206,18 +295,22 @@ class LoggerService(Generic[PoolType]):
     and time-series data to configured destinations (file, console, database).
     """
 
-    def __init__(self, config_manager: ConfigManagerProtocol, pubsub_manager: "PubSubManager") -> None:
+    _influx_client: Optional["InfluxDBClient"] = None
+    _influx_write_api: Optional["WriteApi"] = None
+
+    def __init__(
+        self, config_manager: ConfigManagerProtocol, pubsub_manager: "PubSubManager"
+    ) -> None:
         """Initialize LoggerService."""
         self._config_manager = config_manager
         self._pubsub = pubsub_manager
         self._log_level = self._config_manager.get("logging.level", "INFO").upper()
         self._log_format = self._config_manager.get(
             "logging.format",
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(context_json)s"
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(context_json)s",
         )
         self._log_date_format = self._config_manager.get(
-            "logging.date_format",
-            "%Y-%m-%d %H:%M:%S"
+            "logging.date_format", "%Y-%m-%d %H:%M:%S"
         )
 
         # Async DB Handler setup
@@ -226,7 +319,8 @@ class LoggerService(Generic[PoolType]):
         self._async_handler: Optional[AsyncPostgresHandler[PoolType]] = None
         self._db_pool: Optional[PoolType] = None
 
-        # Queue and thread for handling synchronous logging calls from async context
+        # Queue and thread for handling synchronous logging calls from async
+        # context
         self._queue: queue.Queue[Tuple[Callable[..., None], tuple, dict]] = queue.Queue()
         self._thread = threading.Thread(target=self._process_log_queue, daemon=True)
         self._stop_event = threading.Event()
@@ -235,20 +329,22 @@ class LoggerService(Generic[PoolType]):
 
         self._setup_logging()
         self._thread.start()
-        logging.info("LoggerService initialized.")
+        self.info("LoggerService initialized.", source_module="LoggerService")
 
     def _process_log_queue(self) -> None:
         """Worker thread target to process log messages from the queue."""
         while not self._stop_event.is_set():
             try:
-                # Wait for an item with a timeout to allow checking the stop event
+                # Wait for an item with a timeout to allow checking the stop
+                # event
                 log_func, args, kwargs = self._queue.get(timeout=0.1)
                 log_func(*args, **kwargs)
                 self._queue.task_done()
             except queue.Empty:
                 continue
             except Exception as e:
-                # Log error using root logger to avoid recursion if self.error uses the queue
+                # Log error using root logger to avoid recursion if self.error
+                # uses the queue
                 logging.error(f"Error processing log queue item: {e}", exc_info=True)
 
     def _setup_logging(self) -> None:
@@ -263,9 +359,7 @@ class LoggerService(Generic[PoolType]):
         # --- Console Handler (Human-Readable) ---
         use_console = bool(self._config_manager.get("logging.console.enabled", default=True))
         if use_console:
-            console_formatter = ContextFormatter(
-                self._log_format, datefmt=self._log_date_format
-            )
+            console_formatter = ContextFormatter(self._log_format, datefmt=self._log_date_format)
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setFormatter(console_formatter)
             console_handler.setLevel(self._log_level)
@@ -275,7 +369,9 @@ class LoggerService(Generic[PoolType]):
         use_file = bool(self._config_manager.get("logging.file.enabled", default=True))
         if use_file:
             log_dir = str(self._config_manager.get("logging.file.directory", default="logs"))
-            log_filename = str(self._config_manager.get("logging.file.filename", default="gal_friday.log"))
+            log_filename = str(
+                self._config_manager.get("logging.file.filename", default="gal_friday.log")
+            )
             os.makedirs(log_dir, exist_ok=True)
             log_path = os.path.join(log_dir, log_filename)
 
@@ -286,7 +382,9 @@ class LoggerService(Generic[PoolType]):
                 rename_fields={"levelname": "level"},
             )
 
-            max_bytes = int(self._config_manager.get("logging.file.max_bytes", default=10 * 1024 * 1024))
+            max_bytes = int(
+                self._config_manager.get("logging.file.max_bytes", default=10 * 1024 * 1024)
+            )
             backup_count = int(self._config_manager.get("logging.file.backup_count", default=5))
             file_handler = logging.handlers.RotatingFileHandler(
                 log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
@@ -299,8 +397,12 @@ class LoggerService(Generic[PoolType]):
         use_db = self._db_enabled
         if use_db:
             if self._db_pool:
-                db_table = str(self._config_manager.get("logging.database.table_name", default="logs"))
-                db_level_str = str(self._config_manager.get("logging.database.level", default="INFO")).upper()
+                db_table = str(
+                    self._config_manager.get("logging.database.table_name", default="logs")
+                )
+                db_level_str = str(
+                    self._config_manager.get("logging.database.level", default="INFO")
+                ).upper()
                 db_level = getattr(logging, db_level_str, logging.INFO)
 
                 try:
@@ -323,7 +425,52 @@ class LoggerService(Generic[PoolType]):
                     "Handler will be added after pool connection.",
                 )
 
-    # --- Core Logging Methods --- #
+    def _filter_sensitive_data(
+        self, context: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """Recursively filter sensitive data from log context."""
+        if (
+            not context
+        ):  # Simplified check for None or empty dict, though type hint is Optional[Dict]
+            return None
+
+        filtered: Dict[str, Any] = {}
+        sensitive_keys = [
+            "api_key",
+            "secret",
+            "password",
+            "token",
+            "credentials",
+            "private_key",
+            "auth",
+            "access_key",
+            "secret_key",
+            # Add other sensitive key names or patterns
+        ]
+        # Regex for things that look like keys/secrets
+        sensitive_value_pattern = re.compile(
+            r"^[A-Za-z0-9/+]{20,}$"
+        )  # Example: Base64-like strings > 20 chars
+
+        for key, value in context.items():
+            key_lower = str(key).lower()
+            is_sensitive = any(pattern in key_lower for pattern in sensitive_keys)
+
+            if isinstance(value, dict):
+                # Recurse into nested dictionaries
+                filtered[key] = self._filter_sensitive_data(value)
+            elif isinstance(value, list):
+                # Recurse into lists (filter dicts within lists)
+                filtered[key] = [
+                    self._filter_sensitive_data(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            elif is_sensitive or (isinstance(value, str) and sensitive_value_pattern.match(value)):
+                # Mask if key is sensitive or value looks sensitive
+                filtered[key] = "********"
+            else:
+                filtered[key] = value
+        return filtered
 
     def log(
         self,
@@ -346,12 +493,16 @@ class LoggerService(Generic[PoolType]):
         logger_name = f"gal_friday.{source_module}" if source_module else "gal_friday"
         logger = logging.getLogger(logger_name)
 
+        # Filter context BEFORE passing it as 'extra'
+        filtered_context = self._filter_sensitive_data(context)
+
         # Prepare extra dictionary for context
-        extra_data = {"context": context} if context else {}
+        extra_data = {"context": filtered_context} if filtered_context else {}
 
         # Log the message using the standard logging interface
         logger.log(level, message, exc_info=exc_info, extra=extra_data, stacklevel=2)
-        # stacklevel=2 ensures filename/lineno are from the caller of this method
+        # stacklevel=2 ensures filename/lineno are from the caller of this
+        # method
 
     # --- Convenience Helper Methods --- #
 
@@ -403,6 +554,101 @@ class LoggerService(Generic[PoolType]):
         self.log(logging.CRITICAL, message, source_module, context, exc_info=exc_info)
 
     # --- Placeholder for Time-Series Logging --- #
+    async def _initialize_influxdb_client(self) -> bool:
+        """Initializes the InfluxDB client if not already initialized. Returns True on success."""
+        if self._influx_client is not None:  # Check instance variable
+            return True  # Already initialized
+
+        url = self._config_manager.get("logging.influxdb.url")
+        token = self._config_manager.get("logging.influxdb.token")
+        org = self._config_manager.get("logging.influxdb.org")
+        if not all([url, token, org]):
+            self.warning(
+                "InfluxDB config incomplete (url/token/org). Cannot log timeseries.",
+                source_module="LoggerService",
+            )
+            return False
+        try:
+            import influxdb_client  # Import here to keep dependency optional
+            from influxdb_client.client.write_api import SYNCHRONOUS
+
+            self._influx_client = influxdb_client.InfluxDBClient(url=url, token=token, org=org)
+            self._influx_write_api = self._influx_client.write_api(write_options=SYNCHRONOUS)
+            self.info(
+                "InfluxDB client initialized for timeseries logging.",
+                source_module="LoggerService",
+            )
+            return True
+        except ImportError:
+            self.error(
+                "InfluxDB client library not installed ('pip install influxdb-client'). "
+                "Cannot log timeseries.",
+                source_module="LoggerService",
+            )
+            self._influx_client = None
+            self._influx_write_api = None  # Ensure write_api is also cleared
+            return False
+        except Exception as e:
+            self.error(
+                f"Failed to initialize InfluxDB client: {e}",
+                source_module="LoggerService",
+                exc_info=True,
+            )
+            self._influx_client = None
+            self._influx_write_api = None  # Ensure write_api is also cleared
+            return False
+
+    def _prepare_influxdb_point(
+        self, measurement: str, tags: Dict[str, str], fields: Dict[str, Any], timestamp: datetime
+    ) -> Optional[Any]:  # Actually returns influxdb_client.Point but avoiding import at top level
+        """Prepares a data point for InfluxDB."""
+        try:
+            from influxdb_client import Point, WritePrecision  # Import here
+
+            point = Point(measurement).time(timestamp, WritePrecision.MS)
+
+            for key, value in tags.items():
+                point = point.tag(key, str(value))
+
+            valid_fields = {}
+            for key, value in fields.items():
+                if isinstance(value, (float, int, bool, str)):
+                    valid_fields[key] = value
+                elif isinstance(value, Decimal):
+                    valid_fields[key] = float(value)
+                else:
+                    self.warning(
+                        f"Unsupported type for InfluxDB field '{key}': {type(value)}. "
+                        "Converting to string.",
+                        source_module="LoggerService",
+                    )
+                    valid_fields[key] = str(value)
+
+            if not valid_fields:
+                self.warning(
+                    f"No valid fields for timeseries point in '{measurement}'. Skipping.",
+                    source_module="LoggerService",
+                )
+                return None
+
+            for key, value in valid_fields.items():
+                point = point.field(key, value)
+            return point
+        except ImportError:
+            # This case should ideally be caught by _initialize_influxdb_client
+            self.error(
+                "InfluxDB client library not found during point preparation.",
+                source_module="LoggerService",
+            )
+            return None
+        except Exception as e:
+            self.error(
+                f"Error preparing InfluxDB point: {e}",
+                source_module="LoggerService",
+                exc_info=True,
+            )
+            return None
+
     async def log_timeseries(
         self,
         measurement: str,
@@ -410,38 +656,70 @@ class LoggerService(Generic[PoolType]):
         fields: Dict[str, Any],
         timestamp: Optional[datetime] = None,
     ) -> None:
-        """Logs time-series data (e.g., to InfluxDB). Placeholder for MVP."""
-        # TODO: Implement time-series logging (likely requires InfluxDB client)
+        """Logs time-series data to InfluxDB if configured."""
         log_time = timestamp if timestamp else datetime.utcnow()
-        self.log(
-            logging.DEBUG,
-            f"[TimeSeries] Measurement: {measurement}, Tags: {tags}, "
-            f"Fields: {fields}, Time: {log_time.isoformat()}",
+
+        self.debug(
+            f"[TimeSeries] M={measurement}, T={tags}, F={fields}, TS={log_time.isoformat()}",
+            source_module="LoggerService",
         )
-        # Example interaction (needs influxdb-client library):
-        # if self._influx_client:
-        #     point = influxdb_client.Point(measurement).time(log_time, WritePrecision.MS)
-        #     for key, value in tags.items():
-        #         point = point.tag(key, value)
-        #     for key, value in fields.items():
-        #         # Handle type conversion if necessary
-        #         point = point.field(key, value)
-        #     try:
-        #         write_api = self._influx_client.write_api(write_options=SYNCHRONOUS)
-        #         write_api.write(bucket=self._influx_bucket, org=self._influx_org, record=point)
-        #     except Exception as e:
-        #         self.log(logging.ERROR, f"Failed to write time-series data to InfluxDB: {e}")
+
+        if not self._config_manager.get("logging.influxdb.enabled", default=False):
+            return
+
+        if not await self._initialize_influxdb_client():
+            return  # Initialization failed or not configured
+
+        if not hasattr(self, "_influx_write_api") or self._influx_write_api is None:
+            return  # Should have been caught by initialize, but as a safeguard
+
+        point = self._prepare_influxdb_point(measurement, tags, fields, log_time)
+        if not point:
+            return
+
+        try:
+            bucket = self._config_manager.get("logging.influxdb.bucket")
+            if not bucket:
+                self.warning(
+                    "InfluxDB bucket not configured. Cannot log timeseries.",
+                    source_module="LoggerService",
+                )
+                return
+            self._influx_write_api.write(bucket=bucket, record=point)
+        except Exception as e:
+            self.error(
+                f"Failed to write time-series data to InfluxDB: {e}",
+                source_module="LoggerService",
+                exc_info=True,
+            )
 
     async def start(self) -> None:
         """Initializes database connection pool if needed."""
-        logging.info("LoggerService start sequence initiated.")
+        self.info("LoggerService start sequence initiated.", source_module="LoggerService")
+
+        # Subscribe to LOG events from the event bus
+        try:
+            self._pubsub.subscribe(EventType.LOG_ENTRY, self._handle_log_event)  # Removed await
+            self.info(
+                "Subscribed to LOG_ENTRY events from event bus.", source_module="LoggerService"
+            )
+        except Exception as e:
+            self.error(
+                f"Failed to subscribe to LOG_ENTRY events: {e}",
+                source_module="LoggerService",
+                exc_info=True,
+            )
+
         if self._db_enabled:
             await self._initialize_db_pool()
-            # Attempt to configure DB handler again if pool initialization succeeded now
+            # Attempt to configure DB handler again if pool initialization
+            # succeeded now
             if self._db_pool and not self._async_handler:
-                logging.info(
-                    "Re-attempting to configure database log handler after pool initialization...",
-                )
+                if not hasattr(self, "_db_handler"):
+                    self.info(
+                        "Re-attempting to configure database log handler "
+                        "after pool initialization..."
+                    )
                 self._setup_logging()  # Re-run config to add the handler
             elif not self._db_pool:
                 logging.error(
@@ -451,28 +729,55 @@ class LoggerService(Generic[PoolType]):
 
     async def stop(self) -> None:
         """Closes the database handler and connection pool."""
-        logging.info("LoggerService stop sequence initiated.")
+        self.info("LoggerService stop sequence initiated.", source_module="LoggerService")
+
+        # Unsubscribe from LOG events
+        try:
+            self._pubsub.unsubscribe(EventType.LOG_ENTRY, self._handle_log_event)  # Removed await
+            self.info("Unsubscribed from LOG_ENTRY events.", source_module="LoggerService")
+        except Exception as e:
+            self.error(
+                f"Error unsubscribing from LOG_ENTRY events: {e}",
+                source_module="LoggerService",
+                exc_info=True,
+            )
+
         # Close the custom handler first to allow queue processing
         if self._async_handler:
-            logging.info("Closing database log handler...")
+            self.info("Closing database log handler...", source_module="LoggerService")
             self._async_handler.close()
             try:
-                # Check if handler has the wait_closed method (our custom AsyncPostgresHandler does)
-                if hasattr(self._async_handler, 'wait_closed'):
+                # Check if handler has the wait_closed method (our custom
+                # AsyncPostgresHandler does)
+                if hasattr(self._async_handler, "wait_closed"):
                     await asyncio.wait_for(
                         self._async_handler.wait_closed(), timeout=5.0
-                )  # Wait for queue to empty
-                    logging.info("Database log handler closed gracefully.")
+                    )  # Wait for queue to empty
+                    self.info(
+                        "Database log handler closed gracefully.", source_module="LoggerService"
+                    )
             except asyncio.TimeoutError:
-                logging.warning("Timeout waiting for database log handler queue to empty.")
+                self.warning(
+                    "Timeout waiting for database log handler queue to empty.",
+                    source_module="LoggerService",
+                )
             except Exception as e:
-                logging.error(
+                self.error(
                     f"Error waiting for database log handler closure: {e}",
-                    exc_info=True
+                    source_module="LoggerService",
+                    exc_info=True,
                 )
 
         # Close the pool
         await self._close_db_pool()
+
+        # Signal the log processing thread to stop
+        self._stop_event.set()
+        self._thread.join(timeout=2.0)  # Wait briefly for thread to exit
+        if self._thread.is_alive():
+            self.warning(
+                "Log processing thread did not exit cleanly.", source_module="LoggerService"
+            )
 
     async def _initialize_db_pool(self) -> None:
         """Initializes the asyncpg connection pool if DB logging is enabled."""
@@ -481,28 +786,35 @@ class LoggerService(Generic[PoolType]):
 
         db_dsn = str(self._config_manager.get("logging.database.connection_string"))
         if not db_dsn:
-            logging.error("Database logging enabled but connection_string is missing.")
+            self.error(
+                "Database logging enabled but connection_string is missing.",
+                source_module="LoggerService",
+            )
             return
 
         try:
             min_size = int(self._config_manager.get("logging.database.min_pool_size", default=1))
             max_size = int(self._config_manager.get("logging.database.max_pool_size", default=5))
-            logging.info(
+            self.info(
                 f"Initializing database connection pool "
                 f"(min: {min_size}, max: {max_size}) for logging...",
+                source_module="LoggerService",
             )
             self._db_pool = await asyncpg.create_pool(
                 dsn=db_dsn, min_size=min_size, max_size=max_size
             )
-            logging.info("Database connection pool initialized successfully.")
+            self.info(
+                "Database connection pool initialized successfully.", source_module="LoggerService"
+            )
         except (
             asyncpg.exceptions.InvalidConnectionParametersError,
             asyncpg.exceptions.CannotConnectNowError,
             OSError,
             Exception,
         ) as e:
-            logging.critical(
+            self.critical(
                 f"Failed to initialize database connection pool: {e}",
+                source_module="LoggerService",
                 exc_info=True,
             )
             self._db_pool = None
@@ -510,17 +822,40 @@ class LoggerService(Generic[PoolType]):
     async def _close_db_pool(self) -> None:
         """Closes the asyncpg connection pool."""
         if self._db_pool:
-            logging.info("Closing database connection pool...")
+            self.info("Closing database connection pool...", source_module="LoggerService")
             try:
                 await self._db_pool.close()
-                logging.info("Database connection pool closed.")
+                self.info("Database connection pool closed.", source_module="LoggerService")
             except Exception as e:
-                logging.error(
+                self.error(
                     f"Error closing database connection pool: {e}",
-                    exc_info=True
+                    source_module="LoggerService",
+                    exc_info=True,
                 )
             finally:
                 self._db_pool = None
+
+    async def _handle_log_event(self, event: LogEvent) -> None:
+        """Handles LogEvent received from the event bus."""
+        if not isinstance(event, LogEvent):
+            self.warning(
+                f"Received non-LogEvent on LOG_ENTRY topic: {type(event)}",
+                source_module="LoggerService",
+            )
+            return
+
+        # Map event level string to logging level integer
+        level_name = event.level.upper() if hasattr(event, "level") else "INFO"
+        level = getattr(logging, level_name, logging.INFO)  # Default to INFO if invalid
+
+        # Call the standard logging method
+        self.log(
+            level=level,
+            message=event.message,
+            source_module=event.source_module,  # Use source from event
+            context=event.context if hasattr(event, "context") else None,
+            exc_info=None,  # Or derive from context/level if needed
+        )
 
 
 # Example Usage (Typically done within other modules):

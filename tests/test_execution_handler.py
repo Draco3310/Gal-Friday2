@@ -32,7 +32,7 @@ def test_execution_handler_initialization(execution_config, event_bus):
     """Test that the ExecutionHandler initializes correctly."""
     config = ConfigManager(config_dict=execution_config)
     execution_handler = ExecutionHandler(config, event_bus)
-    
+
     assert execution_handler is not None
     assert execution_handler.exchange_name == "kraken"
     assert execution_handler.api_key == "test_key"
@@ -41,20 +41,23 @@ def test_execution_handler_initialization(execution_config, event_bus):
 
 
 @patch("ccxt.kraken")
-def test_execution_handler_connect(mock_ccxt_kraken, execution_config, event_bus):
+def test_execution_handler_connect(
+        mock_ccxt_kraken,
+        execution_config,
+        event_bus):
     """Test connecting to the exchange."""
     # Set up mock
     mock_exchange = MagicMock()
     mock_ccxt_kraken.return_value = mock_exchange
-    
+
     # Initialize handler
     config = ConfigManager(config_dict=execution_config)
-    
+
     with patch("gal_friday.execution_handler.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
         execution_handler = ExecutionHandler(config, event_bus)
         execution_handler.connect()
-    
+
     # Verify exchange connection
     mock_ccxt_kraken.assert_called_once_with({
         'apiKey': 'test_key',
@@ -65,7 +68,8 @@ def test_execution_handler_connect(mock_ccxt_kraken, execution_config, event_bus
 
 
 @patch("ccxt.kraken")
-def test_execution_handler_execute_market_order(mock_ccxt_kraken, execution_config, event_bus):
+def test_execution_handler_execute_market_order(
+        mock_ccxt_kraken, execution_config, event_bus):
     """Test executing a market order."""
     # Set up mock exchange
     mock_exchange = MagicMock()
@@ -83,18 +87,18 @@ def test_execution_handler_execute_market_order(mock_ccxt_kraken, execution_conf
         'fee': {'cost': 25.0, 'currency': 'USD'}
     }
     mock_ccxt_kraken.return_value = mock_exchange
-    
+
     # Set up mock event bus to capture published events
     mock_event_bus = MagicMock()
-    
+
     # Initialize handler
     config = ConfigManager(config_dict=execution_config)
-    
+
     with patch("gal_friday.execution_handler.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
         execution_handler = ExecutionHandler(config, mock_event_bus)
         execution_handler.connect()
-        
+
         # Create a market order event
         order_event = OrderEvent(
             timestamp=datetime.now(),
@@ -103,15 +107,15 @@ def test_execution_handler_execute_market_order(mock_ccxt_kraken, execution_conf
             quantity=1.0,
             direction="BUY"
         )
-        
+
         # Execute the order
         execution_handler.execute_order(order_event)
-    
+
     # Verify order was placed
     mock_exchange.create_market_order.assert_called_once_with(
         'BTC/USD', 'buy', 1.0
     )
-    
+
     # Verify fill event was published
     assert mock_event_bus.publish.call_count == 1
     published_event = mock_event_bus.publish.call_args[0][0]
@@ -124,7 +128,8 @@ def test_execution_handler_execute_market_order(mock_ccxt_kraken, execution_conf
 
 
 @patch("ccxt.kraken")
-def test_execution_handler_execute_limit_order(mock_ccxt_kraken, execution_config, event_bus):
+def test_execution_handler_execute_limit_order(
+        mock_ccxt_kraken, execution_config, event_bus):
     """Test executing a limit order."""
     # Set up mock exchange
     mock_exchange = MagicMock()
@@ -147,18 +152,18 @@ def test_execution_handler_execute_limit_order(mock_ccxt_kraken, execution_confi
         'cost': 0.0
     }
     mock_ccxt_kraken.return_value = mock_exchange
-    
+
     # Set up mock event bus to capture published events
     mock_event_bus = MagicMock()
-    
+
     # Initialize handler
     config = ConfigManager(config_dict=execution_config)
-    
+
     with patch("gal_friday.execution_handler.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
         execution_handler = ExecutionHandler(config, mock_event_bus)
         execution_handler.connect()
-        
+
         # Create a limit order event
         order_event = OrderEvent(
             timestamp=datetime.now(),
@@ -168,18 +173,18 @@ def test_execution_handler_execute_limit_order(mock_ccxt_kraken, execution_confi
             direction="BUY",
             limit_price=50000.0  # Specified limit price
         )
-        
+
         # Execute the order
         execution_handler.execute_order(order_event)
-    
+
     # Verify order was placed
     mock_exchange.create_limit_order.assert_called_once_with(
         'BTC/USD', 'buy', 1.0, 50000.0
     )
-    
+
     # Verify no fill event published yet (since limit order is still open)
     assert mock_event_bus.publish.call_count == 0
-    
+
     # Now simulate the order being filled
     mock_exchange.fetch_order.return_value = {
         'id': '12345',
@@ -194,10 +199,10 @@ def test_execution_handler_execute_limit_order(mock_ccxt_kraken, execution_confi
         'cost': 50000.0,
         'fee': {'cost': 25.0, 'currency': 'USD'}
     }
-    
+
     # Check order status (this would normally be called by a periodic check)
     execution_handler.check_order_status('12345')
-    
+
     # Verify fill event was published
     assert mock_event_bus.publish.call_count == 1
     published_event = mock_event_bus.publish.call_args[0][0]
@@ -208,7 +213,10 @@ def test_execution_handler_execute_limit_order(mock_ccxt_kraken, execution_confi
 
 
 @patch("ccxt.kraken")
-def test_execution_handler_cancel_order(mock_ccxt_kraken, execution_config, event_bus):
+def test_execution_handler_cancel_order(
+        mock_ccxt_kraken,
+        execution_config,
+        event_bus):
     """Test cancelling an order."""
     # Set up mock exchange
     mock_exchange = MagicMock()
@@ -217,15 +225,15 @@ def test_execution_handler_cancel_order(mock_ccxt_kraken, execution_config, even
         'status': 'canceled'
     }
     mock_ccxt_kraken.return_value = mock_exchange
-    
+
     # Initialize handler
     config = ConfigManager(config_dict=execution_config)
-    
+
     with patch("gal_friday.execution_handler.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
         execution_handler = ExecutionHandler(config, event_bus)
         execution_handler.connect()
-        
+
         # Track open order
         execution_handler.open_orders['12345'] = {
             'symbol': 'BTC/USD',
@@ -234,35 +242,37 @@ def test_execution_handler_cancel_order(mock_ccxt_kraken, execution_config, even
             'direction': 'BUY',
             'timestamp': datetime.now()
         }
-        
+
         # Cancel the order
         execution_handler.cancel_order('12345')
-    
+
     # Verify the order was cancelled
     mock_exchange.cancel_order.assert_called_once_with('12345', 'BTC/USD')
     assert '12345' not in execution_handler.open_orders
 
 
 @patch("ccxt.kraken")
-def test_execution_handler_handle_exchange_error(mock_ccxt_kraken, execution_config, event_bus):
+def test_execution_handler_handle_exchange_error(
+        mock_ccxt_kraken, execution_config, event_bus):
     """Test handling exchange errors."""
     # Set up mock exchange with error
     mock_exchange = MagicMock()
-    mock_exchange.create_market_order.side_effect = Exception("API connection error")
+    mock_exchange.create_market_order.side_effect = Exception(
+        "API connection error")
     mock_ccxt_kraken.return_value = mock_exchange
-    
+
     # Set up mock logger
     mock_logger = MagicMock()
-    
+
     # Initialize handler
     config = ConfigManager(config_dict=execution_config)
-    
+
     with patch("gal_friday.execution_handler.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
         with patch("gal_friday.execution_handler.logger", mock_logger):
             execution_handler = ExecutionHandler(config, event_bus)
             execution_handler.connect()
-            
+
             # Create a market order event
             order_event = OrderEvent(
                 timestamp=datetime.now(),
@@ -271,12 +281,12 @@ def test_execution_handler_handle_exchange_error(mock_ccxt_kraken, execution_con
                 quantity=1.0,
                 direction="BUY"
             )
-            
+
             # Execute the order (should handle the error)
             execution_handler.execute_order(order_event)
-    
+
     # Verify error was logged
     assert mock_logger.error.call_count == 1
-    
+
     # Verify retry mechanism was triggered (if implemented)
     # This would depend on your implementation details
