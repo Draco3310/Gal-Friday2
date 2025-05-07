@@ -1,3 +1,4 @@
-# Make the directory a package
+"""Gal Friday trading application package."""
 
-print("Gal Friday Package Initialized")
+# Make the directory a package
+print("Gal Friday Package Initialized")  # You can keep or remove this print

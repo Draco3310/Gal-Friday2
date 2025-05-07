@@ -1,12 +1,10 @@
 # Core Async and Networking
-asyncio>=3.4.3
 aiohttp>=3.8.0
 websockets>=10.4  # Explicitly requiring a newer version that supports ClientProtocol
 aiodns>=3.0.0
 aiosignal>=1.2.0
 yarl>=1.7.0
 multidict>=6.0.0
-
 
 # Database and Storage
 asyncpg>=0.27.0
@@ -33,6 +31,13 @@ ccxt>=4.0.0
 # Development and Testing
 pytest>=7.0.0
 mypy>=1.0.0  # Added for type checking
+black # Added for code formatting
+flake8 # Added for linting
+flake8-docstrings # Added for flake8 docstring checks
+isort # Added for import sorting
+autopep8 # Added for code formatting
+pydocstyle # Added for docstring style checking
+pre-commit # Added for managing pre-commit hooks
 
 # Utilities
 python-dateutil>=2.8.2
@@ -43,7 +48,7 @@ typing-extensions>=4.0.0
 psutil>=5.9.0
 types-psutil>=5.9.0 # Added for mypy type checking
 
-# HTTP-related dependencies 
+# HTTP-related dependencies
 certifi>=2021.10.8
 charset-normalizer>=2.0.12
 urllib3>=1.26.9

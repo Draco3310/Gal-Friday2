@@ -57,7 +57,7 @@ As of May 2025, the project has made significant progress with the implementatio
     ```bash
     pip install -r requirements.txt
     ```
-4.  **Configure Environment:** 
+4.  **Configure Environment:**
     - Copy `config/config.yaml` to create your local configuration
     - Set up PostgreSQL if needed for persistent storage
     - Configure your Kraken API credentials (for live trading)
@@ -110,3 +110,5 @@ The project is currently in active development. See `docs/post_mvp_plan_gal_frid
 
 - Kraken for providing the API infrastructure
 - Open source community for the various libraries and tools used in this project
+
+# TESTING
