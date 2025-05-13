@@ -15,7 +15,7 @@ class FundsManager:
     and converts between different currencies for valuation.
     """
 
-    def __init__(self, logger_service, valuation_currency: str = "USD"):
+    def __init__(self, logger_service: Any, valuation_currency: str = "USD"):
         """
         Initialize the funds manager.
 

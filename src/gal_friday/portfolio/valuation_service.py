@@ -125,10 +125,12 @@ class ValuationService:
             pair = f"{from_currency}/{to_currency}"
             rate = await self.market_price_service.get_latest_price(pair)
             if rate is not None:
+                # Ensure the rate is a Decimal to satisfy the type checker
+                decimal_rate = Decimal(str(rate))
                 now = datetime.utcnow()
                 cache_key = f"{from_currency}/{to_currency}"
-                self._price_cache[cache_key] = (rate, now)
-                return rate
+                self._price_cache[cache_key] = (decimal_rate, now)
+                return decimal_rate
         except Exception as e:
             self.logger.debug(
                 f"Direct price not available for {pair}: {e}", source_module=self._source_module
@@ -152,7 +154,9 @@ class ValuationService:
             inverse_pair = f"{to_currency}/{from_currency}"
             inverse_rate = await self.market_price_service.get_latest_price(inverse_pair)
             if inverse_rate is not None and inverse_rate > Decimal("0"):
-                rate = Decimal("1") / inverse_rate
+                # Ensure we're working with Decimal values
+                decimal_inverse_rate = Decimal(str(inverse_rate))
+                rate = Decimal("1") / decimal_inverse_rate
                 now = datetime.utcnow()
                 cache_key = f"{from_currency}/{to_currency}"
                 self._price_cache[cache_key] = (rate, now)
@@ -181,11 +185,12 @@ class ValuationService:
         try:
             from_usd_rate = await self.get_currency_conversion_rate(from_currency, "USD")
             usd_to_rate = await self.get_currency_conversion_rate("USD", to_currency)
-            rate = from_usd_rate * usd_to_rate
-            now = datetime.utcnow()
-            cache_key = f"{from_currency}/{to_currency}"
-            self._price_cache[cache_key] = (rate, now)
-            return rate
+            if from_usd_rate is not None and usd_to_rate is not None:
+                rate = from_usd_rate * usd_to_rate
+                now = datetime.utcnow()
+                cache_key = f"{from_currency}/{to_currency}"
+                self._price_cache[cache_key] = (rate, now)
+                return rate
         except PriceNotAvailableError:
             self.logger.debug(
                 f"USD conversion path failed for {from_currency}->{to_currency}",
@@ -225,20 +230,24 @@ class ValuationService:
             age_seconds = (now - timestamp).total_seconds()
 
             if age_seconds < self._price_cache_ttl_seconds:
-                return rate
+                # Ensure we always return a Decimal type from cache
+                return Decimal(str(rate)) if rate is not None else Decimal("0")
 
         # Try different conversion methods in sequence
-        rate = await self._try_direct_conversion(from_currency, to_currency)
-        if rate is not None:
-            return rate
+        direct_rate = await self._try_direct_conversion(from_currency, to_currency)
+        if direct_rate is not None:
+            # Ensure we return a Decimal type
+            return Decimal(str(direct_rate))
 
-        rate = await self._try_inverse_conversion(from_currency, to_currency)
-        if rate is not None:
-            return rate
+        inverse_rate = await self._try_inverse_conversion(from_currency, to_currency)
+        if inverse_rate is not None:
+            # Ensure we return a Decimal type
+            return Decimal(str(inverse_rate))
 
-        rate = await self._try_usd_conversion(from_currency, to_currency)
-        if rate is not None:
-            return rate
+        usd_rate = await self._try_usd_conversion(from_currency, to_currency)
+        if usd_rate is not None:
+            # Ensure we return a Decimal type
+            return Decimal(str(usd_rate))
 
         raise PriceNotAvailableError(
             f"Cannot determine conversion rate: {from_currency} to {to_currency}"
@@ -424,7 +433,9 @@ class ValuationService:
                             rate = await self.get_currency_conversion_rate(
                                 pos_info.quote_asset, self.valuation_currency
                             )
-                            abs_position_exposure += pair_val_in_quote * rate
+                            # Ensure rate is a Decimal
+                            decimal_rate = Decimal(str(rate))
+                            abs_position_exposure += pair_val_in_quote * decimal_rate
                         except PriceNotAvailableError:
                             pass  # Already logged
 

@@ -584,24 +584,20 @@ class RiskManager:
         if not passed:
             return False, error, None
 
+        if portfolio_state is None:
+            return False, "PORTFOLIO_STATE_IS_NONE", None
+
+        if state_values is None:
+            return False, "STATE_VALUES_IS_NONE", None
+
         current_equity = state_values["current_equity"]
 
-        # Validate price values
-        passed, error, prices = self._validate_trade_prices(event)
+        # Validate price values and check fat finger risk
+        passed, error, prices = await self._check_trade_prices(event, signal_id)
         if not passed:
             return False, error, None
 
         entry_price, sl_price = prices["entry_price"], prices["sl_price"]
-
-        # Check fat finger risk
-        passed, error = await self._check_fat_finger_risk(event, signal_id, entry_price)
-        if not passed:
-            return False, error, None
-
-        # Validate stop loss price
-        sl_validation_error = self._validate_sl_price(signal_id, event.side, entry_price, sl_price)
-        if sl_validation_error:
-            return False, sl_validation_error, None
 
         # Calculate position size
         calculated_qty = self._calculate_position_size(
@@ -610,32 +606,13 @@ class RiskManager:
         if calculated_qty is None or calculated_qty <= 0:
             return False, "POSITION_SIZE_CALCULATION_FAILED", None
 
-        # Check portfolio exposure
+        # Perform exposure and balance checks
         base_asset, quote_asset = self._split_symbol(event.trading_pair)
         trade_value_quote = calculated_qty * entry_price
 
-        passed, error, trade_value_valuation_ccy = await self._check_portfolio_exposure(
+        # Check exposure and balance
+        passed, error, trade_value_valuation_ccy = await self._check_trade_exposure_and_balance(
             event, signal_id, current_equity, trade_value_quote, quote_asset, portfolio_state
-        )
-        if not passed:
-            return False, error, None
-
-        # Check sufficient balance
-        if event.side.upper() == "BUY":
-            passed, error = self._check_sufficient_balance(
-                signal_id, trade_value_quote, quote_asset, portfolio_state
-            )
-            if not passed:
-                return False, error, None
-
-        # Check consecutive losses
-        loss_check_ok, loss_reason = self._check_consecutive_losses()
-        if not loss_check_ok:
-            return False, loss_reason, None
-
-        # Check single position limit
-        passed, error = self._check_single_position_limit(
-            signal_id, trade_value_valuation_ccy, current_equity
         )
         if not passed:
             return False, error, None
@@ -651,6 +628,94 @@ class RiskManager:
             event, signal_id, qty_str, entry_price, sl_price, state_values
         )
         return True, None, approved_payload
+
+    async def _check_trade_prices(
+        self, event: TradeSignalProposedEvent, signal_id: uuid.UUID
+    ) -> Tuple[bool, Optional[str], Dict[str, Decimal]]:
+        """Check trade prices and validate them.
+
+        Args:
+            event: The proposed trade signal event
+            signal_id: The trade signal ID
+
+        Returns:
+            Tuple of (passed, error_message, prices)
+        """
+        # Validate price values
+        passed, error, prices = self._validate_trade_prices(event)
+        if not passed:
+            return False, error, {}
+
+        entry_price, sl_price = prices["entry_price"], prices["sl_price"]
+
+        # Check fat finger risk
+        passed, error = await self._check_fat_finger_risk(event, signal_id, entry_price)
+        if not passed:
+            return False, error, {}
+
+        # Validate stop loss price
+        sl_validation_error = self._validate_sl_price(signal_id, event.side, entry_price, sl_price)
+        if sl_validation_error:
+            return False, sl_validation_error, {}
+
+        return True, None, prices
+
+    async def _check_trade_exposure_and_balance(
+        self,
+        event: TradeSignalProposedEvent,
+        signal_id: uuid.UUID,
+        current_equity: Decimal,
+        trade_value_quote: Decimal,
+        quote_asset: str,
+        portfolio_state: Dict[str, Any],
+    ) -> Tuple[bool, Optional[str], Optional[Decimal]]:
+        """Check portfolio exposure, balance, and other limits.
+
+        Args:
+            event: The proposed trade signal event
+            signal_id: The trade signal ID
+            current_equity: Current portfolio equity
+            trade_value_quote: Trade value in quote currency
+            quote_asset: Quote asset symbol
+            portfolio_state: Portfolio state dictionary
+
+        Returns:
+            Tuple of (passed, error_message, trade_value_in_valuation_currency)
+        """
+        # Check portfolio exposure
+        passed, error, trade_value_valuation_ccy = await self._check_portfolio_exposure(
+            event, signal_id, current_equity, trade_value_quote, quote_asset, portfolio_state
+        )
+        if not passed:
+            return False, error, None
+
+        # Check sufficient balance
+        if event.side.upper() == "BUY":
+            if portfolio_state is None:
+                return False, "PORTFOLIO_STATE_IS_NONE", None
+
+            passed, error = self._check_sufficient_balance(
+                signal_id, trade_value_quote, quote_asset, portfolio_state
+            )
+            if not passed:
+                return False, error, None
+
+        # Check consecutive losses
+        loss_check_ok, loss_reason = self._check_consecutive_losses()
+        if not loss_check_ok:
+            return False, loss_reason, None
+
+        # Check single position limit
+        if trade_value_valuation_ccy is None:
+            return False, "TRADE_VALUE_IN_VALUATION_CURRENCY_IS_NONE", None
+
+        passed, error = self._check_single_position_limit(
+            signal_id, trade_value_valuation_ccy, current_equity
+        )
+        if not passed:
+            return False, error, None
+
+        return True, None, trade_value_valuation_ccy
 
     async def _validate_portfolio_for_trade(
         self, event: TradeSignalProposedEvent
@@ -710,8 +775,6 @@ class RiskManager:
                 {
                     "entry_price": entry_price,
                     "sl_price": sl_price,
-                    "entry_price_str": entry_price_str,
-                    "sl_price_str": sl_price_str,
                 },
             )
         except (InvalidOperation, ValueError, TypeError) as e:
@@ -949,7 +1012,7 @@ class RiskManager:
         Returns:
             Approved payload dictionary
         """
-        entry_price_str = str(entry_price)
+        # These string conversions are used in the returned payload
         sl_price_str = str(sl_price)
 
         return {
@@ -965,11 +1028,11 @@ class RiskManager:
             "sl_price": sl_price_str,
             "tp_price": event.tp_price if hasattr(event, "tp_price") else None,
             "risk_parameters": {
-                "risk_per_trade_pct": str(self._risk_per_trade_pct),
-                "calculated_qty": qty_str,
-                "entry_ref_price": entry_price_str,
-                "sl_price": sl_price_str,
-                "equity_at_check": str(state_values["current_equity"]),
+                "risk_per_trade_pct": self._risk_per_trade_pct,
+                "calculated_qty": Decimal(qty_str),
+                "entry_ref_price": entry_price,
+                "sl_price": sl_price,
+                "equity_at_check": state_values["current_equity"],
             },
         }
 
@@ -1383,5 +1446,3 @@ class RiskManager:
             # The halt from execution report is more immediate.
             return False, reason
         return True, None
-
-    # --- End Methods for Consecutive Loss Tracking ---

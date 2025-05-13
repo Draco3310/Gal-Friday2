@@ -211,9 +211,9 @@ except ImportError as e:
     KrakenHistoricalDataService = None  # type: ignore
 
 try:
-    from .simulated_market_price_service import (
+    from .simulated_market_price_service import (  # Restored runtime import
         SimulatedMarketPriceService,
-    )  # Restored runtime import
+    )
 except ImportError:
     print("Failed to import SimulatedMarketPriceService")
     SimulatedMarketPriceService = None  # type: ignore # Restored fallback
