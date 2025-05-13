@@ -19,7 +19,7 @@ APScheduler>=3.9.0
 PyYAML>=6.0
 
 # Data Science and ML
-numpy>=1.22.0
+numpy==1.24.3  # Pinned to specific version for compatibility with pandas_ta
 pandas>=1.5.0
 scikit-learn>=1.1.0
 xgboost>=1.6.0
