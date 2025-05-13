@@ -23,6 +23,14 @@ jobs:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
 
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -31,23 +39,13 @@ jobs:
 
     - name: Lint with flake8
       run: |
-        # Check if the 'tests' directory exists before running flake8 on it
-        if [ -d "tests" ]; then
-          # stop the build if there are Python syntax errors or undefined names
-          flake8 src tests --count --select=E9,F63,F7,F82 --show-source --statistics
-          # exit-zero treats all errors as warnings
-          flake8 src tests --count --max-complexity=12 --max-line-length=99 --statistics
-        else
-          echo "Skipping flake8 checks for 'tests' directory as it does not exist."
-          # stop the build if there are Python syntax errors or undefined names
-          flake8 src --count --select=E9,F63,F7,F82 --show-source --statistics
-          # exit-zero treats all errors as warnings
-          flake8 src --count --max-complexity=12 --max-line-length=99 --statistics
-        fi
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 src tests --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings
+        flake8 src tests --count --max-complexity=12 --max-line-length=99 --statistics
 
     - name: Security scan with Bandit
       run: |
-        # Only scan tests directory if it exists
         bandit -r src/ -ll
 
     - name: Lint with pylint

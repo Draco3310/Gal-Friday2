@@ -28,6 +28,9 @@ from typing_extensions import AsyncContextManager
 from .core.events import EventType, LogEvent
 from .core.pubsub import PubSubManager
 
+# Import custom exceptions
+from .exceptions import DatabaseError
+
 # Define a Protocol for ConfigManager to properly type hint its interface
 
 
@@ -220,7 +223,7 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
                 (lambda d: self._queue.put_nowait(d)) if not self._closed else (lambda _: None),
                 data,
             )
-        except Exception:
+        except (ValueError, TypeError, RuntimeError):
             self.handleError(record)
 
     def _format_record(self, record: logging.LogRecord) -> Dict[str, Any]:
@@ -299,7 +302,7 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
         ) as conn_err:
             # This will be handled by the retry logic in _process_queue_with_retry
             raise conn_err  # Re-raise to be caught by the retry mechanism
-        except Exception as e:
+        except (asyncpg.PostgresError, DatabaseError, ValueError, TypeError) as e:
             # Non-retryable error during DB operation
             print(
                 f"AsyncPostgresHandler: Non-retryable error inserting log record: {e}",
@@ -339,7 +342,8 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
                         file=sys.stderr,
                     )
                     await asyncio.sleep(wait_time)
-            except Exception:  # Catches non-retryable errors from _attempt_db_insert
+            except (RuntimeError, ValueError, TypeError, DatabaseError, asyncpg.PostgresError):
+                # Catches non-retryable errors from _attempt_db_insert
                 return  # Stop processing this record
 
     async def _process_queue(self) -> None:

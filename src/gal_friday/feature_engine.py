@@ -19,6 +19,9 @@ from .core.events import EventType, FeatureEvent, MarketDataL2Event, MarketDataO
 # Import PubSubManager
 from .core.pubsub import PubSubManager
 
+# Import custom exceptions
+from .exceptions import APIError, DataValidationError, GalFridayError, NetworkError, TimeoutError
+
 # Import HistoricalDataService
 from .historical_data_service import HistoricalDataService
 
@@ -172,7 +175,7 @@ class FeatureEngine:
             self.pubsub.unsubscribe(EventType.MARKET_DATA_OHLCV, self._ohlcv_handler)
             self.pubsub.unsubscribe(EventType.SYSTEM_STATE_CHANGE, self._status_handler)
             self.logger.info("Unsubscribed from input events.", source_module=self._source_module)
-        except Exception as e:
+        except (ValueError, RuntimeError, GalFridayError) as e:
             self.logger.error(
                 f"Error unsubscribing FeatureEngine handlers: {e}",
                 exc_info=True,
@@ -216,8 +219,8 @@ class FeatureEngine:
         self._latest_l2_data[trading_pair]["asks"] = event.asks
         self._latest_l2_data[trading_pair]["timestamp"] = trigger_timestamp
         self.logger.debug(
-            "Updated L2 cache for {pair}".format(pair=trading_pair),
-            source_module=self.__class__.__name__,
+            f"Updated L2 cache for {trading_pair}",
+            source_module=self._source_module,
         )
 
         # Calculate L2 features
@@ -355,18 +358,15 @@ class FeatureEngine:
         # Append to history
         self._ohlcv_history[history_key].append(ohlcv_dict)
         self.logger.debug(
-            "Appended OHLCV data for {pair} interval {interval}".format(
-                pair=trading_pair, interval=interval
-            ),
-            source_module=self.__class__.__name__,
+            f"Appended OHLCV data for {trading_pair} interval {interval}",
+            source_module=self._source_module,
         )
 
         # Check if enough history exists for TA calculation
         if len(self._ohlcv_history[history_key]) < self._get_min_history_required():
             self.logger.debug(
-                "Not enough OHLCV history yet for {pair} {interval}".format(
-                    pair=trading_pair, interval=interval
-                )
+                f"Not enough OHLCV history yet for {trading_pair} {interval}",
+                source_module=self._source_module,
             )
             return
 
@@ -705,9 +705,11 @@ class FeatureEngine:
             self._dataframe_cache[history_key] = (df, history_len)
 
             return df
-        except Exception as df_error:
-            msg = ("Error creating DataFrame: {error}").format(error=df_error)
-            self.logger.error(msg, source_module=self.__class__.__name__, exc_info=True)
+        except (ValueError, KeyError, TypeError, DataValidationError) as df_error:
+            self.logger.warning(
+                f"Error preparing DataFrame for {history_key}: {df_error}",
+                source_module=self._source_module,
+            )
             return None
 
     def _calculate_rsi_feature(
@@ -727,13 +729,14 @@ class FeatureEngine:
                     if not pd.isna(last_rsi):
                         features[feature_name] = f"{last_rsi:.2f}"
                     else:
-                        msg = ("RSI is NaN for {pair} {int}").format(
-                            pair=trading_pair, int=interval
-                        )
+                        msg = f"RSI is NaN for {trading_pair} {interval}"
                         self.logger.debug(msg, source_module=self.__class__.__name__)
-                except Exception as rsi_error:
-                    msg = ("RSI calculation failed: {error}").format(error=rsi_error)
-                    self.logger.error(msg, source_module=self.__class__.__name__)
+                except (ValueError, KeyError, TypeError, DataValidationError) as rsi_error:
+                    self.logger.warning(
+                        f"Error calculating RSI for {trading_pair}/{interval}: {rsi_error}",
+                        source_module=self._source_module,
+                    )
+                    return {}
             else:
                 msg = "Not enough data for RSI calculation"
                 self.logger.debug(msg, source_module=self.__class__.__name__)
@@ -756,13 +759,14 @@ class FeatureEngine:
                     if not pd.isna(last_roc):
                         features[feature_name] = f"{last_roc:.6f}"
                     else:
-                        msg = ("ROC is NaN for {pair} {int}").format(
-                            pair=trading_pair, int=interval
-                        )
+                        msg = f"ROC is NaN for {trading_pair} {interval}"
                         self.logger.debug(msg, source_module=self.__class__.__name__)
-                except Exception as roc_error:
-                    msg = ("ROC calculation failed: {error}").format(error=roc_error)
-                    self.logger.error(msg, source_module=self.__class__.__name__)
+                except (ValueError, KeyError, TypeError, DataValidationError) as roc_error:
+                    self.logger.warning(
+                        f"Error calculating ROC for {trading_pair}/{interval}: {roc_error}",
+                        source_module=self._source_module,
+                    )
+                    return {}
             else:
                 msg = "Not enough data for ROC calculation"
                 self.logger.debug(msg, source_module=self.__class__.__name__)
@@ -978,14 +982,16 @@ class FeatureEngine:
     def _calculate_stdev_from_df(
         self, df: pd.DataFrame, trading_pair: str, interval: str, stdev_len: int
     ) -> dict[str, str]:
-        """Calculate Standard Deviation from a DataFrame."""
+        """Calculate Standard Deviation feature."""
         features: dict[str, str] = {}
-        feature_name = f"stdev_{stdev_len}_{interval}"
-        if "close" in df.columns and len(df) >= stdev_len:
+        feature_name = f"stdev_{stdev_len}"
+
+        if len(df) >= stdev_len and "close" in df.columns:
             try:
-                stdev_series = ta.stdev(df["close"], length=stdev_len)
-                if stdev_series is not None and not stdev_series.empty:
-                    last_stdev = stdev_series.iloc[-1]
+                # Using pandas_ta for standard deviation calculation
+                stdev_result = ta.stdev(df["close"], length=stdev_len)
+                if stdev_result is not None and not stdev_result.empty:
+                    last_stdev = stdev_result.iloc[-1]
                     if pd.notna(last_stdev):
                         features[feature_name] = f"{last_stdev:.8f}"
                 else:
@@ -993,7 +999,7 @@ class FeatureEngine:
                         f"Stdev result None/empty for {trading_pair} {interval}",
                         source_module=self._source_module,
                     )
-            except Exception as e:
+            except (ValueError, TypeError, KeyError, DataValidationError) as e:
                 self.logger.error(
                     f"Stdev calc failed for {trading_pair} {interval}: {e}",
                     source_module=self._source_module,
@@ -1070,53 +1076,41 @@ class FeatureEngine:
 
         return features
 
+    def _get_period_from_config(
+        self, feature_name: str, field_name: str, default_value: int
+    ) -> int:
+        """Helper method to get period from config for a specific feature."""
+        feature_cfg = self._feature_configs.get(feature_name, {})
+        period_value = feature_cfg.get(field_name, default_value)
+
+        return (
+            period_value if isinstance(period_value, int) and period_value > 0 else default_value
+        )
+
     def _get_min_history_required(self) -> int:
         """Get the minimum required history size for TA calculations."""
         min_size = 1  # Minimum baseline
 
-        # Check RSI requirements
-        rsi_cfg = self._feature_configs.get("rsi", {})
-        rsi_period = rsi_cfg.get("period")
-        if isinstance(rsi_period, int) and rsi_period > min_size:
-            min_size = rsi_period
+        # Check various indicator requirements
+        periods = [
+            self._get_period_from_config("rsi", "period", 14),
+            self._get_period_from_config("roc", "period", 1),
+            self._get_period_from_config("bbands", "length", 20),
+            self._get_period_from_config("vwap", "length", 14),
+            self._get_period_from_config("atr", "length", 14),
+            self._get_period_from_config("stdev", "length", 14),
+        ]
 
-        # Check ROC requirements
-        roc_cfg = self._feature_configs.get("roc", {})
-        roc_period = roc_cfg.get("period")
-        if isinstance(roc_period, int) and roc_period > min_size:
-            min_size = roc_period
+        # Special handling for MACD which requires multiple periods
+        macd_slow = self._get_period_from_config("macd", "slow_period", 26)
+        macd_signal = self._get_period_from_config("macd", "signal_period", 9)
+        macd_min = macd_slow + macd_signal - 1
+        periods.append(macd_min)
 
-        # Check MACD requirements
-        macd_cfg = self._feature_configs.get("macd", {})
-        macd_slow = macd_cfg.get("slow_period", 26)
-        macd_signal = macd_cfg.get("signal_period", 9)
-        if isinstance(macd_slow, int) and isinstance(macd_signal, int):
-            macd_min = macd_slow + macd_signal - 1
-            if macd_min > min_size:
-                min_size = macd_min
-
-        # Check Bollinger Bands requirements
-        bbands_cfg = self._feature_configs.get("bbands", {})
-        bbands_length = bbands_cfg.get("length", 20)
-        if isinstance(bbands_length, int) and bbands_length > min_size:
-            min_size = bbands_length
-
-        # Check VWAP requirements
-        vwap_cfg = self._feature_configs.get("vwap", {})
-        vwap_length = vwap_cfg.get("length", 14)
-        if isinstance(vwap_length, int) and vwap_length > min_size:
-            min_size = vwap_length
-
-        # Check volatility (ATR/StdDev) requirements
-        atr_cfg = self._feature_configs.get("atr", {})
-        atr_length = atr_cfg.get("length", 14)
-        if isinstance(atr_length, int) and atr_length > min_size:
-            min_size = atr_length
-
-        stdev_cfg = self._feature_configs.get("stdev", {})
-        stdev_length = stdev_cfg.get("length", 14)
-        if isinstance(stdev_length, int) and stdev_length > min_size:
-            min_size = stdev_length
+        # Get the maximum required period
+        max_period = max(periods)
+        if max_period > min_size:
+            min_size = max_period
 
         # Add 1 for better reliability in calculations
         return min_size + 1
@@ -1142,7 +1136,7 @@ class FeatureEngine:
             else:
                 # Placeholder for logging if atr_value is None
                 pass
-        except Exception as e:
+        except (ValueError, TypeError, KeyError, DataValidationError, APIError, NetworkError) as e:
             self.logger.error(
                 f"Error calculating historical ATR for {trading_pair}: {e}",
                 source_module=self._source_module,
@@ -1175,7 +1169,15 @@ class FeatureEngine:
             else:
                 # Placeholder for logging if hist_df is None or empty
                 pass
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            DataValidationError,
+            APIError,
+            NetworkError,
+            TimeoutError,
+        ) as e:
             self.logger.error(
                 f"Error fetching/processing historical OHLCV for {trading_pair}: {e}",
                 source_module=self._source_module,
