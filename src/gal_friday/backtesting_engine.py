@@ -37,7 +37,7 @@ except ImportError:
             # Return Series with same index to avoid potential issues later
             return pd.Series([None] * len(high), index=high.index)
 
-    ta = TaLib()  # type: ignore
+    ta = TaLib()
 
 from .config_manager import ConfigManager
 

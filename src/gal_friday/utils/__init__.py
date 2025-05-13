@@ -1,7 +1,7 @@
 """Utility functions for the Gal Friday application."""
 
 import logging
-from typing import Any, Callable, Optional, Type, TypeVar
+from typing import Any, Callable, Coroutine, Optional, Type, TypeVar
 
 T = TypeVar("T")
 
@@ -43,9 +43,9 @@ def handle_exceptions(
 
                 # Log with traceback if needed
                 if include_traceback:
-                    logger.error(formatted_message, source_module=source_module, exc_info=True)
+                    logger.error(f"[{source_module}] {formatted_message}", exc_info=True)
                 else:
-                    logger.error(formatted_message, source_module=source_module)
+                    logger.error(f"[{source_module}] {formatted_message}")
 
                 # Re-raise with proper chaining if required
                 if re_raise:
@@ -68,7 +68,10 @@ async def handle_exceptions_async(
     include_traceback: bool = True,
     source_module: str = "",
     re_raise: bool = False,
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
+) -> Callable[
+    [Callable[..., Coroutine[Any, Any, T]]],
+    Callable[..., Coroutine[Any, Any, T]],
+]:
     """
     Handle exceptions in a standardized way for async functions.
 
@@ -87,7 +90,9 @@ async def handle_exceptions_async(
     if specific_exceptions is None:
         specific_exceptions = (Exception,)
 
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+    def decorator(
+        func: Callable[..., Coroutine[Any, Any, T]]
+    ) -> Callable[..., Coroutine[Any, Any, T]]:
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return await func(*args, **kwargs)
@@ -96,9 +101,9 @@ async def handle_exceptions_async(
 
                 # Log with traceback if needed
                 if include_traceback:
-                    logger.error(formatted_message, source_module=source_module, exc_info=True)
+                    logger.error(f"[{source_module}] {formatted_message}", exc_info=True)
                 else:
-                    logger.error(formatted_message, source_module=source_module)
+                    logger.error(f"[{source_module}] {formatted_message}")
 
                 # Re-raise with proper chaining if required
                 if re_raise:

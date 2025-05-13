@@ -19,7 +19,7 @@ from .market_price_service import MarketPriceService
 
 # Attempt to import the actual ConfigManager
 try:
-    from ..config_manager import ConfigManager  # type: ignore[import-not-found]
+    from ..config_manager import ConfigManager
 except ImportError:
     # Fallback for environments where ConfigManager might not be in the expected path
     # This might happen during isolated testing of this module or if structure changes.

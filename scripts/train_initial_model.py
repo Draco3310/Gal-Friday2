@@ -22,7 +22,7 @@ project_root = os.path.dirname(script_dir)
 sys.path.insert(0, os.path.join(project_root, "src"))
 
 try:
-    from gal_friday.config_manager import ConfigManager  # type: ignore
+    from gal_friday.config_manager import ConfigManager
 except ImportError as e:
     print(f"Error importing ConfigManager: {e}")
     print("Ensure the script is run from the project root or the PYTHONPATH is set correctly.")

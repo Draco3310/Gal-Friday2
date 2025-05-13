@@ -19,7 +19,7 @@ from decimal import Decimal
 from random import SystemRandom
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Optional, Protocol, Tuple, TypeVar
 
-import asyncpg  # type: ignore[import-untyped]
+import asyncpg
 
 # Import JSON Formatter
 from pythonjsonlogger import jsonlogger
