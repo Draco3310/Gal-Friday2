@@ -43,7 +43,8 @@ class ExecutionHandlerInterface(abc.ABC):
         """
         Process an approved trade signal by placing the corresponding order.
 
-        Args:
+        Args
+        ----
             event: The approved trade signal event containing trade details
         """
         raise NotImplementedError
@@ -53,10 +54,12 @@ class ExecutionHandlerInterface(abc.ABC):
         """
         Cancel an open order on the exchange.
 
-        Args:
+        Args
+        ----
             exchange_order_id: The exchange-specific order ID to cancel
 
-        Returns:
+        Returns
+        -------
             True if cancellation was successful or initiated, False otherwise
         """
         raise NotImplementedError

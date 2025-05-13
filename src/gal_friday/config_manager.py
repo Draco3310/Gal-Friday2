@@ -30,7 +30,8 @@ class ConfigManager:
         """
         Initialize the ConfigManager, load config, and validate it.
 
-        Args:
+        Args
+        ----
             config_path: Path to the YAML configuration file relative to the workspace root.
             logger_service: Optional logger instance for dependency injection.
         """
@@ -94,11 +95,13 @@ class ConfigManager:
         Example:
             config.get('database.postgres.host', 'localhost')
 
-        Args:
+        Args
+        ----
             key: The dot-separated key string.
             default: The value to return if the key is not found.
 
-        Returns:
+        Returns
+        -------
             The configuration value or the default.
         """
         if self._config is None:
@@ -408,7 +411,8 @@ class ConfigManager:
 
         Updates `self.validation_errors` with the results of the new validation.
 
-        Returns:
+        Returns
+        -------
             List of validation errors encountered during the reload and validation process.
             An empty list indicates the reload and validation were successful.
         """
@@ -486,117 +490,3 @@ class ConfigManager:
         """Retrieve a specific API secret securely for a given service."""
         full_key = f"api.{service_name}.{secret_name}"
         return self.get_secure_value(full_key)
-
-
-# Example Usage (for testing purposes, remove in production)
-if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-
-    # Create a dummy config file for testing
-    dummy_config_dir = "config"
-    dummy_config_path = os.path.join(dummy_config_dir, "test_config.yaml")
-    if not os.path.exists(dummy_config_dir):
-        os.makedirs(dummy_config_dir)
-
-    # Example configuration with all required sections
-    dummy_data = {
-        "trading": {"pairs": ["XRP/USD", "DOGE/USD"], "exchange": "kraken"},
-        "database": {
-            "postgres": {"host": "localhost", "port": 5432, "user": "galfriday_user"},
-            "influxdb": {"url": "http://localhost:8086", "token": "YOUR_INFLUX_TOKEN"},
-        },
-        "risk": {
-            "max_drawdown_pct": 5.0,  # Added required field
-            "stop_loss_pct": 2.0,  # Added for cross-validation
-            "take_profit_pct": 5.0,  # Added for cross-validation
-            "limits": {"max_total_drawdown_pct": 10.0},
-        },
-        "monitoring": {"check_interval_seconds": 30},
-        "api": {"kraken": {"key": "YOUR_API_KEY_HERE", "secret": "YOUR_API_SECRET_HERE"}},
-        "strategies": {"momentum": {"lookback_periods": 14, "threshold": 0.02}},
-    }
-
-    with open(dummy_config_path, "w") as f:
-        yaml.dump(dummy_data, f, default_flow_style=False)
-
-    print(f"Created dummy config at: {dummy_config_path}")
-
-    # Initialize ConfigManager with the dummy file
-    print("\n=== BASIC CONFIGURATION LOADING ===")
-    config_manager = ConfigManager(config_path=dummy_config_path)
-
-    # Check if configuration is valid
-    print(f"Configuration valid: {config_manager.is_valid()}")
-
-    if config_manager.validation_errors:
-        print("Validation errors:")
-        for error in config_manager.validation_errors:
-            print(f"  - {error}")
-
-    # Test retrieving values
-    print("\n=== TESTING GETTERS ===")
-    print(f"Exchange: {config_manager.get('trading.exchange')}")
-    print(f"Postgres Host: {config_manager.get('database.postgres.host')}")
-    print(f"Max Drawdown %: {config_manager.get_float('risk.max_drawdown_pct')}")
-    print(f"Monitoring Interval: {config_manager.get_int('monitoring.check_interval_seconds')}")
-
-    # Test interface methods
-    print("\n=== TESTING INTERFACE METHODS ===")
-    print(f"Trading Pairs: {config_manager.get_trading_pairs()}")
-
-    risk_params = config_manager.get_risk_parameters()
-    print(f"Risk Parameters: {risk_params}")
-
-    strategy_params = config_manager.get_strategy_parameters("momentum")
-    print(f"Momentum Strategy Parameters: {strategy_params}")
-
-    # Test secure API handling - This will show masked values in the output
-    # In a real app, this would be retrieved from environment variables
-    print("\n=== TESTING SECURE API HANDLING ===")
-    api_keys = config_manager.get_api_keys("kraken")
-    # Safely display secrets by masking them
-    key = api_keys.get("key")
-    secret = api_keys.get("secret")
-    masked_api_keys = {
-        "key": "xxxx" + key[-4:] if key else None,
-        "secret": "xxxx" + secret[-4:] if secret else None,
-    }
-    print(f"Kraken API Keys (masked): {masked_api_keys}")
-
-    print("\n=== TESTING CONFIG RELOAD ===")
-    # Modify the config file to introduce a validation error
-    print("Modifying config to introduce an error...")
-    # Use a properly typed dictionary for mypy
-    trading_section = dummy_data.get("trading", {})
-    if isinstance(trading_section, dict):
-        trading_section["pairs"] = ["Invalid_Pair_Format"]  # Will fail validation
-    with open(dummy_config_path, "w") as f:
-        yaml.dump(dummy_data, f, default_flow_style=False)
-
-    # Reload configuration
-    reload_errors = config_manager.reload_config()
-    print(f"Configuration valid after reload: {config_manager.is_valid()}")
-
-    if reload_errors:
-        print("Reload validation errors:")
-        for error in reload_errors:
-            print(f"  - {error}")
-
-    # Fix the error and reload again
-    print("\nFixing the error and reloading...")
-    # Use a properly typed dictionary for mypy
-    trading_section = dummy_data.get("trading", {})
-    if isinstance(trading_section, dict):
-        trading_section["pairs"] = ["XRP/USD", "DOGE/USD"]  # Fixed format
-    with open(dummy_config_path, "w") as f:
-        yaml.dump(dummy_data, f, default_flow_style=False)
-
-    reload_errors = config_manager.reload_config()
-    print(f"Configuration valid after fixing: {config_manager.is_valid()}")
-
-    # Clean up dummy file (commented out for inspection)
-    # os.remove(dummy_config_path)
-    # os.rmdir(dummy_config_dir) # Only if empty
-    print(f"\n(Remember to manually delete {dummy_config_path} and {dummy_config_dir} if needed)")

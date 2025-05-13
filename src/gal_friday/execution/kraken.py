@@ -61,7 +61,8 @@ class KrakenExecutionHandler(ExecutionHandler):
         """
         Initialize the Kraken-specific execution handler.
 
-        Args:
+        Args
+        ----
             config_manager: Configuration manager instance
             pubsub_manager: PubSub manager for event handling
             monitoring_service: Monitoring service for tracking orders and performance
@@ -96,13 +97,16 @@ class KrakenExecutionHandler(ExecutionHandler):
         """
         Get the Kraken API endpoint path for a given action.
 
-        Args:
+        Args
+        ----
             action: The action to perform (add_order, cancel_order, etc.)
 
-        Returns:
+        Returns
+        -------
             The API endpoint path
 
-        Raises:
+        Raises
+        ------
             ValueError: If the action is unknown
         """
         endpoints = {
@@ -157,11 +161,13 @@ class KrakenExecutionHandler(ExecutionHandler):
         """
         Translate internal order details to Kraken API parameters.
 
-        Args:
+        Args
+        ----
             internal_data: Internal order parameters
             action: The action being performed
 
-        Returns:
+        Returns
+        -------
             Kraken-specific parameters
         """
         kraken_params: Dict[str, Any] = {"nonce": int(time.time() * 1000)}
@@ -183,11 +189,13 @@ class KrakenExecutionHandler(ExecutionHandler):
         """
         Generate Kraken-specific authentication headers.
 
-        Args:
+        Args
+        ----
             uri_path: API endpoint path
             request_data: Request parameters (the dictionary, not urlencoded string)
 
-        Returns:
+        Returns
+        -------
             Authentication headers
         """
         if not self._api_key or not self._api_secret:
@@ -209,11 +217,13 @@ class KrakenExecutionHandler(ExecutionHandler):
         """
         Parse Kraken's response for a given action into a standard format.
 
-        Args:
+        Args
+        ----
             response_data: Raw response from Kraken API
             action: The action that was performed
 
-        Returns:
+        Returns
+        -------
             Standardized response dictionary
         """
         parsed: Dict[str, Any] = {"success": False, "data": None, "error": None}
@@ -256,12 +266,14 @@ class KrakenExecutionHandler(ExecutionHandler):
 
         This method now matches the superclass signature.
 
-        Args:
+        Args
+        ----
             uri_path: API endpoint path
             data: Request parameters as a dictionary
             nonce: Unique nonce value
 
-        Returns:
+        Returns
+        -------
             Base64-encoded signature
         """
         if self._api_secret is None:
@@ -290,10 +302,12 @@ class KrakenExecutionHandler(ExecutionHandler):
         """
         Place an order on the Kraken exchange.
 
-        Args:
+        Args
+        ----
             order_details: Dictionary containing order details
 
-        Returns:
+        Returns
+        -------
             Response containing order status
         """
         # Add Kraken-specific validation
@@ -328,10 +342,12 @@ class KrakenExecutionHandler(ExecutionHandler):
 
         This method now implements the cancellation fully and returns bool.
 
-        Args:
+        Args
+        ----
             order_id: The ID of the order to cancel
 
-        Returns:
+        Returns
+        -------
             True if cancellation was successful (or acknowledged by Kraken), False otherwise.
         """
         self.logger.info(f"Cancelling order: {order_id}", source_module=self.__class__.__name__)
@@ -381,10 +397,12 @@ class KrakenExecutionHandler(ExecutionHandler):
 
         This method now implements the status retrieval fully.
 
-        Args:
+        Args
+        ----
             order_id: The ID of the order to check
 
-        Returns:
+        Returns
+        -------
             Response containing order status
         """
         # Construct log message to handle potentially long order_id

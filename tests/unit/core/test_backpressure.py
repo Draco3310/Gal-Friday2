@@ -18,7 +18,8 @@ class CustomBackpressureStrategy(BackpressureStrategy):
     def __init__(self, allowed_event_types=None):
         """Initialize the custom backpressure strategy.
 
-        Args:
+        Args
+        ----
             allowed_event_types: List of event types that should be accepted
         """
         self.allowed_event_types = allowed_event_types or []

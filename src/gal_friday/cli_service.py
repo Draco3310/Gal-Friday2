@@ -87,7 +87,8 @@ class CLIService:
         """
         Initialize the CLIService.
 
-        Args:
+        Args
+        ----
             monitoring_service: Instance of the MonitoringService.
             main_app_controller: Instance of the main application controller/orchestrator
                                  which must have an async shutdown() method.

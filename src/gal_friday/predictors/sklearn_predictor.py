@@ -19,10 +19,12 @@ class SklearnPredictor(PredictorInterface):
     def load_model(self) -> Any:
         """Load a scikit-learn model from the specified path using joblib.
 
-        Returns:
+        Returns
+        -------
             The loaded scikit-learn model
 
-        Raises:
+        Raises
+        ------
             FileNotFoundError: If the model file does not exist
             Exception: If the model cannot be loaded for any other reason
         """
@@ -45,15 +47,18 @@ class SklearnPredictor(PredictorInterface):
     def predict(self, features: np.ndarray) -> np.ndarray:
         """Generate predictions using the scikit-learn model.
 
-        Args:
+        Args
+        ----
             features: A numpy array of preprocessed features
 
-        Returns:
+        Returns
+        -------
             Prediction results as a numpy array.
             For classifiers with predict_proba, returns class probabilities.
             For regressors or classifiers without predict_proba, returns predicted values.
 
-        Raises:
+        Raises
+        ------
             ValueError: If features have wrong shape or contain invalid values
             TypeError: If model is not properly loaded
             Exception: If prediction fails for any other reason
@@ -90,7 +95,8 @@ class SklearnPredictor(PredictorInterface):
     def expected_feature_names(self) -> Optional[List[str]]:
         """Return the list of feature names the model expects.
 
-        Returns:
+        Returns
+        -------
             List of feature names or None if not available
         """
         if not hasattr(self, "_expected_features") or self._expected_features is None:

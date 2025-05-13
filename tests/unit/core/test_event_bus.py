@@ -12,7 +12,8 @@ class TestEvent(Event):
     def __init__(self, value):
         """Initialize a test event.
 
-        Args:
+        Args
+        ----
             value: The test value to store in the event
         """
         self.value = value

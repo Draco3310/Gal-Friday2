@@ -39,10 +39,12 @@ log = logging.getLogger(__name__)
 def load_historical_data(config: "ConfigManager") -> pd.DataFrame:
     """Load and prepare historical data for a single pair.
 
-    Args:
+    Args
+    ----
         config: Configuration manager instance containing data paths and trading pairs
 
-    Returns:
+    Returns
+    -------
         DataFrame containing cleaned and prepared historical data
     """
     data_path = config.get("backtest.data_path")
@@ -114,11 +116,13 @@ def load_historical_data(config: "ConfigManager") -> pd.DataFrame:
 def generate_features(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame:
     """Generate features based on configuration.
 
-    Args:
+    Args
+    ----
         df: Input DataFrame containing raw OHLCV data
         config: Configuration manager instance containing feature settings
 
-    Returns:
+    Returns
+    -------
         DataFrame with additional technical analysis features
     """
     log.info("Generating features...")
@@ -186,11 +190,13 @@ def generate_features(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame
 def generate_labels(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame:
     """Generate the target variable (label) based on future price movement.
 
-    Args:
+    Args
+    ----
         df: Input DataFrame containing OHLCV and feature data
         config: Configuration manager instance containing labeling parameters
 
-    Returns:
+    Returns
+    -------
         DataFrame with added target labels
     """
     log.info("Generating labels...")
@@ -242,11 +248,13 @@ def split_data(
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     """Split data chronologically into training and testing sets.
 
-    Args:
+    Args
+    ----
         df: Input DataFrame containing features and labels
         config: Configuration manager instance containing split parameters
 
-    Returns:
+    Returns
+    -------
         Tuple containing (X_train, X_test, y_train, y_test)
     """
     log.info("Splitting data...")
@@ -286,14 +294,16 @@ def train_model(
 ) -> xgb.XGBClassifier:
     """Train an XGBoost model with the provided data.
 
-    Args:
+    Args
+    ----
         X_train: Training features
         y_train: Training labels
         X_test: Test features
         y_test: Test labels
         config: Configuration manager instance containing model parameters
 
-    Returns:
+    Returns
+    -------
         Trained XGBoost classifier model
     """
     log.info("Training XGBoost model...")
@@ -333,7 +343,8 @@ def train_model(
 def evaluate_model(model: xgb.XGBClassifier, X_test: pd.DataFrame, y_test: pd.Series) -> None:
     """Evaluate model performance on test data.
 
-    Args:
+    Args
+    ----
         model: Trained XGBoost classifier
         X_test: Test features
         y_test: Test labels
@@ -359,7 +370,8 @@ def evaluate_model(model: xgb.XGBClassifier, X_test: pd.DataFrame, y_test: pd.Se
 def save_model(model: xgb.XGBClassifier, config: "ConfigManager") -> None:
     """Save the trained model to disk.
 
-    Args:
+    Args
+    ----
         model: Trained XGBoost classifier to save
         config: Configuration manager instance containing save path
     """

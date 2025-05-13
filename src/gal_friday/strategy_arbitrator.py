@@ -58,7 +58,8 @@ class StrategyArbitrator:
     ):
         """Initialize the StrategyArbitrator.
 
-        Args:
+        Args
+        ----
             config (dict): Configuration settings. Expected structure:
                 strategy_arbitrator:
                   strategies:

@@ -69,7 +69,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     ):  # Standard Python Logger
         """Initialize the service with historical market data.
 
-        Args:
+        Args
+        ----
             historical_data: A dictionary where keys are trading pairs (e.g., "XRP/USD")
                              and values are pandas DataFrames containing OHLCV data
                              indexed by timestamp (UTC).
@@ -413,10 +414,12 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
         This is an internal method.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
 
-        Returns:
+        Returns
+        -------
             The configured price (e.g. 'close') as a Decimal, or None if unavailable.
         """
         if self._current_timestamp is None:
@@ -633,10 +636,12 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     ) -> Optional[Dict[str, List[List[str]]]]:
         """Generate a simulated order book snapshot with market depth.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
 
-        Returns:
+        Returns
+        -------
             A dictionary with 'bids' and 'asks' lists, or None if depth cannot be generated.
             Each inner list is [price_str, volume_str].
         """
@@ -708,18 +713,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 break  # Stop if volume is zero or less
 
             if i == 0:  # BBO level
-                bids_levels.append(
-                    [
-                        price_format_str.format(current_bid_for_level),
-                        volume_format_str.format(current_volume_for_level),
-                    ]
-                )
-                asks_levels.append(
-                    [
-                        price_format_str.format(current_ask_for_level),
-                        volume_format_str.format(current_volume_for_level),
-                    ]
-                )
+                bids_levels.append([
+                    price_format_str.format(current_bid_for_level),
+                    volume_format_str.format(current_volume_for_level),
+                ])
+                asks_levels.append([
+                    price_format_str.format(current_ask_for_level),
+                    volume_format_str.format(current_volume_for_level),
+                ])
             else:
                 # Ensure subsequent levels do not cross or create invalid book structure
                 # (e.g. new bid > best_ask or new_ask < best_bid)
@@ -744,19 +745,15 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     )
                     # Allow asks to continue if bids hit zero
                 else:
-                    bids_levels.append(
-                        [
-                            price_format_str.format(current_bid_for_level),
-                            volume_format_str.format(current_volume_for_level),
-                        ]
-                    )
-
-                asks_levels.append(
-                    [
-                        price_format_str.format(current_ask_for_level),
+                    bids_levels.append([
+                        price_format_str.format(current_bid_for_level),
                         volume_format_str.format(current_volume_for_level),
-                    ]
-                )
+                    ])
+
+                asks_levels.append([
+                    price_format_str.format(current_ask_for_level),
+                    volume_format_str.format(current_volume_for_level),
+                ])
 
             # Calculate prices for the *next* level (i+1)
             if current_level_bid_price > Decimal(0):  # Avoid issues if bid is already zero

@@ -110,7 +110,8 @@ class DataIngestor:
     ):
         """Initialize the DataIngestor.
 
-        Args:
+        Args
+        ----
             config: The application's configuration manager
             pubsub_manager: The application's PubSubManager instance
             logger_service: The shared logger service instance
@@ -176,7 +177,8 @@ class DataIngestor:
     def _build_subscription_message(self) -> Optional[str]:
         """Build the Kraken WebSocket v2 subscription message.
 
-        Returns:
+        Returns
+        -------
             Optional[str]: The subscription message JSON string or None if no subscriptions
         """
         subscriptions_params = []
@@ -287,7 +289,8 @@ class DataIngestor:
     async def _establish_connection(self) -> bool:
         """Establish WebSocket connection.
 
-        Returns:
+        Returns
+        -------
             bool: True if connection was established successfully
         """
         self.logger.info(
@@ -329,10 +332,12 @@ class DataIngestor:
     async def _setup_connection(self, subscription_msg: str) -> bool:
         """Set up the connection by starting liveness monitor and subscribing.
 
-        Args:
+        Args
+        ----
             subscription_msg: The subscription message to send
 
-        Returns:
+        Returns
+        -------
             bool: True if setup was successful
         """
         try:
@@ -385,7 +390,8 @@ class DataIngestor:
     def _handle_connection_error(self, error: Exception) -> None:
         """Handle connection errors.
 
-        Args:
+        Args
+        ----
             error: The error that occurred
         """
         self.logger.error(
@@ -541,7 +547,8 @@ class DataIngestor:
     async def _handle_method_message(self, data: dict) -> None:
         """Handle method-type messages (e.g., subscription acknowledgments).
 
-        Args:
+        Args
+        ----
             data: The message data
         """
         if data.get("method") == "subscribe":
@@ -551,7 +558,8 @@ class DataIngestor:
     async def _handle_channel_message(self, data: dict) -> None:
         """Handle channel-type messages (e.g., market data).
 
-        Args:
+        Args
+        ----
             data: The message data
         """
         channel = data["channel"]
@@ -670,10 +678,12 @@ class DataIngestor:
     async def _handle_book_data(self, data: dict) -> bool:
         """Handle book data message.
 
-        Args:
+        Args
+        ----
             data: The book data message
 
-        Returns:
+        Returns
+        -------
             bool: True if successful, False otherwise
         """
         if not self._validate_book_message(data):
@@ -715,10 +725,12 @@ class DataIngestor:
     def _validate_book_message(self, data: dict) -> bool:
         """Validate the overall book message structure.
 
-        Args:
+        Args
+        ----
             data: The book data message
 
-        Returns:
+        Returns
+        -------
             bool: True if valid, False otherwise
         """
         if not isinstance(data.get("data"), list):
@@ -741,10 +753,12 @@ class DataIngestor:
     def _validate_book_item(self, book_item: dict) -> bool:
         """Validate an individual book item.
 
-        Args:
+        Args
+        ----
             book_item: The book item to validate
 
-        Returns:
+        Returns
+        -------
             bool: True if valid, False otherwise
         """
         if not isinstance(book_item, dict):
@@ -795,14 +809,16 @@ class DataIngestor:
     ) -> bool:
         """Process a validated book item.
 
-        Args:
+        Args
+        ----
             book_state: Current book state to update
             book_item: Book data from exchange
             symbol: Trading pair symbol
             received_checksum: Checksum from exchange
             is_snapshot: Whether this is a snapshot or update
 
-        Returns:
+        Returns
+        -------
             bool: True if processing was successful, False otherwise
         """
         try:
@@ -837,13 +853,15 @@ class DataIngestor:
     ) -> bool:
         """Apply a book snapshot to the book state.
 
-        Args:
+        Args
+        ----
             book_state: Current book state to update
             book_item: Snapshot data from exchange
             symbol: Trading pair symbol
             received_checksum: Checksum from exchange
 
-        Returns:
+        Returns
+        -------
             bool: True if snapshot was applied successfully
         """
         book_state["asks"].clear()
@@ -875,12 +893,14 @@ class DataIngestor:
     def _apply_book_update(self, book_state: dict, book_item: dict, symbol: str) -> bool:
         """Apply book updates to the book state.
 
-        Args:
+        Args
+        ----
             book_state: Current book state to update
             book_item: Update data from exchange
             symbol: Trading pair symbol
 
-        Returns:
+        Returns
+        -------
             bool: True if any updates were applied
         """
         asks_updated = self._update_price_levels(
@@ -905,13 +925,15 @@ class DataIngestor:
     ) -> bool:
         """Update price levels for one side of the book.
 
-        Args:
+        Args
+        ----
             book_side: SortedDict containing the side's price levels
             updates: List of updates from exchange
             symbol: Trading pair symbol
             side: Side being updated ("bid" or "ask")
 
-        Returns:
+        Returns
+        -------
             bool: True if any updates were applied
         """
         updated = False
@@ -940,12 +962,14 @@ class DataIngestor:
     ) -> bool:
         """Truncate book to subscribed depth.
 
-        Args:
+        Args
+        ----
             book_state: Current book state to truncate
             symbol: Trading pair symbol
             valid_after_apply: Current validity state
 
-        Returns:
+        Returns
+        -------
             bool: Updated validity state
         """
         # Bids: Remove lowest price bids if count > depth
@@ -977,13 +1001,15 @@ class DataIngestor:
     ) -> bool:
         """Validate and update book checksum.
 
-        Args:
+        Args
+        ----
             book_state: Current book state
             symbol: Trading pair symbol
             received_checksum: Checksum from exchange
             valid_after_apply: Whether updates were applied
 
-        Returns:
+        Returns
+        -------
             bool: True if checksum is valid
         """
         if received_checksum is not None and valid_after_apply:
@@ -1024,7 +1050,8 @@ class DataIngestor:
     ) -> None:
         """Handle checksum mismatch case.
 
-        Args:
+        Args
+        ----
             book_state: Current book state
             symbol: Trading pair symbol
             local_checksum: Locally calculated checksum
@@ -1051,12 +1078,14 @@ class DataIngestor:
     ) -> bool:
         """Handle case where no updates were applied.
 
-        Args:
+        Args
+        ----
             book_state: Current book state
             symbol: Trading pair symbol
             received_checksum: Checksum from exchange
 
-        Returns:
+        Returns
+        -------
             bool: True if state is valid
         """
         if book_state["checksum"] == received_checksum:
@@ -1274,10 +1303,12 @@ class DataIngestor:
     def _validate_ohlc_message(self, data: Dict[str, Any]) -> bool:
         """Validate the overall OHLC message structure.
 
-        Args:
+        Args
+        ----
             data: The OHLC data message
 
-        Returns:
+        Returns
+        -------
             bool: True if valid, False otherwise
         """
         if not isinstance(data.get("data"), list):
@@ -1300,10 +1331,12 @@ class DataIngestor:
     def _validate_ohlc_params(self, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[int]]:
         """Validate and extract OHLC parameters.
 
-        Args:
+        Args
+        ----
             params: Parameters dictionary from the message
 
-        Returns:
+        Returns
+        -------
             Tuple containing symbol and interval integer, or None for invalid values
         """
         symbol = params.get("symbol")
@@ -1328,10 +1361,12 @@ class DataIngestor:
     def _get_interval_string(self, interval_int: int) -> str:
         """Convert interval integer to readable string format.
 
-        Args:
+        Args
+        ----
             interval_int: The integer interval from Kraken
 
-        Returns:
+        Returns
+        -------
             str: The human-readable interval string
         """
         return (
@@ -1343,11 +1378,13 @@ class DataIngestor:
     def _validate_ohlc_item(self, ohlc_item: List[Any], symbol: str) -> bool:
         """Validate a single OHLC item.
 
-        Args:
+        Args
+        ----
             ohlc_item: The OHLC data item to validate
             symbol: Trading pair symbol
 
-        Returns:
+        Returns
+        -------
             bool: True if valid, False otherwise
         """
         if not isinstance(ohlc_item, list) or len(ohlc_item) < 7:
@@ -1401,7 +1438,8 @@ class DataIngestor:
     ) -> None:
         """Process and publish a validated OHLC item.
 
-        Args:
+        Args
+        ----
             ohlc_item: The validated OHLC data item
             symbol: Trading pair symbol
             interval_str: Human-readable interval string
@@ -1453,7 +1491,8 @@ class DataIngestor:
     async def _reconnect_with_backoff(self) -> bool:
         """Attempt reconnection with exponential backoff and jitter.
 
-        Returns:
+        Returns
+        -------
             bool: True if reconnection was successful, False if max retries exceeded
         """
         retry_count = 0
@@ -1521,7 +1560,8 @@ async def main() -> None:
 def _create_test_config() -> dict:
     """Create test configuration.
 
-    Returns:
+    Returns
+    -------
         dict: Test configuration
     """
     return {
@@ -1545,7 +1585,8 @@ async def _run_test(
 ) -> None:
     """Run the test with the given configuration.
 
-    Args:
+    Args
+    ----
         config: Test configuration
         event_bus: Event bus for communication
         logger_service: Logger service instance
@@ -1592,7 +1633,8 @@ async def _run_test(
 async def _run_event_consumer(event_bus: asyncio.Queue) -> None:
     """Run the event consumer.
 
-    Args:
+    Args
+    ----
         event_bus: Event bus to consume from
     """
     while True:

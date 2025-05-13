@@ -19,11 +19,13 @@ class ConfigManagerProtocol(Protocol):
     def get(self, key: str, default: Any = None) -> Any:
         """Get a configuration value by key.
 
-        Args:
+        Args
+        ----
             key: The configuration key to look up
             default: Default value if key not found
 
-        Returns:
+        Returns
+        -------
             The configuration value or default if not found
         """
         ...
@@ -31,11 +33,13 @@ class ConfigManagerProtocol(Protocol):
     def get_int(self, key: str, default: int = 0) -> int:
         """Get an integer configuration value by key.
 
-        Args:
+        Args
+        ----
             key: The configuration key to look up
             default: Default integer value if key not found
 
-        Returns:
+        Returns
+        -------
             The integer configuration value or default if not found
         """
         ...
@@ -43,11 +47,13 @@ class ConfigManagerProtocol(Protocol):
     def get_bool(self, key: str, default: bool = False) -> bool:
         """Get a boolean configuration value by key.
 
-        Args:
+        Args
+        ----
             key: The configuration key to look up
             default: Default boolean value if key not found
 
-        Returns:
+        Returns
+        -------
             The boolean configuration value or default if not found
         """
         ...
@@ -60,7 +66,8 @@ class LoggerServiceProtocol(Protocol):
     def info(self, msg: str, source_module: str = "?", **kwargs: Any) -> None:
         """Log an info message.
 
-        Args:
+        Args
+        ----
             msg: The message to log
             source_module: The source module name
             **kwargs: Additional logging context
@@ -70,7 +77,8 @@ class LoggerServiceProtocol(Protocol):
     def debug(self, msg: str, source_module: str = "?", **kwargs: Any) -> None:
         """Log a debug message.
 
-        Args:
+        Args
+        ----
             msg: The message to log
             source_module: The source module name
             **kwargs: Additional logging context
@@ -80,7 +88,8 @@ class LoggerServiceProtocol(Protocol):
     def warning(self, msg: str, source_module: str = "?", **kwargs: Any) -> None:
         """Log a warning message.
 
-        Args:
+        Args
+        ----
             msg: The message to log
             source_module: The source module name
             **kwargs: Additional logging context
@@ -90,7 +99,8 @@ class LoggerServiceProtocol(Protocol):
     def error(self, msg: str, source_module: str = "?", **kwargs: Any) -> None:
         """Log an error message.
 
-        Args:
+        Args
+        ----
             msg: The message to log
             source_module: The source module name
             **kwargs: Additional logging context
@@ -100,7 +110,8 @@ class LoggerServiceProtocol(Protocol):
     def critical(self, msg: str, source_module: str = "?", **kwargs: Any) -> None:
         """Log a critical message.
 
-        Args:
+        Args
+        ----
             msg: The message to log
             source_module: The source module name
             **kwargs: Additional logging context
@@ -115,7 +126,8 @@ class PubSubManagerProtocol(Protocol):
     def subscribe(self, event_type: Any, handler: Callable) -> None:
         """Subscribe a handler to an event type.
 
-        Args:
+        Args
+        ----
             event_type: The type of event to subscribe to
             handler: The callback function to handle the event
         """
@@ -124,11 +136,13 @@ class PubSubManagerProtocol(Protocol):
     def unsubscribe(self, event_type: Any, handler: Callable) -> bool:
         """Unsubscribe a handler from an event type.
 
-        Args:
+        Args
+        ----
             event_type: The type of event to unsubscribe from
             handler: The callback function to remove
 
-        Returns:
+        Returns
+        -------
             True if successfully unsubscribed, False otherwise
         """
         ...
@@ -136,7 +150,8 @@ class PubSubManagerProtocol(Protocol):
     async def publish(self, event: Any) -> None:
         """Publish an event to all subscribed handlers.
 
-        Args:
+        Args
+        ----
             event: The event to publish
         """
         ...
@@ -149,10 +164,12 @@ class MarketPriceServiceProtocol(Protocol):
     async def get_latest_price(self, trading_pair: str) -> Optional[Decimal]:
         """Get the latest price for a trading pair.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair to get price for
 
-        Returns:
+        Returns
+        -------
             The latest price or None if not available
         """
         ...
@@ -160,10 +177,12 @@ class MarketPriceServiceProtocol(Protocol):
     async def get_bid_ask_spread(self, trading_pair: str) -> Optional[Tuple[Decimal, Decimal]]:
         """Get the current bid-ask spread for a trading pair.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair to get spread for
 
-        Returns:
+        Returns
+        -------
             Tuple of (bid, ask) prices or None if not available
         """
         ...
@@ -176,7 +195,8 @@ class ReconcilableExecutionHandler(Protocol):
     async def get_account_balances(self) -> Dict[str, Decimal]:
         """Get current account balances from the exchange.
 
-        Returns:
+        Returns
+        -------
             Dictionary mapping asset symbols to their balances
         """
         ...
@@ -184,7 +204,8 @@ class ReconcilableExecutionHandler(Protocol):
     async def get_open_positions(self) -> Dict[str, PositionInfo]:
         """Get current open positions from the exchange.
 
-        Returns:
+        Returns
+        -------
             Dictionary mapping trading pairs to their position information
         """
         ...
@@ -204,11 +225,13 @@ class MockConfigManager:
     def get(self, key: str, default: Any = None) -> Any:
         """Get a mock configuration value.
 
-        Args:
+        Args
+        ----
             key: The configuration key to look up
             default: Default value if key not found
 
-        Returns:
+        Returns
+        -------
             Predefined mock values for testing or default
         """
         if key == "portfolio.initial_capital":
@@ -222,11 +245,13 @@ class MockConfigManager:
     def get_int(self, key: str, default: int = 0) -> int:
         """Get a mock integer configuration value.
 
-        Args:
+        Args
+        ----
             key: The configuration key to look up
             default: Default integer value if key not found
 
-        Returns:
+        Returns
+        -------
             Predefined mock integer values for testing or default
         """
         if key == "portfolio.drawdown.daily_reset_hour_utc":
@@ -240,11 +265,13 @@ class MockConfigManager:
     def get_bool(self, key: str, default: bool = False) -> bool:
         """Get a mock boolean configuration value.
 
-        Args:
+        Args
+        ----
             key: The configuration key to look up
             default: Default boolean value if key not found
 
-        Returns:
+        Returns
+        -------
             Predefined mock boolean values for testing or default
         """
         if key == "portfolio.reconciliation.auto_update":
@@ -258,7 +285,8 @@ class MockLoggerService:
     def info(self, msg: str, source_module: str = "?", **kwargs: Any) -> None:
         """Print an info level log message.
 
-        Args:
+        Args
+        ----
             msg: The message to log
             source_module: The source module name
             **kwargs: Additional logging context
@@ -268,7 +296,8 @@ class MockLoggerService:
     def debug(self, msg: str, source_module: str = "?", **kwargs: Any) -> None:
         """Print a debug level log message.
 
-        Args:
+        Args
+        ----
             msg: The message to log
             source_module: The source module name
             **kwargs: Additional logging context
@@ -278,7 +307,8 @@ class MockLoggerService:
     def warning(self, msg: str, source_module: str = "?", **kwargs: Any) -> None:
         """Print a warning level log message.
 
-        Args:
+        Args
+        ----
             msg: The message to log
             source_module: The source module name
             **kwargs: Additional logging context
@@ -288,7 +318,8 @@ class MockLoggerService:
     def error(self, msg: str, source_module: str = "?", **kwargs: Any) -> None:
         """Print an error level log message.
 
-        Args:
+        Args
+        ----
             msg: The message to log
             source_module: The source module name
             **kwargs: Additional logging context
@@ -298,7 +329,8 @@ class MockLoggerService:
     def critical(self, msg: str, source_module: str = "?", **kwargs: Any) -> None:
         """Print a critical level log message.
 
-        Args:
+        Args
+        ----
             msg: The message to log
             source_module: The source module name
             **kwargs: Additional logging context
@@ -312,7 +344,8 @@ class MockPubSubManager:
     def __init__(self, logger: Any) -> None:
         """Initialize the mock pubsub manager.
 
-        Args:
+        Args
+        ----
             logger: Logger instance for debug output
         """
         self._logger = logger
@@ -321,7 +354,8 @@ class MockPubSubManager:
     async def publish(self, event: Any) -> None:
         """Publish an event to all subscribed handlers.
 
-        Args:
+        Args
+        ----
             event: The event to publish
         """
         print(f"MockPublish: {event}")
@@ -336,7 +370,8 @@ class MockPubSubManager:
     def subscribe(self, event_type: Any, handler: Callable) -> None:
         """Subscribe a handler to an event type.
 
-        Args:
+        Args
+        ----
             event_type: The type of event to subscribe to
             handler: The callback function to handle the event
         """
@@ -347,11 +382,13 @@ class MockPubSubManager:
     def unsubscribe(self, event_type: Any, handler: Callable) -> bool:
         """Unsubscribe a handler from an event type.
 
-        Args:
+        Args
+        ----
             event_type: The type of event to unsubscribe from
             handler: The callback function to remove
 
-        Returns:
+        Returns
+        -------
             True if successfully unsubscribed, False otherwise
         """
         etype_name = getattr(event_type, "name", str(event_type))
@@ -369,10 +406,12 @@ class MockMarketPriceService:
     async def get_latest_price(self, trading_pair: str) -> Optional[Decimal]:
         """Get a mock latest price for a trading pair.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair to get price for
 
-        Returns:
+        Returns
+        -------
             Predefined mock price or None if not available
         """
         if trading_pair == "BTC/USD":
@@ -384,10 +423,12 @@ class MockMarketPriceService:
     async def get_bid_ask_spread(self, trading_pair: str) -> Optional[Tuple[Decimal, Decimal]]:
         """Get a mock bid-ask spread for a trading pair.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair to get spread for
 
-        Returns:
+        Returns
+        -------
             Tuple of predefined mock (bid, ask) prices
         """
         return (Decimal("49999.0"), Decimal("50001.0"))
@@ -399,7 +440,8 @@ class MockExecutionHandler:
     async def get_account_balances(self) -> Dict[str, Decimal]:
         """Get mock account balances.
 
-        Returns:
+        Returns
+        -------
             Dictionary of predefined mock balances
         """
         return {"USD": Decimal("95000.0"), "BTC": Decimal("0.1")}
@@ -407,7 +449,8 @@ class MockExecutionHandler:
     async def get_open_positions(self) -> Dict[str, PositionInfo]:
         """Get mock open positions.
 
-        Returns:
+        Returns
+        -------
             Dictionary of predefined mock positions
         """
         return {
@@ -543,7 +586,8 @@ class EventCapture:
     def capture_event(self, event: Any) -> None:
         """Capture an event for later inspection.
 
-        Args:
+        Args
+        ----
             event: The event to capture
         """
         print(f"Captured event: {event}")
@@ -552,10 +596,12 @@ class EventCapture:
     def get_events_of_type(self, event_type: Any) -> List[Any]:
         """Get all captured events of a specific type.
 
-        Args:
+        Args
+        ----
             event_type: The type of events to retrieve
 
-        Returns:
+        Returns
+        -------
             List of captured events matching the specified type
         """
         return [e for e in self.events if getattr(e, "event_type", None) == event_type]
@@ -571,7 +617,8 @@ class MockEventBus:
     async def publish(self, event: Any) -> None:
         """Publish an event to the mock bus.
 
-        Args:
+        Args
+        ----
             event: The event to publish
         """
         print(f"Publishing event: {event}")

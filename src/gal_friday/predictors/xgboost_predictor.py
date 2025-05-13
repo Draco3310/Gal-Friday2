@@ -21,7 +21,8 @@ class XGBoostPredictor(PredictorInterface):
         """
         Initialize the XGBoost predictor.
 
-        Args:
+        Args
+        ----
             model_path: Path to the XGBoost model file
             model_id: Unique identifier for this model
             config: Additional configuration parameters for this model
@@ -34,10 +35,12 @@ class XGBoostPredictor(PredictorInterface):
     def load_model(self) -> Any:
         """Load an XGBoost model from the specified path.
 
-        Returns:
+        Returns
+        -------
             The loaded XGBoost Booster model
 
-        Raises:
+        Raises
+        ------
             xgb.core.XGBoostError: If the model cannot be loaded
             FileNotFoundError: If the model file does not exist
         """
@@ -66,13 +69,16 @@ class XGBoostPredictor(PredictorInterface):
     def predict(self, features: np.ndarray) -> np.ndarray:
         """Generate predictions using the XGBoost model.
 
-        Args:
+        Args
+        ----
             features: A numpy array of preprocessed features
 
-        Returns:
+        Returns
+        -------
             Prediction results as a numpy array
 
-        Raises:
+        Raises
+        ------
             ValueError: If features have wrong shape or contains invalid values
             TypeError: If model is not properly loaded
             xgb.core.XGBoostError: If prediction fails
@@ -123,7 +129,8 @@ class XGBoostPredictor(PredictorInterface):
     def expected_feature_names(self) -> Optional[List[str]]:
         """Return the list of feature names the model expects.
 
-        Returns:
+        Returns
+        -------
             List of feature names or None if not available
         """
         if not hasattr(self, "_expected_features"):

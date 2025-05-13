@@ -60,7 +60,8 @@ if TYPE_CHECKING:
         ) -> None:
             """Initialize an execution handler.
 
-            Args:
+            Args
+            ----
                 config_manager: Configuration manager instance
                 pubsub_manager: Publish-subscribe manager instance
                 logger_service: Logger service instance
@@ -80,10 +81,12 @@ if TYPE_CHECKING:
         def submit_order(self, order_data: Dict[str, Any]) -> str:
             """Submit an order to the exchange.
 
-            Args:
+            Args
+            ----
                 order_data: Dictionary containing order details
 
-            Returns:
+            Returns
+            -------
                 Order ID from the exchange
             """
             ...
@@ -91,10 +94,12 @@ if TYPE_CHECKING:
         def cancel_order(self, order_id: str) -> bool:
             """Cancel an existing order.
 
-            Args:
+            Args
+            ----
                 order_id: ID of the order to cancel
 
-            Returns:
+            Returns
+            -------
                 True if cancellation was successful, False otherwise
             """
             ...
@@ -127,7 +132,7 @@ try:
     from .feature_engine import FeatureEngine
 except ImportError:
     print("Failed to import FeatureEngine")
-    FeatureEngine = None  # type: ignore[assignment,misc]
+    FeatureEngine = None
 
 try:
     from .prediction_service import PredictionService
@@ -1038,7 +1043,8 @@ def create_arg_parser() -> argparse.ArgumentParser:
 def main(args: Optional[argparse.Namespace] = None) -> None:
     """Execute the application with the given command-line arguments.
 
-    Args:
+    Args
+    ----
         args: Command-line arguments (parsed). If None, arguments will be parsed.
     """
     if args is None:

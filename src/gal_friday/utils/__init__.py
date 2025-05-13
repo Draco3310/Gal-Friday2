@@ -19,7 +19,8 @@ def handle_exceptions(
     """
     Handle exceptions in a standardized way.
 
-    Args:
+    Args
+    ----
         logger: The logger to use for error reporting
         specific_exceptions: Tuple of exception types to catch (defaults to Exception)
         default_return: Value to return on exception
@@ -28,7 +29,8 @@ def handle_exceptions(
         source_module: Source module name for logging
         re_raise: Whether to re-raise the exception after logging
 
-    Returns:
+    Returns
+    -------
         Decorated function
     """
     if specific_exceptions is None:
@@ -75,7 +77,8 @@ async def handle_exceptions_async(
     """
     Handle exceptions in a standardized way for async functions.
 
-    Args:
+    Args
+    ----
         logger: The logger to use for error reporting
         specific_exceptions: Tuple of exception types to catch (defaults to Exception)
         default_return: Value to return on exception
@@ -84,14 +87,15 @@ async def handle_exceptions_async(
         source_module: Source module name for logging
         re_raise: Whether to re-raise the exception after logging
 
-    Returns:
+    Returns
+    -------
         Decorated function
     """
     if specific_exceptions is None:
         specific_exceptions = (Exception,)
 
     def decorator(
-        func: Callable[..., Coroutine[Any, Any, T]]
+        func: Callable[..., Coroutine[Any, Any, T]],
     ) -> Callable[..., Coroutine[Any, Any, T]]:
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:

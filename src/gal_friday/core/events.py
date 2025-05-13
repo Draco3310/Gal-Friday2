@@ -15,7 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 """
 Core Event Definitions for Gal-Friday
 
-Design Notes:
+Design Notes
+ -----
 - Events are implemented as frozen dataclasses for immutability.
 - Financial values (prices, quantities, commissions) in trade-related events
   (signals, execution reports) use decimal.Decimal for precision.
@@ -263,7 +264,8 @@ class TradeSignalProposedEvent(Event):
     ) -> "TradeSignalProposedEvent":
         """Create a validated TradeSignalProposedEvent instance.
 
-        Args:
+        Args
+        ----
             source_module: The module creating this event
             trading_pair: Symbol pair to trade (e.g., "BTC/USDT")
             exchange: Exchange to execute on (e.g., "kraken")
@@ -276,10 +278,12 @@ class TradeSignalProposedEvent(Event):
             triggering_prediction_event_id: UUID of the prediction event that triggered this signal
             triggering_prediction: Full data of the prediction that triggered this signal
 
-        Returns:
+        Returns
+        -------
             A validated TradeSignalProposedEvent instance
 
-        Raises:
+        Raises
+        ------
             ValueError: If any validation check fails
         """
         # Validate inputs
@@ -424,7 +428,8 @@ class TradeSignalApprovedEvent(Event):
     ) -> "TradeSignalApprovedEvent":
         """Create a validated TradeSignalApprovedEvent instance.
 
-        Args:
+        Args
+        ----
             source_module: The module creating this event
             signal_id: UUID of the original trade signal proposal
             trading_pair: Symbol pair to trade (e.g., "BTC/USDT")
@@ -437,10 +442,12 @@ class TradeSignalApprovedEvent(Event):
             risk_parameters: Risk parameters used by RiskManager for approval
             limit_price: Limit price (required for LIMIT orders)
 
-        Returns:
+        Returns
+        -------
             A validated TradeSignalApprovedEvent instance
 
-        Raises:
+        Raises
+        ------
             ValueError: If any validation check fails
         """
         # Validate inputs
@@ -494,7 +501,8 @@ class TradeSignalRejectedEvent(Event):
     ) -> "TradeSignalRejectedEvent":
         """Create a TradeSignalRejectedEvent instance.
 
-        Args:
+        Args
+        ----
             source_module: The module creating this event
             signal_id: UUID of the rejected trade signal proposal
             trading_pair: Symbol pair of the rejected trade
@@ -502,7 +510,8 @@ class TradeSignalRejectedEvent(Event):
             side: Trade direction that was rejected
             reason: Reason for rejection
 
-        Returns:
+        Returns
+        -------
             A TradeSignalRejectedEvent instance
         """
         return cls(
@@ -658,7 +667,8 @@ class ExecutionReportEvent(Event):
     ) -> "ExecutionReportEvent":
         """Create a validated ExecutionReportEvent instance.
 
-        Args:
+        Args
+        ----
             source_module: The module creating this event
             exchange_order_id: Order ID assigned by the exchange
             trading_pair: Symbol pair for the trade (e.g., "BTC/USDT")
@@ -678,10 +688,12 @@ class ExecutionReportEvent(Event):
             timestamp_exchange: Timestamp reported by exchange
             error_message: Error message (if rejected/failed)
 
-        Returns:
+        Returns
+        -------
             A validated ExecutionReportEvent instance
 
-        Raises:
+        Raises
+        ------
             ValueError: If any validation check fails
         """
         # Validate inputs

@@ -60,14 +60,14 @@ We use NumPy style for docstrings. Example of a properly formatted docstring:
 ```python
 def my_function(param1, param2):
     """Do something with parameters.
-    
+
     Parameters
     ----------
     param1 : str
         Description of param1
     param2 : int
         Description of param2
-        
+
     Returns
     -------
     bool
@@ -106,4 +106,4 @@ Our GitHub Actions workflow runs the same checks as pre-commit hooks, plus addit
 - Pull requests to these branches
 - Manual triggers
 
-To ensure your code passes the CI/CD pipeline, run pre-commit hooks and tests locally before pushing. 
+To ensure your code passes the CI/CD pipeline, run pre-commit hooks and tests locally before pushing.

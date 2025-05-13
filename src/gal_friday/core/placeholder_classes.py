@@ -36,7 +36,8 @@ class Event:
     ):
         """Initialize a base Event.
 
-        Args:
+        Args
+        ----
             source_module: The module that created this event
             event_id: Unique identifier for this event
             timestamp: When the event was created, defaults to current time
@@ -75,7 +76,8 @@ class ExecutionReportEvent(Event):
     ):
         """Initialize an execution report event.
 
-        Args:
+        Args
+        ----
             source_module: Module that created this event
             event_id: Unique identifier for this event
             timestamp: When the event was created

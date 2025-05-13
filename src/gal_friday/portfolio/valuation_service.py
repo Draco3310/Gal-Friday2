@@ -22,7 +22,8 @@ class ValuationService:
         """
         Initialize the valuation service.
 
-        Args:
+        Args
+        ----
             logger_service: Logger service for logging
             market_price_service: Service to get market prices
             valuation_currency: Base currency for portfolio valuation
@@ -85,7 +86,8 @@ class ValuationService:
         """
         Configure when drawdown metrics are reset.
 
-        Args:
+        Args
+        ----
             daily_reset_hour_utc: Hour (0-23) in UTC when daily drawdown resets
             weekly_reset_day: Day of week (0=Monday, 6=Sunday) when weekly drawdown resets
         """
@@ -113,11 +115,13 @@ class ValuationService:
         """
         Try to directly convert between currencies using market price.
 
-        Args:
+        Args
+        ----
             from_currency: Source currency
             to_currency: Target currency
 
-        Returns:
+        Returns
+        -------
             Conversion rate if available, None otherwise
         """
         try:
@@ -143,11 +147,13 @@ class ValuationService:
         """
         Try to convert between currencies using inverse market price.
 
-        Args:
+        Args
+        ----
             from_currency: Source currency
             to_currency: Target currency
 
-        Returns:
+        Returns
+        -------
             Conversion rate if available, None otherwise
         """
         try:
@@ -172,11 +178,13 @@ class ValuationService:
         """
         Try to convert between currencies using USD as an intermediate.
 
-        Args:
+        Args
+        ----
             from_currency: Source currency
             to_currency: Target currency
 
-        Returns:
+        Returns
+        -------
             Conversion rate if available, None otherwise
         """
         if from_currency == "USD" or to_currency == "USD":
@@ -207,14 +215,17 @@ class ValuationService:
         """
         Get the conversion rate between two currencies.
 
-        Args:
+        Args
+        ----
             from_currency: Source currency
             to_currency: Target currency
 
-        Returns:
+        Returns
+        -------
             Conversion rate as a Decimal
 
-        Raises:
+        Raises
+        ------
             PriceNotAvailableError: If conversion rate cannot be determined
         """
         # Check for identity conversion
@@ -259,11 +270,13 @@ class ValuationService:
         """
         Calculate total value of all positions in the valuation currency.
 
-        Args:
+        Args
+        ----
             positions: Dictionary of position information
             valuation_currency: Currency for valuation (defaults to instance default)
 
-        Returns:
+        Returns
+        -------
             Tuple of (total_value, has_missing_prices, price_dict)
         """
         if valuation_currency is None:
@@ -334,11 +347,13 @@ class ValuationService:
         """
         Calculate the value of cash balances in valuation currency.
 
-        Args:
+        Args
+        ----
             funds: Dictionary of currency balances
             valuation_currency: Currency for valuation (defaults to instance default)
 
-        Returns:
+        Returns
+        -------
             Tuple of (total_value, has_missing_prices)
         """
         if valuation_currency is None:
@@ -375,11 +390,13 @@ class ValuationService:
         """
         Update total portfolio value, drawdowns, and exposure metrics.
 
-        Args:
+        Args
+        ----
             funds: Dictionary of currency balances
             positions: Dictionary of positions
 
-        Returns:
+        Returns
+        -------
             Tuple of (total_equity, latest_prices, exposure_percentage)
         """
         # Calculate cash value
@@ -493,7 +510,8 @@ class ValuationService:
         """
         Check if daily/weekly peak values should be reset.
 
-        Args:
+        Args
+        ----
             current_time: Current UTC datetime
         """
         # Handle daily reset

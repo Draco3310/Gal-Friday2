@@ -46,7 +46,8 @@ class PositionManager:
         """
         Initialize the position manager.
 
-        Args:
+        Args
+        ----
             logger_service: Logger service for logging
         """
         self.logger = logger_service
@@ -67,10 +68,12 @@ class PositionManager:
         """
         Get position details for a specific trading pair.
 
-        Args:
+        Args
+        ----
             trading_pair: Trading pair symbol (e.g., "BTC/USD")
 
-        Returns:
+        Returns
+        -------
             Position info or None if no position exists
         """
         return self._positions.get(trading_pair)
@@ -83,7 +86,8 @@ class PositionManager:
         """
         Initialize positions from configuration.
 
-        Args:
+        Args
+        ----
             initial_positions: Dictionary of initial positions from config
             split_symbol_func: Function to split trading pair into base/quote
         """
@@ -126,7 +130,8 @@ class PositionManager:
         """
         Update position based on trade execution.
 
-        Args:
+        Args
+        ----
             trading_pair: Trading pair symbol
             base_asset: Base asset symbol
             quote_asset: Quote asset symbol
@@ -138,10 +143,12 @@ class PositionManager:
             commission: Commission amount
             commission_asset: Commission asset symbol
 
-        Returns:
+        Returns
+        -------
             Tuple of (realized_pnl, updated_position)
 
-        Raises:
+        Raises
+        ------
             DataValidationError: If invalid trade data is provided
         """
         # Validate input parameters

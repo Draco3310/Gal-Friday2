@@ -61,7 +61,8 @@ else:
             def get_current_state(self) -> Dict[str, Any]:
                 """Return empty portfolio state dictionary.
 
-                Returns:
+                Returns
+                -------
                     Empty dictionary representing portfolio state
                 """
                 return {}
@@ -83,10 +84,12 @@ else:
             async def get_latest_price(self, trading_pair: str) -> Optional[Decimal]:
                 """Return None as placeholder for latest price.
 
-                Args:
+                Args
+                ----
                     trading_pair: The trading pair to get price for
 
-                Returns:
+                Returns
+                -------
                     None as placeholder
                 """
                 return None
@@ -96,12 +99,14 @@ else:
             ) -> Optional[Decimal]:
                 """Return None as placeholder for currency conversion.
 
-                Args:
+                Args
+                ----
                     from_amount: Amount to convert
                     from_currency: Source currency
                     to_currency: Target currency
 
-                Returns:
+                Returns
+                -------
                     None as placeholder
                 """
                 return None
@@ -154,7 +159,8 @@ class RiskManager:
     ):
         """Initialize the RiskManager with configuration and dependencies.
 
-        Args:
+        Args
+        ----
             config: Configuration settings.
             pubsub_manager: The application PubSubManager instance.
             portfolio_manager: The PortfolioManager instance.
@@ -347,7 +353,8 @@ class RiskManager:
 
         Performs risk checks and publishes approval/rejection.
 
-        Args:
+        Args
+        ----
             event: The proposed trade signal event
         """
         if not isinstance(event, TradeSignalProposedEvent):
@@ -430,7 +437,8 @@ class RiskManager:
     def _get_portfolio_state(self) -> Optional[Dict[str, Any]]:
         """Get current portfolio state.
 
-        Returns:
+        Returns
+        -------
             Dictionary with portfolio state or None if unavailable
         """
         try:
@@ -455,11 +463,13 @@ class RiskManager:
     ) -> Optional[Dict[str, Any]]:
         """Get portfolio state with retries on failure.
 
-        Args:
+        Args
+        ----
             max_retries: Maximum number of retry attempts
             retry_delay_s: Delay between retries in seconds
 
-        Returns:
+        Returns
+        -------
             Dictionary with portfolio state or None if unavailable
         """
         for attempt in range(max_retries + 1):
@@ -494,10 +504,12 @@ class RiskManager:
     ) -> Tuple[Optional[Dict[str, Decimal]], Optional[str]]:
         """Validate portfolio state values.
 
-        Args:
+        Args
+        ----
             portfolio_state: Portfolio state dictionary to validate
 
-        Returns:
+        Returns
+        -------
             Tuple of (validated state dict, error message) where error is None if valid
         """
         try:
@@ -518,10 +530,12 @@ class RiskManager:
     def _check_drawdown_limits(self, portfolio_state: Dict[str, Any]) -> Optional[str]:
         """Check if drawdown limits are exceeded.
 
-        Args:
+        Args
+        ----
             portfolio_state: Current portfolio state
 
-        Returns:
+        Returns
+        -------
             Error message if limits exceeded, None otherwise
         """
         try:
@@ -564,10 +578,12 @@ class RiskManager:
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         """Perform pre-trade risk checks.
 
-        Args:
+        Args
+        ----
             event: The proposed trade signal event
 
-        Returns:
+        Returns
+        -------
             Tuple of (passed, error_message, trade_params)
         """
         signal_id = event.signal_id
@@ -634,11 +650,13 @@ class RiskManager:
     ) -> Tuple[bool, Optional[str], Dict[str, Decimal]]:
         """Check trade prices and validate them.
 
-        Args:
+        Args
+        ----
             event: The proposed trade signal event
             signal_id: The trade signal ID
 
-        Returns:
+        Returns
+        -------
             Tuple of (passed, error_message, prices)
         """
         # Validate price values
@@ -671,7 +689,8 @@ class RiskManager:
     ) -> Tuple[bool, Optional[str], Optional[Decimal]]:
         """Check portfolio exposure, balance, and other limits.
 
-        Args:
+        Args
+        ----
             event: The proposed trade signal event
             signal_id: The trade signal ID
             current_equity: Current portfolio equity
@@ -679,7 +698,8 @@ class RiskManager:
             quote_asset: Quote asset symbol
             portfolio_state: Portfolio state dictionary
 
-        Returns:
+        Returns
+        -------
             Tuple of (passed, error_message, trade_value_in_valuation_currency)
         """
         # Check portfolio exposure
@@ -722,10 +742,12 @@ class RiskManager:
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]], Optional[Dict[str, Decimal]]]:
         """Validate portfolio state for trade.
 
-        Args:
+        Args
+        ----
             event: The proposed trade signal event
 
-        Returns:
+        Returns
+        -------
             Tuple of (passed, error_message, portfolio_state, state_values)
         """
         portfolio_state = self._get_portfolio_state_with_retry()
@@ -747,10 +769,12 @@ class RiskManager:
     ) -> Tuple[bool, Optional[str], Dict[str, Decimal]]:
         """Validate trade entry and stop loss prices.
 
-        Args:
+        Args
+        ----
             event: The proposed trade signal event
 
-        Returns:
+        Returns
+        -------
             Tuple of (passed, error_message, prices_dict)
         """
         entry_price_str = self._get_entry_reference_price(event)
@@ -789,12 +813,14 @@ class RiskManager:
     ) -> Tuple[bool, Optional[str]]:
         """Check for fat finger mistakes in the entry price.
 
-        Args:
+        Args
+        ----
             event: The proposed trade signal event
             signal_id: The trade signal ID
             entry_price: The trade entry price
 
-        Returns:
+        Returns
+        -------
             Tuple of (passed, error_message)
         """
         if not self._market_price_service:
@@ -848,7 +874,8 @@ class RiskManager:
     ) -> Tuple[bool, Optional[str], Optional[Decimal]]:
         """Check portfolio exposure limits.
 
-        Args:
+        Args
+        ----
             event: The proposed trade signal event
             signal_id: The trade signal ID
             current_equity: Current portfolio equity
@@ -856,7 +883,8 @@ class RiskManager:
             quote_asset: Quote asset symbol
             portfolio_state: Current portfolio state
 
-        Returns:
+        Returns
+        -------
             Tuple of (passed, error_message, trade_value_in_valuation_currency)
         """
         trade_value_valuation_ccy, conversion_error = await self._convert_to_valuation_ccy(
@@ -917,13 +945,15 @@ class RiskManager:
     ) -> Tuple[bool, Optional[str]]:
         """Check if there's sufficient balance for the trade.
 
-        Args:
+        Args
+        ----
             signal_id: The trade signal ID
             trade_value_quote: Trade value in quote currency
             quote_asset: Quote asset symbol
             portfolio_state: Current portfolio state
 
-        Returns:
+        Returns
+        -------
             Tuple of (passed, error_message)
         """
         fee_rate = self._exchange_taker_fee_pct / 100
@@ -960,12 +990,14 @@ class RiskManager:
     ) -> Tuple[bool, Optional[str]]:
         """Check if trade exceeds single position limit.
 
-        Args:
+        Args
+        ----
             signal_id: The trade signal ID
             trade_value_valuation_ccy: Trade value in valuation currency
             current_equity: Current portfolio equity
 
-        Returns:
+        Returns
+        -------
             Tuple of (passed, error_message)
         """
         if current_equity > 0:
@@ -1001,7 +1033,8 @@ class RiskManager:
     ) -> Dict[str, Any]:
         """Prepare payload for approved trade signal.
 
-        Args:
+        Args
+        ----
             event: The proposed trade signal event
             signal_id: The trade signal ID
             qty_str: Position quantity as string
@@ -1009,7 +1042,8 @@ class RiskManager:
             sl_price: Stop loss price
             state_values: Portfolio state values
 
-        Returns:
+        Returns
+        -------
             Approved payload dictionary
         """
         # These string conversions are used in the returned payload
@@ -1039,10 +1073,12 @@ class RiskManager:
     def _get_entry_reference_price(self, event: TradeSignalProposedEvent) -> Optional[str]:
         """Get reference price for entry.
 
-        Args:
+        Args
+        ----
             event: The proposed trade signal event
 
-        Returns:
+        Returns
+        -------
             Reference price as string or None if unavailable
         """
         if hasattr(event, "proposed_entry_price") and event.proposed_entry_price:
@@ -1058,13 +1094,15 @@ class RiskManager:
     ) -> Optional[str]:
         """Validate stop loss price.
 
-        Args:
+        Args
+        ----
             signal_id: Trade signal ID
             side: Trade side (BUY/SELL)
             entry_price: Entry price
             sl_price: Stop loss price
 
-        Returns:
+        Returns
+        -------
             Error message if invalid, None if valid
         """
         if side == "BUY" and sl_price >= entry_price:
@@ -1103,13 +1141,15 @@ class RiskManager:
     ) -> Optional[Decimal]:
         """Calculate position size based on risk parameters.
 
-        Args:
+        Args
+        ----
             current_equity: Current portfolio equity
             risk_per_trade_pct: Risk percentage per trade
             entry_price: Entry price
             sl_price: Stop loss price
 
-        Returns:
+        Returns
+        -------
             Position size or None if calculation fails
         """
         if current_equity <= 0:
@@ -1161,7 +1201,8 @@ class RiskManager:
     async def _publish_trade_signal_approved(self, approved_payload_dict: Dict[str, Any]) -> None:
         """Publish trade signal approved event.
 
-        Args:
+        Args
+        ----
             approved_payload_dict: Approved trade signal payload
         """
         try:
@@ -1237,7 +1278,8 @@ class RiskManager:
     async def _publish_trade_signal_rejected(self, rejected_payload_dict: Dict[str, Any]) -> None:
         """Publish trade signal rejected event.
 
-        Args:
+        Args
+        ----
             rejected_payload_dict: Rejected trade signal payload
         """
         try:
@@ -1272,10 +1314,12 @@ class RiskManager:
     def _split_symbol(self, symbol: str) -> Tuple[str, str]:
         """Split trading pair symbol into base and quote.
 
-        Args:
+        Args
+        ----
             symbol: Trading pair symbol (e.g. "BTCUSD")
 
-        Returns:
+        Returns
+        -------
             Tuple of (base_currency, quote_currency)
         """
         parts = symbol.split("/")
@@ -1307,11 +1351,13 @@ class RiskManager:
     ) -> Tuple[Optional[Decimal], Optional[str]]:
         """Convert amount to valuation currency.
 
-        Args:
+        Args
+        ----
             amount: Amount to convert
             currency: Source currency
 
-        Returns:
+        Returns
+        -------
             Tuple of (converted_amount, error_message)
         """
         target_valuation_currency = self._valuation_currency.upper()
@@ -1344,7 +1390,8 @@ class RiskManager:
     async def _handle_execution_report_for_losses(self, event: ExecutionReportEvent) -> None:
         """Handle execution report for loss tracking.
 
-        Args:
+        Args
+        ----
             event: Execution report event
         """
         if not self._is_running:
@@ -1419,7 +1466,8 @@ class RiskManager:
     def _check_consecutive_losses(self) -> Tuple[bool, Optional[str]]:
         """Check if consecutive loss limit is exceeded.
 
-        Returns:
+        Returns
+        -------
             Tuple of (limit_exceeded, error_message)
         """
         if self._consecutive_loss_count >= self._max_consecutive_losses:

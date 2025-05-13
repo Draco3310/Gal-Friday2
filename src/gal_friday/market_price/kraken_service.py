@@ -26,7 +26,8 @@ class KrakenMarketPriceService(MarketPriceService):
         """
         Initialize the Kraken market price service.
 
-        Args:
+        Args
+        ----
             config_manager: Configuration manager instance
             logger_service: Logger service for logging
         """
@@ -60,10 +61,12 @@ class KrakenMarketPriceService(MarketPriceService):
         """
         Get latest price using Kraken public Ticker endpoint.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair to get the price for (e.g., "XBT/USD")
 
-        Returns:
+        Returns
+        -------
             The latest price as a Decimal or None if it couldn't be retrieved.
         """
         if not self._session:
@@ -130,10 +133,12 @@ class KrakenMarketPriceService(MarketPriceService):
         """
         Get best bid/ask using Kraken public Ticker endpoint.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair to get the spread for (e.g., "XBT/USD")
 
-        Returns:
+        Returns
+        -------
             A tuple of (bid_price, ask_price) as Decimals, or None if not retrieved.
         """
         if not self._session:
@@ -201,10 +206,12 @@ class KrakenMarketPriceService(MarketPriceService):
         """
         Map internal trading pair format to Kraken's format.
 
-        Args:
+        Args
+        ----
             internal_pair: Trading pair in internal format (e.g., "BTC/USD")
 
-        Returns:
+        Returns
+        -------
             Trading pair in Kraken format (e.g., "XXBTZUSD"), or None if mapping failed
         """
         if not internal_pair:
@@ -313,12 +320,14 @@ class KrakenMarketPriceService(MarketPriceService):
         """
         Convert an amount from one currency to another using Kraken.
 
-        Args:
+        Args
+        ----
             from_amount: The amount to convert.
             from_currency: The currency of the from_amount (e.g., "BTC").
             to_currency: The target currency (e.g., "USD").
 
-        Returns:
+        Returns
+        -------
             The converted amount as a Decimal, or None if conversion
             is not possible.
         """

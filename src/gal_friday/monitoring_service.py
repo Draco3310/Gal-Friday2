@@ -143,7 +143,8 @@ class MonitoringService:
         """
         Initialize the MonitoringService.
 
-        Args:
+        Args
+        ----
             config_manager: The application's configuration manager instance.
             pubsub_manager: The application's publish/subscribe manager instance.
             portfolio_manager: The application's portfolio manager instance.
@@ -365,7 +366,8 @@ class MonitoringService:
         """
         Halt the system operations.
 
-        Args:
+        Args
+        ----
             reason: The reason for halting the system.
             source: The source triggering the halt (e.g., 'MANUAL', 'AUTO: Max Drawdown').
         """
@@ -477,7 +479,8 @@ class MonitoringService:
         """
         Resume system operations after a HALT.
 
-        Args:
+        Args
+        ----
             source: The source triggering the resume (e.g., 'MANUAL').
         """
         if not self._is_halted:
@@ -498,7 +501,8 @@ class MonitoringService:
         """
         Publish a SystemStateEvent through the PubSubManager.
 
-        Args:
+        Args
+        ----
             new_state: The new system state ("HALTED" or "RUNNING").
             reason: The reason for the state change.
             source: The source triggering the state change.
@@ -529,7 +533,8 @@ class MonitoringService:
         """
         Handle events that suggest a potential HALT condition.
 
-        Args:
+        Args
+        ----
             event: The PotentialHaltTriggerEvent containing halt trigger information.
         """
         if not isinstance(event, PotentialHaltTriggerEvent):
@@ -830,7 +835,8 @@ class MonitoringService:
 
         This helps track market data freshness.
 
-        Args:
+        Args
+        ----
             event: Either a MarketDataL2Event or MarketDataOHLCVEvent
         """
         try:
@@ -879,7 +885,8 @@ class MonitoringService:
 
         Triggers HALT if consecutive loss limit is reached.
 
-        Args:
+        Args
+        ----
             event: An ExecutionReportEvent
         """
         try:
@@ -943,7 +950,8 @@ class MonitoringService:
 
         Triggers HALT if error frequency exceeds threshold.
 
-        Args:
+        Args
+        ----
             event: An APIErrorEvent
         """
         try:

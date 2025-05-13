@@ -14,7 +14,8 @@ class PredictorInterface(ABC):
         """
         Initialize the predictor.
 
-        Args:
+        Args
+        ----
             model_path: Path to the model file
             model_id: Unique identifier for this model
             config: Additional configuration parameters for this model
@@ -36,13 +37,16 @@ class PredictorInterface(ABC):
         """
         Generate predictions from the preprocessed features.
 
-        Args:
+        Args
+        ----
             features: Preprocessed feature vector or matrix
 
-        Returns:
+        Returns
+        -------
             Prediction results as a numpy array
 
-        Raises:
+        Raises
+        ------
             ValueError: If features have wrong shape or contain invalid values
             TypeError: If model is not properly loaded
             Exception: If prediction fails for any other reason

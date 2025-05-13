@@ -56,7 +56,8 @@ class SimulatedExecutionHandler:
     ):  # Added logger_service
         """Initialize the simulation execution handler with required services.
 
-        Args:
+        Args
+        ----
             config_manager: Configuration provider for slippage, fees, etc.
             pubsub_manager: Publish-subscribe manager for event communication
             data_service: Service providing access to historical data
@@ -734,7 +735,8 @@ class SimulatedExecutionHandler:
 
         Called by the backtesting engine for each new bar to monitor active positions.
 
-        Args:
+        Args
+        ----
             current_bar: The OHLCV data for the current simulation time
             bar_timestamp: The timestamp of the current_bar (usually its open time)
         """

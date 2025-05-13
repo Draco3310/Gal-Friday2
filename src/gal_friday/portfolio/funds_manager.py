@@ -19,7 +19,8 @@ class FundsManager:
         """
         Initialize the funds manager.
 
-        Args:
+        Args
+        ----
             logger_service: Logger service for logging
             valuation_currency: Base currency for portfolio valuation
         """
@@ -38,7 +39,8 @@ class FundsManager:
         """
         Initialize funds from configuration.
 
-        Args:
+        Args
+        ----
             initial_capital: Dictionary of initial capital by currency
         """
         async with self._lock:
@@ -65,12 +67,14 @@ class FundsManager:
         """
         Update available funds based on trade execution.
 
-        Args:
+        Args
+        ----
             quote_asset: Quote currency symbol
             side: Trade side ("BUY" or "SELL")
             cost_or_proceeds: Total cost or proceeds amount
 
-        Raises:
+        Raises
+        ------
             DataValidationError: If side is invalid
             InsufficientFundsError: If not enough funds for a buy
         """
@@ -110,7 +114,8 @@ class FundsManager:
         """
         Update funds to account for trading commission.
 
-        Args:
+        Args
+        ----
             commission: Commission amount
             commission_asset: Commission currency symbol
         """
@@ -136,11 +141,13 @@ class FundsManager:
         """
         Record a deposit of funds.
 
-        Args:
+        Args
+        ----
             currency: Currency symbol
             amount: Deposit amount
 
-        Raises:
+        Raises
+        ------
             DataValidationError: If amount is invalid
         """
         if amount <= Decimal(0):
@@ -161,11 +168,13 @@ class FundsManager:
         """
         Record a withdrawal of funds.
 
-        Args:
+        Args
+        ----
             currency: Currency symbol
             amount: Withdrawal amount
 
-        Raises:
+        Raises
+        ------
             DataValidationError: If amount is invalid
             InsufficientFundsError: If not enough funds
         """
@@ -197,7 +206,8 @@ class FundsManager:
         """
         Reconciles internal fund balances with exchange-reported balances.
 
-        Args:
+        Args
+        ----
             exchange_balances: Dictionary of currency to balance from exchange API
         """
         self.logger.info(

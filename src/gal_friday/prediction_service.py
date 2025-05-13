@@ -38,12 +38,14 @@ def _run_inference_task(
     """
     Load a model and run inference in a separate process.
 
-    Args:
+    Args
+    ----
         model_path: Path to the saved model file (e.g., .xgb, .ubj, .json).
         feature_vector: Numpy array of features, ordered correctly.
         model_feature_names: Expected feature names (required for DMatrix).
 
-    Returns:
+    Returns
+    -------
         Dictionary containing prediction results (e.g., {'prediction': 0.72})
         or an error: {'error': 'Error message'}
     """
@@ -97,7 +99,8 @@ class PredictionService:
         """
         Initialize the PredictionService.
 
-        Args:
+        Args
+        ----
             config (dict): Configuration settings. Expected structure:
                  prediction_service:
                     model_path: "/path/to/model/mvp_xgboost_v1.ubj" # Recommend .ubj format
@@ -218,7 +221,8 @@ class PredictionService:
         Validates the event type and schedules the prediction pipeline
         if appropriate.
 
-        Args:
+        Args
+        ----
             event: The feature event containing calculated features
         """
         # Check type
@@ -246,7 +250,8 @@ class PredictionService:
         Processes the input features, runs model inference, and publishes
         the resulting prediction as an event.
 
-        Args:
+        Args
+        ----
             event: The feature event to process
         """
         try:
@@ -328,10 +333,12 @@ class PredictionService:
         ordered according to self._model_feature_names. Handles missing features
         and type conversion errors.
 
-        Args:
+        Args
+        ----
             features: Dictionary of feature name to feature value strings
 
-        Returns:
+        Returns
+        -------
             Numpy array of feature values or None if critical features are missing
         """
         ordered_feature_values = []
@@ -384,7 +391,8 @@ class PredictionService:
         Sends the generated prediction event through the pub/sub manager
         and logs the result.
 
-        Args:
+        Args
+        ----
             event: The prediction event to publish
         """
         try:

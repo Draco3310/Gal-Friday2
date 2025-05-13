@@ -30,7 +30,8 @@ class PubSubManager:
     def __init__(self, logger: logging.Logger, config_manager: ConfigManager):
         """Initialize the PubSub manager.
 
-        Args:
+        Args
+        ----
             logger: Logger instance for reporting operations
             config_manager: Configuration manager for fetching settings
         """

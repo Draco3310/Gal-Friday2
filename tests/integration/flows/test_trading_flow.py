@@ -40,7 +40,8 @@ class MockExecutionHandler(ExecutionHandlerInterface):
     def __init__(self, pubsub):
         """Initialize the mock execution handler.
 
-        Args:
+        Args
+        ----
             pubsub: The publish-subscribe manager to use for event communication.
         """
         self.pubsub = pubsub

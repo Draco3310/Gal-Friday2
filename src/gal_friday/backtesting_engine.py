@@ -334,7 +334,8 @@ class BacktestingEngine:
         """
         Initialize the BacktestingEngine.
 
-        Args:
+        Args
+        ----
             config_manager: The application's configuration manager.
         """
         self.config = config_manager
@@ -361,7 +362,8 @@ class BacktestingEngine:
     def _load_historical_data(self) -> Optional[Dict[str, pd.DataFrame]]:
         """Load, clean, validate, and preprocess historical OHLCV data.
 
-        Returns:
+        Returns
+        -------
             A dictionary mapping trading pairs to their historical data DataFrames,
             or None if loading fails.
         """
@@ -397,11 +399,13 @@ class BacktestingEngine:
     def _filter_pair_data(self, data: pd.DataFrame, pair: str) -> pd.DataFrame:
         """Filter the main DataFrame for one specific trading pair.
 
-        Args:
+        Args
+        ----
             data: The full historical data DataFrame with multiple pairs.
             pair: The trading pair symbol to filter for.
 
-        Returns:
+        Returns
+        -------
             A DataFrame containing only data for the specified pair.
         """
         pair_df = data[data["pair"] == pair].copy()
@@ -439,10 +443,12 @@ class BacktestingEngine:
         - Initial capital and money management settings
         - Slippage settings and ATR period if using volatility-based slippage
 
-        Args:
+        Args
+        ----
             config: Dictionary containing configuration parameters.
 
-        Returns:
+        Returns
+        -------
             Boolean indicating whether the configuration is valid.
         """
         validation_errors = []
@@ -872,10 +878,12 @@ class BacktestingEngine:
     ) -> Optional[Tuple[Dict[str, Any], str]]:
         """Set up the backtest environment including config and output directory.
 
-        Args:
+        Args
+        ----
             start_run_time: The start time of the backtest run.
 
-        Returns:
+        Returns
+        -------
             A tuple of (config, output_directory) if successful, None otherwise.
         """
         try:
@@ -900,7 +908,8 @@ class BacktestingEngine:
     def _load_and_prepare_data(self) -> Optional[Dict[str, pd.DataFrame]]:
         """Load and prepare historical data for the backtest.
 
-        Returns:
+        Returns
+        -------
             A dictionary mapping trading pairs to their historical data DataFrames,
             or None if loading fails.
         """
@@ -926,12 +935,14 @@ class BacktestingEngine:
     ) -> Optional[Tuple[Dict[datetime, Decimal], List[Dict[str, Any]]]]:
         """Execute the backtest simulation.
 
-        Args:
+        Args
+        ----
             services: Dictionary of initialized services.
             historical_data: Dictionary of historical price data by pair.
             config: Backtest configuration parameters.
 
-        Returns:
+        Returns
+        -------
             A tuple of (equity_curve, trade_log) if successful, None otherwise.
         """
         # Initialize results data structures
@@ -1001,14 +1012,16 @@ class BacktestingEngine:
     ) -> Dict[str, Any]:
         """Process the backtest results, calculate metrics, and save to files.
 
-        Args:
+        Args
+        ----
             config: Backtest configuration parameters.
             equity_curve: Dictionary mapping timestamps to equity values.
             trade_log: List of trade dictionaries with entry/exit information.
             run_output_dir: Output directory path.
             start_run_time: Start time of the backtest run.
 
-        Returns:
+        Returns
+        -------
             Dictionary with summary results and metrics.
         """
         log.info("Processing backtest results...")
@@ -1749,20 +1762,18 @@ class BacktestingEngine:
                 )
                 exit_time_str = fill_time.isoformat() if fill_time else ""
 
-                trade_log.append(
-                    {
-                        "signal_id": trade_key,
-                        "pair": trading_pair,
-                        "entry_time": entry_time_str,
-                        "exit_time": exit_time_str,
-                        "side": "LONG",  # Indicate it was a long trade
-                        "quantity": str(fill_qty),  # Log the quantity traded (exit qty)
-                        "entry_price": str(entry_data["entry_price"]),
-                        "exit_price": str(fill_price),
-                        "commission": str(entry_data["commission_entry"] + commission),
-                        "pnl": str(pnl),
-                    }
-                )
+                trade_log.append({
+                    "signal_id": trade_key,
+                    "pair": trading_pair,
+                    "entry_time": entry_time_str,
+                    "exit_time": exit_time_str,
+                    "side": "LONG",  # Indicate it was a long trade
+                    "quantity": str(fill_qty),  # Log the quantity traded (exit qty)
+                    "entry_price": str(entry_data["entry_price"]),
+                    "exit_price": str(fill_price),
+                    "commission": str(entry_data["commission_entry"] + commission),
+                    "pnl": str(pnl),
+                })
                 log.info(f"Closed LONG trade {trade_key} ({trading_pair}). PnL: {pnl:.4f}")
             else:
                 log.warning(

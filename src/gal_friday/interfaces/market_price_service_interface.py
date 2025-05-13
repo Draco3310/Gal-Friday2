@@ -49,10 +49,12 @@ class MarketPriceService(abc.ABC):
         This could be the mid-price, last trade price, or other relevant price
         depending on the implementation and data source.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
 
-        Returns:
+        Returns
+        -------
             The latest price as a Decimal, or None if the price is
             unavailable, stale, or the pair is not supported.
         """
@@ -63,10 +65,12 @@ class MarketPriceService(abc.ABC):
         """
         Get the current best bid and ask prices from the data source.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
 
-        Returns:
+        Returns
+        -------
             A tuple containing (best_bid, best_ask) as Decimals,
             or None if the spread is unavailable, stale, or the pair
             is not supported. Returns None if bid >= ask (crossed book).
@@ -80,10 +84,12 @@ class MarketPriceService(abc.ABC):
 
         Used for get_latest_price() and get_bid_ask_spread().
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
 
-        Returns:
+        Returns
+        -------
             The UTC datetime of the last price update, or None if no data exists.
         """
         raise NotImplementedError
@@ -93,12 +99,14 @@ class MarketPriceService(abc.ABC):
         """
         Check if the price data for a trading pair is recent enough.
 
-        Args:
+        Args
+        ----
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
             max_age_seconds: The maximum allowed age in seconds for the data
                            to be considered fresh. Defaults to 60 seconds.
 
-        Returns:
+        Returns
+        -------
             True if data exists and its timestamp is within max_age_seconds
             from the current time (UTC), False otherwise.
         """
@@ -111,12 +119,14 @@ class MarketPriceService(abc.ABC):
         """
         Convert an amount from one currency to another.
 
-        Args:
+        Args
+        ----
             from_amount: The amount to convert.
             from_currency: The currency of the from_amount (e.g., "BTC").
             to_currency: The target currency (e.g., "USD").
 
-        Returns:
+        Returns
+        -------
             The converted amount as a Decimal, or None if conversion
             is not possible (e.g., unknown currency, no exchange rate).
         """

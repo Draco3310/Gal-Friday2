@@ -62,7 +62,8 @@ class ReconcilableExecutionHandler(Protocol):
         """
         Retrieve account balances from exchange.
 
-        Returns:
+        Returns
+        -------
             Dictionary of currency to available balance amount
         """
         ...
@@ -71,7 +72,8 @@ class ReconcilableExecutionHandler(Protocol):
         """
         Retrieve open positions from exchange.
 
-        Returns:
+        Returns
+        -------
             Dictionary of trading pair to position information
         """
         ...
@@ -99,7 +101,8 @@ class PortfolioManager:
         """
         Initialize the PortfolioManager with required dependencies.
 
-        Args:
+        Args
+        ----
             config_manager: Configuration manager for system settings
             pubsub_manager: Publisher/subscriber manager for event handling
             market_price_service: Service for retrieving market prices
@@ -327,7 +330,8 @@ class PortfolioManager:
 
         Updates portfolio state based on trade execution reports from the exchange.
 
-        Args:
+        Args
+        ----
             event: The execution report event containing trade details
         """
         # In runtime, the event might not be exactly ExecutionReportEvent due to
@@ -420,7 +424,8 @@ class PortfolioManager:
 
         Logs the cancellation event for tracking purposes.
 
-        Args:
+        Args
+        ----
             event: The execution report event with cancellation details
         """
         self.logger.info(
@@ -437,13 +442,16 @@ class PortfolioManager:
 
         Extracts and validates key trade data from execution reports.
 
-        Args:
+        Args
+        ----
             event: The execution report event to parse
 
-        Returns:
+        Returns
+        -------
             Tuple containing pair, side, quantity, price, commission and commission asset
 
-        Raises:
+        Raises
+        ------
             ValueError: If quantity or price values are invalid
         """
         try:
@@ -537,7 +545,8 @@ class PortfolioManager:
         This is a synchronous method that provides a snapshot of the portfolio
         including positions, funds, and valuation metrics.
 
-        Returns:
+        Returns
+        -------
             Dictionary containing comprehensive portfolio state information
         """
         self.logger.debug("get_current_state called.", source_module=self._source_module)
@@ -611,10 +620,12 @@ class PortfolioManager:
         """
         Return the available funds for a specific currency.
 
-        Args:
+        Args
+        ----
             currency: The currency code to check funds for
 
-        Returns:
+        Returns
+        -------
             The available amount of the specified currency
         """
         # Delegate to FundsManager (synchronous access is okay for read)
@@ -624,7 +635,8 @@ class PortfolioManager:
         """
         Return the current equity value.
 
-        Returns:
+        Returns
+        -------
             The total portfolio equity in the valuation currency
         """
         # Delegate to ValuationService (synchronous access okay for read)
@@ -634,10 +646,12 @@ class PortfolioManager:
         """
         Return the trade history for a specific pair.
 
-        Args:
+        Args
+        ----
             pair: Trading pair to get history for
 
-        Returns:
+        Returns
+        -------
             List of historical trades for the specified pair
         """
         position = self.position_manager.get_position(pair)  # Delegate
@@ -647,25 +661,24 @@ class PortfolioManager:
         # Format the trade history
         result = []
         for trade in position.trade_history:
-            result.append(
-                {
-                    "timestamp": trade.timestamp.isoformat() + "Z",
-                    "side": trade.side,
-                    "quantity": str(trade.quantity),
-                    "price": str(trade.price),
-                    "commission": str(trade.commission),
-                    "commission_asset": trade.commission_asset,
-                    # Realized PNL is now stored at the position level, not per trade
-                    # "realized_pnl": str(trade.realized_pnl),
-                }
-            )
+            result.append({
+                "timestamp": trade.timestamp.isoformat() + "Z",
+                "side": trade.side,
+                "quantity": str(trade.quantity),
+                "price": str(trade.price),
+                "commission": str(trade.commission),
+                "commission_asset": trade.commission_asset,
+                # Realized PNL is now stored at the position level, not per trade
+                # "realized_pnl": str(trade.realized_pnl),
+            })
         return result
 
     def get_open_positions(self) -> List[PositionInfo]:
         """
         Return a list of open positions.
 
-        Returns:
+        Returns
+        -------
             List of current open position information objects
         """
         # Delegate to PositionManager
@@ -675,13 +688,16 @@ class PortfolioManager:
         """
         Split a trading symbol into base and quote assets.
 
-        Args:
+        Args
+        ----
             symbol: Trading symbol in format 'BASE/QUOTE'
 
-        Returns:
+        Returns
+        -------
             Tuple of (base_asset, quote_asset)
 
-        Raises:
+        Raises
+        ------
             ValueError: If symbol format is invalid
         """
         # Keep this utility method local or move to a shared utils module
@@ -727,7 +743,8 @@ class PortfolioManager:
         Verifies the execution handler implements the required methods
         for account reconciliation.
 
-        Returns:
+        Returns
+        -------
             True if execution handler can be used for reconciliation
         """
         # Since we're using runtime_checkable Protocol, we need a more careful check
@@ -834,7 +851,8 @@ class PortfolioManager:
 
         Updates internal fund balances to match exchange reported balances.
 
-        Args:
+        Args
+        ----
             exchange_balances: Dictionary of currency to balance amount from exchange
         """
         self.logger.info("Auto-reconciling balances...", source_module=self._source_module)
@@ -852,7 +870,8 @@ class PortfolioManager:
 
         Updates internal positions to match exchange reported positions.
 
-        Args:
+        Args
+        ----
             internal_positions: Dictionary of current internal positions
             exchange_positions: Dictionary of positions reported by exchange
         """
@@ -870,7 +889,8 @@ class PortfolioManager:
         Adjusts internal positions to match exchange positions by creating
         reconciliation trades as needed.
 
-        Args:
+        Args
+        ----
             exchange_positions: Dictionary of positions reported by exchange
         """
         # First, iterate through exchange positions
@@ -932,7 +952,8 @@ class PortfolioManager:
         Generates a synthetic trade to adjust position quantity to match
         the exchange-reported quantity.
 
-        Args:
+        Args
+        ----
             pair: Trading pair symbol
             base_asset: Base asset of the pair
             quote_asset: Quote asset of the pair
@@ -1006,7 +1027,8 @@ class PortfolioManager:
 
         Generates a synthetic position to match exchange-reported position.
 
-        Args:
+        Args
+        ----
             pair: Trading pair symbol
             base_asset: Base asset of the pair
             quote_asset: Quote asset of the pair
@@ -1064,11 +1086,13 @@ class PortfolioManager:
 
         Identifies balance differences that exceed configured thresholds.
 
-        Args:
+        Args
+        ----
             internal: Dictionary of internal balances
             exchange: Dictionary of exchange-reported balances
 
-        Returns:
+        Returns
+        -------
             Dictionary of currencies with discrepancies
         """
         discrepancies = {}
@@ -1094,11 +1118,13 @@ class PortfolioManager:
 
         Identifies position differences that exceed configured thresholds.
 
-        Args:
+        Args
+        ----
             internal: Dictionary of internal positions
             exchange: Dictionary of exchange-reported positions
 
-        Returns:
+        Returns
+        -------
             Dictionary of trading pairs with discrepancies
         """
         discrepancies = {}

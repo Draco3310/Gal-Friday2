@@ -9,7 +9,8 @@ class GalFridayError(Exception):
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
         """Initialize a GalFridayError.
 
-        Args:
+        Args
+        ----
             message: Description of the error
             details: Optional dictionary with additional error details
         """
@@ -36,19 +37,18 @@ class APIError(GalFridayError):
     ):
         """Initialize an APIError.
 
-        Args:
+        Args
+        ----
             message: Description of the error
             service_name: Name of the API service that raised the error
             status_code: Optional HTTP status code returned by the API
             details: Optional dictionary with additional error details
         """
         details = details or {}
-        details.update(
-            {
-                "service_name": service_name,
-                "status_code": status_code,
-            }
-        )
+        details.update({
+            "service_name": service_name,
+            "status_code": status_code,
+        })
         super().__init__(message, details)
 
 
