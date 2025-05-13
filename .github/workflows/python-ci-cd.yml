@@ -46,12 +46,25 @@ jobs:
         pip install pytest pytest-cov flake8 flake8-docstrings mypy black bandit pylint isort safety pydocstyle radon pre-commit
         pip check  # Verify dependency compatibility
 
+    - name: Clean __pycache__ and .pyc files
+      run: |
+        find . -name "*.pyc" -delete
+        find . -name "__pycache__" -exec rm -rf {} +
+        echo "Cleaned Python cache files"
+
+    - name: List all test files
+      run: |
+        find tests -name "*.py" | sort
+        echo "==== Test Directory Structure ===="
+        find tests -type d | sort
+        echo "=================================="
+
     - name: Run pre-commit checks
       uses: pre-commit/action@v3.0.0
 
     - name: Run tests with pytest
       run: |
-        pytest --cov=src tests/
+        pytest -v --cov=src tests/
 
     - name: Upload test coverage
       uses: codecov/codecov-action@v3
