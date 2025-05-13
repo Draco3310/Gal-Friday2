@@ -1,5 +1,7 @@
 [tool.black]
 line-length = 99
+preview = true
+target-version = ['py39']
 
 [tool.isort]
 profile = "black"
@@ -11,32 +13,21 @@ use_parentheses = true
 ensure_newline_before_comments = true
 skip_glob = [".venv/*", "__pycache__/*"]
 
-[tool.flake8]
-max-line-length = 99
-max-complexity = 12
-exclude = [
-    ".venv",
-    "__pycache__",
-]
-# Add specific ignores if necessary later, e.g.
-# ignore = ["E203", "W503"]
-
 [tool.mypy]
-python_version = "3.11" # Adjust if your project uses a different Python version
-# Add event_bus.py to exclusions
-exclude = ["\\.venv/", "src/gal_friday/event_bus.py", "tests/"] # Regex for exclusion
+python_version = "3.11"
+exclude = ["\\.venv/", "src/gal_friday/event_bus.py"]
 
 # Strictness flags
 check_untyped_defs = true
-disallow_untyped_defs = true # Enforce type hints on all functions
+disallow_untyped_defs = true
 warn_redundant_casts = true
-warn_unused_ignores = true
-warn_return_any = true # Avoid returning Any implicitly or explicitly
-strict_optional = true # Handle Optionals properly
+warn_unused_ignores = true 
+warn_return_any = true
+strict_optional = true
 
 # Module discovery
-ignore_missing_imports = false # Be explicit about missing types/stubs
-follow_imports = "normal" # Analyze imported modules
+ignore_missing_imports = false
+follow_imports = "normal"
 
 [[tool.mypy.overrides]]
 module = [
@@ -44,7 +35,8 @@ module = [
     "joblib.*",
     "sortedcontainers.*",
     "pandas_ta.*",
-    "pandas"
+    "pandas",
+    "asyncio.queues"
 ]
 ignore_missing_imports = true
 
@@ -57,3 +49,9 @@ skips = ["B101", "B107", "B311", "B105"]
 # B105: Skip hardcoded password string warnings
 
 exclude_dirs = ["tests/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+python_classes = "Test*"

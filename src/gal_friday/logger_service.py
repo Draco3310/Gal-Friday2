@@ -14,6 +14,7 @@ import queue
 import re
 import sys
 import threading
+from asyncio.exceptions import QueueFull  # Import QueueFull for exception handling
 from datetime import datetime
 from decimal import Decimal
 from random import SystemRandom
@@ -223,7 +224,7 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
                 (lambda d: self._queue.put_nowait(d)) if not self._closed else (lambda _: None),
                 data,
             )
-        except (ValueError, TypeError, RuntimeError):
+        except (ValueError, TypeError, RuntimeError, QueueFull):
             self.handleError(record)
 
     def _format_record(self, record: logging.LogRecord) -> Dict[str, Any]:
