@@ -6,6 +6,7 @@ follow the interface contract and behavior requirements.
 """
 
 from abc import ABC
+from typing import Any, Dict
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -21,7 +22,7 @@ class MockExecutionHandler(ExecutionHandlerInterface):
 
     def __init__(self) -> None:
         """Initialize a mock execution handler for testing."""
-        self.orders = {}
+        self.orders: Dict[str, Dict[str, Any]] = {}
         self.is_running = False
 
     async def start(self) -> None:

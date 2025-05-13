@@ -11,12 +11,14 @@ These tests verify that the following critical system flows work correctly:
 import asyncio
 from datetime import datetime
 from decimal import Decimal
+from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gal_friday.core.events import EventType, ExecutionReportEvent, TradeSignalProposedEvent
+from gal_friday.core.events import EventType
 from gal_friday.core.pubsub import PubSubManager
+from gal_friday.event_bus import FillEvent, SignalEvent
 from gal_friday.interfaces.execution_handler_interface import ExecutionHandlerInterface
 from gal_friday.logger_service import LoggerService
 from gal_friday.portfolio_manager import PortfolioManager
@@ -34,7 +36,7 @@ class MockExecutionHandler(ExecutionHandlerInterface):
             pubsub: The publish-subscribe manager to use for event communication
         """
         self.pubsub = pubsub
-        self.orders = {}
+        self.orders: Dict[str, Dict[str, Any]] = {}
         self.is_running = False
 
     async def start(self) -> None:
@@ -45,13 +47,13 @@ class MockExecutionHandler(ExecutionHandlerInterface):
         """Stop the execution handler."""
         self.is_running = False
 
-    async def handle_trade_signal_approved(self, event) -> None:
+    async def handle_trade_signal_approved(self, event: Any) -> None:
         """Handle an approved trade signal by simulating order execution."""
         # Create a mock order ID
         order_id = f"mock-order-{datetime.now().timestamp()}"
 
         # Simulate order placement
-        execution_report = ExecutionReportEvent(
+        execution_report = FillEvent(
             event_id=f"exec-{order_id}",
             signal_id=event.event_id,
             exchange_order_id=order_id,
@@ -81,7 +83,7 @@ class MockExecutionHandler(ExecutionHandlerInterface):
         fill_price = getattr(event, "limit_price", "0.5123")
 
         # Create a fill execution report
-        fill_report = ExecutionReportEvent(
+        fill_report = FillEvent(
             event_id=f"fill-{order_id}",
             signal_id=event.event_id,
             exchange_order_id=order_id,
@@ -106,21 +108,28 @@ class MockExecutionHandler(ExecutionHandlerInterface):
     async def cancel_order(self, exchange_order_id: str) -> bool:
         """Cancel an order."""
         if exchange_order_id in self.orders:
+            # Get order details with defaults for safety
+            order_details = self.orders[exchange_order_id]
+            trading_pair = order_details.get("trading_pair", "BTC/USD")
+            order_type = order_details.get("order_type", "LIMIT")
+            side = order_details.get("side", "BUY")
+            quantity = order_details.get("quantity", "1.0")
+            
             # Simulate order cancellation
-            cancel_report = ExecutionReportEvent(
+            cancel_report = FillEvent(
                 event_id=f"cancel-{exchange_order_id}",
-                signal_id=self.orders[exchange_order_id].get("signal_id"),
+                signal_id=order_details.get("signal_id"),
                 exchange_order_id=exchange_order_id,
-                client_order_id=self.orders[exchange_order_id].get("client_order_id"),
-                trading_pair=self.orders[exchange_order_id].get("trading_pair"),
+                client_order_id=order_details.get("client_order_id"),
+                trading_pair=trading_pair,
                 exchange="kraken",
                 order_status="CANCELED",
-                order_type=self.orders[exchange_order_id].get("order_type"),
-                side=self.orders[exchange_order_id].get("side"),
-                quantity_ordered=self.orders[exchange_order_id].get("quantity"),
+                order_type=order_type,
+                side=side,
+                quantity_ordered=quantity,
                 quantity_filled="0",
                 average_fill_price=None,
-                limit_price=self.orders[exchange_order_id].get("limit_price"),
+                limit_price=order_details.get("limit_price"),
                 stop_price=None,
                 commission=None,
                 commission_asset=None,
@@ -252,15 +261,15 @@ async def test_risk_limit_breach_flow(pubsub, event_capture, mock_config, mock_l
 
     try:
         # Create a trade signal that should be rejected due to risk limits
-        trade_signal = TradeSignalProposedEvent(
+        trade_signal = SignalEvent(
             event_id="test-signal-1",
             timestamp=datetime.now(),
-            trading_pair="XRP/USD",
+            source_module="test_risk_monitoring_flow",
+            trading_pair="BTC/USD",
             side="BUY",
-            quantity="10000",
-            order_type="MARKET",
-            reason="prediction_signal",
-            confidence=0.8,
+            proposed_entry_price="50000",  # High price
+            strategy_id="test_strategy",
+            proposed_quantity="2",  # Large quantity
         )
 
         # Publish the trade signal

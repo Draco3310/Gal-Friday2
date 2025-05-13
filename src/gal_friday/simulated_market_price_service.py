@@ -10,7 +10,7 @@ It also supports volatility-adjusted spread calculation and market depth simulat
 import logging
 from datetime import datetime, timezone
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import pandas as pd
 
@@ -18,19 +18,38 @@ import pandas as pd
 from .market_price_service import MarketPriceService
 
 # Attempt to import the actual ConfigManager
-try:
-    from ..config_manager import ConfigManager
-except ImportError:
-    # Fallback for environments where ConfigManager might not be in the expected path
-    # This might happen during isolated testing of this module or if structure changes.
-    # For production, this import should succeed.
-    ConfigManager = None
-    log_temp = logging.getLogger(__name__)
-    log_temp.warning(
-        "Could not import ConfigManager from ..config_manager. "
-        "SimulatedMarketPriceService will use "
-        "default config values if ConfigManager is not provided."
-    )
+if TYPE_CHECKING:
+    from .config_manager import ConfigManager
+else:
+    try:
+        from .config_manager import ConfigManager
+    except ImportError:
+        # Fallback for environments where ConfigManager might not be in the expected path
+        log_temp = logging.getLogger(__name__)
+        log_temp.warning(
+            "Could not import ConfigManager from .config_manager. "
+            "SimulatedMarketPriceService will use "
+            "default config values if ConfigManager is not provided."
+        )
+
+        # Define a minimal interface for static type checking
+        class _DummyConfigManager:
+            """Minimal placeholder for ConfigManager."""
+
+            def get(self, key: str, default: Any = None) -> Any:
+                """Get a value from config."""
+                return default
+
+            def get_decimal(self, key: str, default: Decimal) -> Decimal:
+                """Get a decimal value from config."""
+                return default
+
+            def get_int(self, key: str, default: int) -> int:
+                """Get an integer value from config."""
+                return default
+
+        # Use the dummy class as a fallback for type checking
+        ConfigManager = _DummyConfigManager  # type: Any
 
 # Attempt to import pandas_ta for ATR calculation
 try:
