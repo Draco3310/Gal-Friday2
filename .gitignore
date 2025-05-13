@@ -129,4 +129,4 @@ dmypy.json
 *.iml
 .project
 .pydevproject
-.settings/ 
+.settings/

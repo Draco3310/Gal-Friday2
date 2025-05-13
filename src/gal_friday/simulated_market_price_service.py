@@ -1,7 +1,16 @@
+"""Simulate market price data for backtesting trading strategies.
+
+This module provides a service that simulates market price data for backtesting trading strategies.
+It uses historical OHLCV data to provide price information,
+bid-ask spreads, and simulated order book.
+It also supports volatility-adjusted spread calculation and market depth simulation.
+
+"""
+
 import logging
-from typing import Dict, Optional, List, Tuple, Any
-from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from datetime import datetime, timezone
+from decimal import ROUND_DOWN, ROUND_UP, Decimal
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -45,8 +54,11 @@ _SOURCE_MODULE = "SimulatedMarketPriceService"
 
 
 class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPriceService
-    """Provides access to the latest market prices based on historical
-    data during a backtest simulation. Aligns with the MarketPriceService ABC.
+    """Provide access to the latest market prices.
+
+    based on historical data during a backtest simulation.
+
+    Aligns with the MarketPriceService ABC.
     """
 
     def __init__(
@@ -55,8 +67,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         config_manager: Optional[Any] = None,  # Changed ConfigManager to Any
         logger: Optional[logging.Logger] = None,
     ):  # Standard Python Logger
-        """
-        Initializes the service with historical market data.
+        """Initialize the service with historical market data.
 
         Args:
             historical_data: A dictionary where keys are trading pairs (e.g., "XRP/USD")
@@ -109,7 +120,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         )
 
     def _load_simulation_config(self) -> None:
-        """Loads simulation-specific configurations.
+        """Load simulation-specific configurations.
+
         Uses defaults if config_manager is not available.
         """
         if self.config:  # ConfigManager is provided
@@ -234,7 +246,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     def _get_atr_dataframe_slice(
         self, trading_pair: str, pair_data_full: pd.DataFrame
     ) -> Optional[pd.DataFrame]:
-        """Helper to get the relevant slice of data for ATR calculation."""
+        """Get the relevant slice of data for ATR calculation."""
         if not isinstance(self._current_timestamp, datetime):
             self.logger.error(
                 f"Internal error: _current_timestamp is not a datetime object for {trading_pair} "
@@ -267,7 +279,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     def _calculate_atr_from_slice(
         self, df_slice: pd.DataFrame, trading_pair: str
     ) -> Optional[Decimal]:
-        """Helper to calculate ATR from a given data slice."""
+        """Calculate ATR from a given data slice."""
         required_atr_cols = {self._atr_high_col, self._atr_low_col, self._atr_close_col}
         missing_cols = required_atr_cols - set(df_slice.columns)
         if missing_cols:
@@ -323,7 +335,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             return None
 
     def _calculate_normalized_atr(self, trading_pair: str) -> Optional[Decimal]:
-        """Calculates ATR and normalizes it by the current close price."""
+        """Calculate ATR and normalize it by the current close price."""
         if not self._volatility_enabled or ta is None:
             self.logger.debug(
                 "Volatility adjustment or pandas_ta is disabled, cannot calculate ATR.",
@@ -389,7 +401,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         return normalized_atr
 
     def update_time(self, timestamp: datetime) -> None:
-        """Updates the current simulation time."""
+        """Update the current simulation time."""
         self.logger.debug(
             f"Updating simulated time to: {timestamp}",
             extra={"source_module": self._source_module},
@@ -397,10 +409,13 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         self._current_timestamp = timestamp
 
     def _get_latest_price_at_current_time(self, trading_pair: str) -> Optional[Decimal]:
-        """Synchronously gets the latest known price for a trading pair at the
-        current simulation time. This is an internal method.
+        """Get the latest known price for a trading pair at the current simulation time.
+
+        This is an internal method.
+
         Args:
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
+
         Returns:
             The configured price (e.g. 'close') as a Decimal, or None if unavailable.
         """
@@ -472,14 +487,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     # --- Interface Alignment Methods (as per MarketPriceService ABC) ---
 
     async def start(self) -> None:
-        """Initializes the simulated service (no-op for simulation)."""
+        """Initialize the simulated service (no-op for simulation)."""
         self.logger.info(
             "SimulatedMarketPriceService started.", extra={"source_module": self._source_module}
         )
         # No external connections needed for simulation
 
     async def stop(self) -> None:
-        """Stops the simulated service (no-op for simulation)."""
+        """Stop the simulated service (no-op for simulation)."""
         self.logger.info(
             "SimulatedMarketPriceService stopped.", extra={"source_module": self._source_module}
         )
@@ -488,7 +503,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     async def get_latest_price(
         self, trading_pair: str
     ) -> Optional[Decimal]:  # Changed return type
-        """Gets the latest known price at the current simulation time.
+        """Get the latest known price at the current simulation time.
+
         Returns the price as a Decimal or None.
         """
         price = self._get_latest_price_at_current_time(trading_pair)
@@ -497,7 +513,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     async def get_bid_ask_spread(
         self, trading_pair: str
     ) -> Optional[Tuple[Decimal, Decimal]]:  # Changed return type
-        """Gets the simulated bid and ask prices at the current simulation time.
+        """Get the simulated bid and ask prices at the current simulation time.
+
         Returns a tuple (bid, ask) or None.
         """
         close_price = self._get_latest_price_at_current_time(trading_pair)
@@ -582,7 +599,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             return None
 
     async def get_price_timestamp(self, trading_pair: str) -> Optional[datetime]:
-        """Gets the simulation timestamp for which the current price is valid."""
+        """Get the simulation timestamp for which the current price is valid."""
         price = self._get_latest_price_at_current_time(trading_pair)
         if price is not None and self._current_timestamp is not None:
             # Ensure timestamp is timezone-aware if it originated with timezone
@@ -599,7 +616,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             return None
 
     async def is_price_fresh(self, trading_pair: str, max_age_seconds: float = 60.0) -> bool:
-        """Checks if price data is available at the current simulation time."""
+        """Check if price data is available at the current simulation time."""
         price_ts = await self.get_price_timestamp(trading_pair)
         if price_ts is None:
             return False
@@ -614,7 +631,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     async def get_order_book_snapshot(
         self, trading_pair: str
     ) -> Optional[Dict[str, List[List[str]]]]:
-        """Generates a simulated order book snapshot with market depth.
+        """Generate a simulated order book snapshot with market depth.
 
         Args:
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
@@ -769,7 +786,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     async def _get_direct_or_reverse_price(
         self, from_currency: str, to_currency: str
     ) -> Optional[Tuple[Decimal, bool]]:  # Returns (price, is_direct_rate)
-        """Helper to get direct or reverse conversion rate."""
+        """Get direct or reverse conversion rate."""
         # Direct conversion: from_currency/to_currency
         pair1 = f"{from_currency}/{to_currency}"
         price1 = await self.get_latest_price(pair1)  # Returns Optional[Decimal]
@@ -786,7 +803,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     async def _get_cross_conversion_price(
         self, from_amount: Decimal, from_currency: str, to_currency: str, intermediary: str
     ) -> Optional[Decimal]:
-        """Helper for cross-conversion via an intermediary currency."""
+        """Get cross-conversion via an intermediary currency."""
         # Path: from_currency -> intermediary -> to_currency
         from_to_intermediary_rate_info = await self._get_direct_or_reverse_price(
             from_currency, intermediary
@@ -810,9 +827,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     async def convert_amount(
         self, from_amount: Decimal, from_currency: str, to_currency: str
     ) -> Optional[Decimal]:
-        """Converts an amount from one currency to another using available
-        market data.
-        """
+        """Convert an amount from one currency to another using available market data."""
         if not isinstance(from_amount, Decimal):
             self.logger.warning(
                 f"convert_amount received non-Decimal from_amount: {type(from_amount)}. "
@@ -874,6 +889,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
 # Example Usage
 async def main() -> None:  # Made async
+    """Run example demonstrating the SimulatedMarketPriceService functionality."""
     # Basic logging setup for example
     logging.basicConfig(
         level=logging.DEBUG,

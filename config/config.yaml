@@ -128,4 +128,4 @@ training:
 
 # Prediction Service Settings (Example)
 # prediction_service:
-#   model_path: "models/xgboost_v1.joblib" 
+#   model_path: "models/xgboost_v1.joblib"

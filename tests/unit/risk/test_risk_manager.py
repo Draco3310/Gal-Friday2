@@ -1,14 +1,13 @@
-"""
-Tests for the risk_manager module.
-"""
-import pytest
-from unittest.mock import MagicMock, patch
-from datetime import datetime
+"""Tests for the risk_manager module."""
 
-from gal_friday.risk_manager import RiskManager
-from gal_friday.event_bus import EventBus
+from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import OrderEvent, SignalEvent
+from gal_friday.risk_manager import RiskManager
 
 
 @pytest.fixture
@@ -23,7 +22,7 @@ def risk_config():
         "max_correlated_assets": 2,
         "max_drawdown": 0.15,  # 15% maximum drawdown
         "volatility_constraint": 0.25,  # 25% annualized volatility limit
-        "correlation_threshold": 0.7  # 70% correlation threshold
+        "correlation_threshold": 0.7,  # 70% correlation threshold
     }
 
 
@@ -54,7 +53,7 @@ def test_risk_manager_order_validation(risk_config, event_bus):
     mock_portfolio_manager = MagicMock()
     mock_portfolio_manager.get_risk_exposure.return_value = {
         "BTC/USD": 0.05,  # 5% of portfolio in BTC
-        "ETH/USD": 0.03   # 3% of portfolio in ETH
+        "ETH/USD": 0.03,  # 3% of portfolio in ETH
     }
     mock_portfolio_manager.current_holdings = {"total": 100000.0}
     risk_manager.set_portfolio_manager(mock_portfolio_manager)
@@ -65,7 +64,7 @@ def test_risk_manager_order_validation(risk_config, event_bus):
         symbol="BTC/USD",
         order_type="MARKET",
         quantity=0.04,  # 4% of portfolio, below single order size limit
-        direction="BUY"
+        direction="BUY",
     )
 
     # Validate the order
@@ -78,7 +77,7 @@ def test_risk_manager_order_validation(risk_config, event_bus):
         symbol="BTC/USD",
         order_type="MARKET",
         quantity=0.06,  # 6% of portfolio, above 5% single order limit
-        direction="BUY"
+        direction="BUY",
     )
 
     # Validate the large order
@@ -93,7 +92,7 @@ def test_risk_manager_order_validation(risk_config, event_bus):
         order_type="MARKET",
         quantity=0.06,
         # Would make BTC position 11% (5% + 6%), above 10% limit
-        direction="BUY"
+        direction="BUY",
     )
 
     # Validate the position limit order
@@ -115,7 +114,7 @@ def test_risk_manager_signal_filtering(risk_config, event_bus):
     mock_portfolio_manager = MagicMock()
     mock_portfolio_manager.get_risk_exposure.return_value = {
         "BTC/USD": 0.05,  # 5% of portfolio in BTC
-        "ETH/USD": 0.03   # 3% of portfolio in ETH
+        "ETH/USD": 0.03,  # 3% of portfolio in ETH
     }
     mock_portfolio_manager.current_holdings = {"total": 100000.0}
     mock_portfolio_manager.get_open_trade_count.return_value = 3  # 3 open trades
@@ -127,7 +126,7 @@ def test_risk_manager_signal_filtering(risk_config, event_bus):
         symbol="SOL/USD",
         signal_type="LONG",
         strength=0.8,  # Strong signal
-        direction="BUY"
+        direction="BUY",
     )
 
     # Process the signal
@@ -143,7 +142,7 @@ def test_risk_manager_signal_filtering(risk_config, event_bus):
         symbol="DOT/USD",
         signal_type="LONG",
         strength=0.7,
-        direction="BUY"
+        direction="BUY",
     )
 
     # Process the signal
@@ -155,11 +154,11 @@ def test_risk_manager_signal_filtering(risk_config, event_bus):
 
     # Create a signal for a highly correlated asset (assume BTC and ETH are correlated)
     # Mock the correlation matrix
-    with patch.object(risk_manager, 'get_correlation_matrix') as mock_corr:
+    with patch.object(risk_manager, "get_correlation_matrix") as mock_corr:
         mock_corr.return_value = {
-            ('BTC/USD', 'ETH/USD'): 0.85,  # High correlation
-            ('BTC/USD', 'SOL/USD'): 0.45,
-            ('ETH/USD', 'SOL/USD'): 0.40
+            ("BTC/USD", "ETH/USD"): 0.85,  # High correlation
+            ("BTC/USD", "SOL/USD"): 0.45,
+            ("ETH/USD", "SOL/USD"): 0.40,
         }
 
         # Signal for ETH when BTC already has a position
@@ -168,7 +167,7 @@ def test_risk_manager_signal_filtering(risk_config, event_bus):
             symbol="ETH/USD",
             signal_type="LONG",
             strength=0.9,
-            direction="BUY"
+            direction="BUY",
         )
 
         # Process the signal - this could pass or fail depending on implementation details
@@ -195,7 +194,7 @@ def test_risk_manager_position_sizing(risk_config, event_bus):
         symbol="BTC/USD",
         signal_type="LONG",
         strength=0.8,
-        direction="BUY"
+        direction="BUY",
     )
 
     # Get position size
@@ -213,12 +212,11 @@ def test_risk_manager_position_sizing(risk_config, event_bus):
         symbol="BTC/USD",
         signal_type="LONG",
         strength=0.3,  # Weak signal
-        direction="BUY"
+        direction="BUY",
     )
 
     # Get position size for weak signal
-    weak_position_size = risk_manager.calculate_position_size(
-        weak_signal, price=50000.0)
+    weak_position_size = risk_manager.calculate_position_size(weak_signal, price=50000.0)
 
     # Check if position size is reduced for weaker signal
     assert weak_position_size < position_size
@@ -242,7 +240,7 @@ def test_risk_manager_drawdown_protection(risk_config, event_bus):
         symbol="BTC/USD",
         signal_type="LONG",
         strength=0.8,
-        direction="BUY"
+        direction="BUY",
     )
 
     # Process the signal with low drawdown

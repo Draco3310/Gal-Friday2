@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional, List, Dict, Any, Tuple, Callable, Coroutine, cast, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union, cast
 
 import pandas as pd
 import pandas_ta as ta
@@ -19,6 +19,12 @@ class RateLimitTracker:
     """Tracks and manages API rate limits."""
 
     def __init__(self, tier: str = "default", logger: Optional[LoggerService] = None):
+        """Initialize rate limit tracker with specified tier settings.
+
+        Args:
+            tier: API tier level determining rate limits (default, intermediate, pro)
+            logger: Logger service for logging rate limit events
+        """
         self.tier = tier
         self.logger = logger or logging.getLogger(__name__)
 
@@ -56,6 +62,13 @@ class CircuitBreaker:
         reset_timeout: int = 60,
         logger: Optional[LoggerService] = None,
     ):
+        """Initialize circuit breaker with specified thresholds.
+
+        Args:
+            failure_threshold: Number of consecutive failures before opening circuit
+            reset_timeout: Time in seconds before attempting to close circuit after failure
+            logger: Logger service for logging circuit state changes
+        """
         self.failure_count = 0
         self.failure_threshold = failure_threshold
         self.reset_timeout = reset_timeout  # seconds

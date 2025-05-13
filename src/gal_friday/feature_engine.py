@@ -1,22 +1,29 @@
+"""Module for creating and managing features from market data for trading strategies."""
+
 # Feature Engine Module
 
+import uuid
+from collections import defaultdict, deque
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
+from typing import Any, Dict, Optional, Tuple
+
 import pandas as pd
 import pandas_ta as ta  # Required for technical indicators (RSI, ROC, etc.)
-from collections import deque, defaultdict
-from decimal import Decimal, InvalidOperation
-import uuid
-from datetime import datetime, timedelta
-from typing import Dict, Tuple, Any, Optional
 
 # Event imports
-from .core.events import (
-    EventType,
-    FeatureEvent,
-    MarketDataL2Event,
-    MarketDataOHLCVEvent,
-    SystemStateEvent,  # Assuming SystemStateEvent is defined in core.events
-)
+from .core.events import SystemStateEvent  # Assuming SystemStateEvent is defined in core.events
+from .core.events import EventType, FeatureEvent, MarketDataL2Event, MarketDataOHLCVEvent
+
+# Import PubSubManager
+from .core.pubsub import PubSubManager
+
+# Import HistoricalDataService
+from .historical_data_service import HistoricalDataService
+
+# Import LoggerService
+from .logger_service import LoggerService
 
 # from .data_ingestor import (
 #     MarketDataL2Event,
@@ -24,16 +31,7 @@ from .core.events import (
 #     SystemStatusEvent, # Remove import from data_ingestor
 # )
 
-# Import PubSubManager
-from .core.pubsub import PubSubManager
-
-# Import LoggerService
-from .logger_service import LoggerService
-
-# Import HistoricalDataService
-from .historical_data_service import HistoricalDataService
-
-# Replace debug print with proper logging
+# Replace debug print with proper logging.
 # print("Feature Engine Loaded")
 
 
@@ -44,7 +42,7 @@ from .historical_data_service import HistoricalDataService
 
 @dataclass
 class FeaturePayload:
-    """Payload for feature events"""
+    """Payload for feature events."""
 
     trading_pair: str
     exchange: str
@@ -54,7 +52,9 @@ class FeaturePayload:
 
 class FeatureEngine:
     """
-    Consumes market data events (L2, OHLCV), calculates features (L2 & TA
+    Consume market data events and calculate features.
+
+    Processes L2 and OHLCV data, calculates features (L2 & TA
     based on MVP requirements), and publishes feature events.
     Implements refined triggering: L2 features on L2 events, TA on OHLCV events.
     Uses pandas-ta for TA calculations.
@@ -70,7 +70,7 @@ class FeatureEngine:
         historical_data_service: Optional[HistoricalDataService] = None,
     ):
         """
-        Initializes the FeatureEngine.
+        Initialize the FeatureEngine.
 
         Args:
             config (dict): Configuration settings. Expected structure:
@@ -135,7 +135,7 @@ class FeatureEngine:
         self._system_status = "unknown"  # Don't calculate if not online
 
     async def start(self) -> None:
-        """Starts listening for market data events."""
+        """Start listening for market data events."""
         if self._is_running:
             self.logger.warning(
                 "FeatureEngine already running.", source_module=self.__class__.__name__
@@ -161,7 +161,7 @@ class FeatureEngine:
         self.logger.info("FeatureEngine started.", source_module=self.__class__.__name__)
 
     async def stop(self) -> None:
-        """Stops the event processing loop."""
+        """Stop the event processing loop."""
         if not self._is_running:
             return
         self._is_running = False
@@ -503,7 +503,7 @@ class FeatureEngine:
         await self._publish_features(payload)
 
     async def _publish_features(self, payload: FeaturePayload) -> None:
-        """Helper to publish features; refactored from _publish_feature_event."""
+        """Publish features from a FeaturePayload object."""
         if not payload.features:  # Don't publish if no features were calculated
             return
 
@@ -529,7 +529,7 @@ class FeatureEngine:
     def _calculate_l2_basic_spread_metrics(
         self, bids: list, asks: list, trading_pair: str
     ) -> dict[str, str]:
-        """Calculates best bid/ask, mid price, and spread."""
+        """Calculate best bid/ask, mid price, and spread."""
         features = {}
         best_bid_str = bids[0][0]
         best_ask_str = asks[0][0]
@@ -561,7 +561,7 @@ class FeatureEngine:
     def _calculate_l2_book_imbalance(
         self, bids: list, asks: list, trading_pair: str, imb_cfg: dict
     ) -> dict[str, str]:
-        """Calculates book imbalance feature."""
+        """Calculate book imbalance feature."""
         features = {}
         imb_depth = imb_cfg.get("depth")
         if isinstance(imb_depth, int) and imb_depth > 0:
@@ -588,7 +588,7 @@ class FeatureEngine:
     def _calculate_l2_depth_level_features(
         self, bids: list, asks: list, trading_pair: str, level: int
     ) -> dict[str, str]:
-        """Calculates cumulative volume and WAP for a given depth level."""
+        """Calculate cumulative volume and WAP for a given depth level."""
         features = {}
         try:
             bid_vol_cum = sum(Decimal(b[1]) for b in bids[:level])
@@ -618,7 +618,7 @@ class FeatureEngine:
         return features
 
     def _calculate_l2_features(self, trading_pair: str) -> dict[str, str] | None:
-        """Calculates features based on the latest L2 book data."""
+        """Calculate features based on the latest L2 book data."""
         if self._system_status != "online":
             msg = f"L2 Features: Status {self._system_status}, skipping."
             self.logger.debug(msg, source_module=self.__class__.__name__)
@@ -945,7 +945,7 @@ class FeatureEngine:
     def _calculate_atr_from_df(
         self, df: pd.DataFrame, trading_pair: str, interval: str, atr_len: int
     ) -> dict[str, str]:
-        """Calculates ATR from a DataFrame."""
+        """Calculate ATR from a DataFrame."""
         features: dict[str, str] = {}
         feature_name = f"atr_{atr_len}_{interval}"
         required_cols = ["high", "low", "close"]
@@ -978,7 +978,7 @@ class FeatureEngine:
     def _calculate_stdev_from_df(
         self, df: pd.DataFrame, trading_pair: str, interval: str, stdev_len: int
     ) -> dict[str, str]:
-        """Calculates Standard Deviation from a DataFrame."""
+        """Calculate Standard Deviation from a DataFrame."""
         features: dict[str, str] = {}
         feature_name = f"stdev_{stdev_len}_{interval}"
         if "close" in df.columns and len(df) >= stdev_len:
@@ -1027,7 +1027,7 @@ class FeatureEngine:
         return features
 
     def _calculate_ta_features(self, trading_pair: str, interval: str) -> dict[str, str] | None:
-        """Calculates TA features based on the latest OHLCV history."""
+        """Calculate TA features based on the latest OHLCV history."""
         if self._system_status != "online":
             msg = f"TA Features: Status {self._system_status}, skipping."
             self.logger.debug(msg, source_module=self.__class__.__name__)
@@ -1124,7 +1124,7 @@ class FeatureEngine:
     async def _calculate_historical_atr(
         self, trading_pair: str, timestamp: datetime, atr_period: int
     ) -> dict[str, str]:
-        """Fetches and calculates historical ATR."""
+        """Fetch and calculate historical ATR."""
         features: dict[str, str] = {}
         if not self.historical_data_service:
             return features  # Or log warning
@@ -1153,7 +1153,7 @@ class FeatureEngine:
     async def _fetch_and_process_historical_ohlcv(
         self, trading_pair: str, start_time: datetime, end_time: datetime, interval: str
     ) -> dict[str, str]:
-        """Fetches historical OHLCV and calculates features from it."""
+        """Fetch historical OHLCV and calculate features from it."""
         features: dict[str, str] = {}
         if not self.historical_data_service:
             return features  # Or log warning

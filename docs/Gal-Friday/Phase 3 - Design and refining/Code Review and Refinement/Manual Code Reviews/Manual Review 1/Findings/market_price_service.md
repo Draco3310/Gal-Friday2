@@ -6,7 +6,7 @@
 
 ## Summary
 
-The `market_price_service.py` module defines an abstract interface for components that provide real-time market price information to the trading system. The interface is minimal, consisting of just two abstract methods: `get_latest_price` and `get_bid_ask_spread`. 
+The `market_price_service.py` module defines an abstract interface for components that provide real-time market price information to the trading system. The interface is minimal, consisting of just two abstract methods: `get_latest_price` and `get_bid_ask_spread`.
 
 While the interface definition follows good design principles for separation of concerns, there are several issues that need attention, particularly the mismatch between the abstract interface and the concrete implementation in the test file, as well as missing functionality required by the system.
 
@@ -76,7 +76,7 @@ While the interface definition follows good design principles for separation of 
    async def connect(self) -> None:
        """Connect to the price data source."""
        raise NotImplementedError
-       
+
    @abc.abstractmethod
    async def is_price_fresh(self, trading_pair: str, max_age_seconds: float = 60.0) -> bool:
        """Check if the price data for a trading pair is recent."""
@@ -102,13 +102,13 @@ While the interface definition follows good design principles for separation of 
    @abc.abstractmethod
    async def get_latest_price(self, trading_pair: str) -> Optional[Decimal]:
        """Get the latest known market price for a trading pair.
-       
+
        Args:
            trading_pair: The trading pair symbol (e.g., "XRP/USD").
-           
+
        Returns:
            The latest price as a Decimal, or None if unavailable.
-           
+
        Raises:
            ValueError: If the trading pair format is invalid.
        """
@@ -137,12 +137,12 @@ While the interface definition follows good design principles for separation of 
    ```python
    """
    Example implementation:
-   
+
    class SimpleMarketPriceService(MarketPriceService):
        def __init__(self, config):
            self.prices = {}
            self.timestamps = {}
-           
+
        async def get_latest_price(self, trading_pair: str) -> Optional[Decimal]:
            return self.prices.get(trading_pair)
    """
@@ -159,7 +159,7 @@ While the interface definition follows good design principles for separation of 
 3. **Add Best Practice Guidelines**: Provide implementation guidance in the class docstring:
    ```python
    """Defines the interface for components providing real-time market prices.
-   
+
    Implementations should:
    1. Handle connection failures gracefully
    2. Manage stale data appropriately

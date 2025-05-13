@@ -7,13 +7,13 @@ create circular imports when not being used for actual type checking.
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 
 # --- Event System ---
 class EventType(Enum):
     """Enumeration of event types in the system."""
-    
+
     MARKET_DATA_L2 = auto()
     MARKET_DATA_TRADE = auto()
     MARKET_DATA_OHLCV = auto()
@@ -30,13 +30,17 @@ class EventType(Enum):
 
 class Event:
     """Base class for all events in the system."""
-    
+
     def __init__(
-        self, 
-        source_module: str = "",
-        event_id: Any = None,
-        timestamp: Optional[datetime] = None
+        self, source_module: str = "", event_id: Any = None, timestamp: Optional[datetime] = None
     ):
+        """Initialize a base Event.
+
+        Args:
+            source_module: The module that created this event
+            event_id: Unique identifier for this event
+            timestamp: When the event was created, defaults to current time
+        """
         self.source_module = source_module
         self.event_id = event_id
         self.timestamp = timestamp or datetime.utcnow()
@@ -44,7 +48,7 @@ class Event:
 
 class ExecutionReportEvent(Event):
     """Event representing an execution report from an exchange."""
-    
+
     def __init__(
         self,
         *,
@@ -69,6 +73,30 @@ class ExecutionReportEvent(Event):
         timestamp_exchange: Optional[datetime] = None,
         error_message: Optional[str] = None,
     ):
+        """Initialize an execution report event.
+
+        Args:
+            source_module: Module that created this event
+            event_id: Unique identifier for this event
+            timestamp: When the event was created
+            signal_id: ID of the original signal that led to this execution
+            exchange_order_id: Order ID assigned by the exchange
+            client_order_id: Internal order ID
+            trading_pair: Symbol pair for the trade
+            exchange: Name of the exchange
+            order_status: Current status of the order
+            order_type: Type of order
+            side: Buy or sell
+            quantity_ordered: Total quantity ordered
+            quantity_filled: Quantity executed so far
+            average_fill_price: Average execution price
+            limit_price: Limit price if applicable
+            stop_price: Stop price if applicable
+            commission: Fee charged by exchange
+            commission_asset: Asset in which fee was charged
+            timestamp_exchange: Timestamp reported by exchange
+            error_message: Error message if any
+        """
         super().__init__(source_module, event_id, timestamp)
         self.signal_id = signal_id
         self.exchange_order_id = exchange_order_id
@@ -92,19 +120,19 @@ class ExecutionReportEvent(Event):
 # --- Config Manager ---
 class ConfigManager:
     """Placeholder for ConfigManager to avoid circular imports."""
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         """Get config value by key path."""
         return default
-    
+
     def get_int(self, key: str, default: int = 0) -> int:
         """Get integer config value by key path."""
         return default
-    
+
     def get_bool(self, key: str, default: bool = False) -> bool:
         """Get boolean config value by key path."""
         return default
-    
+
     def get_decimal(self, key: str, default: Union[Decimal, str, int, float] = 0) -> Decimal:
         """Get Decimal config value by key path."""
         if isinstance(default, Decimal):
@@ -115,23 +143,23 @@ class ConfigManager:
 # --- Logger Service ---
 class LoggerService:
     """Placeholder for LoggerService to avoid circular imports."""
-    
+
     def info(self, message: str, source_module: str = "", **kwargs: Any) -> None:
         """Log an info message."""
         pass
-    
+
     def debug(self, message: str, source_module: str = "", **kwargs: Any) -> None:
         """Log a debug message."""
         pass
-    
+
     def warning(self, message: str, source_module: str = "", **kwargs: Any) -> None:
         """Log a warning message."""
         pass
-    
+
     def error(self, message: str, source_module: str = "", **kwargs: Any) -> None:
         """Log an error message."""
         pass
-    
+
     def critical(self, message: str, source_module: str = "", **kwargs: Any) -> None:
         """Log a critical message."""
         pass
@@ -140,15 +168,15 @@ class LoggerService:
 # --- PubSub Manager ---
 class PubSubManager:
     """Placeholder for PubSubManager to avoid circular imports."""
-    
+
     def subscribe(self, event_type: EventType, handler: Callable) -> None:
         """Subscribe to an event type."""
         pass
-    
+
     def unsubscribe(self, event_type: EventType, handler: Callable) -> None:
         """Unsubscribe from an event type."""
         pass
-    
+
     async def publish(self, event: Event) -> None:
         """Publish an event."""
         pass
@@ -157,14 +185,12 @@ class PubSubManager:
 # --- Market Price Service ---
 class MarketPriceService:
     """Placeholder for MarketPriceService to avoid circular imports."""
-    
+
     async def get_latest_price(self, trading_pair: str) -> Optional[Decimal]:
         """Get latest price for a trading pair."""
         return None
-    
-    async def get_bid_ask_spread(
-        self, trading_pair: str
-    ) -> Optional[tuple[Decimal, Decimal]]:
+
+    async def get_bid_ask_spread(self, trading_pair: str) -> Optional[tuple[Decimal, Decimal]]:
         """Get bid-ask spread for a trading pair."""
         return None
 
@@ -172,15 +198,15 @@ class MarketPriceService:
 # --- Execution Handler ---
 class ExecutionHandler:
     """Placeholder for ExecutionHandler to avoid circular imports."""
-    
+
     async def get_account_balances(self) -> Dict[str, Decimal]:
         """Get account balances."""
         return {}
-    
+
     async def submit_order(self, order: Any) -> str:
         """Submit an order."""
         return ""
-    
+
     async def cancel_order(self, order_id: str) -> bool:
         """Cancel an order."""
-        return True 
+        return True

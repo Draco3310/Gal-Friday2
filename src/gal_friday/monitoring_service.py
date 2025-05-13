@@ -1,31 +1,37 @@
 #!/usr/bin/env python3
-# Monitoring Service Module
+"""
+Monitoring Service for Gal Friday trading system.
 
-import uuid
+This module provides system monitoring capabilities including health checks,
+performance tracking, and automatic trading halt triggers when thresholds are exceeded.
+"""
+
 import asyncio
 import time
-import psutil  # Added for system resource monitoring
-from typing import TYPE_CHECKING, Optional, Callable, Any, Coroutine, Dict, Deque, Union
+import uuid
+from collections import deque  # Added for tracking recent API errors
 from datetime import datetime, timezone
 from decimal import Decimal
-from collections import deque  # Added for tracking recent API errors
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Deque, Dict, Optional, Union
+
+import psutil  # Added for system resource monitoring
 
 # Import actual classes when available, otherwise use placeholders
 if TYPE_CHECKING:
     from .config_manager import ConfigManager
-    from .core.pubsub import PubSubManager  # Import from correct module
-    from .portfolio_manager import PortfolioManager
+    from .core.events import EventType  # Add Event for completeness
     from .core.events import (
-        EventType,
-        SystemStateEvent,
-        PotentialHaltTriggerEvent,
         Event,
         ExecutionReportEvent,
         MarketDataL2Event,
         MarketDataOHLCVEvent,
-    )  # Add Event for completeness
-    from .logger_service import LoggerService
+        PotentialHaltTriggerEvent,
+        SystemStateEvent,
+    )
+    from .core.pubsub import PubSubManager  # Import from correct module
     from .execution_handler import ExecutionHandler  # MODIFIED: Corrected import path
+    from .logger_service import LoggerService
+    from .portfolio_manager import PortfolioManager
 else:
     # Simple placeholder classes for testing/development
     class _EventType:
@@ -121,6 +127,7 @@ else:
 class MonitoringService:
     """
     Monitors the overall system health and manages the global HALT state.
+
     Triggers HALT based on predefined conditions (e.g., max drawdown) or manual requests.
     Publishes system state changes (HALTED/RUNNING) via the PubSubManager.
     """
@@ -134,7 +141,7 @@ class MonitoringService:
         execution_handler: Optional["ExecutionHandler"] = None,
     ):
         """
-        Initializes the MonitoringService.
+        Initialize the MonitoringService.
 
         Args:
             config_manager: The application's configuration manager instance.
@@ -237,11 +244,11 @@ class MonitoringService:
         self.logger.info("MonitoringService initialized.", source_module=self._source)
 
     def is_halted(self) -> bool:
-        """Synchronously checks if the system is currently halted."""
+        """Return whether the system is currently halted."""
         return self._is_halted
 
     async def start(self) -> None:
-        """Starts the periodic monitoring checks."""
+        """Start the periodic monitoring checks."""
         # Publish initial state when starting, if not already halted
         if not self._is_halted:
             await self._publish_state_change(
@@ -286,7 +293,7 @@ class MonitoringService:
         )
 
     async def stop(self) -> None:
-        """Stops the periodic monitoring checks."""
+        """Stop the periodic monitoring checks."""
         # Unsubscribe from all event types
         try:
             # Potential HALT trigger events
@@ -356,7 +363,7 @@ class MonitoringService:
 
     async def trigger_halt(self, reason: str, source: str) -> None:
         """
-        Halts the system operations.
+        Halt the system operations.
 
         Args:
             reason: The reason for halting the system.
@@ -381,7 +388,8 @@ class MonitoringService:
 
     async def _handle_positions_on_halt(self) -> None:
         """
-        Handles existing positions based on the configured HALT behavior.
+        Process existing positions according to the configured HALT behavior.
+
         Can close positions, maintain them, or perform other actions.
         """
         halt_behavior = self._halt_position_behavior
@@ -467,7 +475,7 @@ class MonitoringService:
 
     async def trigger_resume(self, source: str) -> None:
         """
-        Resumes system operations after a HALT.
+        Resume system operations after a HALT.
 
         Args:
             source: The source triggering the resume (e.g., 'MANUAL').
@@ -488,7 +496,7 @@ class MonitoringService:
 
     async def _publish_state_change(self, new_state: str, reason: str, source: str) -> None:
         """
-        Publishes a SystemStateEvent through the PubSubManager.
+        Publish a SystemStateEvent through the PubSubManager.
 
         Args:
             new_state: The new system state ("HALTED" or "RUNNING").
@@ -518,7 +526,12 @@ class MonitoringService:
             )
 
     async def _handle_potential_halt_trigger(self, event: "PotentialHaltTriggerEvent") -> None:
-        """Handles events that suggest a potential HALT condition."""
+        """
+        Handle events that suggest a potential HALT condition.
+
+        Args:
+            event: The PotentialHaltTriggerEvent containing halt trigger information.
+        """
         if not isinstance(event, PotentialHaltTriggerEvent):
             self.logger.warning(
                 f"Received non-PotentialHaltTriggerEvent: {type(event)}",
@@ -534,7 +547,11 @@ class MonitoringService:
         await self.trigger_halt(reason=event.reason, source=event.source_module)
 
     async def _run_periodic_checks(self) -> None:
-        """The core background task performing periodic checks."""
+        """
+        Execute the core background task performing periodic checks.
+
+        This method runs at regular intervals defined by the check_interval configuration.
+        """
         self.logger.info(
             "MonitoringService periodic check task started.",
             source_module=self._source,
@@ -571,7 +588,12 @@ class MonitoringService:
                 await asyncio.sleep(self._check_interval)
 
     async def _check_drawdown(self) -> None:
-        """Checks if the maximum total portfolio drawdown has been exceeded."""
+        """
+        Check if the maximum total portfolio drawdown has been exceeded.
+
+        Retrieves the current drawdown percentage from the portfolio manager
+        and compares it against the configured maximum drawdown threshold.
+        """
         try:
             # PortfolioManager.get_current_state() needs to be synchronous per design doc
             # If it becomes async, this needs adjustment (e.g., run_in_executor)
@@ -622,7 +644,8 @@ class MonitoringService:
 
     async def _check_api_connectivity(self) -> None:
         """
-        Checks connectivity to Kraken API by attempting a lightweight authenticated call.
+        Check connectivity to Kraken API by attempting a lightweight authenticated call.
+
         Triggers HALT if consecutive failures exceed the threshold.
         """
         if not self._execution_handler:
@@ -678,7 +701,8 @@ class MonitoringService:
 
     async def _check_market_data_freshness(self) -> None:
         """
-        Checks if market data timestamps are recent enough.
+        Check if market data timestamps are recent enough.
+
         Triggers HALT if data for active pairs is stale beyond threshold.
         """
         now = datetime.now(timezone.utc)
@@ -720,7 +744,8 @@ class MonitoringService:
 
     async def _check_system_resources(self) -> None:
         """
-        Monitors CPU and Memory usage.
+        Monitor CPU and Memory usage.
+
         Logs warnings when thresholds are approached, triggers HALT at critical levels.
         """
         try:
@@ -773,7 +798,8 @@ class MonitoringService:
 
     async def _check_market_volatility(self) -> None:
         """
-        Checks for excessive market volatility.
+        Check for excessive market volatility.
+
         Triggers HALT if volatility exceeds configured thresholds.
         """
         # This is a placeholder that would need access to market price data
@@ -800,7 +826,8 @@ class MonitoringService:
         self, event: "Union[MarketDataL2Event, MarketDataOHLCVEvent]"
     ) -> None:
         """
-        Updates the last received timestamp for market data events.
+        Update the last received timestamp for market data events.
+
         This helps track market data freshness.
 
         Args:
@@ -848,7 +875,8 @@ class MonitoringService:
 
     async def _handle_execution_report(self, event: "ExecutionReportEvent") -> None:
         """
-        Handles execution report events to track consecutive losses.
+        Handle execution report events to track consecutive losses.
+
         Triggers HALT if consecutive loss limit is reached.
 
         Args:
@@ -911,7 +939,8 @@ class MonitoringService:
 
     async def _handle_api_error(self, event: Any) -> None:
         """
-        Handles API error events to track error frequency.
+        Count and evaluate API errors to detect excessive error rates.
+
         Triggers HALT if error frequency exceeds threshold.
 
         Args:
@@ -951,11 +980,11 @@ class MonitoringService:
 
 # Example Usage (for testing purposes, remove in production)
 async def main(logger: Optional["LoggerService[Any]"] = None) -> None:  # noqa: C901
-    """Example usage of the MonitoringService for testing/demonstration."""
+    """Testing/demonstration usage of the MonitoringService."""
     # Import here to avoid circular imports
-    from typing import Any, Dict
     import asyncio
     import logging  # Need for example main
+    from typing import Any, Dict
 
     logging.basicConfig(
         level=logging.INFO,
@@ -963,12 +992,12 @@ async def main(logger: Optional["LoggerService[Any]"] = None) -> None:  # noqa: 
     )
 
     # Import the real LoggerService to create a test implementation
-    from .logger_service import LoggerService
     from .config_manager import ConfigManager
-    from .portfolio_manager import PortfolioManager
 
     # Import PubSubManager from core.pubsub instead of event_bus for type consistency
     from .core.pubsub import PubSubManager
+    from .logger_service import LoggerService
+    from .portfolio_manager import PortfolioManager
 
     # Create a mock logger service that implements LoggerService
     class TestLoggerService(LoggerService[Any]):

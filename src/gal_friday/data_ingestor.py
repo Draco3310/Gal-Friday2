@@ -1,21 +1,28 @@
+"""Retrieve and process market data from the Kraken WebSocket API.
+
+This module implements a data ingestion service that connects to Kraken WebSocket API v2,
+subscribes to L2 order book and OHLCV data streams, handles parsing, validation and state
+management, and publishes standardized market data events to the application's event bus.
+"""
+
 # src/gal_friday/data_ingestor.py
 
 import asyncio
-import websockets
-import json
-import uuid
 import binascii  # For CRC32 checksum
+import json
 import logging
 import random  # Add random for jitter in backoff
+import uuid
 from collections import defaultdict
-from sortedcontainers import SortedDict
-from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Any, Union
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+
+import websockets
+from sortedcontainers import SortedDict
 
 # Import necessary event classes from core module
 from .core.events import MarketDataL2Event, MarketDataOHLCVEvent, SystemStateEvent
-
 from .logger_service import LoggerService
 
 if TYPE_CHECKING:
@@ -30,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MarketDataL2Payload:
-    """Payload for L2 market data"""
+    """Payload for L2 market data."""
 
     trading_pair: str
     exchange: str
@@ -47,7 +54,7 @@ class MarketDataL2Payload:
 
 @dataclass
 class MarketDataOHLCVPayload:
-    """Payload for OHLCV market data"""
+    """Payload for OHLCV market data."""
 
     trading_pair: str
     exchange: str
@@ -62,7 +69,7 @@ class MarketDataOHLCVPayload:
 
 @dataclass
 class SystemStatusPayload:
-    """Payload for system status updates"""
+    """Payload for system status updates."""
 
     system_status: str  # e.g., "online", "cancel_only"
     connection_id: Optional[int] = None
@@ -73,8 +80,9 @@ class SystemStatusPayload:
 
 class DataIngestor:
     """
-    Connects to Kraken WebSocket API v2, manages subscriptions for L2 book
-    and OHLCV data, parses messages, maintains L2 order book state with
+    Connect to Kraken WebSocket API v2, manage subscriptions for L2 book and OHLCV data.
+
+    This class handles parsing messages, maintaining L2 order book state with
     checksum validation, and publishes standardized market data events.
     """
 
@@ -228,7 +236,7 @@ class DataIngestor:
             return None
 
     async def start(self) -> None:
-        """Starts the data ingestion process with reconnection logic."""
+        """Start the data ingestion process with reconnection logic."""
         self._is_running = True
         self._is_stopping = False
         self.logger.info("Starting Data Ingestor...", source_module=self.__class__.__name__)
@@ -388,14 +396,14 @@ class DataIngestor:
         )
 
     async def stop(self) -> None:
-        """Stops the data ingestion process gracefully."""
+        """Stop the data ingestion process gracefully."""
         self._is_running = False
         self._is_stopping = True
         self.logger.info("Stopping Data Ingestor...", source_module=self.__class__.__name__)
         await self._cleanup_connection()
 
     async def _cleanup_connection(self) -> None:
-        """Cleans up connection resources."""
+        """Clean up connection resources."""
         if self._liveness_task and not self._liveness_task.done():
             self._liveness_task.cancel()
             try:
@@ -574,7 +582,7 @@ class DataIngestor:
             )
 
     async def _handle_subscribe_ack(self, data: dict) -> None:
-        """Handles the acknowledgment message for subscriptions."""
+        """Handle the acknowledgment message for subscriptions."""
         try:
             success = data.get("success")
             result = data.get("result", {})
@@ -614,7 +622,7 @@ class DataIngestor:
             )
 
     async def _handle_status_update(self, data: dict) -> None:
-        """Handles connection or system status updates."""
+        """Handle connection or system status updates."""
         status = data.get("status")
         connection_id = data.get("connectionID")
         version = data.get("version")
@@ -1092,7 +1100,7 @@ class DataIngestor:
         is_snapshot: bool,
         update_timestamp: Optional[str],  # Timestamp from message if available
     ) -> None:
-        """Creates and publishes a MarketDataL2Event."""
+        """Create and publish a MarketDataL2Event."""
         try:
             # Extract bids and asks from the book_state (SortedDict)
             # Ensure they are formatted as List[Tuple[str, str]]
@@ -1132,7 +1140,7 @@ class DataIngestor:
             )
 
     def _format_level_value(self, value_str: str) -> str:
-        """Formats price or quantity string for checksum calculation (Kraken v2 spec)."""
+        """Format price or quantity string for checksum calculation (Kraken v2 spec)."""
         # Remove decimal point
         formatted = value_str.replace(".", "")
         # Remove leading zeros, but handle "0" or "0.0..." correctly
@@ -1170,9 +1178,9 @@ class DataIngestor:
         return formatted
 
     def _calculate_book_checksum(self, bids: SortedDict, asks: SortedDict) -> Optional[int]:
-        """
-        Calculates the CRC32 checksum for the top 10 bids and asks
-        according to Kraken's v2 specification. Returns unsigned 32-bit int or None on error.
+        """Calculate the CRC32 checksum for the top 10 bids and asks.
+
+        According to Kraken's v2 specification. Returns unsigned 32-bit int or None on error.
         """
         checksum_str_parts = []
         levels_to_checksum = 10
@@ -1235,7 +1243,7 @@ class DataIngestor:
             return None
 
     async def _handle_ohlc_data(self, data: Dict[str, Any]) -> None:
-        """Handles incoming OHLC data."""
+        """Handle incoming OHLC data."""
         if not self._validate_ohlc_message(data):
             return
 
@@ -1443,7 +1451,7 @@ class DataIngestor:
             )
 
     async def _reconnect_with_backoff(self) -> bool:
-        """Attempts reconnection with exponential backoff and jitter.
+        """Attempt reconnection with exponential backoff and jitter.
 
         Returns:
             bool: True if reconnection was successful, False if max retries exceeded
@@ -1493,7 +1501,7 @@ class DataIngestor:
 
 # Example Usage (for testing purposes - requires libraries installed)
 async def main() -> None:
-    """Main function for standalone testing."""
+    """Execute the main standalone testing function."""
     await _setup_logging()
     config = _create_test_config()
     event_bus: asyncio.Queue[Any] = asyncio.Queue()
@@ -1600,7 +1608,7 @@ async def _run_event_consumer(event_bus: asyncio.Queue) -> None:
 
 
 class MockLoggerService(LoggerService[Any]):
-    """Mock logger service for testing."""
+    """Provide a mock logger service for testing."""
 
     def __init__(
         self,

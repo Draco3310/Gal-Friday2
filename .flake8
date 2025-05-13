@@ -1,0 +1,23 @@
+[flake8]
+max-line-length = 99
+max-complexity = 12
+extend-ignore = E203
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    docs,
+    venv,
+    .venv,
+    .DS_Store,
+    .idea,
+    .vscode,
+    .gitignore,
+    .gitattributes,
+    .travis.yml,
+    .pre-commit-config.yaml,
+    .flake8-cache,
+    .mypy_cache,
+    .pytest_cache,
+    .coverage

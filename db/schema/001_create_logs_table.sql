@@ -32,4 +32,4 @@ COMMENT ON COLUMN logs.filename IS 'Filename part of the source file.';
 COMMENT ON COLUMN logs.lineno IS 'Line number in the source file where the logging call occurred.';
 COMMENT ON COLUMN logs.func_name IS 'Name of the function or method where the logging call occurred.';
 COMMENT ON COLUMN logs.context_json IS 'Optional structured context data provided with the log message (JSONB format).';
-COMMENT ON COLUMN logs.exception_text IS 'Full exception traceback if an exception was logged.'; 
+COMMENT ON COLUMN logs.exception_text IS 'Full exception traceback if an exception was logged.';

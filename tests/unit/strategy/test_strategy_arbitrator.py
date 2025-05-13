@@ -1,15 +1,13 @@
-"""
-Tests for the strategy_arbitrator module.
-"""
-import pytest
-from unittest.mock import MagicMock, patch
-from datetime import datetime
-import pandas as pd
+"""Tests for the strategy_arbitrator module."""
 
-from gal_friday.strategy_arbitrator import StrategyArbitrator
-from gal_friday.event_bus import EventBus
+from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import MarketDataEvent, SignalEvent
+from gal_friday.strategy_arbitrator import StrategyArbitrator
 
 
 @pytest.fixture
@@ -20,32 +18,23 @@ def strategy_config():
             "momentum": {
                 "enabled": True,
                 "weight": 0.4,
-                "params": {
-                    "lookback_period": 14,
-                    "threshold": 0.05
-                }
+                "params": {"lookback_period": 14, "threshold": 0.05},
             },
             "mean_reversion": {
                 "enabled": True,
                 "weight": 0.3,
-                "params": {
-                    "lookback_period": 20,
-                    "std_dev_threshold": 2.0
-                }
+                "params": {"lookback_period": 20, "std_dev_threshold": 2.0},
             },
             "breakout": {
                 "enabled": True,
                 "weight": 0.3,
-                "params": {
-                    "lookback_period": 30,
-                    "volume_factor": 1.5
-                }
-            }
+                "params": {"lookback_period": 30, "volume_factor": 1.5},
+            },
         },
         "voting": {
             "threshold": 0.6,  # 60% confidence threshold
-            "minimum_signals": 2  # At least 2 strategies must agree
-        }
+            "minimum_signals": 2,  # At least 2 strategies must agree
+        },
     }
 
 
@@ -64,11 +53,8 @@ def test_strategy_arbitrator_initialization(strategy_config, event_bus):
 @patch("gal_friday.strategies.mean_reversion_strategy.MeanReversionStrategy")
 @patch("gal_friday.strategies.breakout_strategy.BreakoutStrategy")
 def test_strategy_arbitrator_strategy_loading(
-        mock_breakout,
-        mock_mean_reversion,
-        mock_momentum,
-        strategy_config,
-        event_bus):
+    mock_breakout, mock_mean_reversion, mock_momentum, strategy_config, event_bus
+):
     """Test loading strategies in the arbitrator."""
     # Set up mocks for strategies
     mock_momentum_instance = MagicMock()
@@ -103,11 +89,8 @@ def test_strategy_arbitrator_strategy_loading(
 @patch("gal_friday.strategies.mean_reversion_strategy.MeanReversionStrategy")
 @patch("gal_friday.strategies.breakout_strategy.BreakoutStrategy")
 def test_strategy_arbitrator_handle_market_data(
-        mock_breakout,
-        mock_mean_reversion,
-        mock_momentum,
-        strategy_config,
-        event_bus):
+    mock_breakout, mock_mean_reversion, mock_momentum, strategy_config, event_bus
+):
     """Test handling market data events in the arbitrator."""
     # Set up mocks for strategies
     mock_momentum_instance = MagicMock()
@@ -131,19 +114,14 @@ def test_strategy_arbitrator_handle_market_data(
                 arbitrator = StrategyArbitrator(config, mock_event_bus)
 
     # Create a market data event
-    market_data = MarketDataEvent(
-        timestamp=datetime.now(),
-        symbol="BTC/USD",
-        price=50000.0
-    )
+    market_data = MarketDataEvent(timestamp=datetime.now(), symbol="BTC/USD", price=50000.0)
 
     # Process the market data event
     arbitrator.handle_market_data(market_data)
 
     # Verify each strategy received the market data
     mock_momentum_instance.on_market_data.assert_called_once_with(market_data)
-    mock_mean_reversion_instance.on_market_data.assert_called_once_with(
-        market_data)
+    mock_mean_reversion_instance.on_market_data.assert_called_once_with(market_data)
     mock_breakout_instance.on_market_data.assert_called_once_with(market_data)
 
 
@@ -151,11 +129,8 @@ def test_strategy_arbitrator_handle_market_data(
 @patch("gal_friday.strategies.mean_reversion_strategy.MeanReversionStrategy")
 @patch("gal_friday.strategies.breakout_strategy.BreakoutStrategy")
 def test_strategy_arbitrator_vote_on_signals(
-        mock_breakout,
-        mock_mean_reversion,
-        mock_momentum,
-        strategy_config,
-        event_bus):
+    mock_breakout, mock_mean_reversion, mock_momentum, strategy_config, event_bus
+):
     """Test voting mechanism for signals in the arbitrator."""
     # Set up mocks for strategies
     mock_momentum_instance = MagicMock()
@@ -181,11 +156,14 @@ def test_strategy_arbitrator_vote_on_signals(
     # Set up strategy signals
     # Scenario 1: Strong agreement (all strategies agree)
     mock_momentum_instance.get_current_signal.return_value = {
-        "BTC/USD": {"direction": "BUY", "strength": 0.8}}
+        "BTC/USD": {"direction": "BUY", "strength": 0.8}
+    }
     mock_mean_reversion_instance.get_current_signal.return_value = {
-        "BTC/USD": {"direction": "BUY", "strength": 0.7}}
+        "BTC/USD": {"direction": "BUY", "strength": 0.7}
+    }
     mock_breakout_instance.get_current_signal.return_value = {
-        "BTC/USD": {"direction": "BUY", "strength": 0.9}}
+        "BTC/USD": {"direction": "BUY", "strength": 0.9}
+    }
 
     # Request a vote for BTC/USD
     result = arbitrator.vote_on_signal("BTC/USD")
@@ -198,11 +176,14 @@ def test_strategy_arbitrator_vote_on_signals(
 
     # Scenario 2: Mixed signals (no clear consensus)
     mock_momentum_instance.get_current_signal.return_value = {
-        "BTC/USD": {"direction": "BUY", "strength": 0.6}}
+        "BTC/USD": {"direction": "BUY", "strength": 0.6}
+    }
     mock_mean_reversion_instance.get_current_signal.return_value = {
-        "BTC/USD": {"direction": "SELL", "strength": 0.7}}
+        "BTC/USD": {"direction": "SELL", "strength": 0.7}
+    }
     mock_breakout_instance.get_current_signal.return_value = {
-        "BTC/USD": {"direction": "BUY", "strength": 0.5}}
+        "BTC/USD": {"direction": "BUY", "strength": 0.5}
+    }
 
     # Request a vote for BTC/USD
     result = arbitrator.vote_on_signal("BTC/USD")
@@ -212,11 +193,14 @@ def test_strategy_arbitrator_vote_on_signals(
 
     # Scenario 3: Agreement but below threshold
     mock_momentum_instance.get_current_signal.return_value = {
-        "BTC/USD": {"direction": "BUY", "strength": 0.4}}
+        "BTC/USD": {"direction": "BUY", "strength": 0.4}
+    }
     mock_mean_reversion_instance.get_current_signal.return_value = {
-        "BTC/USD": {"direction": "BUY", "strength": 0.3}}
+        "BTC/USD": {"direction": "BUY", "strength": 0.3}
+    }
     mock_breakout_instance.get_current_signal.return_value = {
-        "BTC/USD": {"direction": "BUY", "strength": 0.5}}
+        "BTC/USD": {"direction": "BUY", "strength": 0.5}
+    }
 
     # Request a vote for BTC/USD
     result = arbitrator.vote_on_signal("BTC/USD")
@@ -229,11 +213,8 @@ def test_strategy_arbitrator_vote_on_signals(
 @patch("gal_friday.strategies.mean_reversion_strategy.MeanReversionStrategy")
 @patch("gal_friday.strategies.breakout_strategy.BreakoutStrategy")
 def test_strategy_arbitrator_generate_signals(
-        mock_breakout,
-        mock_mean_reversion,
-        mock_momentum,
-        strategy_config,
-        event_bus):
+    mock_breakout, mock_mean_reversion, mock_momentum, strategy_config, event_bus
+):
     """Test signal generation in the arbitrator."""
     # Set up mocks for strategies
     mock_momentum_instance = MagicMock()
@@ -260,17 +241,17 @@ def test_strategy_arbitrator_generate_signals(
     mock_momentum_instance.get_current_signal.return_value = {
         "BTC/USD": {"direction": "BUY", "strength": 0.8},
         "ETH/USD": {"direction": "SELL", "strength": 0.7},
-        "SOL/USD": {"direction": "BUY", "strength": 0.3}
+        "SOL/USD": {"direction": "BUY", "strength": 0.3},
     }
     mock_mean_reversion_instance.get_current_signal.return_value = {
         "BTC/USD": {"direction": "BUY", "strength": 0.7},
         "ETH/USD": {"direction": "SELL", "strength": 0.6},
-        "SOL/USD": {"direction": "SELL", "strength": 0.8}
+        "SOL/USD": {"direction": "SELL", "strength": 0.8},
     }
     mock_breakout_instance.get_current_signal.return_value = {
         "BTC/USD": {"direction": "BUY", "strength": 0.9},
         "ETH/USD": {"direction": "BUY", "strength": 0.9},
-        "SOL/USD": {"direction": "BUY", "strength": 0.6}
+        "SOL/USD": {"direction": "BUY", "strength": 0.6},
     }
 
     # Set up tradable symbols
@@ -289,13 +270,15 @@ def test_strategy_arbitrator_generate_signals(
     assert mock_event_bus.publish.call_count >= 1
 
     # Extract the published events
-    published_events = [call.args[0]
-                        for call in mock_event_bus.publish.call_args_list]
+    published_events = [call.args[0] for call in mock_event_bus.publish.call_args_list]
 
     # Check that at least one BTC/USD BUY signal was published
-    btc_buy_signals = [event for event in published_events
-                       if isinstance(event, SignalEvent) and
-                       event.symbol == "BTC/USD" and
-                       event.direction == "BUY"]
+    btc_buy_signals = [
+        event
+        for event in published_events
+        if isinstance(event, SignalEvent)
+        and event.symbol == "BTC/USD"
+        and event.direction == "BUY"
+    ]
 
     assert len(btc_buy_signals) >= 1

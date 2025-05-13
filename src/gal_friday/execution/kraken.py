@@ -1,13 +1,20 @@
-from typing import Dict, Any  # Removed Optional, Tuple
-import hmac
+"""Kraken exchange execution handler implementation.
+
+This module provides a Kraken-specific implementation of the ExecutionHandler interface,
+handling authentication, API communication, and order processing for the Kraken
+cryptocurrency exchange.
+"""
+
 import base64
 import hashlib
-import urllib.parse
+import hmac
 import time
+import urllib.parse
+from typing import Any, Dict  # Removed Optional, Tuple
 
-from ..execution_handler import ExecutionHandler
-from ..core.pubsub import PubSubManager
 from ..config_manager import ConfigManager
+from ..core.pubsub import PubSubManager
+from ..execution_handler import ExecutionHandler
 from ..logger_service import LoggerService
 from ..monitoring_service import MonitoringService
 
@@ -87,7 +94,7 @@ class KrakenExecutionHandler(ExecutionHandler):
 
     def _get_api_endpoint(self, action: str) -> str:
         """
-        Returns the Kraken API endpoint path for a given action.
+        Get the Kraken API endpoint path for a given action.
 
         Args:
             action: The action to perform (add_order, cancel_order, etc.)
@@ -112,7 +119,7 @@ class KrakenExecutionHandler(ExecutionHandler):
         return path
 
     def _prepare_add_order_params(self, internal_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Helper to prepare parameters for the 'add_order' action."""
+        """Prepare parameters for the 'add_order' action."""
         kraken_params = {}
         # Map internal trading pair to Kraken pair format
         if "trading_pair" in internal_data:
@@ -148,7 +155,7 @@ class KrakenExecutionHandler(ExecutionHandler):
 
     def _prepare_request_data(self, internal_data: Dict[str, Any], action: str) -> Dict[str, Any]:
         """
-        Translates internal order details to Kraken API parameters.
+        Translate internal order details to Kraken API parameters.
 
         Args:
             internal_data: Internal order parameters
@@ -174,7 +181,7 @@ class KrakenExecutionHandler(ExecutionHandler):
         self, uri_path: str, request_data: Dict[str, Any]
     ) -> Dict[str, str]:
         """
-        Generates Kraken-specific authentication headers.
+        Generate Kraken-specific authentication headers.
 
         Args:
             uri_path: API endpoint path
@@ -200,7 +207,7 @@ class KrakenExecutionHandler(ExecutionHandler):
 
     def _parse_response(self, response_data: Dict[str, Any], action: str) -> Dict[str, Any]:
         """
-        Parses Kraken's response for a given action into a standard format.
+        Parse Kraken's response for a given action into a standard format.
 
         Args:
             response_data: Raw response from Kraken API
@@ -245,7 +252,8 @@ class KrakenExecutionHandler(ExecutionHandler):
 
     def _generate_kraken_signature(self, uri_path: str, data: Dict[str, Any], nonce: int) -> str:
         """
-        Generates the API-Sign header required by Kraken private endpoints.
+        Generate the API-Sign header required by Kraken private endpoints.
+
         This method now matches the superclass signature.
 
         Args:
@@ -280,7 +288,7 @@ class KrakenExecutionHandler(ExecutionHandler):
 
     async def place_order(self, order_details: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Places an order on the Kraken exchange.
+        Place an order on the Kraken exchange.
 
         Args:
             order_details: Dictionary containing order details
@@ -316,7 +324,8 @@ class KrakenExecutionHandler(ExecutionHandler):
 
     async def cancel_order(self, order_id: str) -> bool:
         """
-        Cancels an existing order on the Kraken exchange.
+        Cancel an existing order on the Kraken exchange.
+
         This method now implements the cancellation fully and returns bool.
 
         Args:
@@ -368,7 +377,8 @@ class KrakenExecutionHandler(ExecutionHandler):
 
     async def get_order_status(self, order_id: str) -> Dict[str, Any]:
         """
-        Gets the current status of an order on the Kraken exchange.
+        Get the current status of an order on the Kraken exchange.
+
         This method now implements the status retrieval fully.
 
         Args:

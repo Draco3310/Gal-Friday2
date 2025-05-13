@@ -10,10 +10,11 @@ import logging
 import os
 import sys
 from typing import Tuple
+
+import joblib
 import pandas as pd
 import xgboost as xgb
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
-import joblib
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 
 # Add src directory to Python path to allow importing modules like ConfigManager
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +37,14 @@ log = logging.getLogger(__name__)
 
 
 def load_historical_data(config: "ConfigManager") -> pd.DataFrame:
-    """Loads and prepares historical data for a single pair."""
+    """Load and prepare historical data for a single pair.
+
+    Args:
+        config: Configuration manager instance containing data paths and trading pairs
+
+    Returns:
+        DataFrame containing cleaned and prepared historical data
+    """
     data_path = config.get("backtest.data_path")
     trading_pairs = config.get_list("trading.pairs")
 
@@ -104,7 +112,15 @@ def load_historical_data(config: "ConfigManager") -> pd.DataFrame:
 
 
 def generate_features(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame:
-    """Generates features based on configuration."""
+    """Generate features based on configuration.
+
+    Args:
+        df: Input DataFrame containing raw OHLCV data
+        config: Configuration manager instance containing feature settings
+
+    Returns:
+        DataFrame with additional technical analysis features
+    """
     log.info("Generating features...")
     feature_config = config.get("feature_engine", {})
     if not feature_config:
@@ -168,7 +184,15 @@ def generate_features(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame
 
 
 def generate_labels(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame:
-    """Generates the target variable (label) based on future price movement."""
+    """Generate the target variable (label) based on future price movement.
+
+    Args:
+        df: Input DataFrame containing OHLCV and feature data
+        config: Configuration manager instance containing labeling parameters
+
+    Returns:
+        DataFrame with added target labels
+    """
     log.info("Generating labels...")
     label_config = config.get("training.labeling", {})
     horizon_minutes = label_config.get("target_horizon_minutes")
@@ -189,9 +213,7 @@ def generate_labels(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame:
     df["future_close"] = df["close"].shift(-horizon_periods)
 
     # Calculate percentage change
-    df["future_pct_change"] = (
-        df["future_close"] - df["close"]
-    ) / df["close"] * 100
+    df["future_pct_change"] = (df["future_close"] - df["close"]) / df["close"] * 100
 
     # Create binary target label
     df["target"] = (df["future_pct_change"] >= threshold_pct).astype(int)
@@ -218,7 +240,15 @@ def generate_labels(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame:
 def split_data(
     df: pd.DataFrame, config: "ConfigManager"
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
-    """Splits data chronologically into training and testing sets."""
+    """Split data chronologically into training and testing sets.
+
+    Args:
+        df: Input DataFrame containing features and labels
+        config: Configuration manager instance containing split parameters
+
+    Returns:
+        Tuple containing (X_train, X_test, y_train, y_test)
+    """
     log.info("Splitting data...")
     feature_list = config.get_list("training.data.feature_list")
     split_ratio = config.get("training.data.train_split_ratio", 0.8)
@@ -254,7 +284,18 @@ def train_model(
     y_test: pd.Series,
     config: "ConfigManager",
 ) -> xgb.XGBClassifier:
-    """Trains the XGBoost model."""
+    """Train an XGBoost model with the provided data.
+
+    Args:
+        X_train: Training features
+        y_train: Training labels
+        X_test: Test features
+        y_test: Test labels
+        config: Configuration manager instance containing model parameters
+
+    Returns:
+        Trained XGBoost classifier model
+    """
     log.info("Training XGBoost model...")
     model_config = config.get("training.model", {})
     model_params = model_config.get("params", {})
@@ -290,7 +331,13 @@ def train_model(
 
 
 def evaluate_model(model: xgb.XGBClassifier, X_test: pd.DataFrame, y_test: pd.Series) -> None:
-    """Evaluates the trained model on the test set."""
+    """Evaluate model performance on test data.
+
+    Args:
+        model: Trained XGBoost classifier
+        X_test: Test features
+        y_test: Test labels
+    """
     log.info("Evaluating model on test set...")
     y_pred = model.predict(X_test)
     y_proba = model.predict_proba(X_test)[:, 1]
@@ -310,7 +357,12 @@ def evaluate_model(model: xgb.XGBClassifier, X_test: pd.DataFrame, y_test: pd.Se
 
 
 def save_model(model: xgb.XGBClassifier, config: "ConfigManager") -> None:
-    """Saves the trained model artifact."""
+    """Save the trained model to disk.
+
+    Args:
+        model: Trained XGBoost classifier to save
+        config: Configuration manager instance containing save path
+    """
     save_path = config.get("prediction_service.model_path")
     if not save_path:
         raise ValueError("Model save path ('prediction_service.model_path') not configured.")
@@ -332,6 +384,11 @@ def save_model(model: xgb.XGBClassifier, config: "ConfigManager") -> None:
 
 # --- Main Execution --- #
 def main() -> None:
+    """Execute the initial model training pipeline.
+
+    Loads data, generates features, creates labels, trains and evaluates
+    an XGBoost model for price movement prediction.
+    """
     log.info("Starting initial model training script...")
     try:
         config = ConfigManager(config_path="config/config.yaml")

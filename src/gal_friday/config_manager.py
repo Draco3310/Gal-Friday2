@@ -1,18 +1,26 @@
+"""Provide configuration management for the Gal-Friday trading system.
+
+This module handles loading, validating, and accessing application configuration from
+YAML files. It provides secure access to sensitive information like API keys and supports
+both file-based configuration and environment variable overrides.
+"""
+
 # Configuration Manager Module
 
-import yaml
-import os
 import logging
-from typing import Any, Optional, List, Dict
-from functools import reduce
 import operator
+import os
 from decimal import Decimal
+from functools import reduce
+from typing import Any, Dict, List, Optional
+
+import yaml
 
 log = logging.getLogger(__name__)
 
 
 class ConfigManager:
-    """Manages loading and accessing application configuration from a YAML file."""
+    """Manage loading and accessing application configuration from a YAML file."""
 
     def __init__(
         self,
@@ -20,7 +28,7 @@ class ConfigManager:
         logger_service: Optional[logging.Logger] = None,
     ):
         """
-        Initializes the ConfigManager, loads config, and validates it.
+        Initialize the ConfigManager, load config, and validate it.
 
         Args:
             config_path: Path to the YAML configuration file relative to the workspace root.
@@ -40,7 +48,7 @@ class ConfigManager:
         self.validation_errors = self.validate_configuration()
 
     def load_config(self) -> None:
-        """Loads or reloads the configuration from the specified YAML file."""
+        """Load or reload the configuration from the specified YAML file."""
         self._logger.info(f"Attempting to load configuration from: {self._config_path}")
         try:
             # Ensure the path is absolute or relative to the workspace root
@@ -81,7 +89,7 @@ class ConfigManager:
 
     def get(self, key: str, default: Optional[Any] = None) -> Any:
         """
-        Retrieves a configuration value using a dot-separated key.
+        Retrieve a configuration value using a dot-separated key.
 
         Example:
             config.get('database.postgres.host', 'localhost')
@@ -117,7 +125,7 @@ class ConfigManager:
             return default
 
     def get_int(self, key: str, default: int = 0) -> int:
-        """Retrieves a config value and attempts to cast it to an integer."""
+        """Retrieve a config value and attempt to cast it to an integer."""
         value = self.get(key, default)
         try:
             return int(value)
@@ -129,7 +137,7 @@ class ConfigManager:
             return default
 
     def get_float(self, key: str, default: float = 0.0) -> float:
-        """Retrieves a config value and attempts to cast it to a float."""
+        """Retrieve a config value and attempt to cast it to a float."""
         value = self.get(key, default)
         try:
             return float(value)
@@ -141,7 +149,7 @@ class ConfigManager:
             return default
 
     def get_decimal(self, key: str, default: Decimal = Decimal("0.0")) -> Decimal:
-        """Retrieves a config value and attempts to cast it to a Decimal."""
+        """Retrieve a config value and attempt to cast it to a Decimal."""
         # Ensure default is Decimal if provided otherwise
         if not isinstance(default, Decimal):
             try:
@@ -164,7 +172,8 @@ class ConfigManager:
             return default
 
     def get_bool(self, key: str, default: bool = False) -> bool:
-        """Retrieves a config value and attempts to interpret it as a boolean.
+        """Retrieve a config value and attempt to interpret it as a boolean.
+
         Considers true: 'true', 'yes', '1', True (case-insensitive).
         Considers false: 'false', 'no', '0', False, None (case-insensitive).
         """
@@ -190,7 +199,7 @@ class ConfigManager:
         return default
 
     def get_list(self, key: str, default: Optional[List[Any]] = None) -> List[Any]:
-        """Retrieves a config value expected to be a list."""
+        """Retrieve a config value expected to be a list."""
         if default is None:
             default = []  # Default to empty list if None specified
 
@@ -206,7 +215,7 @@ class ConfigManager:
             return default if isinstance(default, list) else []
 
     def get_dict(self, key: str, default: Optional[dict] = None) -> dict:
-        """Retrieves a config value expected to be a dictionary."""
+        """Retrieve a config value expected to be a dictionary."""
         if default is None:
             default = {}  # Default to empty dict if None specified
 
@@ -223,7 +232,8 @@ class ConfigManager:
 
     def validate_configuration(self) -> List[str]:
         """
-        Validates the loaded configuration against predefined rules.
+        Validate the loaded configuration against predefined rules.
+
         Returns a list of validation error messages. An empty list indicates success.
         """
         errors: List[str] = []
@@ -264,7 +274,7 @@ class ConfigManager:
         return errors
 
     def _is_valid_trading_pair(self, pair: str) -> bool:
-        """Validates if a string is a properly formatted trading pair."""
+        """Validate if a string is a properly formatted trading pair."""
         if not isinstance(pair, str):
             return False
         if "/" not in pair:
@@ -277,7 +287,7 @@ class ConfigManager:
         return True
 
     def _validate_trading_section(self, errors: List[str]) -> None:
-        """Validates the 'trading' section of the configuration."""
+        """Validate the 'trading' section of the configuration."""
         if self.get("trading") is None:
             return
         if not isinstance(self.get("trading"), dict):
@@ -305,7 +315,7 @@ class ConfigManager:
             errors.append("'trading.exchange' must be a non-empty string.")
 
     def _validate_risk_section(self, errors: List[str]) -> None:
-        """Validates the 'risk' section of the configuration."""
+        """Validate the 'risk' section of the configuration."""
         if self.get("risk") is None:
             return
         if not isinstance(self.get("risk"), dict):
@@ -329,7 +339,7 @@ class ConfigManager:
             errors.append("'risk.stop_loss_pct' must be less than 'risk.take_profit_pct'.")
 
     def _validate_api_section(self, errors: List[str]) -> None:
-        """Validates the 'api' section of the configuration."""
+        """Validate the 'api' section of the configuration."""
         if self.get("api") is None:
             return
         if not isinstance(self.get("api"), dict):
@@ -362,24 +372,25 @@ class ConfigManager:
     # --- Optional specific getters (can be added as needed) ---
 
     def get_trading_pairs(self) -> List[str]:
-        """Retrieves the list of trading pairs."""
+        """Retrieve the list of trading pairs."""
         # Validation happens in validate_configuration
         pairs = self.get_list("trading.pairs", [])
         return pairs
 
     def get_risk_parameters(self) -> Dict[str, Any]:
-        """Retrieves the risk configuration section."""
+        """Retrieve the risk configuration section."""
         # Validation happens in validate_configuration
         return self.get_dict("risk", {})
 
     def get_strategy_parameters(self, strategy_id: str) -> Dict[str, Any]:
-        """Retrieves parameters for a specific strategy."""
+        """Retrieve parameters for a specific strategy."""
         # Validation happens in validate_configuration
         return self.get_dict(f"strategies.{strategy_id}", {})
 
     def get_api_keys(self, service_name: str) -> Dict[str, Optional[str]]:
         """
-        Retrieves API key/secret pair securely for a given service.
+        Retrieve API key/secret pair securely for a given service.
+
         Assumes standard key names 'key' and 'secret'.
         Returns a dict with 'key' and 'secret' containing Optional[str].
         """
@@ -393,7 +404,7 @@ class ConfigManager:
 
     def reload_config(self) -> List[str]:
         """
-        Reloads the configuration from the file and re-validates it.
+        Reload the configuration from the file and re-validate it.
 
         Updates `self.validation_errors` with the results of the new validation.
 
@@ -417,13 +428,14 @@ class ConfigManager:
         return self.validation_errors
 
     def is_valid(self) -> bool:
-        """Returns True if configuration was loaded successfully AND passed validation."""
+        """Return True if configuration was loaded successfully AND passed validation."""
         # Check if config was loaded (is not None) and if there are no validation errors.
         return self._config is not None and not self.validation_errors
 
     def get_secure_value(self, key: str, default: Optional[str] = None) -> Optional[str]:
         """
-        Retrieves sensitive configuration values, prioritizing environment variables.
+        Retrieve sensitive configuration values, prioritizing environment variables.
+
         Converts dot notation key to uppercase underscore notation for env var lookup.
         Example: 'api.kraken.key' becomes 'API_KRAKEN_KEY'.
         Logs source (env or config) but not the value itself unless default is returned.
@@ -464,14 +476,14 @@ class ConfigManager:
                 return str(config_value)
 
     def get_secure_api_key(self, service_name: str, key_name: str = "key") -> Optional[str]:
-        """Retrieves a specific API key securely for a given service."""
+        """Retrieve a specific API key securely for a given service."""
         full_key = f"api.{service_name}.{key_name}"
         return self.get_secure_value(full_key)
 
     def get_secure_api_secret(
         self, service_name: str, secret_name: str = "secret"
     ) -> Optional[str]:
-        """Retrieves a specific API secret securely for a given service."""
+        """Retrieve a specific API secret securely for a given service."""
         full_key = f"api.{service_name}.{secret_name}"
         return self.get_secure_value(full_key)
 

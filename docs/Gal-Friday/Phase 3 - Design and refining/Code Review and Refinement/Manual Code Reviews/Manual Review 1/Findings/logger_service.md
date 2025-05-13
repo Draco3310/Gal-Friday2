@@ -83,11 +83,11 @@ The implementation meets most of the requirements specified in the interface def
 async def start(self) -> None:
     """Initializes database connection pool and subscribes to LOG events."""
     logging.info("LoggerService start sequence initiated.")
-    
+
     # Subscribe to LOG events from the event bus
     self._pubsub.subscribe(EventType.LOG, self._handle_log_event)
     logging.info("Subscribed to LOG events from event bus.")
-    
+
     if self._db_enabled:
         await self._initialize_db_pool()
         # ...existing code...
@@ -97,7 +97,7 @@ async def _handle_log_event(self, event: LogEvent) -> None:
     # Extract log fields from the event
     level_name = event.level.upper()
     level = getattr(logging, level_name, logging.INFO)
-    
+
     # Use the standard logging method to handle the event
     self.log(
         level=level,
@@ -119,37 +119,37 @@ async def log_timeseries(
 ) -> None:
     """Logs time-series data to InfluxDB."""
     log_time = timestamp if timestamp else datetime.utcnow()
-    
+
     # Log to standard logging for visibility
     self.log(
         logging.DEBUG,
         f"[TimeSeries] Measurement: {measurement}, Tags: {tags}, "
         f"Fields: {fields}, Time: {log_time.isoformat()}",
     )
-    
+
     # Skip actual InfluxDB writing if not configured
     if not self._config_manager.get("logging.influxdb.enabled", default=False):
         return
-        
+
     try:
         # Import here to avoid dependency if not used
         import influxdb_client
         from influxdb_client.client.write_api import SYNCHRONOUS
         from influxdb_client import WritePrecision
-        
+
         # Get InfluxDB configuration
         url = self._config_manager.get("logging.influxdb.url")
         token = self._config_manager.get("logging.influxdb.token")
         org = self._config_manager.get("logging.influxdb.org")
         bucket = self._config_manager.get("logging.influxdb.bucket")
-        
+
         if not all([url, token, org, bucket]):
             self.warning(
                 "InfluxDB configuration incomplete, skipping timeseries write",
                 source_module=self.__class__.__name__
             )
             return
-            
+
         # Create client if not exists
         if not hasattr(self, "_influx_client") or self._influx_client is None:
             self._influx_client = influxdb_client.InfluxDBClient(
@@ -157,23 +157,23 @@ async def log_timeseries(
                 token=token,
                 org=org
             )
-            
+
         # Create data point
         point = influxdb_client.Point(measurement).time(log_time, WritePrecision.MS)
-        
+
         # Add tags
         for key, value in tags.items():
             point = point.tag(key, value)
-            
+
         # Add fields
         for key, value in fields.items():
             # Handle numeric types properly
             point = point.field(key, value)
-            
+
         # Write data
         write_api = self._influx_client.write_api(write_options=SYNCHRONOUS)
         write_api.write(bucket=bucket, org=org, record=point)
-        
+
     except ImportError:
         self.warning(
             "InfluxDB client library not installed, skipping timeseries write",
@@ -206,7 +206,7 @@ async def _process_queue(self) -> None:
     retries = 0
     max_retries = 3
     backoff_time = 1.0  # Start with 1 second backoff
-    
+
     while True:
         try:
             record_data = await self._queue.get()
@@ -216,7 +216,7 @@ async def _process_queue(self) -> None:
 
             inserted = False
             attempt = 0
-            
+
             while not inserted and attempt < max_retries:
                 try:
                     async with self._pool.acquire() as conn:
@@ -227,11 +227,11 @@ async def _process_queue(self) -> None:
                         retries = 0  # Reset counter on success
                         backoff_time = 1.0  # Reset backoff
                         self._queue.task_done()
-                except (asyncpg.exceptions.PostgresConnectionError, 
+                except (asyncpg.exceptions.PostgresConnectionError,
                         asyncpg.exceptions.ConnectionDoesNotExistError) as conn_err:
                     attempt += 1
                     if attempt >= max_retries:
-                        print(f"Failed to insert log after {max_retries} attempts: {conn_err}", 
+                        print(f"Failed to insert log after {max_retries} attempts: {conn_err}",
                               file=sys.stderr)
                         # Mark done to prevent queue blockage
                         self._queue.task_done()
@@ -244,7 +244,7 @@ async def _process_queue(self) -> None:
                     print(f"Error inserting log record: {e}", file=sys.stderr)
                     self._queue.task_done()
                     break
-                    
+
         except asyncio.CancelledError:
             print("AsyncPostgresHandler queue processing cancelled.", file=sys.stderr)
             break
@@ -263,13 +263,13 @@ def _filter_sensitive_data(self, context: Dict[str, Any]) -> Dict[str, Any]:
     """Filter sensitive data from log context."""
     if not context:
         return {}
-        
+
     filtered = context.copy()
     sensitive_keys = [
-        "api_key", "secret", "password", "token", "credentials", 
+        "api_key", "secret", "password", "token", "credentials",
         "private_key", "auth"
     ]
-    
+
     # Check each key for sensitive patterns
     for key in list(filtered.keys()):
         key_lower = key.lower()
@@ -278,22 +278,22 @@ def _filter_sensitive_data(self, context: Dict[str, Any]) -> Dict[str, Any]:
                 # Replace with masked value
                 filtered[key] = "********"
                 break
-                
+
     return filtered
 
 # Then update log method:
 def log(self, level: int, message: str, ...) -> None:
     # ...existing code...
-    
+
     # Filter sensitive data if context exists
     if context:
         filtered_context = self._filter_sensitive_data(context)
     else:
         filtered_context = None
-        
+
     # Prepare extra dictionary for context
     extra_data = {"context": filtered_context} if filtered_context else {}
-    
+
     # ...rest of method...
 ```
 
@@ -306,13 +306,13 @@ async def _check_db_pool_health(self) -> None:
     check_interval = self._config_manager.get_int(
         "logging.database.health_check_interval_seconds", 60
     )
-    
+
     while True:
         await asyncio.sleep(check_interval)
-        
+
         if not self._db_pool:
             continue
-            
+
         try:
             # Test a connection from the pool
             async with self._db_pool.acquire() as conn:
@@ -341,7 +341,7 @@ class ContextFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         # Create a copy of the record to avoid modifying the original
         record_copy = copy.copy(record)
-        
+
         # Convert context to string format consistent with JSON formatter
         if hasattr(record_copy, "context") and record_copy.context:
             if isinstance(record_copy.context, dict):
@@ -355,7 +355,7 @@ class ContextFormatter(logging.Formatter):
                 record_copy.context_json = str(record_copy.context)
         else:
             record_copy.context_json = ""
-            
+
         # Default formatting using the copy
         return super().format(record_copy)
 ```

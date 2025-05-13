@@ -1,16 +1,24 @@
-from decimal import Decimal
-from typing import Optional, Tuple, Dict
-import aiohttp
-from datetime import datetime, timedelta
+"""Kraken exchange market price service implementation.
 
-from ..market_price_service import MarketPriceService
+This module provides real-time market price data retrieval from the Kraken
+cryptocurrency exchange, including price, spread information, and currency conversion.
+"""
+
+from datetime import datetime, timedelta
+from decimal import Decimal
+from typing import Dict, Optional, Tuple
+
+import aiohttp
+
 from ..config_manager import ConfigManager
 from ..logger_service import LoggerService
+from ..market_price_service import MarketPriceService
 
 
 class KrakenMarketPriceService(MarketPriceService):
     """
     Kraken-specific implementation of the MarketPriceService.
+
     Fetches real-time price data from the Kraken cryptocurrency exchange.
     """
 
@@ -191,7 +199,7 @@ class KrakenMarketPriceService(MarketPriceService):
 
     def _map_internal_to_kraken_pair(self, internal_pair: str) -> Optional[str]:
         """
-        Maps internal trading pair format to Kraken's format.
+        Map internal trading pair format to Kraken's format.
 
         Args:
             internal_pair: Trading pair in internal format (e.g., "BTC/USD")
@@ -226,9 +234,7 @@ class KrakenMarketPriceService(MarketPriceService):
         return kraken_pair
 
     async def get_price_timestamp(self, trading_pair: str) -> Optional[datetime]:
-        """
-        Get the timestamp (UTC) associated with the latest price data.
-        """
+        """Get the timestamp (UTC) associated with the latest price data."""
         kraken_pair = self._map_internal_to_kraken_pair(trading_pair)
         if not kraken_pair:
             self.logger.warning(
@@ -239,9 +245,7 @@ class KrakenMarketPriceService(MarketPriceService):
         return self._price_timestamps.get(kraken_pair)
 
     async def is_price_fresh(self, trading_pair: str, max_age_seconds: float = 60.0) -> bool:
-        """
-        Check if the price data for a trading pair is recent enough.
-        """
+        """Check if the price data for a trading pair is recent enough."""
         timestamp = await self.get_price_timestamp(trading_pair)
         if timestamp is None:
             return False
@@ -249,35 +253,41 @@ class KrakenMarketPriceService(MarketPriceService):
         is_fresh = (datetime.utcnow() - timestamp) < timedelta(seconds=max_age_seconds)
         if not is_fresh:
             self.logger.debug(
-                (f"Price data for {trading_pair} (timestamp: {timestamp}) "
-                 f"is older than {max_age_seconds}s."),
+                (
+                    f"Price data for {trading_pair} (timestamp: {timestamp}) "
+                    f"is older than {max_age_seconds}s."
+                ),
                 source_module=self._source_module,
             )
         return is_fresh
 
     async def _get_safe_price(self, pair: str) -> Optional[Decimal]:
-        """Helper to get price, returns None if price is 0 or None to avoid division by zero."""
+        """Get price, return None if price is 0 or None to avoid division by zero."""
         price_decimal = await self.get_latest_price(pair)
         if price_decimal is not None and price_decimal > 0:
             return price_decimal
         self.logger.debug(
-            f"Safe price for {pair} is None or zero.",
-            source_module=self._source_module
+            f"Safe price for {pair} is None or zero.", source_module=self._source_module
         )
         return None
 
     async def _try_conversion_step(
         self, amount: Decimal, from_currency: str, to_currency: str
     ) -> Optional[Decimal]:
-        """Attempts a single conversion from_currency to to_currency,
-        trying direct and reverse pairs."""
+        """
+        Attempt a single conversion from_currency to to_currency.
+
+        Tries both direct and reverse pairs.
+        """
         # 1. Try direct conversion (FROM/TO)
         direct_pair = f"{from_currency}/{to_currency}"
         price_direct = await self._get_safe_price(direct_pair)
         if price_direct:
             self.logger.debug(
-                (f"Converting {amount} {from_currency} to {to_currency} "
-                 f"via direct pair {direct_pair} with price {price_direct}"),
+                (
+                    f"Converting {amount} {from_currency} to {to_currency} "
+                    f"via direct pair {direct_pair} with price {price_direct}"
+                ),
                 source_module=self._source_module,
             )
             return amount * price_direct
@@ -287,8 +297,10 @@ class KrakenMarketPriceService(MarketPriceService):
         price_reverse = await self._get_safe_price(reverse_pair)
         if price_reverse:
             self.logger.debug(
-                (f"Converting {amount} {from_currency} to {to_currency} "
-                 f"via reverse pair {reverse_pair} with price {price_reverse}"),
+                (
+                    f"Converting {amount} {from_currency} to {to_currency} "
+                    f"via reverse pair {reverse_pair} with price {price_reverse}"
+                ),
                 source_module=self._source_module,
             )
             return amount / price_reverse
@@ -328,8 +340,10 @@ class KrakenMarketPriceService(MarketPriceService):
             and from_currency != to_currency
         ):
             self.logger.warning(
-                (f"Direct/reverse conversion failed for intermediaries {from_currency} "
-                 f"to {to_currency}. This is unexpected."),
+                (
+                    f"Direct/reverse conversion failed for intermediaries {from_currency} "
+                    f"to {to_currency}. This is unexpected."
+                ),
                 source_module=self._source_module,
             )
 
@@ -361,8 +375,10 @@ class KrakenMarketPriceService(MarketPriceService):
                 )
                 if final_amount is not None:
                     self.logger.debug(
-                        (f"Successfully converted {from_amount} {from_currency} to {final_amount} "
-                         f"{to_currency} via {intermediary}"),
+                        (
+                            f"Successfully converted {from_amount} {from_currency} "
+                            f"to {final_amount} {to_currency} via {intermediary}"
+                        ),
                         source_module=self._source_module,
                     )
                     return final_amount
@@ -378,8 +394,10 @@ class KrakenMarketPriceService(MarketPriceService):
                 )
 
         self.logger.warning(
-            (f"Could not convert {from_amount} {from_currency} to {to_currency}. "
-             f"No direct, reverse, or intermediary ({', '.join(intermediaries)}) path found."),
+            (
+                f"Could not convert {from_amount} {from_currency} to {to_currency}. "
+                f"No direct, reverse, or intermediary path found."
+            ),
             source_module=self._source_module,
         )
         return None

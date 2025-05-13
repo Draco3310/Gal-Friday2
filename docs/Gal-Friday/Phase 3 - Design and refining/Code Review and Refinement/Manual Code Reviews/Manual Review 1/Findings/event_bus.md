@@ -32,7 +32,7 @@ The most significant issue is that this module appears to be an alternative impl
    - This implementation creates a separate queue for each subscription
    - The `core.pubsub` implementation maintains a list of handler functions
 
-3. **Different Event Delivery Mechanism**: 
+3. **Different Event Delivery Mechanism**:
    - This module uses a queue per subscription
    - The `core.pubsub` module creates tasks for handling events
 
@@ -78,7 +78,7 @@ The most significant issue is that this module appears to be an alternative impl
    import pytest
    import asyncio
    from gal_friday.event_bus import PubSubManager
-   
+
    # Move all example code here
    ```
 
@@ -87,12 +87,12 @@ The most significant issue is that this module appears to be an alternative impl
 1. **Improve Type Integration**: Replace runtime class placeholders with proper abstract base classes to ensure type safety:
    ```python
    from abc import ABC, abstractproperty
-   
+
    class EventBase(ABC):
        @abstractproperty
        def event_type(self) -> "EventTypeBase":
            pass
-           
+
    class EventTypeBase(ABC):
        pass
    ```
@@ -100,8 +100,8 @@ The most significant issue is that this module appears to be an alternative impl
 2. **Add Queue Size Configuration**: Allow maxsize configuration for queues to prevent unbounded memory growth:
    ```python
    def subscribe(
-       self, 
-       event_type: "EventType", 
+       self,
+       event_type: "EventType",
        handler: Callable[["Event"], Coroutine],
        queue_size: int = 100
    ) -> asyncio.Queue:
@@ -121,8 +121,8 @@ The most significant issue is that this module appears to be an alternative impl
 1. **Add Event Priority Support**: Consider implementing priority queues for critical events:
    ```python
    def subscribe(
-       self, 
-       event_type: "EventType", 
+       self,
+       event_type: "EventType",
        handler: Callable[["Event"], Coroutine],
        priority: bool = False
    ) -> asyncio.Queue:

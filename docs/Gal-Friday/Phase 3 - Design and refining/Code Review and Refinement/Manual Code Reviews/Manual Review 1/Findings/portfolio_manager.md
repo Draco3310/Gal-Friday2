@@ -80,7 +80,7 @@ While the core functionality is well-implemented with good use of Decimal for fi
        try:
            # Get balances from exchange service
            exchange_balances = await self._exchange_service.get_account_balances()
-           
+
            # Compare with internal state
            for currency, reported_balance in exchange_balances.items():
                internal_balance = self._available_funds.get(currency, Decimal(0))
@@ -97,7 +97,7 @@ While the core functionality is well-implemented with good use of Decimal for fi
                            f"Auto-reconciled {currency} balance to {reported_balance}",
                            source_module=self.__class__.__name__
                        )
-           
+
            # Similar logic for positions...
        except Exception as e:
            self.logger.error(
@@ -113,24 +113,24 @@ While the core functionality is well-implemented with good use of Decimal for fi
        """Updates daily, weekly, and total drawdown metrics."""
        # Current time for reference
        now = datetime.utcnow()
-       
+
        # Update total drawdown
        if self._total_equity > self._peak_equity:
            self._peak_equity = self._total_equity
            self._total_drawdown_pct = Decimal(0)
        elif self._peak_equity > 0:
            self._total_drawdown_pct = ((self._peak_equity - self._total_equity) / self._peak_equity) * 100
-       
+
        # Update daily drawdown
        if now.hour == 0 and now.minute < 5:  # Reset around midnight
            self._daily_peak_equity = self._total_equity
        elif self._total_equity > self._daily_peak_equity:
            self._daily_peak_equity = self._total_equity
-           
+
        # Calculate daily drawdown
        if self._daily_peak_equity > 0:
            self._daily_drawdown_pct = ((self._daily_peak_equity - self._total_equity) / self._daily_peak_equity) * 100
-       
+
        # Similar logic for weekly drawdown...
    ```
 
@@ -140,10 +140,10 @@ While the core functionality is well-implemented with good use of Decimal for fi
        """Asynchronously recalculates the total portfolio value."""
        # Calculate value of cash balances asynchronously
        cash_value, missing_prices_cash = await self._calculate_cash_value_async()
-       
+
        # Calculate value of positions asynchronously
        position_value, missing_prices_pos = await self._calculate_position_value_async()
-       
+
        # Update state with acquired values
        self._total_equity = cash_value + position_value
        # ...rest of the method
@@ -159,7 +159,7 @@ While the core functionality is well-implemented with good use of Decimal for fi
        self.valuation_currency = self.config_manager.get(
            "portfolio.valuation_currency", "USD"
        ).upper()
-       
+
        # Reconciliation settings
        self._reconciliation_interval = self.config_manager.get(
            "portfolio.reconciliation.interval_seconds", 3600
@@ -170,7 +170,7 @@ While the core functionality is well-implemented with good use of Decimal for fi
        self._auto_reconcile = self.config_manager.get(
            "portfolio.reconciliation.auto_update", False
        )
-       
+
        # Drawdown calculation settings
        self._daily_reset_hour = self.config_manager.get(
            "portfolio.drawdown.daily_reset_hour", 0
@@ -178,7 +178,7 @@ While the core functionality is well-implemented with good use of Decimal for fi
        self._weekly_reset_day = self.config_manager.get(
            "portfolio.drawdown.weekly_reset_day", 0  # Monday
        )
-       
+
        # Load decimal precision
        decimal_precision = self.config_manager.get(
            "portfolio.decimal_precision", 28
@@ -217,7 +217,7 @@ While the core functionality is well-implemented with good use of Decimal for fi
            realized_pnl = (cost_or_proceeds - (quantity_filled * current_avg_price))
            if quantity_filled > current_quantity:
                self.logger.warning(f"Selling more {pair} than position record shows available.")
-               
+
            # Track realized P&L for reporting
            self._realized_pnl_history.append({
                "timestamp": datetime.utcnow(),
@@ -227,7 +227,7 @@ While the core functionality is well-implemented with good use of Decimal for fi
                "exit_price": cost_or_proceeds / quantity_filled,
                "realized_pnl": realized_pnl
            })
-           
+
            # Update position
            position.quantity -= quantity_filled
            # ...rest of sell logic...
@@ -271,7 +271,7 @@ While the core functionality is well-implemented with good use of Decimal for fi
        unrealized_pnl: Optional[Decimal] = None
        realized_pnl: Decimal = Decimal(0)
        trade_count: int = 0
-       
+
        # Track individual lots/trades for more detailed analysis
        lots: List[Dict[str, Any]] = field(default_factory=list)
    ```
@@ -292,7 +292,7 @@ While the core functionality is well-implemented with good use of Decimal for fi
                "weekly": str(self._weekly_drawdown_pct)
            }
        }
-       
+
        try:
            await self._state_persistence_service.save_state(
                "portfolio_manager", state_to_save
@@ -318,7 +318,7 @@ While the core functionality is well-implemented with good use of Decimal for fi
            "total_equity": self._total_equity,
            "drawdown_pct": self._total_drawdown_pct
        }
-       
+
        # Add more sophisticated metrics
        if len(self._daily_returns) > 1:
            # Sharpe ratio calculation (simplified)
@@ -327,11 +327,11 @@ While the core functionality is well-implemented with good use of Decimal for fi
            for r in self._daily_returns:
                std_dev += (r - mean_daily_return) ** 2
            std_dev = (std_dev / len(self._daily_returns)).sqrt()
-           
+
            if std_dev > 0:
                sharpe = mean_daily_return / std_dev * Decimal("15.87")  # Annualized
                metrics["sharpe_ratio"] = sharpe
-       
+
        return metrics
    ```
 

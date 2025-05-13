@@ -73,32 +73,32 @@ While the module implements core functionality for simulating market and limit o
        trading_pair = entry_fill_event.trading_pair
        side = "SELL" if entry_fill_event.side.upper() == "BUY" else "BUY"
        quantity = entry_fill_event.quantity_filled
-       
+
        # In backtesting, we can look ahead to see if SL/TP would be triggered
        next_bars = self.data_service.get_future_bars(
-           trading_pair, 
+           trading_pair,
            entry_fill_event.timestamp_exchange,
            limit=50  # Reasonable number to check
        )
-       
+
        for bar in next_bars:
            # Check if SL triggered (price moved against position)
            sl_triggered = (
                (side == "SELL" and bar["low"] <= sl_price) or
                (side == "BUY" and bar["high"] >= sl_price)
            )
-           
+
            # Check if TP triggered (price moved in favor of position)
            tp_triggered = (
                (side == "SELL" and bar["high"] >= tp_price) or
                (side == "BUY" and bar["low"] <= tp_price)
            )
-           
+
            if sl_triggered or tp_triggered:
                # Create and publish execution report for the SL/TP order
                trigger_price = sl_price if sl_triggered else tp_price
                trigger_type = "Stop Loss" if sl_triggered else "Take Profit"
-               
+
                await self._publish_simulated_report(
                    entry_fill_event,
                    "FILLED",
@@ -109,13 +109,13 @@ While the module implements core functionality for simulating market and limit o
                    f"{trigger_type} execution",
                    bar.name  # Timestamp of the bar
                )
-               
+
                self.logger.info(
                    f"{trigger_type} executed at {trigger_price} for {trading_pair}",
                    source_module=self.__class__.__name__
                )
                return True
-               
+
        # If neither SL nor TP was triggered
        self.logger.info(
            f"Neither SL ({sl_price}) nor TP ({tp_price}) triggered for {trading_pair}",
@@ -129,19 +129,19 @@ While the module implements core functionality for simulating market and limit o
    def _calculate_fill_quantity(self, event, bar_data):
        """Calculate partial or full fill quantity based on order size and liquidity."""
        requested_qty = event.quantity
-       
+
        # Simple model: Use bar volume to estimate available liquidity
        bar_volume = Decimal(str(bar_data["volume"]))
-       
+
        # Estimate what percentage of the bar's volume we can realistically fill
        # without excessive slippage (assuming we're not the only trader)
        max_fill_pct = self.config.get_decimal(
            "backtest.max_fill_percentage", Decimal("0.1")
        )
-       
+
        # Calculate maximum quantity that could be filled based on available volume
        max_fill_qty = bar_volume * max_fill_pct
-       
+
        if requested_qty <= max_fill_qty:
            # Can fill the entire order
            return requested_qty, "FILLED"
@@ -168,21 +168,21 @@ While the module implements core functionality for simulating market and limit o
        """Simulates a limit order with timeout consideration."""
        limit_price = event.limit_price
        timeout_bars = self.config.get("backtest.limit_order_timeout_bars", 5)
-       
+
        for i, bar in enumerate(next_bars[:timeout_bars]):
            filled = self._check_limit_order_fill(event.side, limit_price, bar)
            if filled:
                # Calculate fill details
                # ...existing code...
                return fill_result
-               
+
        # If we get here, the order timed out without filling
        self.logger.info(
            f"Limit order timed out after {timeout_bars} bars without filling",
            source_module=self.__class__.__name__
        )
        return {
-           "status": "REJECTED", 
+           "status": "REJECTED",
            "quantity": Decimal(0),
            "fill_price": None,
            "commission": Decimal(0),
@@ -199,7 +199,7 @@ While the module implements core functionality for simulating market and limit o
    def _calculate_slippage(self, trading_pair, side, base_price, signal_timestamp, order_size):
        """Enhanced slippage calculation that considers size, volatility, and market depth."""
        slippage = Decimal(0)
-       
+
        try:
            if self.slippage_model == "fixed":
                slippage = base_price * self.slip_fixed_pct
@@ -242,7 +242,7 @@ While the module implements core functionality for simulating market and limit o
                exc_info=True
            )
            slippage = base_price * self.slip_fixed_pct  # Fallback
-           
+
        # Slippage is always adverse
        return abs(slippage)
    ```
@@ -257,7 +257,7 @@ While the module implements core functionality for simulating market and limit o
            source_module=self.__class__.__name__,
            exc_info=True
        )
-       
+
        # Publish standardized error report
        await self._publish_simulated_report(
            event,
@@ -269,7 +269,7 @@ While the module implements core functionality for simulating market and limit o
            error_msg,
            datetime.utcnow()
        )
-       
+
        # Return a standardized error result
        return {
            "status": "ERROR",
@@ -283,31 +283,31 @@ While the module implements core functionality for simulating market and limit o
    def _validate_order_parameters(self, event):
        """Validates order parameters against exchange rules and logical constraints."""
        errors = []
-       
+
        # Check for valid trading pair format
        if "/" not in event.trading_pair:
            errors.append(f"Invalid trading pair format: {event.trading_pair}")
-           
+
        # Validate order type
        valid_order_types = ["MARKET", "LIMIT"]
        if event.order_type.upper() not in valid_order_types:
            errors.append(f"Unsupported order type: {event.order_type}")
-           
+
        # Validate quantity
        min_quantity = self.config.get_decimal(
            f"backtest.min_order_size.{event.trading_pair}", Decimal("0.001")
        )
        if event.quantity < min_quantity:
            errors.append(f"Order size too small: {event.quantity} < {min_quantity}")
-           
+
        # Validate limit price for limit orders
        if event.order_type.upper() == "LIMIT" and not event.limit_price:
            errors.append("Limit price missing for limit order")
-           
+
        # Validate stop price for stop orders
        if event.order_type.upper() in ["STOP", "STOP_LIMIT"] and not hasattr(event, "stop_price"):
            errors.append("Stop price missing for stop order")
-           
+
        return errors
    ```
 
@@ -320,15 +320,15 @@ While the module implements core functionality for simulating market and limit o
        # Get configuration for latency simulation
        min_latency_ms = self.config.get("backtest.min_latency_ms", 0)
        max_latency_ms = self.config.get("backtest.max_latency_ms", 50)
-       
+
        if min_latency_ms <= 0 and max_latency_ms <= 0:
            return  # No latency simulation
-           
+
        # Generate a random latency between min and max
        import random
        latency_ms = random.uniform(min_latency_ms, max_latency_ms)
        latency_s = latency_ms / 1000.0
-       
+
        if latency_s > 0:
            self.logger.debug(
                f"Simulating latency: {latency_ms:.2f}ms",
@@ -344,13 +344,13 @@ While the module implements core functionality for simulating market and limit o
        # Simple model: Assume prices within a bar follow a distribution
        # weighted toward the bar's open and close
        # This simulates the tendency for more trades to occur at those levels
-       
+
        # Get the price range
        high, low = Decimal(str(bar["high"])), Decimal(str(bar["low"]))
        open_price, close_price = Decimal(str(bar["open"])), Decimal(str(bar["close"]))
-       
+
        if order_type.upper() == "MARKET":
-           # For market orders, use a weighted average that factors in 
+           # For market orders, use a weighted average that factors in
            # price movement direction and open/close prices
            if side.upper() == "BUY":
                # For buys, bias toward higher prices
@@ -361,7 +361,7 @@ While the module implements core functionality for simulating market and limit o
                    (close_price * weights["close"])
                )
            else:  # SELL
-               # For sells, bias toward lower prices  
+               # For sells, bias toward lower prices
                weights = {"open": 0.3, "low": 0.4, "close": 0.3}
                fill_price = (
                    (open_price * weights["open"]) +
@@ -371,7 +371,7 @@ While the module implements core functionality for simulating market and limit o
        else:  # LIMIT orders - use the limit price directly
            # Handled elsewhere
            fill_price = None
-           
+
        return fill_price
    ```
 
@@ -387,16 +387,16 @@ While the module implements core functionality for simulating market and limit o
                "order_types": {},
                "rejection_reasons": {}
            }
-           
+
        metrics = self._performance_metrics
        metrics["count"] += 1
        metrics["total_time_ms"] += processing_time_ms
        metrics["max_time_ms"] = max(metrics["max_time_ms"], processing_time_ms)
-       
+
        # Track by order type
        order_type = event.order_type.upper()
        metrics["order_types"][order_type] = metrics["order_types"].get(order_type, 0) + 1
-       
+
        # Log performance summary every N executions
        if metrics["count"] % 100 == 0:
            avg_time = metrics["total_time_ms"] / metrics["count"]

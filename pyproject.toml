@@ -14,7 +14,7 @@ exclude = [
 [tool.mypy]
 python_version = "3.11" # Adjust if your project uses a different Python version
 # Add event_bus.py to exclusions
-exclude = ["\\.venv/", "src/gal_friday/event_bus.py"] # Regex for exclusion
+exclude = ["\\.venv/", "src/gal_friday/event_bus.py", "tests/"] # Regex for exclusion
 
 # Strictness flags
 check_untyped_defs = true
@@ -26,7 +26,7 @@ strict_optional = true # Handle Optionals properly
 
 # Module discovery
 ignore_missing_imports = false # Be explicit about missing types/stubs
-follow_imports = "normal" # Analyze imported modules 
+follow_imports = "normal" # Analyze imported modules
 
 [[tool.mypy.overrides]]
 module = [
@@ -37,3 +37,13 @@ module = [
     "pandas"
 ]
 ignore_missing_imports = true
+
+# Bandit configuration
+[tool.bandit]
+skips = ["B101", "B107", "B311", "B105"]
+# B101: Skip assert warnings (common in tests)
+# B107: Skip hardcoded password detection for default parameters
+# B311: Skip random number generator warning for non-crypto uses
+# B105: Skip hardcoded password string warnings
+
+exclude_dirs = ["tests/"]

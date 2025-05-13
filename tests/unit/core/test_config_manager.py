@@ -1,7 +1,5 @@
-"""
-Tests for the config_manager module.
-"""
-import pytest
+"""Tests for the config_manager module."""
+
 from gal_friday.config_manager import ConfigManager
 
 
@@ -11,22 +9,14 @@ def test_config_manager_initialization():
     assert config is not None
 
     # Test with config fixture
-    config = ConfigManager(
-        config_dict={
-            "app_name": "test",
-            "environment": "test"})
+    config = ConfigManager(config_dict={"app_name": "test", "environment": "test"})
     assert config.get("app_name") == "test"
     assert config.get("environment") == "test"
 
 
 def test_config_manager_get_method():
     """Test that the get method returns the correct values."""
-    config = ConfigManager(config_dict={
-        "app_name": "Gal-Friday2",
-        "nested": {
-            "key": "value"
-        }
-    })
+    config = ConfigManager(config_dict={"app_name": "Gal-Friday2", "nested": {"key": "value"}})
 
     assert config.get("app_name") == "Gal-Friday2"
     assert config.get("nested.key") == "value"

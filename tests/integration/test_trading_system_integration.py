@@ -1,22 +1,29 @@
 """
 Integration tests for the Gal-Friday2 trading system.
+
 These tests verify that multiple components work together correctly.
 """
-import pytest
-from unittest.mock import MagicMock, patch
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
 
-from gal_friday.core.pubsub import PubSubManager
+from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from gal_friday.config_manager import ConfigManager
-from gal_friday.portfolio_manager import PortfolioManager
-from gal_friday.risk_manager import RiskManager
-from gal_friday.strategy_arbitrator import StrategyArbitrator
+from gal_friday.core.events import (
+    FillEvent,
+    MarketDataEvent,
+    OrderEvent,
+    PredictionEvent,
+    SignalEvent,
+)
+from gal_friday.core.pubsub import PubSubManager
 from gal_friday.execution_handler import ExecutionHandler
 from gal_friday.market_price_service import MarketPriceService
+from gal_friday.portfolio_manager import PortfolioManager
 from gal_friday.prediction_service import PredictionService
-from gal_friday.core.events import MarketDataEvent, SignalEvent, OrderEvent, FillEvent, PredictionEvent
+from gal_friday.risk_manager import RiskManager
+from gal_friday.strategy_arbitrator import StrategyArbitrator
 
 
 @pytest.fixture
@@ -34,18 +41,16 @@ def integration_config():
                 "timeframes": ["1m", "5m", "1h", "1d"],
                 "default_limit_slippage": 0.001,
                 "reconnect_wait_time": 10,
-                "order_expiry_seconds": 60
+                "order_expiry_seconds": 60,
             }
         },
-        "database": {
-            "connection_string": "sqlite:///:memory:"
-        },
+        "database": {"connection_string": "sqlite:///:memory:"},
         "backtesting": {
             "start_date": "2024-01-01",
             "end_date": "2024-01-31",
             "initial_capital": 100000.0,
             "symbols": ["BTC/USD", "ETH/USD"],
-            "strategy": "momentum"
+            "strategy": "momentum",
         },
         "risk": {
             "max_position_size": 0.1,
@@ -56,31 +61,22 @@ def integration_config():
             "max_correlated_assets": 2,
             "max_drawdown": 0.15,
             "volatility_constraint": 0.25,
-            "correlation_threshold": 0.7
+            "correlation_threshold": 0.7,
         },
         "strategy": {
             "strategies": {
                 "momentum": {
                     "enabled": True,
                     "weight": 0.4,
-                    "params": {
-                        "lookback_period": 14,
-                        "threshold": 0.05
-                    }
+                    "params": {"lookback_period": 14, "threshold": 0.05},
                 },
                 "mean_reversion": {
                     "enabled": True,
                     "weight": 0.3,
-                    "params": {
-                        "lookback_period": 20,
-                        "std_dev_threshold": 2.0
-                    }
-                }
+                    "params": {"lookback_period": 20, "std_dev_threshold": 2.0},
+                },
             },
-            "voting": {
-                "threshold": 0.6,
-                "minimum_signals": 2
-            }
+            "voting": {"threshold": 0.6, "minimum_signals": 2},
         },
         "prediction": {
             "models": {
@@ -90,10 +86,10 @@ def integration_config():
                     "model_path": "models/price_direction_model.pkl",
                     "prediction_horizon": "1h",
                     "features": ["rsi_14", "macd", "bbands_width"],
-                    "retrain_interval_days": 7
+                    "retrain_interval_days": 7,
                 }
             }
-        }
+        },
     }
 
 
@@ -115,7 +111,9 @@ def setup_trading_system(integration_config, mock_exchange):
 
     # Create mocks for other components
     with patch("gal_friday.strategies.momentum_strategy.MomentumStrategy") as mock_momentum:
-        with patch("gal_friday.strategies.mean_reversion_strategy.MeanReversionStrategy") as mock_mean_reversion:
+        with patch(
+            "gal_friday.strategies.mean_reversion_strategy.MeanReversionStrategy"
+        ) as mock_mean_reversion:
             with patch("gal_friday.prediction_service.load_model") as mock_load_model:
                 with patch("ccxt.kraken") as mock_ccxt_kraken:
                     # Set up exchange mock
@@ -133,8 +131,7 @@ def setup_trading_system(integration_config, mock_exchange):
                     # Create the remaining components
                     strategy_arbitrator = StrategyArbitrator(config, event_bus)
                     execution_handler = ExecutionHandler(config, event_bus)
-                    market_price_service = MarketPriceService(
-                        config, event_bus)
+                    market_price_service = MarketPriceService(config, event_bus)
                     prediction_service = PredictionService(config, event_bus)
 
                     # Connect to exchange
@@ -151,7 +148,7 @@ def setup_trading_system(integration_config, mock_exchange):
                         "execution_handler": execution_handler,
                         "market_price_service": market_price_service,
                         "prediction_service": prediction_service,
-                        "mock_exchange": mock_exchange
+                        "mock_exchange": mock_exchange,
                     }
 
 
@@ -160,21 +157,22 @@ def test_market_data_flow(setup_trading_system):
     # Extract components
     system = setup_trading_system
     event_bus = system["event_bus"]
-    mock_exchange = system["mock_exchange"]
-    market_price_service = system["market_price_service"]
-    strategy_arbitrator = system["strategy_arbitrator"]
+    system["mock_exchange"]
+    system["market_price_service"]
+    system["strategy_arbitrator"]
 
     # Set up event handling spies
     strategy_spy = MagicMock()
     event_bus.subscribe(MarketDataEvent, strategy_spy)
 
     # Create a market data event
-    price_data = {"symbol": "BTC/USD", "price": 50000.0,
-                  "timestamp": datetime.now().timestamp() * 1000}
+    price_data = {
+        "symbol": "BTC/USD",
+        "price": 50000.0,
+        "timestamp": datetime.now().timestamp() * 1000,
+    }
     market_data_event = MarketDataEvent(
-        timestamp=datetime.now(),
-        symbol=price_data["symbol"],
-        price=price_data["price"]
+        timestamp=datetime.now(), symbol=price_data["symbol"], price=price_data["price"]
     )
 
     # Simulate price service publishing market data
@@ -192,7 +190,7 @@ def test_signal_to_order_flow(setup_trading_system):
     # Extract components
     system = setup_trading_system
     event_bus = system["event_bus"]
-    portfolio_manager = system["portfolio_manager"]
+    system["portfolio_manager"]
     risk_manager = system["risk_manager"]
 
     # Set up event handling spies
@@ -200,14 +198,14 @@ def test_signal_to_order_flow(setup_trading_system):
     event_bus.subscribe(OrderEvent, order_spy)
 
     # Mock risk manager to approve signals
-    with patch.object(risk_manager, 'process_signal', return_value=True):
+    with patch.object(risk_manager, "process_signal", return_value=True):
         # Create a signal event
         signal_event = SignalEvent(
             timestamp=datetime.now(),
             symbol="BTC/USD",
             signal_type="LONG",
             strength=0.8,
-            direction="BUY"
+            direction="BUY",
         )
 
         # Publish the signal
@@ -226,22 +224,22 @@ def test_order_to_fill_flow(setup_trading_system):
     # Extract components
     system = setup_trading_system
     event_bus = system["event_bus"]
-    execution_handler = system["execution_handler"]
+    system["execution_handler"]
     mock_exchange = system["mock_exchange"]
 
     # Set up mock exchange response
     mock_exchange.create_market_order.return_value = {
-        'id': '12345',
-        'timestamp': datetime.now().timestamp() * 1000,
-        'status': 'closed',
-        'symbol': 'BTC/USD',
-        'type': 'market',
-        'side': 'buy',
-        'price': 50000.0,
-        'amount': 1.0,
-        'filled': 1.0,
-        'cost': 50000.0,
-        'fee': {'cost': 25.0, 'currency': 'USD'}
+        "id": "12345",
+        "timestamp": datetime.now().timestamp() * 1000,
+        "status": "closed",
+        "symbol": "BTC/USD",
+        "type": "market",
+        "side": "buy",
+        "price": 50000.0,
+        "amount": 1.0,
+        "filled": 1.0,
+        "cost": 50000.0,
+        "fee": {"cost": 25.0, "currency": "USD"},
     }
 
     # Set up event handling spies
@@ -254,7 +252,7 @@ def test_order_to_fill_flow(setup_trading_system):
         symbol="BTC/USD",
         order_type="MARKET",
         quantity=1.0,
-        direction="BUY"
+        direction="BUY",
     )
 
     # Publish the order
@@ -281,11 +279,8 @@ def test_prediction_to_signal_flow(setup_trading_system):
     event_bus.subscribe(SignalEvent, signal_spy)
 
     # Mock strategy to generate signals based on predictions
-    with patch.object(strategy_arbitrator, 'vote_on_signal') as mock_vote:
-        mock_vote.return_value = {
-            "direction": "BUY",
-            "strength": 0.8
-        }
+    with patch.object(strategy_arbitrator, "vote_on_signal") as mock_vote:
+        mock_vote.return_value = {"direction": "BUY", "strength": 0.8}
 
         # Create a prediction event
         prediction_event = PredictionEvent(
@@ -294,7 +289,7 @@ def test_prediction_to_signal_flow(setup_trading_system):
             prediction_type="price_direction",
             value=1,  # Up
             confidence=0.85,
-            horizon="1h"
+            horizon="1h",
         )
 
         # Publish the prediction
@@ -334,31 +329,26 @@ def test_end_to_end_trading_cycle(setup_trading_system):
 
     # Mock exchange responses
     mock_exchange.create_market_order.return_value = {
-        'id': '12345',
-        'timestamp': datetime.now().timestamp() * 1000,
-        'status': 'closed',
-        'symbol': 'BTC/USD',
-        'type': 'market',
-        'side': 'buy',
-        'price': 50000.0,
-        'amount': 1.0,
-        'filled': 1.0,
-        'cost': 50000.0,
-        'fee': {'cost': 25.0, 'currency': 'USD'}
+        "id": "12345",
+        "timestamp": datetime.now().timestamp() * 1000,
+        "status": "closed",
+        "symbol": "BTC/USD",
+        "type": "market",
+        "side": "buy",
+        "price": 50000.0,
+        "amount": 1.0,
+        "filled": 1.0,
+        "cost": 50000.0,
+        "fee": {"cost": 25.0, "currency": "USD"},
     }
 
     # Mock strategy arbitrator to always generate a buy signal
-    with patch.object(system["strategy_arbitrator"], 'vote_on_signal') as mock_vote:
-        mock_vote.return_value = {
-            "direction": "BUY",
-            "strength": 0.8
-        }
+    with patch.object(system["strategy_arbitrator"], "vote_on_signal") as mock_vote:
+        mock_vote.return_value = {"direction": "BUY", "strength": 0.8}
 
         # Create market data event
         market_data_event = MarketDataEvent(
-            timestamp=datetime.now(),
-            symbol="BTC/USD",
-            price=50000.0
+            timestamp=datetime.now(), symbol="BTC/USD", price=50000.0
         )
 
         # Publish the market data
@@ -370,7 +360,7 @@ def test_end_to_end_trading_cycle(setup_trading_system):
             symbol="BTC/USD",
             signal_type="LONG",
             strength=0.8,
-            direction="BUY"
+            direction="BUY",
         )
 
         # Publish the signal

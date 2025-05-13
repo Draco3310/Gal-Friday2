@@ -66,13 +66,13 @@ However, several areas could be improved, particularly around security for sensi
    ```python
    def get_trading_pairs(self) -> List[str]:
        return self.get_list('trading.pairs', [])
-       
+
    def get_risk_parameters(self) -> Dict[str, Any]:
        return self.get_dict('risk', {})
-       
+
    def get_strategy_parameters(self, strategy_id: str) -> Dict[str, Any]:
        return self.get_dict(f'strategies.{strategy_id}', {})
-       
+
    def get_api_keys(self, service_name: str) -> Dict[str, str]:
        # Implement with extra security considerations
        return self.get_dict(f'api.{service_name}', {})
@@ -87,7 +87,7 @@ However, several areas could be improved, particularly around security for sensi
        env_value = os.environ.get(env_var_name)
        if env_value:
            return env_value
-           
+
        # Fall back to config file if not in environment
        return self.get(key, default)
    ```
@@ -99,13 +99,13 @@ However, several areas could be improved, particularly around security for sensi
        Returns a list of validation errors, or empty list if valid.
        """
        errors = []
-       
+
        # Check required sections exist
        required_sections = ['trading', 'risk', 'api.kraken']
        for section in required_sections:
            if not self.get(section):
                errors.append(f"Missing required configuration section: {section}")
-               
+
        # Validate trading pairs
        pairs = self.get_list('trading.pairs', [])
        if not pairs:
@@ -113,9 +113,9 @@ However, several areas could be improved, particularly around security for sensi
        for pair in pairs:
            if '/' not in pair:
                errors.append(f"Trading pair '{pair}' does not follow format BASE/QUOTE")
-       
+
        # Add more validation as needed...
-       
+
        return errors
    ```
 
@@ -144,17 +144,17 @@ However, several areas could be improved, particularly around security for sensi
    ```python
    def get_configuration_summary(self, include_sensitive: bool = False) -> Dict[str, Any]:
        """Generate a summary of the current configuration for documentation.
-       
+
        Args:
            include_sensitive: Whether to include potentially sensitive values
-           
+
        Returns:
            Dict containing configuration summary
        """
        summary = {}
        if not self._config:
            return summary
-           
+
        # Add main sections
        for section in ['trading', 'risk', 'database', 'monitoring']:
            section_data = self.get(section, {})
@@ -166,7 +166,7 @@ However, several areas could be improved, particularly around security for sensi
                    summary[section] = masked_data
                else:
                    summary[section] = section_data
-                   
+
        return summary
    ```
 
@@ -179,11 +179,11 @@ However, several areas could be improved, particularly around security for sensi
    class TradingConfig(TypedDict):
        pairs: List[str]
        exchange: str
-   
+
    class RiskConfig(TypedDict):
        max_drawdown_pct: float
        # Other risk parameters...
-   
+
    # Then use in relevant methods:
    def get_trading_config(self) -> TradingConfig:
        return self.get_dict('trading', {'pairs': [], 'exchange': 'kraken'})
@@ -209,11 +209,11 @@ However, several areas could be improved, particularly around security for sensi
        """
        presets_path = os.path.join(os.path.dirname(self._config_path), "presets")
        preset_file = os.path.join(presets_path, f"{preset_name}.yaml")
-       
+
        if not os.path.exists(preset_file):
            self._logger.error(f"Preset file not found: {preset_file}")
            return False
-           
+
        # Store current path, load preset, then restore path
        original_path = self._config_path
        self._config_path = preset_file

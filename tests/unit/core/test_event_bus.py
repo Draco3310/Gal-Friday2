@@ -1,16 +1,20 @@
-"""
-Tests for the event_bus module.
-"""
-import pytest
+"""Tests for the event_bus module."""
+
 from unittest.mock import MagicMock
-from gal_friday.event_bus import EventBus
+
 from gal_friday.core.events import Event
+from gal_friday.event_bus import EventBus
 
 
 class TestEvent(Event):
     """Test event class."""
 
     def __init__(self, value):
+        """Initialize a test event.
+
+        Args:
+            value: The test value to store in the event
+        """
         self.value = value
         super().__init__()
 

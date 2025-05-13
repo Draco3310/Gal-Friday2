@@ -1,21 +1,26 @@
 # Risk Manager Module
+"""Risk management module for trading operations.
+
+This module provides risk management functionality for trading operations,
+including position sizing, drawdown limits, and trade validation.
+"""
 
 import asyncio
-from decimal import Decimal, InvalidOperation
-from typing import Tuple, Optional, TYPE_CHECKING, Dict, Any
-from dataclasses import dataclass  # Added import
-import uuid
-from datetime import datetime
 import time  # Added for retry delay
+import uuid
+from dataclasses import dataclass  # Added import
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 # Event Definitions
 from .core.events import (
     EventType,
-    TradeSignalProposedEvent,
-    TradeSignalApprovedEvent,
-    TradeSignalRejectedEvent,
-    PotentialHaltTriggerEvent,
     ExecutionReportEvent,
+    PotentialHaltTriggerEvent,
+    TradeSignalApprovedEvent,
+    TradeSignalProposedEvent,
+    TradeSignalRejectedEvent,
 )
 
 # Import PubSubManager
@@ -27,15 +32,19 @@ from .logger_service import LoggerService
 
 # Custom exceptions
 class RiskManagerError(Exception):
-    """Base exception class for RiskManager errors."""
+    """Custom exception for risk management errors.
+
+    Used to indicate errors in risk management operations, such as
+    invalid configurations or trade validation failures.
+    """
 
     pass
 
 
 # Type hint for PortfolioManager without circular import
 if TYPE_CHECKING:
-    from .portfolio_manager import PortfolioManager
     from .market_price_service import MarketPriceService
+    from .portfolio_manager import PortfolioManager
 else:
     # Define placeholder or attempt runtime import carefully
     try:
@@ -44,7 +53,17 @@ else:
         # Define a minimal placeholder if import fails at runtime
         # This allows basic script execution but will fail if methods are called
         class PortfolioManager:  # type: ignore
+            """Placeholder for PortfolioManager when not available at runtime.
+
+            Provides minimal implementations of methods used by RiskManager.
+            """
+
             def get_current_state(self) -> Dict[str, Any]:
+                """Return empty portfolio state dictionary.
+
+                Returns:
+                    Empty dictionary representing portfolio state
+                """
                 return {}
 
             # Add other methods used by RiskManager if necessary, e.g.:
@@ -56,12 +75,35 @@ else:
     except ImportError:
 
         class MarketPriceService:  # type: ignore
+            """Placeholder for MarketPriceService when not available at runtime.
+
+            Provides minimal implementations of methods used by RiskManager.
+            """
+
             async def get_latest_price(self, trading_pair: str) -> Optional[Decimal]:
+                """Return None as placeholder for latest price.
+
+                Args:
+                    trading_pair: The trading pair to get price for
+
+                Returns:
+                    None as placeholder
+                """
                 return None
 
             async def convert_amount(
                 self, from_amount: Decimal, from_currency: str, to_currency: str
-            ) -> Optional[Decimal]:  # Added missing method
+            ) -> Optional[Decimal]:
+                """Return None as placeholder for currency conversion.
+
+                Args:
+                    from_amount: Amount to convert
+                    from_currency: Source currency
+                    to_currency: Target currency
+
+                Returns:
+                    None as placeholder
+                """
                 return None
 
 
@@ -72,7 +114,7 @@ else:
 # --- Event Payloads ---
 @dataclass
 class TradeSignalProposedPayload:
-    """Payload for trade signal proposals"""
+    """Payload for trade signal proposals."""
 
     signal_id: uuid.UUID
     trading_pair: str
@@ -88,7 +130,7 @@ class TradeSignalProposedPayload:
 
 @dataclass
 class SystemHaltPayload:
-    """Payload for system halt events"""
+    """Payload for system halt events."""
 
     reason: str
     details: Dict[str, Any]
@@ -96,7 +138,8 @@ class SystemHaltPayload:
 
 # --- RiskManager Class ---
 class RiskManager:
-    """
+    """Assess trade signals against risk parameters and portfolio state.
+
     Consumes proposed trade signals, performs pre-trade risk checks against
     portfolio state, and publishes approved/rejected signals or triggers HALT.
     """
@@ -109,8 +152,7 @@ class RiskManager:
         logger_service: LoggerService,
         market_price_service: "MarketPriceService",
     ):
-        """
-        Initializes the RiskManager.
+        """Initialize the RiskManager with configuration and dependencies.
 
         Args:
             config: Configuration settings.
@@ -140,7 +182,11 @@ class RiskManager:
         self._load_config()
 
     def _load_config(self) -> None:
-        """Loads risk parameters from configuration."""
+        """Load risk parameters from configuration.
+
+        Extracts and initializes risk limits, position sizing parameters,
+        and other configuration settings used for risk checks.
+        """
         limits = self._config.get("limits", {})
         self._max_total_drawdown_pct = Decimal(str(limits.get("max_total_drawdown_pct", 15.0)))
         self._max_daily_drawdown_pct = Decimal(str(limits.get("max_daily_drawdown_pct", 2.0)))
@@ -176,8 +222,12 @@ class RiskManager:
         self.logger.info("RiskManager configured.", source_module=self._source_module)
         self._validate_config()  # Added call to validate_config
 
-    def _validate_config(self) -> None:  # New method
-        """Validates critical configuration parameters."""
+    def _validate_config(self) -> None:
+        """Validate risk parameters from configuration.
+
+        Checks that all required parameters are present and have valid values.
+        Raises RiskManagerError if validation fails.
+        """
         config_errors = []
 
         # Helper to check percentage values
@@ -236,7 +286,11 @@ class RiskManager:
             )
 
     async def start(self) -> None:
-        """Starts listening for trade signals and periodic checks."""
+        """Start the risk manager.
+
+        Subscribes to trade signal proposals and execution reports.
+        Starts periodic portfolio checks.
+        """
         if self._is_running:
             self.logger.warning("RiskManager already running.", source_module=self._source_module)
             return
@@ -254,7 +308,10 @@ class RiskManager:
         self.logger.info("RiskManager started.", source_module=self._source_module)
 
     async def stop(self) -> None:
-        """Stops the RiskManager."""
+        """Stop the risk manager.
+
+        Unsubscribes from events and stops periodic checks.
+        """
         if not self._is_running:
             return
         self._is_running = False
@@ -286,7 +343,13 @@ class RiskManager:
         self.logger.info("RiskManager stopped.", source_module=self._source_module)
 
     async def _handle_trade_signal_proposed(self, event: TradeSignalProposedEvent) -> None:
-        """Handles incoming trade signal proposal events."""
+        """Handle a proposed trade signal.
+
+        Performs risk checks and publishes approval/rejection.
+
+        Args:
+            event: The proposed trade signal event
+        """
         if not isinstance(event, TradeSignalProposedEvent):
             self.logger.warning(
                 f"Received non-TradeSignalProposedEvent: {type(event)}",
@@ -315,7 +378,10 @@ class RiskManager:
             await self._publish_trade_signal_rejected(rejection_payload_data)
 
     async def _run_periodic_checks(self) -> None:
-        """Periodically checks portfolio-level risk limits."""
+        """Run periodic portfolio risk checks.
+
+        Checks drawdown limits and other risk parameters at regular intervals.
+        """
         self.logger.info("Starting periodic risk checks.", source_module=self._source_module)
         while self._is_running:
             try:
@@ -362,7 +428,11 @@ class RiskManager:
         self.logger.info("Stopped periodic risk checks.", source_module=self._source_module)
 
     def _get_portfolio_state(self) -> Optional[Dict[str, Any]]:
-        """Get portfolio state from the portfolio manager."""
+        """Get current portfolio state.
+
+        Returns:
+            Dictionary with portfolio state or None if unavailable
+        """
         try:
             portfolio_state = self._portfolio_manager.get_current_state()
             if not portfolio_state:
@@ -383,7 +453,15 @@ class RiskManager:
     def _get_portfolio_state_with_retry(
         self, max_retries: int = 2, retry_delay_s: float = 0.1
     ) -> Optional[Dict[str, Any]]:
-        """Attempts to get portfolio state with simple retries."""
+        """Get portfolio state with retries on failure.
+
+        Args:
+            max_retries: Maximum number of retry attempts
+            retry_delay_s: Delay between retries in seconds
+
+        Returns:
+            Dictionary with portfolio state or None if unavailable
+        """
         for attempt in range(max_retries + 1):
             try:
                 state = self._portfolio_manager.get_current_state()
@@ -414,7 +492,14 @@ class RiskManager:
     def _validate_portfolio_state_values(
         self, portfolio_state: Dict[str, Any]
     ) -> Tuple[Optional[Dict[str, Decimal]], Optional[str]]:
-        """Extract and validate necessary values from portfolio state."""
+        """Validate portfolio state values.
+
+        Args:
+            portfolio_state: Portfolio state dictionary to validate
+
+        Returns:
+            Tuple of (validated state dict, error message) where error is None if valid
+        """
         try:
             state_values = {
                 "current_equity": Decimal(portfolio_state["total_equity"]),
@@ -431,7 +516,14 @@ class RiskManager:
             return None, "INVALID_PORTFOLIO_STATE"
 
     def _check_drawdown_limits(self, portfolio_state: Dict[str, Any]) -> Optional[str]:
-        """Check if any drawdown limits are exceeded."""
+        """Check if drawdown limits are exceeded.
+
+        Args:
+            portfolio_state: Current portfolio state
+
+        Returns:
+            Error message if limits exceeded, None otherwise
+        """
         try:
             state_values, error = self._validate_portfolio_state_values(portfolio_state)
             if error or state_values is None:
@@ -467,12 +559,16 @@ class RiskManager:
             )
             return None
 
-    async def _perform_pre_trade_checks(  # noqa: C901 | Async
+    async def _perform_pre_trade_checks(
         self, event: TradeSignalProposedEvent
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
-        """
-        Performs all pre-trade risk checks.
-        Returns: (is_approved, rejection_reason, approved_payload_dict)
+        """Perform pre-trade risk checks.
+
+        Args:
+            event: The proposed trade signal event
+
+        Returns:
+            Tuple of (passed, error_message, trade_params)
         """
         signal_id = event.signal_id
         self.logger.debug(
@@ -481,23 +577,120 @@ class RiskManager:
             source_module=self._source_module,
         )
 
-        portfolio_state = self._get_portfolio_state_with_retry()
-        if portfolio_state is None:
-            return False, "PORTFOLIO_STATE_UNAVAILABLE_AFTER_RETRIES", None
-
-        state_values, error = self._validate_portfolio_state_values(portfolio_state)
-        if error or state_values is None:
+        # Validate portfolio state
+        passed, error, portfolio_state, state_values = await self._validate_portfolio_for_trade(
+            event
+        )
+        if not passed:
             return False, error, None
 
         current_equity = state_values["current_equity"]
 
+        # Validate price values
+        passed, error, prices = self._validate_trade_prices(event)
+        if not passed:
+            return False, error, None
+
+        entry_price, sl_price = prices["entry_price"], prices["sl_price"]
+
+        # Check fat finger risk
+        passed, error = await self._check_fat_finger_risk(event, signal_id, entry_price)
+        if not passed:
+            return False, error, None
+
+        # Validate stop loss price
+        sl_validation_error = self._validate_sl_price(signal_id, event.side, entry_price, sl_price)
+        if sl_validation_error:
+            return False, sl_validation_error, None
+
+        # Calculate position size
+        calculated_qty = self._calculate_position_size(
+            current_equity, self._risk_per_trade_pct, entry_price, sl_price
+        )
+        if calculated_qty is None or calculated_qty <= 0:
+            return False, "POSITION_SIZE_CALCULATION_FAILED", None
+
+        # Check portfolio exposure
+        base_asset, quote_asset = self._split_symbol(event.trading_pair)
+        trade_value_quote = calculated_qty * entry_price
+
+        passed, error, trade_value_valuation_ccy = await self._check_portfolio_exposure(
+            event, signal_id, current_equity, trade_value_quote, quote_asset, portfolio_state
+        )
+        if not passed:
+            return False, error, None
+
+        # Check sufficient balance
+        if event.side.upper() == "BUY":
+            passed, error = self._check_sufficient_balance(
+                signal_id, trade_value_quote, quote_asset, portfolio_state
+            )
+            if not passed:
+                return False, error, None
+
+        # Check consecutive losses
+        loss_check_ok, loss_reason = self._check_consecutive_losses()
+        if not loss_check_ok:
+            return False, loss_reason, None
+
+        # Check single position limit
+        passed, error = self._check_single_position_limit(
+            signal_id, trade_value_valuation_ccy, current_equity
+        )
+        if not passed:
+            return False, error, None
+
+        # Prepare approved payload
+        qty_str = str(calculated_qty)
+        self.logger.info(
+            f"Signal {signal_id} approved. Calculated Qty: {qty_str}",
+            source_module=self._source_module,
+        )
+
+        approved_payload = self._prepare_approved_payload(
+            event, signal_id, qty_str, entry_price, sl_price, state_values
+        )
+        return True, None, approved_payload
+
+    async def _validate_portfolio_for_trade(
+        self, event: TradeSignalProposedEvent
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]], Optional[Dict[str, Decimal]]]:
+        """Validate portfolio state for trade.
+
+        Args:
+            event: The proposed trade signal event
+
+        Returns:
+            Tuple of (passed, error_message, portfolio_state, state_values)
+        """
+        portfolio_state = self._get_portfolio_state_with_retry()
+        if portfolio_state is None:
+            return False, "PORTFOLIO_STATE_UNAVAILABLE_AFTER_RETRIES", None, None
+
+        state_values, error = self._validate_portfolio_state_values(portfolio_state)
+        if error or state_values is None:
+            return False, error, None, None
+
         drawdown_error = self._check_drawdown_limits(portfolio_state)
         if drawdown_error:
-            return False, drawdown_error, None
+            return False, drawdown_error, None, None
 
+        return True, None, portfolio_state, state_values
+
+    def _validate_trade_prices(
+        self, event: TradeSignalProposedEvent
+    ) -> Tuple[bool, Optional[str], Dict[str, Decimal]]:
+        """Validate trade entry and stop loss prices.
+
+        Args:
+            event: The proposed trade signal event
+
+        Returns:
+            Tuple of (passed, error_message, prices_dict)
+        """
         entry_price_str = self._get_entry_reference_price(event)
         if not entry_price_str:
-            return False, "MISSING_ENTRY_REFERENCE_PRICE", None
+            return False, "MISSING_ENTRY_REFERENCE_PRICE", {}
 
         sl_price_str = None
         if hasattr(event, "sl_price") and event.sl_price:
@@ -506,82 +699,110 @@ class RiskManager:
             sl_price_str = str(event.proposed_sl_price)
 
         if not sl_price_str:
-            return False, "MISSING_SL_PRICE", None
+            return False, "MISSING_SL_PRICE", {}
 
         try:
             entry_price = Decimal(entry_price_str)
             sl_price = Decimal(sl_price_str)
+            return (
+                True,
+                None,
+                {
+                    "entry_price": entry_price,
+                    "sl_price": sl_price,
+                    "entry_price_str": entry_price_str,
+                    "sl_price_str": sl_price_str,
+                },
+            )
         except (InvalidOperation, ValueError, TypeError) as e:
             self.logger.error(
                 f"Invalid price format: Entry={entry_price_str}, SL={sl_price_str}. Error: {e}",
                 source_module=self._source_module,
             )
-            return False, "INVALID_PRICE_FORMAT", None
+            return False, "INVALID_PRICE_FORMAT", {}
 
-        # --- Fat Finger Check ---
-        if self._market_price_service:  # Check if service is available
-            current_market_price = await self._market_price_service.get_latest_price(
-                event.trading_pair
-            )  # Await
-            if current_market_price is None:
-                self.logger.warning(
-                    f"Signal {signal_id}: Market price unavailable for fat finger check on "
-                    f"{event.trading_pair}. Check skipped.",
-                    source_module=self._source_module,
-                )
-            elif current_market_price > 0:
-                deviation_pct = (
-                    abs(entry_price - current_market_price) / current_market_price * 100
-                )
-                if deviation_pct > self._fat_finger_max_deviation_pct:
-                    reason = (
-                        f"FAT_FINGER_CHECK_FAILED ({deviation_pct:.2f}% > "
-                        f"{self._fat_finger_max_deviation_pct}%)"
-                    )
-                    self.logger.warning(
-                        f"Signal {signal_id} rejected: {reason}", source_module=self._source_module
-                    )
-                    return False, reason, None
-            else:  # current_market_price is 0 or less
-                self.logger.warning(
-                    f"Signal {signal_id}: Current market price for {event.trading_pair} "
-                    f"is {current_market_price}, skipping fat finger check.",
-                    source_module=self._source_module,
-                )
-        else:
+    async def _check_fat_finger_risk(
+        self, event: TradeSignalProposedEvent, signal_id: uuid.UUID, entry_price: Decimal
+    ) -> Tuple[bool, Optional[str]]:
+        """Check for fat finger mistakes in the entry price.
+
+        Args:
+            event: The proposed trade signal event
+            signal_id: The trade signal ID
+            entry_price: The trade entry price
+
+        Returns:
+            Tuple of (passed, error_message)
+        """
+        if not self._market_price_service:
             self.logger.warning(
                 "MarketPriceService not available, skipping fat finger check.",
                 source_module=self._source_module,
             )
-        # --- End Fat Finger Check ---
+            return True, None
 
-        sl_validation_error = self._validate_sl_price(signal_id, event.side, entry_price, sl_price)
-        if sl_validation_error:
-            return False, sl_validation_error, None
-
-        calculated_qty = self._calculate_position_size(
-            current_equity, self._risk_per_trade_pct, entry_price, sl_price
+        current_market_price = await self._market_price_service.get_latest_price(
+            event.trading_pair
         )
-        if calculated_qty is None or calculated_qty <= 0:
-            return False, "POSITION_SIZE_CALCULATION_FAILED", None
 
-        # --- Check Position Size vs Exchange Limits --- (Placeholder)
-        # self.logger.info("Placeholder for Exchange Limit
-        # Check on position size.", source_module=self._source_module)
-        # --- End Exchange Limit Check ---
+        if current_market_price is None:
+            self.logger.warning(
+                f"Signal {signal_id}: Market price unavailable for fat finger check on "
+                f"{event.trading_pair}. Check skipped.",
+                source_module=self._source_module,
+            )
+            return True, None
 
-        base_asset, quote_asset = self._split_symbol(event.trading_pair)
-        trade_value_quote = calculated_qty * entry_price
+        if current_market_price <= 0:
+            self.logger.warning(
+                f"Signal {signal_id}: Current market price for {event.trading_pair} "
+                f"is {current_market_price}, skipping fat finger check.",
+                source_module=self._source_module,
+            )
+            return True, None
 
-        # --- Portfolio Exposure Check ---
+        deviation_pct = abs(entry_price - current_market_price) / current_market_price * 100
+        if deviation_pct > self._fat_finger_max_deviation_pct:
+            reason = (
+                f"FAT_FINGER_CHECK_FAILED ({deviation_pct:.2f}% > "
+                f"{self._fat_finger_max_deviation_pct}%)"
+            )
+            self.logger.warning(
+                f"Signal {signal_id} rejected: {reason}", source_module=self._source_module
+            )
+            return False, reason
+
+        return True, None
+
+    async def _check_portfolio_exposure(
+        self,
+        event: TradeSignalProposedEvent,
+        signal_id: uuid.UUID,
+        current_equity: Decimal,
+        trade_value_quote: Decimal,
+        quote_asset: str,
+        portfolio_state: Dict[str, Any],
+    ) -> Tuple[bool, Optional[str], Optional[Decimal]]:
+        """Check portfolio exposure limits.
+
+        Args:
+            event: The proposed trade signal event
+            signal_id: The trade signal ID
+            current_equity: Current portfolio equity
+            trade_value_quote: Trade value in quote currency
+            quote_asset: Quote asset symbol
+            portfolio_state: Current portfolio state
+
+        Returns:
+            Tuple of (passed, error_message, trade_value_in_valuation_currency)
+        """
         trade_value_valuation_ccy, conversion_error = await self._convert_to_valuation_ccy(
             trade_value_quote, quote_asset
-        )  # Await
-        if conversion_error:  # This implies trade_value_valuation_ccy is None
+        )
+
+        if conversion_error:
             return False, f"CURRENCY_CONVERSION_FAILED_FOR_EXPOSURE ({conversion_error})", None
 
-        # Ensure trade_value_valuation_ccy is not None before proceeding
-        # (should be caught by conversion_error but defensive)
         if trade_value_valuation_ccy is None:
             self.logger.error(
                 f"Signal {signal_id}: Trade value in valuation ccy is None "
@@ -614,56 +835,77 @@ class RiskManager:
                     f"Signal {signal_id} rejected: {reason}", source_module=self._source_module
                 )
                 return False, reason, None
-        elif (
-            current_equity <= 0 and abs(trade_value_valuation_ccy) > 0
-        ):  # Adding exposure with no/negative equity
+        elif abs(trade_value_valuation_ccy) > 0:
             self.logger.warning(
                 f"Signal {signal_id} rejected: Attempting to add exposure "
                 f"with zero/negative equity ({current_equity}).",
                 source_module=self._source_module,
             )
             return False, "EXPOSURE_ADD_WITH_ZERO_NEGATIVE_EQUITY", None
-        # --- End Portfolio Exposure Check ---
 
-        # --- Sufficient Balance Check ---
-        if event.side.upper() == "BUY":
-            # Ensure _exchange_taker_fee_pct is a percentage (e.g. 0.26 for 0.26%)
-            fee_rate = self._exchange_taker_fee_pct / 100
-            estimated_cost_quote = trade_value_quote * (1 + fee_rate)
+        return True, None, trade_value_valuation_ccy
 
-            available_quote_funds_str = portfolio_state.get("available_funds", {}).get(
-                quote_asset, "0"
+    def _check_sufficient_balance(
+        self,
+        signal_id: uuid.UUID,
+        trade_value_quote: Decimal,
+        quote_asset: str,
+        portfolio_state: Dict[str, Any],
+    ) -> Tuple[bool, Optional[str]]:
+        """Check if there's sufficient balance for the trade.
+
+        Args:
+            signal_id: The trade signal ID
+            trade_value_quote: Trade value in quote currency
+            quote_asset: Quote asset symbol
+            portfolio_state: Current portfolio state
+
+        Returns:
+            Tuple of (passed, error_message)
+        """
+        fee_rate = self._exchange_taker_fee_pct / 100
+        estimated_cost_quote = trade_value_quote * (1 + fee_rate)
+
+        available_quote_funds_str = portfolio_state.get("available_funds", {}).get(
+            quote_asset, "0"
+        )
+        try:
+            available_quote_funds = Decimal(available_quote_funds_str)
+        except InvalidOperation:
+            self.logger.error(
+                f"Signal {signal_id}: Invalid available funds format for "
+                f"{quote_asset}: {available_quote_funds_str}",
+                source_module=self._source_module,
             )
-            try:
-                available_quote_funds = Decimal(available_quote_funds_str)
-            except InvalidOperation:
-                self.logger.error(
-                    f"Signal {signal_id}: Invalid available funds format for "
-                    f"{quote_asset}: {available_quote_funds_str}",
-                    source_module=self._source_module,
-                )
-                return False, f"INVALID_AVAILABLE_FUNDS_FORMAT_FOR_{quote_asset.upper()}", None
+            return False, f"INVALID_AVAILABLE_FUNDS_FORMAT_FOR_{quote_asset.upper()}"
 
-            if available_quote_funds < estimated_cost_quote:
-                reason = (
-                    f"INSUFFICIENT_FUNDS ({quote_asset}: {available_quote_funds:.4f} < "
-                    f"{estimated_cost_quote:.4f}) TradeValQuote: {trade_value_quote:.4f} "
-                    f"FeeRate: {fee_rate}"
-                )
-                self.logger.warning(
-                    f"Signal {signal_id} rejected: {reason}", source_module=self._source_module
-                )
-                return False, reason, None
-        # --- End Sufficient Balance Check ---
+        if available_quote_funds < estimated_cost_quote:
+            reason = (
+                f"INSUFFICIENT_FUNDS ({quote_asset}: {available_quote_funds:.4f} < "
+                f"{estimated_cost_quote:.4f}) TradeValQuote: {trade_value_quote:.4f} "
+                f"FeeRate: {fee_rate}"
+            )
+            self.logger.warning(
+                f"Signal {signal_id} rejected: {reason}", source_module=self._source_module
+            )
+            return False, reason
 
-        # --- Check Consecutive Losses ---
-        loss_check_ok, loss_reason = self._check_consecutive_losses()
-        if not loss_check_ok:
-            return False, loss_reason, None
-        # --- End Consecutive Losses Check ---
+        return True, None
 
-        # Re-evaluating existing max_single_position_pct check using valuation currency value:
-        if current_equity > 0:  # Avoid division by zero
+    def _check_single_position_limit(
+        self, signal_id: uuid.UUID, trade_value_valuation_ccy: Decimal, current_equity: Decimal
+    ) -> Tuple[bool, Optional[str]]:
+        """Check if trade exceeds single position limit.
+
+        Args:
+            signal_id: The trade signal ID
+            trade_value_valuation_ccy: Trade value in valuation currency
+            current_equity: Current portfolio equity
+
+        Returns:
+            Tuple of (passed, error_message)
+        """
+        if current_equity > 0:
             trade_value_vs_equity_pct = (abs(trade_value_valuation_ccy) / current_equity) * 100
             if trade_value_vs_equity_pct > self._max_single_position_pct:
                 msg = (
@@ -674,23 +916,43 @@ class RiskManager:
                 self.logger.warning(
                     f"Signal {signal_id} rejected: {msg}", source_module=self._source_module
                 )
-                return False, msg, None
-        elif abs(trade_value_valuation_ccy) > 0:  # Taking a position with no/negative equity
+                return False, msg
+        elif abs(trade_value_valuation_ccy) > 0:
             self.logger.warning(
                 f"Signal {signal_id} rejected: Attempting position with zero/negative equity "
                 f"for max_single_position_pct check.",
                 source_module=self._source_module,
             )
-            return False, "POSITION_WITH_ZERO_NEGATIVE_EQUITY", None
+            return False, "POSITION_WITH_ZERO_NEGATIVE_EQUITY"
 
-        # Prepare approved payload
-        qty_str = str(calculated_qty)
-        self.logger.info(
-            f"Signal {signal_id} approved. Calculated Qty: {qty_str}",
-            source_module=self._source_module,
-        )
+        return True, None
 
-        approved_payload = {
+    def _prepare_approved_payload(
+        self,
+        event: TradeSignalProposedEvent,
+        signal_id: uuid.UUID,
+        qty_str: str,
+        entry_price: Decimal,
+        sl_price: Decimal,
+        state_values: Dict[str, Decimal],
+    ) -> Dict[str, Any]:
+        """Prepare payload for approved trade signal.
+
+        Args:
+            event: The proposed trade signal event
+            signal_id: The trade signal ID
+            qty_str: Position quantity as string
+            entry_price: Entry price
+            sl_price: Stop loss price
+            state_values: Portfolio state values
+
+        Returns:
+            Approved payload dictionary
+        """
+        entry_price_str = str(entry_price)
+        sl_price_str = str(sl_price)
+
+        return {
             "signal_id": str(signal_id),
             "trading_pair": event.trading_pair,
             "exchange": event.exchange,
@@ -710,10 +972,16 @@ class RiskManager:
                 "equity_at_check": str(state_values["current_equity"]),
             },
         }
-        return True, None, approved_payload
 
     def _get_entry_reference_price(self, event: TradeSignalProposedEvent) -> Optional[str]:
-        """Get the entry reference price based on order type."""
+        """Get reference price for entry.
+
+        Args:
+            event: The proposed trade signal event
+
+        Returns:
+            Reference price as string or None if unavailable
+        """
         if hasattr(event, "proposed_entry_price") and event.proposed_entry_price:
             # Convert Decimal to string before returning
             return str(event.proposed_entry_price)
@@ -725,17 +993,16 @@ class RiskManager:
     def _validate_sl_price(
         self, signal_id: uuid.UUID, side: str, entry_price: Decimal, sl_price: Decimal
     ) -> Optional[str]:
-        """
-        Validate stop loss price relative to entry price.
+        """Validate stop loss price.
 
         Args:
-            signal_id: The ID of the trade signal
-            side: Trade side ('BUY' or 'SELL')
-            entry_price: The entry price
-            sl_price: The stop loss price
+            signal_id: Trade signal ID
+            side: Trade side (BUY/SELL)
+            entry_price: Entry price
+            sl_price: Stop loss price
 
         Returns:
-            Error message if validation fails, None if successful
+            Error message if invalid, None if valid
         """
         if side == "BUY" and sl_price >= entry_price:
             msg = f"INVALID_SL_PRICE (SL {sl_price} >= Entry {entry_price} for BUY)"
@@ -771,10 +1038,16 @@ class RiskManager:
         entry_price: Decimal,
         sl_price: Decimal,
     ) -> Optional[Decimal]:
-        """
-        Calculates position size using fixed fractional risk based on equity.
-        Assumes prices are in quote currency per unit of base currency.
-        Returns quantity in base currency.
+        """Calculate position size based on risk parameters.
+
+        Args:
+            current_equity: Current portfolio equity
+            risk_per_trade_pct: Risk percentage per trade
+            entry_price: Entry price
+            sl_price: Stop loss price
+
+        Returns:
+            Position size or None if calculation fails
         """
         if current_equity <= 0:
             self.logger.warning(
@@ -823,7 +1096,11 @@ class RiskManager:
         return quantity
 
     async def _publish_trade_signal_approved(self, approved_payload_dict: Dict[str, Any]) -> None:
-        """Constructs and publishes the approved trade signal event."""
+        """Publish trade signal approved event.
+
+        Args:
+            approved_payload_dict: Approved trade signal payload
+        """
         try:
             # Make sure sl_price exists - it should be guaranteed by
             # _perform_pre_trade_checks
@@ -895,7 +1172,11 @@ class RiskManager:
             )
 
     async def _publish_trade_signal_rejected(self, rejected_payload_dict: Dict[str, Any]) -> None:
-        """Constructs and publishes the rejected trade signal event."""
+        """Publish trade signal rejected event.
+
+        Args:
+            rejected_payload_dict: Rejected trade signal payload
+        """
         try:
             event = TradeSignalRejectedEvent(
                 source_module=self._source_module,
@@ -926,7 +1207,14 @@ class RiskManager:
 
     # --- Helper Methods Needed by Pre-Trade Checks ---
     def _split_symbol(self, symbol: str) -> Tuple[str, str]:
-        """Splits a trading pair like 'BTC/USD' into base ('BTC') and quote ('USD')."""
+        """Split trading pair symbol into base and quote.
+
+        Args:
+            symbol: Trading pair symbol (e.g. "BTCUSD")
+
+        Returns:
+            Tuple of (base_currency, quote_currency)
+        """
         parts = symbol.split("/")
         if len(parts) == 2:
             return parts[0].upper(), parts[1].upper()
@@ -951,10 +1239,18 @@ class RiskManager:
         )
         return symbol.upper(), self._valuation_currency
 
-    async def _convert_to_valuation_ccy(  # Async def
+    async def _convert_to_valuation_ccy(
         self, amount: Decimal, currency: str
     ) -> Tuple[Optional[Decimal], Optional[str]]:
-        """Converts an amount from a given currency to the portfolio's valuation currency."""
+        """Convert amount to valuation currency.
+
+        Args:
+            amount: Amount to convert
+            currency: Source currency
+
+        Returns:
+            Tuple of (converted_amount, error_message)
+        """
         target_valuation_currency = self._valuation_currency.upper()
         if currency.upper() == target_valuation_currency:
             return amount, None
@@ -983,7 +1279,11 @@ class RiskManager:
 
     # --- Methods for Consecutive Loss Tracking ---
     async def _handle_execution_report_for_losses(self, event: ExecutionReportEvent) -> None:
-        """Handles execution reports to track consecutive losses."""
+        """Handle execution report for loss tracking.
+
+        Args:
+            event: Execution report event
+        """
         if not self._is_running:
             return
 
@@ -1054,7 +1354,11 @@ class RiskManager:
         # else: Zero PnL, count doesn't change. Or could be treated as non-loss.
 
     def _check_consecutive_losses(self) -> Tuple[bool, Optional[str]]:
-        """Checks if the consecutive loss limit has been reached prior to a new trade."""
+        """Check if consecutive loss limit is exceeded.
+
+        Returns:
+            Tuple of (limit_exceeded, error_message)
+        """
         if self._consecutive_loss_count >= self._max_consecutive_losses:
             reason = (
                 f"MAX_CONSECUTIVE_LOSSES_LIMIT_REACHED ({self._consecutive_loss_count} >= "

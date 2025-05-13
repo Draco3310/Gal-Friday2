@@ -1,46 +1,44 @@
-import logging
-from typing import (  # noqa: F401
-    Optional,
-    Any,
-    TYPE_CHECKING,  # Used in type hints and conditional imports
-    Dict,
-    List,
-    Tuple,
-    Union,
-)
-from decimal import Decimal, getcontext
-from datetime import datetime, timedelta
-import pandas as pd  # Used in type hints for pd.Series
-from dataclasses import dataclass, field  # noqa: F401 # Used in placeholder classes
-import decimal  # noqa: F401 # Used in error handling
-import uuid  # Add missing uuid import
+"""Simulator for order execution during backtesting using historical OHLCV data.
+
+This module provides a simulated execution environment for backtesting trading strategies.
+It handles market and limit orders, slippage simulation, and SL/TP order processing
+without requiring a connection to an actual exchange.
+"""
+
 import asyncio  # Required for test coroutines
+import decimal  # noqa: F401 # Used in error handling
+import logging
+import uuid  # Add missing uuid import
 from collections import defaultdict  # Added for _active_sl_tp
+from dataclasses import dataclass, field  # noqa: F401 # Used in placeholder classes
+from datetime import datetime, timedelta
+from decimal import Decimal, getcontext
+from typing import TYPE_CHECKING  # Used in type hints and conditional imports
+from typing import Any, Dict, List, Optional, Tuple, Union  # noqa: F401
+
+import pandas as pd  # Used in type hints for pd.Series
 
 # Set Decimal precision
 getcontext().prec = 28
 
 if TYPE_CHECKING:
-    from .core.events import (
-        Event,  # Base class for events
-        EventType,  # Event type enumeration
-        TradeSignalApprovedEvent,
-        ExecutionReportEvent,
-    )
-    from .core.pubsub import PubSubManager
     from .config_manager import ConfigManager
-    from .logger_service import LoggerService
+    from .core.events import Event  # Base class for events
+    from .core.events import EventType  # Event type enumeration
+    from .core.events import ExecutionReportEvent, TradeSignalApprovedEvent
+    from .core.pubsub import PubSubManager
     from .historical_data_service import HistoricalDataService
+    from .logger_service import LoggerService
 else:
     # Import Event-related classes from core placeholders
     from .core.placeholder_classes import (  # noqa: F401 # Required for event system
+        ConfigManager,
         Event,
         EventType,
-        TradeSignalApprovedEvent,
         ExecutionReportEvent,
-        ConfigManager,
-        PubSubManager,
         HistoricalDataService,
+        PubSubManager,
+        TradeSignalApprovedEvent,
     )
 
 # log = logging.getLogger(__name__) # Removed module-level logger
@@ -56,6 +54,14 @@ class SimulatedExecutionHandler:
         data_service: "HistoricalDataService",
         logger_service: "LoggerService",
     ):  # Added logger_service
+        """Initialize the simulation execution handler with required services.
+
+        Args:
+            config_manager: Configuration provider for slippage, fees, etc.
+            pubsub_manager: Publish-subscribe manager for event communication
+            data_service: Service providing access to historical data
+            logger_service: Service for structured logging
+        """
         self.config = config_manager
         self.pubsub = pubsub_manager
         self.data_service = data_service
@@ -125,6 +131,10 @@ class SimulatedExecutionHandler:
         )
 
     async def start(self) -> None:  # Interface consistency
+        """Start the simulated execution handler.
+
+        For API consistency with other execution handlers; no external connections needed.
+        """
         # log.info("SimulatedExecutionHandler started.") # Replaced
         self.logger.info(
             "SimulatedExecutionHandler started.", source_module=self.__class__.__name__
@@ -132,6 +142,10 @@ class SimulatedExecutionHandler:
         # No external connections to establish
 
     async def stop(self) -> None:  # Interface consistency
+        """Stop the simulated execution handler.
+
+        For API consistency with other execution handlers; no external connections needed.
+        """
         # log.info("SimulatedExecutionHandler stopped.") # Replaced
         self.logger.info(
             "SimulatedExecutionHandler stopped.", source_module=self.__class__.__name__
@@ -139,7 +153,7 @@ class SimulatedExecutionHandler:
         # No external connections to close
 
     async def handle_trade_signal_approved(self, event: "TradeSignalApprovedEvent") -> None:
-        """Processes an approved signal, simulates fill based on next bar data."""
+        """Process an approved signal and simulate fill based on next bar data."""
         self.logger.debug(
             (f"SimExec received approved signal: " f"{event.signal_id} at {event.timestamp}"),
             source_module=self.__class__.__name__,
@@ -215,7 +229,7 @@ class SimulatedExecutionHandler:
             )
 
     async def _validate_order_parameters(self, event: "TradeSignalApprovedEvent") -> bool:
-        """Validates incoming order parameters."""
+        """Validate incoming order parameters."""
         if not isinstance(event.quantity, Decimal) or event.quantity <= Decimal(0):
             error_msg = f"Invalid order quantity: {event.quantity} for signal {event.signal_id}."
             self.logger.error(error_msg, source_module=self.__class__.__name__)
@@ -273,7 +287,7 @@ class SimulatedExecutionHandler:
         self,
         event: "TradeSignalApprovedEvent",
     ) -> Optional[pd.Series]:
-        """Gets and validates the next bar data for simulation."""
+        """Get and validate the next bar data for simulation."""
         try:
             next_bar = self.data_service.get_next_bar(event.trading_pair, event.timestamp)
 
@@ -313,7 +327,7 @@ class SimulatedExecutionHandler:
         event: "TradeSignalApprovedEvent",
         next_bar: pd.Series,
     ) -> Optional[Dict[str, Any]]:
-        """Simulates order fill based on order type and market conditions."""
+        """Simulate order fill based on order type and market conditions."""
         # fill_qty will be determined by simulation logic, considering partial fills
         commission_pct = self.taker_fee_pct  # Assume taker for MVP
 
@@ -386,7 +400,7 @@ class SimulatedExecutionHandler:
         commission_pct: Decimal,
         fill_timestamp: datetime,
     ) -> dict:
-        """Simulates a market order fill."""
+        """Simulate a market order fill."""
         fill_price_base = next_bar["open"]  # Assume fill at next bar's open
 
         # Calculate slippage using potentially next_bar volume data
@@ -482,7 +496,7 @@ class SimulatedExecutionHandler:
         commission_pct: Decimal,
         fill_timestamp: datetime,
     ) -> Optional[dict]:
-        """Simulates a limit order fill."""
+        """Simulate a limit order fill."""
         limit_price = event.limit_price
         if limit_price is None:
             error_msg = f"Limit price missing for signal {event.signal_id}. " "Cannot simulate."
@@ -556,7 +570,7 @@ class SimulatedExecutionHandler:
         limit_price: Decimal,
         next_bar: pd.Series,
     ) -> bool:
-        """Checks if a limit order would be filled based on price levels."""
+        """Check if a limit order would be filled based on price levels."""
         try:
             if side.upper() == "BUY":
                 return bool(next_bar["low"] <= limit_price)
@@ -579,7 +593,7 @@ class SimulatedExecutionHandler:
         order_quantity: Optional[Decimal] = None,  # Original order quantity
         bar_volume: Optional[Decimal] = None,  # Volume of the bar against which fill is attempted
     ) -> Decimal:
-        """Calculates slippage based on configured model."""
+        """Calculate slippage based on configured model."""
         slippage = Decimal(0)
         try:
             if self.slippage_model == "fixed":
@@ -663,7 +677,7 @@ class SimulatedExecutionHandler:
         custom_order_type: Optional[str] = None,
         custom_side: Optional[str] = None,
     ) -> None:
-        """Helper to create and publish a simulated ExecutionReportEvent."""
+        """Create and publish a simulated ExecutionReportEvent."""
         try:
             # Generate unique simulation order ID if not provided
             if custom_exchange_order_id:
@@ -716,11 +730,13 @@ class SimulatedExecutionHandler:
             )
 
     async def check_active_sl_tp(self, current_bar: pd.Series, bar_timestamp: datetime) -> None:
-        """
-        Called by the backtesting engine for each new bar to check SL/TP triggers
-        for active positions.
-        `current_bar` is the OHLCV data for the current simulation time.
-        `bar_timestamp` is the timestamp of the `current_bar` (usually its open time).
+        """Check SL/TP triggers for active positions with each new bar.
+
+        Called by the backtesting engine for each new bar to monitor active positions.
+
+        Args:
+            current_bar: The OHLCV data for the current simulation time
+            bar_timestamp: The timestamp of the current_bar (usually its open time)
         """
         if not self._is_valid_bar_for_sl_tp(current_bar, bar_timestamp):
             return
@@ -758,7 +774,7 @@ class SimulatedExecutionHandler:
                 )
 
     def _is_valid_bar_for_sl_tp(self, current_bar: pd.Series, bar_timestamp: datetime) -> bool:
-        """Checks if the current bar is valid for SL/TP processing."""
+        """Check if the current bar is valid for SL/TP processing."""
         if (
             not hasattr(current_bar, "high")
             or not hasattr(current_bar, "low")
@@ -776,7 +792,7 @@ class SimulatedExecutionHandler:
     def _check_sl_tp_trigger(
         self, sl_tp_data: dict, bar_high: Decimal, bar_low: Decimal, bar_timestamp: datetime
     ) -> Optional[Dict[str, Any]]:
-        """Checks if SL or TP conditions are met for a position."""
+        """Check if SL or TP conditions are met for a position."""
         sl_price = sl_tp_data["sl"]
         tp_price = sl_tp_data["tp"]
         original_side = sl_tp_data["side"]
@@ -824,7 +840,7 @@ class SimulatedExecutionHandler:
         exit_details: Dict[str, Any],
         bar_timestamp: datetime,
     ) -> None:
-        """Processes the exit of a position due to SL/TP trigger."""
+        """Process the exit of a position due to SL/TP trigger."""
         log_msg = (
             f"{exit_details['exit_reason']} for position {position_id} "
             f"({exit_details['trading_pair']}) Exit Price: {exit_details['exit_price']}, "
@@ -863,7 +879,7 @@ class SimulatedExecutionHandler:
 async def _setup_services_for_main_example() -> (
     Tuple["ConfigManager", "PubSubManager", "HistoricalDataService", "LoggerService"]
 ):
-    """Helper to set up services for the main example function."""
+    """Set up required services for the main example function."""
     logger = logging.getLogger("sim_exec_example")
     config = ConfigManager()
     pubsub = PubSubManager(config_manager=config, logger=logger)
@@ -960,7 +976,7 @@ async def _setup_services_for_main_example() -> (
 
 
 async def _run_market_order_test(sim_exec: SimulatedExecutionHandler) -> None:
-    """Runs the market order test scenario."""
+    """Run the market order test scenario."""
     signal_market_buy_ts = datetime.utcnow() - timedelta(minutes=10)
     signal_market_buy = TradeSignalApprovedEvent(
         source_module="TestModule",
@@ -982,7 +998,7 @@ async def _run_market_order_test(sim_exec: SimulatedExecutionHandler) -> None:
 
 
 async def _run_sl_tp_check_test(sim_exec: SimulatedExecutionHandler) -> None:
-    """Runs the SL/TP check test scenario if positions are active."""
+    """Run the SL/TP check test scenario if positions are active."""
     if not sim_exec._active_sl_tp:
         return
 
@@ -1021,7 +1037,7 @@ async def _run_sl_tp_check_test(sim_exec: SimulatedExecutionHandler) -> None:
 
 
 async def _run_limit_order_tests(sim_exec: SimulatedExecutionHandler) -> None:
-    """Runs limit order test scenarios."""
+    """Run limit order test scenarios."""
     signal_limit_buy_fill_ts = datetime.utcnow() - timedelta(minutes=5)
     signal_limit_buy_fill = TradeSignalApprovedEvent(
         source_module="TestModule",
@@ -1062,6 +1078,7 @@ async def _run_limit_order_tests(sim_exec: SimulatedExecutionHandler) -> None:
 
 
 async def main() -> None:  # C901 'main' is too complex (14) -> reduced by refactoring
+    """Run example simulation tests demonstrating the SimulatedExecutionHandler functionality."""
     logging.basicConfig(
         level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )

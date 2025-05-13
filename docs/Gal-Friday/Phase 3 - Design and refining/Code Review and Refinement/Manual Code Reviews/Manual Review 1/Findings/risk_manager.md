@@ -80,11 +80,11 @@ The implementation effectively enforces key risk limits, calculates position siz
    def _check_portfolio_exposure(self, portfolio_state, new_position_value):
        """Check if the new position would exceed maximum portfolio exposure."""
        current_exposure_pct = Decimal(portfolio_state.get("total_exposure_pct", "0"))
-       
+
        # Calculate new exposure after potential position
        equity = Decimal(portfolio_state["total_equity"])
        new_exposure_pct = current_exposure_pct + ((new_position_value / equity) * 100)
-       
+
        if new_exposure_pct > self._max_total_exposure_pct:
            return False, f"MAX_TOTAL_EXPOSURE_LIMIT ({new_exposure_pct:.2f}% > {self._max_total_exposure_pct}%)"
        return True, None
@@ -97,7 +97,7 @@ The implementation effectively enforces key risk limits, calculates position siz
        # This would require tracking trade outcomes, potentially by
        # subscribing to execution report events and maintaining state
        current_consecutive_losses = self._consecutive_loss_count
-       
+
        if current_consecutive_losses >= self._max_consecutive_losses:
            return False, f"MAX_CONSECUTIVE_LOSSES_LIMIT ({current_consecutive_losses} >= {self._max_consecutive_losses})"
        return True, None
@@ -112,11 +112,11 @@ The implementation effectively enforces key risk limits, calculates position siz
            current_market_price = self._get_current_market_price(trading_pair)
            if current_market_price is None:
                return False, "MARKET_PRICE_UNAVAILABLE"
-               
+
            # Calculate deviation
            deviation_pct = abs(proposed_price - current_market_price) / current_market_price * 100
            max_deviation_pct = self._config.get("max_price_deviation_pct", 5.0)
-           
+
            if deviation_pct > max_deviation_pct:
                return False, f"PRICE_DEVIATION_TOO_HIGH ({deviation_pct:.2f}% > {max_deviation_pct}%)"
            return True, None
@@ -146,7 +146,7 @@ The implementation effectively enforces key risk limits, calculates position siz
            if retries < max_retries:
                # Use asyncio.sleep in an async version of this method
                time.sleep(retry_delay)
-       
+
        # After all retries, log error and return None
        self.logger.error(
            f"Failed to get portfolio state after {max_retries} attempts",
@@ -159,14 +159,14 @@ The implementation effectively enforces key risk limits, calculates position siz
    ```python
    # Instead of setting global precision:
    # getcontext().prec = 28
-   
+
    # Create a local context for precision operations
    def _get_decimal_context(self):
        """Get a decimal context with the configured precision."""
        context = getcontext().copy()
        context.prec = self._config.get("decimal_precision", 28)
        return context
-       
+
    # Then use it in calculations:
    def _calculate_position_size(self, ...):
        context = self._get_decimal_context()
@@ -180,21 +180,21 @@ The implementation effectively enforces key risk limits, calculates position siz
        """Validate configuration values and set reasonable defaults if needed."""
        errors = []
        warnings = []
-       
+
        # Validate max drawdown limits
        if self._max_total_drawdown_pct <= 0 or self._max_total_drawdown_pct > 100:
            msg = f"Invalid max_total_drawdown_pct: {self._max_total_drawdown_pct}. Setting to default 15%"
            self.logger.warning(msg, source_module=self._source_module)
            warnings.append(msg)
            self._max_total_drawdown_pct = Decimal("15.0")
-           
+
        # Continue with other validations...
-       
+
        if errors:
            error_msg = f"Configuration validation errors: {'; '.join(errors)}"
            self.logger.error(error_msg, source_module=self._source_module)
            raise ValueError(error_msg)
-           
+
        if warnings:
            self.logger.warning(
                f"Configuration warnings: {'; '.join(warnings)}",
@@ -235,7 +235,7 @@ The implementation effectively enforces key risk limits, calculates position siz
            # Calculate a default TP based on risk:reward ratio from config
            risk_reward_ratio = self._config.get("risk_reward_ratio", 2.0)
            price_diff = abs(entry_price - sl_price)
-           
+
            if side.upper() == "BUY":
                return entry_price + (price_diff * risk_reward_ratio)
            else:
@@ -255,7 +255,7 @@ The implementation effectively enforces key risk limits, calculates position siz
        """Update and track risk metrics over time."""
        if not hasattr(self, "_risk_metrics_history"):
            self._risk_metrics_history = []
-           
+
        # Extract current metrics
        try:
            metrics = {
@@ -266,12 +266,12 @@ The implementation effectively enforces key risk limits, calculates position siz
                "weekly_drawdown_pct": Decimal(portfolio_state["weekly_drawdown_pct"]),
                "total_exposure_pct": Decimal(portfolio_state.get("total_exposure_pct", "0"))
            }
-           
+
            # Store metrics (keeping last N entries)
            self._risk_metrics_history.append(metrics)
            if len(self._risk_metrics_history) > 1000:  # Keep last 1000 entries
                self._risk_metrics_history.pop(0)
-               
+
            # Log significant changes
            if len(self._risk_metrics_history) > 1:
                prev_metrics = self._risk_metrics_history[-2]

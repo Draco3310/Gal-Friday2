@@ -2,7 +2,7 @@
 
 ## Module Overview
 The `pubsub.py` module implements the core event bus using a publisher-subscriber pattern, which is central to the event-driven architecture of Gal-Friday. It manages:
-- Event subscriptions by type 
+- Event subscriptions by type
 - Event publishing to an internal queue
 - Asynchronous dispatch of events to handlers
 - Background task for event processing

@@ -1,8 +1,15 @@
+"""Strategy arbitration for trading signal generation.
+
+This module contains the StrategyArbitrator, which consumes prediction events from models,
+applies trading strategy logic, and produces proposed trade signals. The arbitrator
+supports configurable threshold strategies with secondary confirmation rules.
+"""
+
 # Strategy Arbitrator Module
 
 import uuid
-from decimal import Decimal, InvalidOperation
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Optional, Tuple
 
 # Event imports
@@ -36,7 +43,8 @@ from .market_price_service import MarketPriceService
 
 # --- StrategyArbitrator Class ---
 class StrategyArbitrator:
-    """
+    """Consume prediction events and generate trade signals.
+
     Consumes prediction events, applies configurable trading strategy logic,
     and publishes proposed trade signal events.
     """
@@ -48,8 +56,7 @@ class StrategyArbitrator:
         logger_service: LoggerService,
         market_price_service: MarketPriceService,
     ):
-        """
-        Initializes the StrategyArbitrator.
+        """Initialize the StrategyArbitrator.
 
         Args:
             config (dict): Configuration settings. Expected structure:
@@ -130,7 +137,7 @@ class StrategyArbitrator:
             raise StrategyConfigurationError(err_msg)
 
     def _validate_configuration(self) -> None:
-        """Validates loaded strategy configuration."""
+        """Validate loaded strategy configuration."""
         if self._entry_type not in ["MARKET", "LIMIT"]:
             raise StrategyConfigurationError(f"Invalid entry_type: {self._entry_type}")
         if self._buy_threshold <= self._sell_threshold:
@@ -170,7 +177,7 @@ class StrategyArbitrator:
         )
 
     def _validate_prediction_event(self, event: PredictionEvent) -> bool:
-        """Validates the incoming PredictionEvent."""
+        """Validate the incoming PredictionEvent."""
         if not hasattr(event, "prediction_value") or event.prediction_value is None:
             self.logger.warning(
                 f"PredictionEvent {event.event_id} missing prediction_value.",
@@ -204,7 +211,7 @@ class StrategyArbitrator:
     async def _calculate_sl_tp_prices(
         self, side: str, current_price: Decimal, trading_pair: str
     ) -> Tuple[Optional[Decimal], Optional[Decimal]]:
-        """Calculates SL/TP prices based on configuration and current price."""
+        """Calculate SL/TP prices based on configuration and current price."""
         if self._sl_pct is None or self._tp_pct is None:
             self.logger.error(
                 f"SL/TP percentages are not configured for strategy {self._strategy_id} "
@@ -250,7 +257,7 @@ class StrategyArbitrator:
     async def _determine_entry_price(
         self, side: str, current_price: Decimal, trading_pair: str
     ) -> Optional[Decimal]:
-        """Determines the proposed entry price based on order type."""
+        """Determine the proposed entry price based on order type."""
         if self._entry_type == "MARKET":
             return None  # No specific price for market orders
         elif self._entry_type == "LIMIT":
@@ -313,7 +320,7 @@ class StrategyArbitrator:
     def _validate_confirmation_rule(
         self, rule: dict, features: dict, trading_pair: str, primary_side: str
     ) -> bool:
-        """Validates a single confirmation rule against event features."""
+        """Validate a single confirmation rule against event features."""
         feature_name = rule.get("feature")
         condition = rule.get("condition")
         threshold_str = rule.get("threshold")
@@ -380,7 +387,7 @@ class StrategyArbitrator:
     def _apply_secondary_confirmation(
         self, prediction_event: PredictionEvent, primary_side: str
     ) -> bool:
-        """Checks if secondary confirmation rules pass."""
+        """Check if secondary confirmation rules pass."""
         if not self._confirmation_rules:
             return True  # No rules defined, confirmation passes by default
 
@@ -410,8 +417,8 @@ class StrategyArbitrator:
     async def _evaluate_strategy(
         self, prediction_event: PredictionEvent
     ) -> Optional[TradeSignalProposedEvent]:
-        """
-        Evaluates trading strategy based on prediction probabilities.
+        """Evaluate trading strategy based on prediction probabilities.
+
         Returns TradeSignalProposedEvent if strategy triggers, None otherwise.
         """
         try:
@@ -561,7 +568,7 @@ class StrategyArbitrator:
         return None
 
     async def start(self) -> None:
-        """Starts listening for prediction events."""
+        """Start listening for prediction events."""
         if self._is_running:
             self.logger.warning(
                 "StrategyArbitrator already running.",
@@ -576,7 +583,7 @@ class StrategyArbitrator:
         self.logger.info("StrategyArbitrator started.", source_module=self._source_module)
 
     async def stop(self) -> None:
-        """Stops the event processing loop."""
+        """Stop the event processing loop."""
         if not self._is_running:
             return
         self._is_running = False
@@ -597,7 +604,7 @@ class StrategyArbitrator:
         self.logger.info("StrategyArbitrator stopped.", source_module=self._source_module)
 
     async def handle_prediction_event(self, event: PredictionEvent) -> None:
-        """Handles incoming prediction events directly."""
+        """Handle incoming prediction events directly."""
         if not isinstance(event, PredictionEvent):
             self.logger.warning(
                 f"Received non-PredictionEvent: {type(event)}", source_module=self._source_module
@@ -624,7 +631,7 @@ class StrategyArbitrator:
             await self._publish_trade_signal_proposed(proposed_signal_event)
 
     async def _publish_trade_signal_proposed(self, event: TradeSignalProposedEvent) -> None:
-        """Publishes the TradeSignalProposedEvent."""
+        """Publish the TradeSignalProposedEvent."""
         try:
             await self.pubsub.publish(event)
             self.logger.debug(

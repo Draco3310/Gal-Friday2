@@ -30,7 +30,7 @@ While the core functionality is well-implemented with good error handling and da
 
 1. **Missing Technical Indicators**: Several required technical indicators specified in FR-202 are not implemented:
    - Missing MACD implementation
-   - Missing Bollinger Bands implementation 
+   - Missing Bollinger Bands implementation
    - Missing VWAP implementation
    - Missing volatility measures (ATR, standard deviation)
 
@@ -77,7 +77,7 @@ While the core functionality is well-implemented with good error handling and da
        fast = macd_cfg.get("fast_period", 12)
        slow = macd_cfg.get("slow_period", 26)
        signal = macd_cfg.get("signal_period", 9)
-       
+
        if isinstance(fast, int) and isinstance(slow, int) and isinstance(signal, int):
            feature_name_prefix = f"macd_{fast}_{slow}_{signal}_{interval}"
            if len(df) >= slow + signal:
@@ -87,7 +87,7 @@ While the core functionality is well-implemented with good error handling and da
                    macd_line = macd_result[f"MACD_{fast}_{slow}_{signal}"].iloc[-1]
                    signal_line = macd_result[f"MACDs_{fast}_{slow}_{signal}"].iloc[-1]
                    histogram = macd_result[f"MACDh_{fast}_{slow}_{signal}"].iloc[-1]
-                   
+
                    if not pd.isna(macd_line) and not pd.isna(signal_line) and not pd.isna(histogram):
                        features[f"{feature_name_prefix}_line"] = f"{macd_line:.6f}"
                        features[f"{feature_name_prefix}_signal"] = f"{signal_line:.6f}"
@@ -113,24 +113,24 @@ While the core functionality is well-implemented with good error handling and da
        l2_data = self._latest_l2_data.get(trading_pair)
        if not l2_data or not l2_data["bids"] or not l2_data["asks"]:
            return features
-           
+
        bids = l2_data["bids"]
        asks = l2_data["asks"]
-       
+
        for level in depth_levels:
            try:
                # Calculate cumulative volume at specified depth
                bid_vol = sum(Decimal(b[1]) for b in bids[:level]) if len(bids) >= level else Decimal(0)
                ask_vol = sum(Decimal(a[1]) for a in asks[:level]) if len(asks) >= level else Decimal(0)
-               
+
                features[f"bid_depth_{level}"] = f"{bid_vol:.8f}"
                features[f"ask_depth_{level}"] = f"{ask_vol:.8f}"
-               
+
                # Calculate weighted average prices
                if bid_vol > 0:
                    bid_wap = sum(Decimal(b[0]) * Decimal(b[1]) for b in bids[:level]) / bid_vol
                    features[f"bid_wap_{level}"] = f"{bid_wap:.8f}"
-                   
+
                if ask_vol > 0:
                    ask_wap = sum(Decimal(a[0]) * Decimal(a[1]) for a in asks[:level]) / ask_vol
                    features[f"ask_wap_{level}"] = f"{ask_wap:.8f}"
@@ -139,7 +139,7 @@ While the core functionality is well-implemented with good error handling and da
                    f"Error calculating depth features at level {level}: {e}",
                    source_module=self.__class__.__name__
                )
-               
+
        return features
    ```
 
@@ -147,7 +147,7 @@ While the core functionality is well-implemented with good error handling and da
    ```python
    # Replace this:
    print("Feature Engine Loaded")
-   
+
    # With:
    logging.getLogger(__name__).info("Feature Engine module loaded")
    ```
@@ -161,10 +161,10 @@ While the core functionality is well-implemented with good error handling and da
        # Check if we already have a cached DataFrame for this key
        if not hasattr(self, "_dataframe_cache"):
            self._dataframe_cache = {}
-           
+
        df_cache = self._dataframe_cache.get(history_key)
        history = self._ohlcv_history.get(history_key, [])
-       
+
        if df_cache is None or len(df_cache) != len(history):
            # Need to create or update the DataFrame
            try:
@@ -186,7 +186,7 @@ While the core functionality is well-implemented with good error handling and da
                    exc_info=True
                )
                return None
-       
+
        # Return the cached DataFrame
        return self._dataframe_cache[history_key]
    ```
@@ -194,10 +194,10 @@ While the core functionality is well-implemented with good error handling and da
 2. **Refactor Feature Calculation Methods**: Reduce duplication in TA code:
    ```python
    def _calculate_indicator_feature(
-       self, 
-       df: pd.DataFrame, 
-       indicator_name: str, 
-       period: int, 
+       self,
+       df: pd.DataFrame,
+       indicator_name: str,
+       period: int,
        interval: str,
        trading_pair: str,
        calculation_func: Callable
@@ -205,12 +205,12 @@ While the core functionality is well-implemented with good error handling and da
        """Generic method to calculate an indicator feature."""
        features = {}
        feature_name = f"{indicator_name}_{period}_{interval}"
-       
+
        if len(df) >= period + 1:
            try:
                result = calculation_func(df, period)
                last_value = result.iloc[-1]
-               
+
                if not pd.isna(last_value):
                    features[feature_name] = f"{last_value:.6f}"
                else:
@@ -236,7 +236,7 @@ While the core functionality is well-implemented with good error handling and da
    def _validate_ohlcv_data(self, ohlcv_dict: dict) -> bool:
        """Validate OHLCV data before processing."""
        required_fields = ["timestamp", "open", "high", "low", "close", "volume"]
-       
+
        # Check all required fields exist
        for field in required_fields:
            if field not in ohlcv_dict:
@@ -245,7 +245,7 @@ While the core functionality is well-implemented with good error handling and da
                    source_module=self.__class__.__name__
                )
                return False
-               
+
        # Check for invalid values
        numeric_fields = ["open", "high", "low", "close", "volume"]
        for field in numeric_fields:
@@ -264,7 +264,7 @@ While the core functionality is well-implemented with good error handling and da
                    source_module=self.__class__.__name__
                )
                return False
-               
+
        # Check high >= low, high >= open, high >= close
        try:
            if not (Decimal(ohlcv_dict["high"]) >= Decimal(ohlcv_dict["low"])):
@@ -276,7 +276,7 @@ While the core functionality is well-implemented with good error handling and da
        except (ValueError, InvalidOperation):
            # Already logged in the previous check
            return False
-           
+
        return True
    ```
 
@@ -289,22 +289,22 @@ While the core functionality is well-implemented with good error handling and da
        # Check if we have a recently calculated mid price
        if not hasattr(self, "_mid_price_cache"):
            self._mid_price_cache = {}
-           
+
        cache_entry = self._mid_price_cache.get(trading_pair)
        l2_data = self._latest_l2_data.get(trading_pair)
-       
+
        # If no cache entry, or L2 data is newer than cache, recalculate
-       if (cache_entry is None or 
-           l2_data is None or 
+       if (cache_entry is None or
+           l2_data is None or
            cache_entry["timestamp"] != l2_data["timestamp"]):
-           
+
            try:
                if not l2_data or not l2_data["bids"] or not l2_data["asks"]:
                    return None
-                   
+
                best_bid = Decimal(l2_data["bids"][0][0])
                best_ask = Decimal(l2_data["asks"][0][0])
-               
+
                if best_ask > best_bid:
                    mid_price = (best_bid + best_ask) / 2
                    # Update cache
@@ -325,7 +325,7 @@ While the core functionality is well-implemented with good error handling and da
                    source_module=self.__class__.__name__
                )
                return None
-       
+
        # Return cached value
        return cache_entry["mid_price"]
    ```
@@ -335,12 +335,12 @@ While the core functionality is well-implemented with good error handling and da
    def _validate_features(self, features: dict[str, str], trading_pair: str) -> dict[str, str]:
        """Validate feature values and filter out potentially invalid ones."""
        valid_features = {}
-       
+
        for name, value_str in features.items():
            try:
                # Convert to Decimal for validation
                value = Decimal(value_str)
-               
+
                # Basic range checks based on feature type
                if "rsi" in name:
                    # RSI should be between 0 and 100
@@ -374,7 +374,7 @@ While the core functionality is well-implemented with good error handling and da
                    f"Invalid feature value for {trading_pair}: {name}={value_str}, error: {e}",
                    source_module=self.__class__.__name__
                )
-               
+
        return valid_features
    ```
 

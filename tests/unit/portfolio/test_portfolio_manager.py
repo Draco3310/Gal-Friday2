@@ -1,14 +1,10 @@
-"""
-Tests for the portfolio_manager module.
-"""
-import pytest
-from unittest.mock import MagicMock, patch
-import pandas as pd
-from datetime import datetime
+"""Tests for the portfolio_manager module."""
 
+from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+from gal_friday.core.events import FillEvent, MarketDataEvent, OrderEvent
 from gal_friday.portfolio_manager import PortfolioManager
-from gal_friday.event_bus import EventBus
-from gal_friday.core.events import OrderEvent, FillEvent, MarketDataEvent
 
 
 def test_portfolio_manager_initialization(config_manager, event_bus):
@@ -17,10 +13,8 @@ def test_portfolio_manager_initialization(config_manager, event_bus):
 
     assert portfolio is not None
     assert portfolio.current_positions == {}
-    assert portfolio.current_holdings["cash"] == config_manager.get(
-        "backtesting.initial_capital")
-    assert portfolio.current_holdings["total"] == config_manager.get(
-        "backtesting.initial_capital")
+    assert portfolio.current_holdings["cash"] == config_manager.get("backtesting.initial_capital")
+    assert portfolio.current_holdings["total"] == config_manager.get("backtesting.initial_capital")
 
 
 def test_portfolio_manager_update_from_fill(config_manager, event_bus):
@@ -40,7 +34,7 @@ def test_portfolio_manager_update_from_fill(config_manager, event_bus):
         quantity=2.0,
         price=50000.0,
         commission=25.0,
-        direction="BUY"
+        direction="BUY",
     )
 
     # Process the fill event
@@ -68,7 +62,7 @@ def test_portfolio_manager_update_from_fill(config_manager, event_bus):
         quantity=1.0,
         price=52000.0,  # Price went up
         commission=25.0,
-        direction="SELL"
+        direction="SELL",
     )
 
     # Process the fill event
@@ -88,8 +82,7 @@ def test_portfolio_manager_update_from_fill(config_manager, event_bus):
     assert abs(portfolio.current_holdings["total"] - expected_total) < 0.01
 
 
-def test_portfolio_manager_generate_order_from_signal(
-        config_manager, event_bus):
+def test_portfolio_manager_generate_order_from_signal(config_manager, event_bus):
     """Test generating orders from signals."""
     # Create a mock event_bus to capture published events
     mock_event_bus = MagicMock()
@@ -103,7 +96,7 @@ def test_portfolio_manager_generate_order_from_signal(
 
     # Create a signal event (import is mocked since we don't want to depend on
     # actual implementation)
-    with patch('gal_friday.core.events.SignalEvent') as MockSignalEvent:
+    with patch("gal_friday.core.events.SignalEvent") as MockSignalEvent:
         signal_event = MockSignalEvent.return_value
         signal_event.symbol = "BTC/USD"
         signal_event.direction = "BUY"
@@ -126,27 +119,13 @@ def test_portfolio_manager_update_value(config_manager, event_bus):
     portfolio = PortfolioManager(config_manager, event_bus)
 
     # Set initial state with positions
-    portfolio.current_positions = {
-        "BTC/USD": 2.0,
-        "ETH/USD": 10.0
-    }
-    portfolio.current_holdings = {
-        "cash": 20000.0,
-        "total": 100000.0  # Will be recalculated
-    }
+    portfolio.current_positions = {"BTC/USD": 2.0, "ETH/USD": 10.0}
+    portfolio.current_holdings = {"cash": 20000.0, "total": 100000.0}  # Will be recalculated
 
     # Create market price updates
-    btc_price_event = MarketDataEvent(
-        timestamp=datetime.now(),
-        symbol="BTC/USD",
-        price=55000.0
-    )
+    btc_price_event = MarketDataEvent(timestamp=datetime.now(), symbol="BTC/USD", price=55000.0)
 
-    eth_price_event = MarketDataEvent(
-        timestamp=datetime.now(),
-        symbol="ETH/USD",
-        price=3500.0
-    )
+    eth_price_event = MarketDataEvent(timestamp=datetime.now(), symbol="ETH/USD", price=3500.0)
 
     # Update portfolio values
     portfolio.update_value(btc_price_event)
@@ -164,22 +143,16 @@ def test_portfolio_manager_risk_exposure(config_manager, event_bus):
     portfolio = PortfolioManager(config_manager, event_bus)
 
     # Set initial state with positions
-    portfolio.current_positions = {
-        "BTC/USD": 2.0,
-        "ETH/USD": 10.0
-    }
+    portfolio.current_positions = {"BTC/USD": 2.0, "ETH/USD": 10.0}
 
     # Set current market prices
-    portfolio.current_prices = {
-        "BTC/USD": 50000.0,
-        "ETH/USD": 3000.0
-    }
+    portfolio.current_prices = {"BTC/USD": 50000.0, "ETH/USD": 3000.0}
 
     portfolio.current_holdings = {
         "cash": 20000.0,
         "BTC/USD": 2.0 * 50000.0,  # position value
         "ETH/USD": 10.0 * 3000.0,  # position value
-        "total": 20000.0 + (2.0 * 50000.0) + (10.0 * 3000.0)
+        "total": 20000.0 + (2.0 * 50000.0) + (10.0 * 3000.0),
     }
 
     # Calculate exposure
@@ -195,5 +168,6 @@ def test_portfolio_manager_risk_exposure(config_manager, event_bus):
     assert "ETH/USD" in exposure
     assert abs(exposure["BTC/USD"] - expected_btc_exposure) < 0.01
     assert abs(exposure["ETH/USD"] - expected_eth_exposure) < 0.01
-    assert abs(sum(exposure.values()) - (1.0 - 20000.0 / total_value)
-               ) < 0.01  # Total exposure (excluding cash)
+    assert (
+        abs(sum(exposure.values()) - (1.0 - 20000.0 / total_value)) < 0.01
+    )  # Total exposure (excluding cash)

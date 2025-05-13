@@ -1,15 +1,23 @@
+"""Provide a backtesting environment for algorithmic trading strategies.
+
+This module contains the BacktestingEngine which orchestrates backtesting simulations
+using historical data. It handles loading data, initializing simulation services,
+executing the simulation, and calculating performance metrics.
+"""
+
 # Backtesting Engine Module
 # Adjusted imports to fix F401 and E501
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Type, Tuple, cast
-from datetime import datetime
-from decimal import Decimal, InvalidOperation
-import os
-import logging
 import asyncio
-import pandas as pd
-import numpy as np  # Add numpy import for np references
+import logging
+import os
 import uuid  # Add uuid import for generating UUIDs
 from concurrent.futures import ProcessPoolExecutor  # Added missing import
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Type, cast
+
+import numpy as np  # Add numpy import for np references
+import pandas as pd
 
 # Import TA-Lib for technical indicators
 try:
@@ -20,17 +28,21 @@ except ImportError:
     # Create a minimal placeholder for ta module
 
     class TaLib:
+        """Provide minimal placeholder for TA-Lib functionality when library is not available."""
+
         @staticmethod
         def atr(high: pd.Series, low: pd.Series, close: pd.Series, length: int) -> pd.Series:
+            """Return a series of ATR values or None when TA-Lib is not installed."""
             log.error("TA-Lib not installed. Cannot calculate ATR.")
             # Return Series with same index to avoid potential issues later
             return pd.Series([None] * len(high), index=high.index)
 
     ta = TaLib()  # type: ignore
 
-# Import necessary components for instantiation
-from .core.events import MarketDataOHLCVEvent, EventType, ExecutionReportEvent
 from .config_manager import ConfigManager
+
+# Import necessary components for instantiation
+from .core.events import EventType, ExecutionReportEvent, MarketDataOHLCVEvent
 
 # LoggerService is imported locally where needed or via TYPE_CHECKING
 # from .logger_service import LoggerService # Removed F401
@@ -59,13 +71,13 @@ def create_placeholder_class(name: str, **methods: Any) -> Type[Any]:
 # Type hints and imports for static analysis (e.g., mypy)
 if TYPE_CHECKING:
     from .core.pubsub import PubSubManager
-    from .simulated_market_price_service import SimulatedMarketPriceService
+    from .feature_engine import FeatureEngine
     from .portfolio_manager import PortfolioManager
+    from .prediction_service import PredictionService
     from .risk_manager import RiskManager
     from .simulated_execution_handler import SimulatedExecutionHandler
+    from .simulated_market_price_service import SimulatedMarketPriceService
     from .strategy_arbitrator import StrategyArbitrator
-    from .prediction_service import PredictionService
-    from .feature_engine import FeatureEngine
 else:
     # Import implementations with fallbacks for runtime if modules are missing
     def import_with_fallback(module_path: str, class_name: str, methods: List[str]) -> Any:
@@ -116,7 +128,7 @@ else:
 def calculate_performance_metrics(  # noqa: C901 too complex
     equity_curve: pd.Series, trade_log: List[Dict], initial_capital: Decimal
 ) -> Dict[str, Any]:
-    """Calculates standard backtesting performance metrics."""
+    """Calculate standard backtesting performance metrics."""
     if equity_curve.empty:
         log.warning("Equity curve is empty, cannot calculate metrics.")
         return {"error": "Equity curve is empty, cannot calculate metrics."}
@@ -320,7 +332,7 @@ class BacktestingEngine:
 
     def __init__(self, config_manager: "ConfigManager"):
         """
-        Initializes the BacktestingEngine.
+        Initialize the BacktestingEngine.
 
         Args:
             config_manager: The application's configuration manager.
@@ -347,7 +359,7 @@ class BacktestingEngine:
         log.info("BacktestingEngine initialized.")
 
     def _load_historical_data(self) -> Optional[Dict[str, pd.DataFrame]]:
-        """Loads, cleans, validates, and preprocesses historical OHLCV data.
+        """Load, clean, validate, and preprocess historical OHLCV data.
 
         Returns:
             A dictionary mapping trading pairs to their historical data DataFrames,
@@ -808,7 +820,7 @@ class BacktestingEngine:
         return df
 
     async def run_backtest(self) -> Optional[Dict[str, Any]]:
-        """Main method to orchestrate and run the backtest simulation."""
+        """Orchestrate and run the backtest simulation."""
         log.info("Starting backtest run...")
         start_run_time = datetime.now(tz=datetime.now().astimezone().tzinfo)
 
@@ -1317,19 +1329,18 @@ class BacktestingEngine:
         try:
             # --- Import necessary classes ---
             # Use concrete implementation for PubSub in backtesting
-            from .core.pubsub import PubSubManager as EventBusPubSubManager
-            from .logger_service import LoggerService
-            from .simulated_market_price_service import SimulatedMarketPriceService
             import logging
-
-            from .market_price_service import MarketPriceService
-            from .historical_data_service import HistoricalDataService
 
             # Potentially needed for ProcessPoolExecutor typing
             from concurrent.futures import ProcessPoolExecutor
 
-            # Removed local Logger import, use global log or pass logger_service
+            from .core.pubsub import PubSubManager as EventBusPubSubManager
+            from .historical_data_service import HistoricalDataService
+            from .logger_service import LoggerService
+            from .market_price_service import MarketPriceService
+            from .simulated_market_price_service import SimulatedMarketPriceService
 
+            # Removed local Logger import, use global log or pass logger_service
             # --- Instantiate Core Services ---
             # Create PubSub specifically for this backtest instance
             pubsub_logger = logging.getLogger("gal_friday.backtesting_engine.pubsub")

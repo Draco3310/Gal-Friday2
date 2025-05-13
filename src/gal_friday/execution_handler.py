@@ -1,30 +1,29 @@
+"""Exchange execution handler for interacting with the Kraken API to execute trades."""
+
 # Execution Handler Module
 
-import aiohttp
 import asyncio
 import base64
 import binascii  # Add missing import for binascii
 import hashlib
 import hmac
+import random  # Add import for random (needed for jitter)
 import time
 import urllib.parse
-import random  # Add import for random (needed for jitter)
+from datetime import datetime, timezone  # Modified import
 from decimal import Decimal
 
 # Added Callable, Coroutine
-from typing import Dict, Any, Optional, cast, Callable, Coroutine, List, Set, Tuple
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, Tuple, cast
 from uuid import UUID
-from datetime import datetime, timezone  # Modified import
 
-from gal_friday.core.events import (
-    EventType,
-    TradeSignalApprovedEvent,
-    ExecutionReportEvent,
-)
-from gal_friday.core.pubsub import PubSubManager
+import aiohttp
+
 from gal_friday.config_manager import ConfigManager
-from gal_friday.monitoring_service import MonitoringService
+from gal_friday.core.events import EventType, ExecutionReportEvent, TradeSignalApprovedEvent
+from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
+from gal_friday.monitoring_service import MonitoringService
 
 # TODO: Replace debug print with proper logging
 print("Execution Handler Loaded")
@@ -33,13 +32,12 @@ KRAKEN_API_URL = "https://api.kraken.com"
 
 
 class RateLimitTracker:
-    """
-    Tracks and enforces API rate limits to prevent exceeding exchange limits.
-    """
+    """Tracks and enforces API rate limits to prevent exceeding exchange limits."""
 
     def __init__(
         self, config: ConfigManager, logger_service: LoggerService
     ):  # Added logger_service
+        """Initialize the rate limit tracker with configuration and logger."""
         self.config = config
         self.logger: LoggerService = logger_service  # Added type hint and assigned logger_service
 
@@ -63,7 +61,8 @@ class RateLimitTracker:
 
     async def wait_for_private_capacity(self) -> None:
         """
-        Waits until there's capacity to make a private API call.
+        Wait until there's capacity to make a private API call.
+
         Uses self-regulating approach by pruning old timestamps and waiting if needed.
         """
         while True:
@@ -86,7 +85,8 @@ class RateLimitTracker:
 
     async def wait_for_public_capacity(self) -> None:
         """
-        Waits until there's capacity to make a public API call.
+        Wait until there's capacity to make a public API call.
+
         Similar to private capacity but uses public limits.
         """
         while True:
@@ -108,15 +108,17 @@ class RateLimitTracker:
             await asyncio.sleep(sleep_time)
 
     def reset(self) -> None:
-        """Resets all tracking."""
+        """Reset all tracking."""
         self._private_call_timestamps = []
         self._public_call_timestamps = []
 
 
 class ExecutionHandler:
     """
-    Handles interaction with the exchange API (Kraken) to place, manage,
-    and monitor orders based on approved trade signals.
+    Handle interaction with the exchange API (Kraken) to place, manage, and monitor orders.
+
+    Processes approved trade signals, converts them to exchange-specific parameters,
+    places orders, and monitors their execution.
     """
 
     def __init__(
@@ -126,6 +128,7 @@ class ExecutionHandler:
         monitoring_service: MonitoringService,
         logger_service: LoggerService,
     ):
+        """Initialize the execution handler with required services and configuration."""
         self.logger = logger_service
         self.config = config_manager
         self.pubsub = pubsub_manager
@@ -182,9 +185,7 @@ class ExecutionHandler:
         )
 
     async def start(self) -> None:
-        """
-        Initializes API client session, loads exchange info, and subscribes to events.
-        """
+        """Initialize API client session, load exchange info, and subscribe to events."""
         self.logger.info(
             "Starting ExecutionHandler...",
             source_module=self.__class__.__name__,
@@ -214,7 +215,7 @@ class ExecutionHandler:
         # TODO: Implement WebSocket connection logic here if used for MVP
 
     async def stop(self) -> None:
-        """Closes API client session and potentially cancels orders."""
+        """Close API client session and potentially cancel orders."""
         self.logger.info(
             "Stopping ExecutionHandler...",
             source_module=self.__class__.__name__,
@@ -264,7 +265,7 @@ class ExecutionHandler:
     async def _make_public_request_with_retry(
         self, url: str, max_retries: int = 3
     ) -> Optional[Dict[str, Any]]:
-        """Makes a public request with retry logic for transient errors."""
+        """Make a public request with retry logic for transient errors."""
         base_delay = self.config.get_float("exchange.retry_base_delay_s", 1.0)
         # last_exception = None # F841: local variable
         # 'last_exception' is assigned to but never used
@@ -363,7 +364,7 @@ class ExecutionHandler:
         return None
 
     async def _load_exchange_info(self) -> None:
-        """Fetches and stores tradable asset pair information from Kraken."""
+        """Fetch and store tradable asset pair information from Kraken."""
         uri_path = "/0/public/AssetPairs"
         url = self.api_base_url + uri_path
         self.logger.info(
@@ -402,7 +403,7 @@ class ExecutionHandler:
             )
 
     def _validate_session(self) -> bool:
-        """Validates that the AIOHTTP session is available."""
+        """Validate that the AIOHTTP session is available."""
         if not self._session or self._session.closed:
             self.logger.error(
                 "Cannot load exchange info: AIOHTTP session is not available.",
@@ -412,7 +413,7 @@ class ExecutionHandler:
         return True
 
     async def _process_asset_pairs(self, result: dict) -> None:
-        """Processes and stores asset pairs data."""
+        """Process and store asset pairs data."""
         loaded_count = 0
         internal_pairs = self.config.get_list("trading.pairs", [])
 
@@ -440,7 +441,7 @@ class ExecutionHandler:
         kraken_pair_map: dict,
         result: dict,
     ) -> bool:
-        """Processes a single trading pair and stores its information."""
+        """Process a single trading pair and store its information."""
         kraken_altname = internal_pair_name.replace("/", "")
         kraken_key = kraken_pair_map.get(kraken_altname)
 
@@ -476,7 +477,7 @@ class ExecutionHandler:
         return True
 
     def _log_loading_results(self, loaded_count: int, total_pairs: int) -> None:
-        """Logs the results of loading asset pairs."""
+        """Log the results of loading asset pairs."""
         self.logger.info(
             (
                 f"Successfully loaded info for {loaded_count} asset pairs "
@@ -500,7 +501,7 @@ class ExecutionHandler:
         data: Dict[str, Any],
         nonce: int,
     ) -> str:
-        """Generates the API-Sign header required by Kraken private endpoints."""
+        """Generate the API-Sign header required by Kraken private endpoints."""
         postdata = urllib.parse.urlencode(data)
         encoded = (str(nonce) + postdata).encode()
         message = uri_path.encode() + hashlib.sha256(encoded).digest()
@@ -519,7 +520,7 @@ class ExecutionHandler:
         return sigdigest.decode()
 
     def _format_decimal(self, value: Decimal, precision: int) -> str:
-        """Formats a Decimal value to a string with a specific precision."""
+        """Format a Decimal value to a string with a specific precision."""
         # Use quantization to set the number of decimal places
         # Ensure it rounds correctly, default rounding is ROUND_HALF_EVEN
         quantizer = Decimal("1e-" + str(precision))
@@ -530,7 +531,7 @@ class ExecutionHandler:
         uri_path: str,
         data: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Makes an authenticated request to a private Kraken REST endpoint."""
+        """Make an authenticated request to a private Kraken REST endpoint."""
         if not self._session or self._session.closed:
             self.logger.error(
                 "AIOHTTP session is not available for private request.",
@@ -659,7 +660,7 @@ class ExecutionHandler:
     async def _make_private_request_with_retry(
         self, uri_path: str, data: Dict[str, Any], max_retries: int = 3
     ) -> Dict[str, Any]:
-        """Makes a private request with retry logic for transient errors."""
+        """Make a private request with retry logic for transient errors."""
         base_delay = self.config.get_float("exchange.retry_base_delay_s", 1.0)
         # last_exception = None # F841: local variable 'last_exception'
         # is assigned to but never used
@@ -746,8 +747,9 @@ class ExecutionHandler:
 
     async def handle_trade_signal_approved(self, event: TradeSignalApprovedEvent) -> None:
         """
-        Processes an approved trade signal event: checks HALT, translates, places order,
-        handles response.
+        Process an approved trade signal event.
+
+        Check HALT status, translate signal to API parameters, place order, and handle response.
         """
         self.logger.info(
             f"Received approved trade signal: {event.signal_id}",
@@ -790,7 +792,7 @@ class ExecutionHandler:
                 event=event,  # Pass event as a keyword argument
                 error_message="Signal translation failed",
                 # Pass error_message as a keyword argument
-                cl_ord_id=None  # Client order ID
+                cl_ord_id=None,  # Client order ID
             )
             return
 
@@ -824,8 +826,9 @@ class ExecutionHandler:
         event: TradeSignalApprovedEvent,
     ) -> Optional[Dict[str, Any]]:
         """
-        Translates internal signal format to Kraken API parameters,
-        including validation.
+        Translate internal signal format to Kraken API parameters.
+
+        Includes validation of the parameters against exchange requirements.
         """
         params = {}
         internal_pair = event.trading_pair
@@ -869,7 +872,7 @@ class ExecutionHandler:
         internal_pair: str,
         signal_id: UUID,
     ) -> Optional[Dict[str, Any]]:
-        """Gets and validates trading pair information."""
+        """Get and validate trading pair information."""
         # Convert UUID to string for logging
         signal_id_str = str(signal_id)
 
@@ -903,7 +906,7 @@ class ExecutionHandler:
         pair_info: Dict[str, Any],
         signal_id: UUID,
     ) -> Optional[str]:
-        """Gets and validates the Kraken pair name."""
+        """Get and validate the Kraken pair name."""
         # Convert UUID to string for logging
         signal_id_str = str(signal_id)
 
@@ -924,7 +927,7 @@ class ExecutionHandler:
         params: Dict[str, Any],
         event: TradeSignalApprovedEvent,
     ) -> bool:
-        """Validates and sets the order side parameter."""
+        """Validate and set the order side parameter."""
         order_side = event.side.lower()
         if order_side not in ["buy", "sell"]:
             self.logger.error(
@@ -941,7 +944,7 @@ class ExecutionHandler:
         event: TradeSignalApprovedEvent,
         pair_info: Dict[str, Any],
     ) -> bool:
-        """Validates and formats the order volume."""
+        """Validate and format the order volume."""
         lot_decimals = pair_info.get("lot_decimals")
         ordermin_str = pair_info.get("ordermin")
         if lot_decimals is None or ordermin_str is None:
@@ -980,7 +983,7 @@ class ExecutionHandler:
         event: TradeSignalApprovedEvent,
         pair_info: Dict[str, Any],
     ) -> bool:
-        """Maps and validates the order type, setting price for limit orders."""
+        """Map and validate the order type, setting price for limit orders."""
         order_type = event.order_type.lower()
         pair_decimals = pair_info.get("pair_decimals")
 
@@ -1012,7 +1015,7 @@ class ExecutionHandler:
         event: TradeSignalApprovedEvent,
         pair_decimals: int,
     ) -> bool:
-        """Handles limit order specific parameters and validation."""
+        """Handle limit order specific parameters and validation."""
         params["ordertype"] = "limit"
         if event.limit_price is None:
             self.logger.error(
@@ -1031,7 +1034,7 @@ class ExecutionHandler:
             return False
 
     def _handle_sl_tp_warnings(self, event: TradeSignalApprovedEvent) -> None:
-        """Handles warnings for stop-loss and take-profit parameters."""
+        """Handle warnings for stop-loss and take-profit parameters."""
         if event.sl_price or event.tp_price:
             self.logger.warning(
                 (
@@ -1047,7 +1050,11 @@ class ExecutionHandler:
         originating_event: TradeSignalApprovedEvent,
         cl_ord_id: str,
     ) -> None:
-        """Processes the response from the AddOrder API call and publishes initial status."""
+        """
+        Process the response from the AddOrder API call and publish initial status.
+
+        Checks for errors, stores order mapping, publishes execution report, and starts monitoring.
+        """
         if not result:
             # Should not happen if _make_private_request works correctly, but
             # check anyway
@@ -1075,9 +1082,7 @@ class ExecutionHandler:
                 source_module=self.__class__.__name__,
             )
             # Publish REJECTED/ERROR status
-            await self._publish_error_execution_report(
-                originating_event, error_msg, cl_ord_id
-            )
+            await self._publish_error_execution_report(originating_event, error_msg, cl_ord_id)
             return
 
         # Process successful response
@@ -1144,9 +1149,7 @@ class ExecutionHandler:
                     f"{error_msg} cl_ord_id: {cl_ord_id}. Response: {result}",
                     source_module=self.__class__.__name__,
                 )
-                await self._publish_error_execution_report(
-                    originating_event, error_msg, cl_ord_id
-                )
+                await self._publish_error_execution_report(originating_event, error_msg, cl_ord_id)
 
         except Exception as e:
             # Catch potential errors during response parsing
@@ -1161,13 +1164,23 @@ class ExecutionHandler:
             )
 
     async def _connect_websocket(self) -> None:
+        """
+        Connect to the exchange WebSocket API.
+
+        This is a placeholder for future WebSocket implementation.
+        """
         pass  # Placeholder
 
     async def _handle_websocket_message(self, message: Dict[str, Any]) -> None:
+        """
+        Process a message received from the exchange WebSocket.
+
+        This is a placeholder for future WebSocket implementation.
+        """
         pass  # Placeholder
 
     async def cancel_order(self, exchange_order_id: str) -> bool:
-        """Cancels an open order on the exchange."""
+        """Cancel an open order on the exchange."""
         self.logger.info(
             f"Attempting to cancel order {exchange_order_id}",
             source_module=self.__class__.__name__,
@@ -1209,7 +1222,7 @@ class ExecutionHandler:
     def _start_order_monitoring(
         self, cl_ord_id: str, kraken_order_id: str, originating_event: TradeSignalApprovedEvent
     ) -> None:
-        """Starts monitoring tasks for a newly placed order."""
+        """Start monitoring tasks for a newly placed order."""
         # Start status monitoring
         monitor_task = asyncio.create_task(
             self._monitor_order_status(kraken_order_id, cl_ord_id, originating_event.signal_id)
@@ -1232,7 +1245,7 @@ class ExecutionHandler:
                 )
 
     async def _query_order_details(self, exchange_order_id: str) -> Optional[Dict[str, Any]]:
-        """Queries the exchange for order details with retry logic."""
+        """Query the exchange for order details with retry logic."""
         uri_path = "/0/private/QueryOrders"
         params = {"txid": exchange_order_id, "trades": "true"}  # Include trade info
         query_result = await self._make_private_request_with_retry(uri_path, params)
@@ -1253,8 +1266,10 @@ class ExecutionHandler:
         result_field = query_result.get("result")
         if not isinstance(result_field, dict):
             self.logger.error(
-                (f"QueryOrders response for {exchange_order_id} missing 'result' dict "
-                 f"or is wrong type: {result_field}"),
+                (
+                    f"QueryOrders response for {exchange_order_id} missing 'result' dict "
+                    f"or is wrong type: {result_field}"
+                ),
                 source_module=self.__class__.__name__,
             )
             return None
@@ -1262,8 +1277,10 @@ class ExecutionHandler:
         order_data_any = result_field.get(exchange_order_id)
         if order_data_any is None:
             self.logger.warning(
-                (f"Order {exchange_order_id} not found in QueryOrders result's main dict. "
-                 f"Retrying."),
+                (
+                    f"Order {exchange_order_id} not found in QueryOrders result's main dict. "
+                    f"Retrying."
+                ),
                 source_module=self.__class__.__name__,
             )
             return None
@@ -1280,7 +1297,7 @@ class ExecutionHandler:
     async def _parse_order_data(
         self, order_data: Dict[str, Any], exchange_order_id: str
     ) -> Optional[Tuple[str, Decimal, Optional[Decimal], Optional[Decimal]]]:
-        """Parses relevant fields from the raw order data from the exchange."""
+        """Parse relevant fields from the raw order data from the exchange."""
         try:
             current_status = order_data.get("status")
             if not isinstance(current_status, str):
@@ -1318,7 +1335,7 @@ class ExecutionHandler:
         avg_fill_price: Optional[Decimal],
         commission: Optional[Decimal],
     ) -> None:
-        """Publishes an execution report when order status or fill quantity changes."""
+        """Publish an execution report when order status or fill quantity changes."""
         self.logger.info(
             f"Status change for {exchange_order_id}: Status='{current_status}', "
             f"Filled={current_filled_qty}. Publishing report.",
@@ -1342,7 +1359,7 @@ class ExecutionHandler:
         signal_id: Optional[UUID],
         current_filled_qty: Decimal,
     ) -> None:
-        """Handles SL/TP order placement if an entry order is fully filled."""
+        """Handle SL/TP order placement if an entry order is fully filled."""
         if signal_id is None:
             return
 
@@ -1383,7 +1400,11 @@ class ExecutionHandler:
     async def _monitor_order_status(
         self, exchange_order_id: str, client_order_id: str, signal_id: Optional[UUID]
     ) -> None:
-        """Monitors the status of a specific order via polling."""
+        """
+        Monitor the status of a specific order via polling.
+
+        Periodically check order status, publish update, and handle SL/TP order for filled order.
+        """
         self._source_module = self.__class__.__name__  # Ensure source_module is set
         self.logger.info(
             f"Starting status monitoring for order {exchange_order_id} (cl={client_order_id})",
@@ -1459,7 +1480,8 @@ class ExecutionHandler:
         self, signal_id: Optional[UUID]
     ) -> Optional[TradeSignalApprovedEvent]:
         """
-        Retrieves the original signal event that led to an order.
+        Retrieve the original signal event that led to an order.
+
         In a full implementation, this would fetch from an event store or cache.
         For now, this is a placeholder that returns None.
         """
@@ -1481,7 +1503,7 @@ class ExecutionHandler:
         cl_ord_id: Optional[str],
         exchange_order_id: Optional[str] = None,
     ) -> None:
-        """Helper to publish an ExecutionReportEvent for a failed/rejected order."""
+        """Publish an ExecutionReportEvent for a failed/rejected order."""
         effective_exchange_order_id = (
             exchange_order_id if exchange_order_id is not None else "NO_EXCHANGE_ID"
         )
@@ -1509,8 +1531,10 @@ class ExecutionHandler:
         )
         asyncio.create_task(self.pubsub.publish(report))
         self.logger.debug(
-            (f"Published REJECTED/ERROR ExecutionReport "
-             f"for signal {event.signal_id}, cl_ord_id: {cl_ord_id}"),
+            (
+                f"Published REJECTED/ERROR ExecutionReport "
+                f"for signal {event.signal_id}, cl_ord_id: {cl_ord_id}"
+            ),
             source_module=self.__class__.__name__,
         )
 
@@ -1525,7 +1549,7 @@ class ExecutionHandler:
         avg_fill_price: Optional[Decimal],
         commission: Optional[Decimal],
     ) -> None:
-        """Helper to publish ExecutionReportEvent based on polled status."""
+        """Publish ExecutionReportEvent based on polled status."""
         try:
             # Extract necessary fields from order_data (Kraken specific)
             descr = order_data.get("descr", {})
@@ -1602,7 +1626,7 @@ class ExecutionHandler:
             )
 
     def _map_kraken_pair_to_internal(self, kraken_pair: str) -> Optional[str]:
-        """Maps Kraken pair name (e.g., XXBTZUSD) back to internal name (e.g., BTC/USD)."""
+        """Map Kraken pair name (e.g., XXBTZUSD) back to internal name (e.g., BTC/USD)."""
         for internal_name, info in self._pair_info.items():
             if (
                 info.get("altname") == kraken_pair
@@ -1618,18 +1642,18 @@ class ExecutionHandler:
         return None
 
     def _get_quote_currency(self, internal_pair: str) -> Optional[str]:
-        """Gets the quote currency for an internal pair name."""
+        """Get the quote currency for an internal pair name."""
         info = self._pair_info.get(internal_pair)
         return cast(Optional[str], info.get("quote")) if info else None  # Added cast
 
     async def _has_sl_tp_been_placed(self, signal_id: Optional[UUID]) -> bool:
-        """Checks if SL/TP orders have already been placed for a signal."""
+        """Check if SL/TP orders have already been placed for a signal."""
         if signal_id is None:
             return False
         return signal_id in self._placed_sl_tp_signals
 
     async def _mark_sl_tp_as_placed(self, signal_id: Optional[UUID]) -> None:
-        """Marks that SL/TP orders have been placed for a signal."""
+        """Mark that SL/TP orders have been placed for a signal."""
         if signal_id is not None:
             self._placed_sl_tp_signals.add(signal_id)
 
@@ -1639,7 +1663,11 @@ class ExecutionHandler:
         filled_order_id: str,
         filled_quantity: Decimal,
     ) -> None:
-        """Places SL and/or TP orders contingent on the filled entry order."""
+        """
+        Place SL and/or TP orders contingent on the filled entry order.
+
+        Creates stop-loss and take-profit orders based on the original signal parameters.
+        """
         self.logger.info(
             f"Handling SL/TP placement for filled order {filled_order_id} "
             f"(Signal: {originating_event.signal_id})",
@@ -1720,6 +1748,59 @@ class ExecutionHandler:
         # Mark SL/TP as placed for this signal
         await self._mark_sl_tp_as_placed(originating_event.signal_id)
 
+    async def _monitor_limit_order_timeout(
+        self, exchange_order_id: str, client_order_id: str, timeout_seconds: float
+    ) -> None:
+        """Check if a limit order is filled after a timeout and cancel if not."""
+        await asyncio.sleep(timeout_seconds)
+        self.logger.info(
+            f"Timeout reached for limit order {exchange_order_id}. Checking status.",
+            source_module=self.__class__.__name__,
+        )
+
+        uri_path = "/0/private/QueryOrders"
+        params = {"txid": exchange_order_id}
+        query_result = await self._make_private_request_with_retry(uri_path, params)
+
+        if not query_result or query_result.get("error"):
+            self.logger.error(
+                f"Error querying order {exchange_order_id} for timeout check: "
+                f"{query_result.get('error', 'Unknown query error')}",
+                source_module=self.__class__.__name__,
+            )
+            return  # Cannot determine status, don't cancel arbitrarily
+
+        order_data = query_result.get("result", {}).get(exchange_order_id)
+        if not order_data:
+            self.logger.warning(
+                f"Order {exchange_order_id} not found during timeout check "
+                f"(already closed/canceled?).",
+                source_module=self.__class__.__name__,
+            )
+            return  # Order likely already closed or canceled
+
+        status = order_data.get("status")
+        if status in ["open", "pending"]:
+            self.logger.warning(
+                f"Limit order {exchange_order_id} still '{status}' after "
+                f"{timeout_seconds}s timeout. Attempting cancellation.",
+                source_module=self.__class__.__name__,
+            )
+            # Call cancel_order method
+            cancel_success = await self.cancel_order(exchange_order_id)
+            if not cancel_success:
+                self.logger.error(
+                    f"Failed to cancel timed-out limit order {exchange_order_id}.",
+                    source_module=self.__class__.__name__,
+                )
+            # The cancel_order method should publish the CANCELED report
+        else:
+            self.logger.info(
+                f"Limit order {exchange_order_id} already in terminal state "
+                f"'{status}' during timeout check.",
+                source_module=self.__class__.__name__,
+            )
+
     def _prepare_contingent_order_params(
         self,
         pair: str,
@@ -1732,7 +1813,7 @@ class ExecutionHandler:
         contingent_type: str,
         price2: Optional[Decimal] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Helper to prepare parameters for SL/TP orders, including validation."""
+        """Prepare parameters for SL/TP orders, including validation."""
         params = {"pair": pair, "type": side, "ordertype": order_type}
 
         if not pair_info:
@@ -1798,7 +1879,7 @@ class ExecutionHandler:
         return params
 
     def _get_kraken_pair_name(self, internal_pair: str) -> Optional[str]:
-        """Helper to get the Kraken pair name from stored info."""
+        """Get the Kraken pair name from stored info."""
         info = self._pair_info.get(internal_pair)
         name = info.get("altname") if info else None
         if not name:
@@ -1807,56 +1888,3 @@ class ExecutionHandler:
                 source_module=self.__class__.__name__,
             )
         return name
-
-    async def _monitor_limit_order_timeout(
-        self, exchange_order_id: str, client_order_id: str, timeout_seconds: float
-    ) -> None:
-        """Checks if a limit order is filled after a timeout and cancels if not."""
-        await asyncio.sleep(timeout_seconds)
-        self.logger.info(
-            f"Timeout reached for limit order {exchange_order_id}. Checking status.",
-            source_module=self.__class__.__name__,
-        )
-
-        uri_path = "/0/private/QueryOrders"
-        params = {"txid": exchange_order_id}
-        query_result = await self._make_private_request_with_retry(uri_path, params)
-
-        if not query_result or query_result.get("error"):
-            self.logger.error(
-                f"Error querying order {exchange_order_id} for timeout check: "
-                f"{query_result.get('error', 'Unknown query error')}",
-                source_module=self.__class__.__name__,
-            )
-            return  # Cannot determine status, don't cancel arbitrarily
-
-        order_data = query_result.get("result", {}).get(exchange_order_id)
-        if not order_data:
-            self.logger.warning(
-                f"Order {exchange_order_id} not found during timeout check "
-                f"(already closed/canceled?).",
-                source_module=self.__class__.__name__,
-            )
-            return  # Order likely already closed or canceled
-
-        status = order_data.get("status")
-        if status in ["open", "pending"]:
-            self.logger.warning(
-                f"Limit order {exchange_order_id} still '{status}' after "
-                f"{timeout_seconds}s timeout. Attempting cancellation.",
-                source_module=self.__class__.__name__,
-            )
-            # Call cancel_order method
-            cancel_success = await self.cancel_order(exchange_order_id)
-            if not cancel_success:
-                self.logger.error(
-                    f"Failed to cancel timed-out limit order {exchange_order_id}.",
-                    source_module=self.__class__.__name__,
-                )
-            # The cancel_order method should publish the CANCELED report
-        else:
-            self.logger.info(
-                f"Limit order {exchange_order_id} already in terminal state "
-                f"'{status}' during timeout check.",
-                source_module=self.__class__.__name__,
-            )

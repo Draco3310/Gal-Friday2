@@ -1,58 +1,118 @@
 # Logger Service Module
+"""Logging service module providing centralized logging capabilities with multiple output targets.
+
+This module implements a comprehensive logging service that handles logging to console,
+files, databases and time-series databases. It provides thread-safety, async support,
+and context-rich logging capabilities.
+"""
+import asyncio
+import json
 import logging
 import logging.handlers
-import sys
-from typing import (
-    Optional,
-    Dict,
-    Any,
-    Callable,
-    Tuple,
-    TypeVar,
-    TYPE_CHECKING,
-    Protocol,
-    Generic,
-    AsyncContextManager,
-)
-from datetime import datetime
 import os
-import json
-import asyncio
-import asyncpg  # type: ignore[import-untyped]
 import queue
-import threading
-import random
 import re
+import sys
+import threading
+from datetime import datetime
 from decimal import Decimal
+from random import SystemRandom
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Optional, Protocol, Tuple, TypeVar
 
-from .core.pubsub import PubSubManager
-from .core.events import EventType, LogEvent
+import asyncpg  # type: ignore[import-untyped]
 
 # Import JSON Formatter
 from pythonjsonlogger import jsonlogger
+from typing_extensions import AsyncContextManager
+
+from .core.events import EventType, LogEvent
+from .core.pubsub import PubSubManager
 
 # Define a Protocol for ConfigManager to properly type hint its interface
 
 
 class ConfigManagerProtocol(Protocol):
-    def get(self, key: str, default: Optional[Any] = None) -> Any: ...
-    def get_int(self, key: str, default: int = 0) -> int: ...
+    """Protocol defining the interface for configuration management.
+
+    This protocol establishes the required methods for accessing
+    configuration values from various sources.
+    """
+
+    def get(self, key: str, default: Optional[Any] = None) -> Any:
+        """Get a configuration value by key.
+
+        Args:
+            key: The configuration key to retrieve
+            default: Value to return if key is not found
+
+        Returns:
+            The configuration value or default if not found
+        """
+        ...
+
+    def get_int(self, key: str, default: int = 0) -> int:
+        """Get an integer configuration value by key.
+
+        Args:
+            key: The configuration key to retrieve
+            default: Integer value to return if key is not found
+
+        Returns:
+            The integer configuration value or default if not found
+        """
+        ...
 
 
 # Define a Protocol for database connection
 
 
 class DBConnection(Protocol):
-    async def execute(self, query: str, *args: Any) -> Any: ...
+    """Protocol defining a database connection interface.
+
+    Establishes the required methods for interacting with a database.
+    """
+
+    async def execute(self, query: str, *args: Any) -> Any:
+        """Execute a database query.
+
+        Args:
+            query: SQL query string to execute
+            *args: Query parameters
+
+        Returns:
+            Query result
+        """
+        ...
 
 
 # Define a Protocol for the Pool interface we need
 
 
 class PoolProtocol(Protocol):
-    def acquire(self) -> AsyncContextManager[DBConnection]: ...
-    async def release(self, conn: DBConnection) -> None: ...
-    async def close(self) -> None: ...
+    """Protocol defining a connection pool interface.
+
+    Specifies the methods required for connection pooling functionality.
+    """
+
+    def acquire(self) -> AsyncContextManager[DBConnection]:
+        """Acquire a connection from the pool.
+
+        Returns:
+            A connection context manager
+        """
+        ...
+
+    async def release(self, conn: DBConnection) -> None:
+        """Release a connection back to the pool.
+
+        Args:
+            conn: The connection to release
+        """
+        ...
+
+    async def close(self) -> None:
+        """Close the connection pool."""
+        ...
 
 
 # Define a proper type alias for the Pool type
@@ -70,9 +130,21 @@ else:
 
 
 class ContextFormatter(logging.Formatter):
-    """Custom formatter to include context dictionary in log messages."""
+    """Format log records with context dictionary information.
+
+    This formatter extends the standard logging formatter to include
+    additional context information from the record's context dictionary.
+    """
 
     def format(self, record: logging.LogRecord) -> str:
+        """Format the log record with context information.
+
+        Args:
+            record: The log record to format
+
+        Returns:
+            Formatted log record as string with context information included
+        """
         # Default formatting first
         s = super().format(record)
         # Check if context exists in the record's extra dict
@@ -101,12 +173,29 @@ class ContextFormatter(logging.Formatter):
 
 # --- Custom Async Database Handler ---
 class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
-    """A logging handler that asynchronously writes logs to a PostgreSQL database."""
+    """Asynchronous handler for logging to PostgreSQL database."""
+
+    ALLOWED_TABLE_NAMES = {
+        "logs",
+        "application_logs",
+        "system_logs",
+    }  # Add your allowed table names here
 
     def __init__(self, pool: PoolType, table_name: str, loop: asyncio.AbstractEventLoop) -> None:
+        """Initialize the handler with database pool and table name.
+
+        Args:
+            pool: Database connection pool
+            table_name: Name of the table to log to (must be in ALLOWED_TABLE_NAMES)
+            loop: Event loop to use for async operations
+        """
         super().__init__()
-        self._pool = pool
+        if table_name not in self.ALLOWED_TABLE_NAMES:
+            raise ValueError(
+                f"Table name '{table_name}' not in allowed list: {self.ALLOWED_TABLE_NAMES}"
+            )
         self._table_name = table_name
+        self._pool = pool
         self._loop = loop
         self._queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
         self._task: Optional[asyncio.Task[None]] = None
@@ -114,7 +203,13 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
         self._task = asyncio.create_task(self._process_queue())
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Format record and place it in the queue for async processing."""
+        """Format record and place it in the queue for async processing.
+
+        Implements the emit method required by the logging.Handler interface.
+
+        Args:
+            record: The log record to be processed and stored
+        """
         if self._closed:
             return
         try:
@@ -129,7 +224,7 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
             self.handleError(record)
 
     def _format_record(self, record: logging.LogRecord) -> Dict[str, Any]:
-        """Formats the log record into a dictionary suitable for DB insertion."""
+        """Format the log record into a dictionary suitable for DB insertion."""
         context_json = None
         if hasattr(record, "context") and record.context:
             try:
@@ -166,18 +261,23 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
         }
 
     async def _attempt_db_insert(self, record_data: Dict[str, Any]) -> bool:
-        """Attempts to insert a single log record into the database."""
+        """Attempt to insert a single log record into the database."""
         try:
             async with self._pool.acquire() as conn:
-                await conn.execute(
-                    f"""
+                # Table name is already validated in __init__ to be in ALLOWED_TABLE_NAMES
+                # This is safe from SQL injection as the table name is
+                # validated against a whitelist
+                # Query is parameterized for all user input data
+                query = f"""
                     INSERT INTO {self._table_name} (
                         timestamp, logger_name, level_name, level_no, message,
                         pathname, filename, lineno, func_name, context_json,
                         exception_text
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                    """,
+                """  # nosec B608
+                await conn.execute(
+                    query,
                     record_data["timestamp"],
                     record_data["logger_name"],
                     record_data["level_name"],
@@ -208,7 +308,7 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
             return False  # Indicate non-retryable failure for this record
 
     async def _process_queue_with_retry(self, record_data: Dict[str, Any]) -> None:
-        """Processes a single record with retry logic."""
+        """Process a single record with retry logic."""
         max_retries = 3
         base_backoff = 1.0  # seconds
         attempt = 0
@@ -232,7 +332,7 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
                 else:
                     # Exponential backoff with jitter
                     wait_time = min(base_backoff * (2**attempt), 30.0)  # Cap at 30s
-                    wait_time += random.uniform(0, wait_time * 0.1)
+                    wait_time += SystemRandom().uniform(0, wait_time * 0.1)
                     print(
                         f"AsyncPostgresHandler: DB connection error (Attempt {attempt}/"
                         f"{max_retries}). Retrying in {wait_time:.2f}s. Error: {conn_err}",
@@ -275,14 +375,18 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
                 await asyncio.sleep(1)
 
     def close(self) -> None:
-        """Closes the handler, signaling the queue processor to finish."""
+        """Close the handler, signaling the queue processor to finish."""
         if not self._closed:
             self._closed = True
             self._loop.call_soon_threadsafe(lambda: self._queue.put_nowait(None))
         super().close()
 
     async def wait_closed(self) -> None:
-        """Wait for the queue processing task to finish."""
+        """Wait for the queue processing task to finish.
+
+        This method should be awaited after calling close() to ensure
+        all queued log records are processed before the application exits.
+        """
         if self._task is not None:
             await self._task
 
@@ -291,8 +395,10 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
 
 
 class LoggerService(Generic[PoolType]):
-    """Handles logging configuration and provides interfaces for logging messages
-    and time-series data to configured destinations (file, console, database).
+    """Handle logging configuration and provides interfaces for logging messages/time-series data.
+
+    Configures and manages logging to multiple destinations including console,
+    files, databases and time-series databases with support for context information.
     """
 
     _influx_client: Optional["InfluxDBClient"] = None
@@ -301,7 +407,14 @@ class LoggerService(Generic[PoolType]):
     def __init__(
         self, config_manager: ConfigManagerProtocol, pubsub_manager: "PubSubManager"
     ) -> None:
-        """Initialize LoggerService."""
+        """Initialize the logger service.
+
+        Sets up logging handlers based on configuration and starts the log processing thread.
+
+        Args:
+            config_manager: Configuration provider for logger settings
+            pubsub_manager: Publish-subscribe manager for event handling
+        """
         self._config_manager = config_manager
         self._pubsub = pubsub_manager
         self._log_level = self._config_manager.get("logging.level", "INFO").upper()
@@ -480,14 +593,14 @@ class LoggerService(Generic[PoolType]):
         context: Optional[Dict] = None,
         exc_info: Optional[Any] = None,
     ) -> None:
-        """Logs a message to the configured handlers.
+        """Log a message to the configured handlers.
 
         Args:
-            level: The logging level (e.g., logging.INFO, logging.WARNING).
-            message: The primary log message string.
-            source_module: Optional name of the module generating the log.
-            context: Optional dictionary of key-value pairs for extra context.
-            exc_info: Optional exception info (e.g., True or exception tuple).
+            level: The logging level (e.g., logging.INFO, logging.WARNING)
+            message: The primary log message string
+            source_module: Optional name of the module generating the log
+            context: Optional dictionary of key-value pairs for extra context
+            exc_info: Optional exception info (e.g., True or exception tuple)
         """
         # Get the specific logger for the source module, or root if None
         logger_name = f"gal_friday.{source_module}" if source_module else "gal_friday"
@@ -512,7 +625,13 @@ class LoggerService(Generic[PoolType]):
         source_module: Optional[str] = None,
         context: Optional[Dict] = None,
     ) -> None:
-        """Logs a message with level DEBUG."""
+        """Log a message with DEBUG level.
+
+        Args:
+            message: The message to log
+            source_module: Optional module name generating the log
+            context: Optional context information
+        """
         self.log(logging.DEBUG, message, source_module, context)
 
     def info(
@@ -521,7 +640,13 @@ class LoggerService(Generic[PoolType]):
         source_module: Optional[str] = None,
         context: Optional[Dict] = None,
     ) -> None:
-        """Logs a message with level INFO."""
+        """Log a message with INFO level.
+
+        Args:
+            message: The message to log
+            source_module: Optional module name generating the log
+            context: Optional context information
+        """
         self.log(logging.INFO, message, source_module, context)
 
     def warning(
@@ -530,7 +655,13 @@ class LoggerService(Generic[PoolType]):
         source_module: Optional[str] = None,
         context: Optional[Dict] = None,
     ) -> None:
-        """Logs a message with level WARNING."""
+        """Log a message with WARNING level.
+
+        Args:
+            message: The message to log
+            source_module: Optional module name generating the log
+            context: Optional context information
+        """
         self.log(logging.WARNING, message, source_module, context)
 
     def error(
@@ -540,7 +671,14 @@ class LoggerService(Generic[PoolType]):
         context: Optional[Dict] = None,
         exc_info: Optional[Any] = None,
     ) -> None:
-        """Logs a message with level ERROR."""
+        """Log a message with ERROR level.
+
+        Args:
+            message: The message to log
+            source_module: Optional module name generating the log
+            context: Optional context information
+            exc_info: Optional exception info
+        """
         self.log(logging.ERROR, message, source_module, context, exc_info=exc_info)
 
     def critical(
@@ -550,12 +688,23 @@ class LoggerService(Generic[PoolType]):
         context: Optional[Dict] = None,
         exc_info: Optional[Any] = None,
     ) -> None:
-        """Logs a message with level CRITICAL."""
+        """Log a message with CRITICAL level.
+
+        Args:
+            message: The message to log
+            source_module: Optional module name generating the log
+            context: Optional context information
+            exc_info: Optional exception info
+        """
         self.log(logging.CRITICAL, message, source_module, context, exc_info=exc_info)
 
     # --- Placeholder for Time-Series Logging --- #
     async def _initialize_influxdb_client(self) -> bool:
-        """Initializes the InfluxDB client if not already initialized. Returns True on success."""
+        """Initialize the InfluxDB client if not already initialized.
+
+        Returns:
+            bool: True if initialization was successful, False otherwise
+        """
         if self._influx_client is not None:  # Check instance variable
             return True  # Already initialized
 
@@ -601,7 +750,17 @@ class LoggerService(Generic[PoolType]):
     def _prepare_influxdb_point(
         self, measurement: str, tags: Dict[str, str], fields: Dict[str, Any], timestamp: datetime
     ) -> Optional[Any]:  # Actually returns influxdb_client.Point but avoiding import at top level
-        """Prepares a data point for InfluxDB."""
+        """Prepare a data point for InfluxDB.
+
+        Args:
+            measurement: Name of the measurement
+            tags: Dictionary of tag keys and values
+            fields: Dictionary of field keys and values
+            timestamp: Timestamp for the data point
+
+        Returns:
+            Optional influxdb_client.Point object or None if preparation fails
+        """
         try:
             from influxdb_client import Point, WritePrecision  # Import here
 
@@ -656,7 +815,14 @@ class LoggerService(Generic[PoolType]):
         fields: Dict[str, Any],
         timestamp: Optional[datetime] = None,
     ) -> None:
-        """Logs time-series data to InfluxDB if configured."""
+        """Log time-series data to InfluxDB.
+
+        Args:
+            measurement: Name of the measurement
+            tags: Dictionary of tag keys and values
+            fields: Dictionary of field keys and values
+            timestamp: Optional timestamp for the data point, current time used if not provided
+        """
         log_time = timestamp if timestamp else datetime.utcnow()
 
         self.debug(
@@ -694,7 +860,10 @@ class LoggerService(Generic[PoolType]):
             )
 
     async def start(self) -> None:
-        """Initializes database connection pool if needed."""
+        """Initialize the logger service and set up required connections.
+
+        Initializes database connection pool if configured and subscribes to log events.
+        """
         self.info("LoggerService start sequence initiated.", source_module="LoggerService")
 
         # Subscribe to LOG events from the event bus
@@ -728,7 +897,10 @@ class LoggerService(Generic[PoolType]):
                 )
 
     async def stop(self) -> None:
-        """Closes the database handler and connection pool."""
+        """Shut down the logger service gracefully.
+
+        Closes the database handler, connection pool, and logging threads.
+        """
         self.info("LoggerService stop sequence initiated.", source_module="LoggerService")
 
         # Unsubscribe from LOG events
@@ -780,7 +952,10 @@ class LoggerService(Generic[PoolType]):
             )
 
     async def _initialize_db_pool(self) -> None:
-        """Initializes the asyncpg connection pool if DB logging is enabled."""
+        """Initialize the asyncpg connection pool for database logging.
+
+        Creates a new connection pool if database logging is enabled in the configuration.
+        """
         if not self._db_enabled:
             return
 
@@ -820,7 +995,10 @@ class LoggerService(Generic[PoolType]):
             self._db_pool = None
 
     async def _close_db_pool(self) -> None:
-        """Closes the asyncpg connection pool."""
+        """Close the database connection pool.
+
+        Safely shuts down the asyncpg connection pool if it exists.
+        """
         if self._db_pool:
             self.info("Closing database connection pool...", source_module="LoggerService")
             try:
@@ -836,7 +1014,13 @@ class LoggerService(Generic[PoolType]):
                 self._db_pool = None
 
     async def _handle_log_event(self, event: LogEvent) -> None:
-        """Handles LogEvent received from the event bus."""
+        """Handle a LogEvent received from the event bus.
+
+        Process the event and send it to the appropriate logging handlers.
+
+        Args:
+            event: The LogEvent object containing log information
+        """
         if not isinstance(event, LogEvent):
             self.warning(
                 f"Received non-LogEvent on LOG_ENTRY topic: {type(event)}",

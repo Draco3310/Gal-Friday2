@@ -108,11 +108,11 @@ While the module successfully implements basic functionality for consuming predi
    def _calculate_sl_tp_prices(self, side: str, current_price: Decimal) -> tuple[Decimal, Decimal]:
        """
        Calculate stop-loss and take-profit prices based on current price and configured percentages.
-       
+
        Args:
            side: The trade side ("BUY" or "SELL")
            current_price: The current market price
-           
+
        Returns:
            Tuple of (stop_loss_price, take_profit_price)
        """
@@ -126,14 +126,14 @@ While the module successfully implements basic functionality for consuming predi
        else:
            sl_pct = self._sl_pct
            tp_pct = self._tp_pct
-           
+
        if side == "BUY":
            sl_price = current_price * (Decimal("1") - sl_pct)
            tp_price = current_price * (Decimal("1") + tp_pct)
        else:  # SELL
            sl_price = current_price * (Decimal("1") + sl_pct)
            tp_price = current_price * (Decimal("1") - tp_pct)
-           
+
        return sl_price, tp_price
    ```
 
@@ -143,10 +143,10 @@ While the module successfully implements basic functionality for consuming predi
        """
        Retrieve current market price for a trading pair.
        In the MVP, this would typically come from a market price service.
-       
+
        Args:
            trading_pair: The trading pair to get the price for
-           
+
        Returns:
            The current price as a Decimal, or None if unavailable
        """
@@ -170,24 +170,24 @@ While the module successfully implements basic functionality for consuming predi
 3. **Implement Secondary Confirmation Logic**:
    ```python
    def _apply_secondary_confirmation(
-       self, 
+       self,
        prediction_event: PredictionEvent,
        side: str
    ) -> bool:
        """
        Apply secondary confirmation rules to validate the primary signal.
-       
+
        Args:
            prediction_event: The prediction event
            side: The proposed trade side ("BUY" or "SELL")
-           
+
        Returns:
            True if secondary confirmation passes, False otherwise
        """
        # Get confirmation settings from config
        conf_settings = self._mvp_strategy_config.get("confirmation", {})
        min_confidence = Decimal(str(conf_settings.get("min_confidence", 0)))
-       
+
        # Check confidence if available
        if hasattr(prediction_event, "confidence") and prediction_event.confidence is not None:
            confidence = Decimal(str(prediction_event.confidence))
@@ -197,10 +197,10 @@ While the module successfully implements basic functionality for consuming predi
                    source_module=self._source_module
                )
                return False
-       
+
        # Add additional confirmation logic here as needed
        # For example, trend alignment, volume confirmation, etc.
-       
+
        return True
    ```
 
@@ -211,10 +211,10 @@ While the module successfully implements basic functionality for consuming predi
    def _validate_prediction_event(self, event: PredictionEvent) -> bool:
        """
        Validate that a prediction event contains all required data in the expected format.
-       
+
        Args:
            event: The prediction event to validate
-           
+
        Returns:
            True if valid, False otherwise
        """
@@ -226,7 +226,7 @@ While the module successfully implements basic functionality for consuming predi
                    source_module=self._source_module
                )
                return False
-               
+
            # Validate trading pair format
            if not hasattr(event, "trading_pair") or not isinstance(event.trading_pair, str):
                self.logger.warning(
@@ -234,14 +234,14 @@ While the module successfully implements basic functionality for consuming predi
                    source_module=self._source_module
                )
                return False
-               
+
            if "/" not in event.trading_pair:
                self.logger.warning(
                    f"Trading pair {event.trading_pair} is not in the expected format (e.g., BTC/USD)",
                    source_module=self._source_module
                )
                return False
-               
+
            # Validate prediction value range
            if not (0 <= event.prediction_value <= 1):
                self.logger.warning(
@@ -249,7 +249,7 @@ While the module successfully implements basic functionality for consuming predi
                    source_module=self._source_module
                )
                return False
-               
+
            return True
        except Exception as e:
            self.logger.error(
@@ -263,24 +263,24 @@ While the module successfully implements basic functionality for consuming predi
 2. **Add Limit Order Price Determination**:
    ```python
    def _determine_limit_price(
-       self, 
-       side: str, 
+       self,
+       side: str,
        current_price: Decimal
    ) -> Decimal:
        """
        Determine an appropriate limit price based on the trade side and current market price.
-       
+
        Args:
            side: The trade side ("BUY" or "SELL")
            current_price: The current market price
-           
+
        Returns:
            The calculated limit price
        """
        # Get limit price settings from config
        limit_settings = self._mvp_strategy_config.get("limit_settings", {})
        offset_pct = Decimal(str(limit_settings.get("offset_pct", 0.5)))
-       
+
        # Calculate limit price with offset
        if side == "BUY":
            # For buys, set limit below current price
@@ -299,21 +299,21 @@ While the module successfully implements basic functionality for consuming predi
        for param in required_params:
            if param not in self._mvp_strategy_config:
                raise ValueError(f"Missing required strategy parameter: {param}")
-               
+
        # Validate parameter types and ranges
        if not (0 <= self._buy_threshold <= 1):
            raise ValueError(f"buy_threshold must be between 0 and 1, got {self._buy_threshold}")
-           
+
        if not (0 <= self._sell_threshold <= 1):
            raise ValueError(f"sell_threshold must be between 0 and 1, got {self._sell_threshold}")
-           
+
        # Validate SL/TP parameters if present
        if self._sl_pct is not None and self._sl_pct <= 0:
            raise ValueError(f"sl_pct must be positive, got {self._sl_pct}")
-           
+
        if self._tp_pct is not None and self._tp_pct <= 0:
            raise ValueError(f"tp_pct must be positive, got {self._tp_pct}")
-           
+
        # Set defaults for optional parameters
        if self._sl_pct is None:
            self._sl_pct = Decimal("0.05")  # 5% default
@@ -321,7 +321,7 @@ While the module successfully implements basic functionality for consuming predi
                f"No sl_pct configured, using default: {self._sl_pct}",
                source_module=self._source_module
            )
-           
+
        if self._tp_pct is None:
            self._tp_pct = Decimal("0.10")  # 10% default
            self.logger.info(
@@ -349,7 +349,7 @@ While the module successfully implements basic functionality for consuming predi
            "sl_pct": float(self._sl_pct) if self._sl_pct is not None else None,
            "tp_pct": float(self._tp_pct) if self._tp_pct is not None else None,
        }
-       
+
        self.logger.info(
            f"Strategy metrics: {metrics}",
            source_module=self._source_module
@@ -361,16 +361,16 @@ While the module successfully implements basic functionality for consuming predi
    def _interpret_prediction(self, prediction_event: PredictionEvent) -> tuple[float, float]:
        """
        Interpret prediction values based on the configured model type.
-       
+
        Args:
            prediction_event: The prediction event
-           
+
        Returns:
            Tuple of (probability_up, probability_down)
        """
        model_type = self._mvp_strategy_config.get("model_type", "binary_updown")
        raw_prediction = prediction_event.prediction_value
-       
+
        if model_type == "binary_updown":
            # Model directly predicts P(up)
            prob_up = raw_prediction
@@ -395,7 +395,7 @@ While the module successfully implements basic functionality for consuming predi
            )
            prob_up = raw_prediction
            prob_down = 1.0 - prob_up
-           
+
        return prob_up, prob_down
    ```
 

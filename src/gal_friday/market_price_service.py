@@ -23,8 +23,8 @@ class MarketPriceService(abc.ABC):
     @abc.abstractmethod
     async def start(self) -> None:
         """
-        Initialize the service, establish connections, and start any
-        background tasks needed for fetching prices.
+        Initialize the service, establish connections, and start any background tasks.
+
         Should be called once during application startup.
         """
         raise NotImplementedError
@@ -33,6 +33,7 @@ class MarketPriceService(abc.ABC):
     async def stop(self) -> None:
         """
         Clean up resources, close connections, and stop background tasks.
+
         Should be called once during application shutdown.
         """
         raise NotImplementedError
@@ -71,9 +72,10 @@ class MarketPriceService(abc.ABC):
 
     @abc.abstractmethod
     async def get_price_timestamp(self, trading_pair: str) -> Optional[datetime]:
-        """
-        Get the timestamp (UTC) associated with the latest price data
-        used for get_latest_price() and get_bid_ask_spread().
+        """Get the timestamp of the latest price data for a trading pair.
+
+        Used by get_latest_price() and get_bid_ask_spread() to determine the
+        freshness of the cached market data.
 
         Args:
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
@@ -85,8 +87,10 @@ class MarketPriceService(abc.ABC):
 
     @abc.abstractmethod
     async def is_price_fresh(self, trading_pair: str, max_age_seconds: float = 60.0) -> bool:
-        """
-        Check if the price data for a trading pair is recent enough.
+        """Check if the price data for a trading pair is recent enough.
+
+        Determines if the most recent price data for the specified trading pair
+        is fresh enough based on the maximum age threshold.
 
         Args:
             trading_pair: The trading pair symbol (e.g., "XRP/USD").

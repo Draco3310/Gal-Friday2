@@ -3,7 +3,7 @@
 ## Module Overview
 The `events.py` module defines the event data structures used throughout the system for inter-module communication. It contains:
 - `EventType` enum that defines all possible event types
-- Base `Event` class with common metadata 
+- Base `Event` class with common metadata
 - Specific event dataclasses for various system events (market data, trade signals, system state changes, etc.)
 
 ## Module Importance

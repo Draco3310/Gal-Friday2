@@ -63,7 +63,7 @@ class FundsManager:
         cost_or_proceeds: Decimal,
     ) -> None:
         """
-        Updates available funds based on trade execution.
+        Update available funds based on trade execution.
 
         Args:
             quote_asset: Quote currency symbol
@@ -108,7 +108,7 @@ class FundsManager:
         commission_asset: Optional[str],
     ) -> None:
         """
-        Updates funds to account for trading commission.
+        Update funds to account for trading commission.
 
         Args:
             commission: Commission amount
@@ -134,7 +134,7 @@ class FundsManager:
 
     async def deposit(self, currency: str, amount: Decimal) -> None:
         """
-        Records a deposit of funds.
+        Record a deposit of funds.
 
         Args:
             currency: Currency symbol
@@ -159,7 +159,7 @@ class FundsManager:
 
     async def withdraw(self, currency: str, amount: Decimal) -> None:
         """
-        Records a withdrawal of funds.
+        Record a withdrawal of funds.
 
         Args:
             currency: Currency symbol
@@ -190,11 +190,13 @@ class FundsManager:
                 f"New balance: {self._available_funds[currency_upper]}",
                 source_module=self._source_module,
             )
-            
-    async def reconcile_with_exchange_balances(self, exchange_balances: Dict[str, Decimal]) -> None:
+
+    async def reconcile_with_exchange_balances(
+        self, exchange_balances: Dict[str, Decimal]
+    ) -> None:
         """
         Reconciles internal fund balances with exchange-reported balances.
-        
+
         Args:
             exchange_balances: Dictionary of currency to balance from exchange API
         """
@@ -202,18 +204,18 @@ class FundsManager:
             "Reconciling funds with exchange balances",
             source_module=self._source_module,
         )
-        
+
         async with self._lock:
             # Track which currencies we've processed
             processed_currencies = set()
-            
+
             # For each currency at the exchange
             for currency, exchange_amount in exchange_balances.items():
                 currency_upper = currency.upper()
                 processed_currencies.add(currency_upper)
-                
+
                 internal_amount = self._available_funds.get(currency_upper, Decimal(0))
-                
+
                 # If there's a discrepancy
                 if internal_amount != exchange_amount:
                     self.logger.info(
@@ -221,10 +223,10 @@ class FundsManager:
                         f"Exchange {exchange_amount} (Diff: {exchange_amount - internal_amount})",
                         source_module=self._source_module,
                     )
-                    
+
                     # Update to match exchange
                     self._available_funds[currency_upper] = exchange_amount
-            
+
             # Check for currencies we have internally that aren't at the exchange
             for currency in list(self._available_funds.keys()):
                 if currency not in processed_currencies:
@@ -236,7 +238,7 @@ class FundsManager:
                             source_module=self._source_module,
                         )
                         self._available_funds[currency] = Decimal(0)
-                        
+
         self.logger.info(
             f"Reconciliation complete: {self._available_funds}",
             source_module=self._source_module,

@@ -1,3 +1,10 @@
+"""Core event definitions for the Gal-Friday trading system.
+
+This module defines the complete event hierarchy used for communication between
+system components, including market data events, trading signals, and execution reports.
+All events are implemented as immutable dataclasses with comprehensive validation.
+"""
+
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -254,8 +261,7 @@ class TradeSignalProposedEvent(Event):
         triggering_prediction_event_id: Optional[uuid.UUID] = None,
         triggering_prediction: Optional[Dict[str, Any]] = None,
     ) -> "TradeSignalProposedEvent":
-        """
-        Factory method with validation for creating TradeSignalProposedEvent instances.
+        """Create a validated TradeSignalProposedEvent instance.
 
         Args:
             source_module: The module creating this event
@@ -416,8 +422,7 @@ class TradeSignalApprovedEvent(Event):
         risk_parameters: Dict[str, Any],
         limit_price: Optional[Decimal] = None,
     ) -> "TradeSignalApprovedEvent":
-        """
-        Factory method with validation for creating TradeSignalApprovedEvent instances.
+        """Create a validated TradeSignalApprovedEvent instance.
 
         Args:
             source_module: The module creating this event
@@ -487,8 +492,7 @@ class TradeSignalRejectedEvent(Event):
         side: str,
         reason: str,
     ) -> "TradeSignalRejectedEvent":
-        """
-        Factory method for creating TradeSignalRejectedEvent instances.
+        """Create a TradeSignalRejectedEvent instance.
 
         Args:
             source_module: The module creating this event
@@ -652,8 +656,7 @@ class ExecutionReportEvent(Event):
         timestamp_exchange: Optional[datetime] = None,
         error_message: Optional[str] = None,
     ) -> "ExecutionReportEvent":
-        """
-        Factory method with validation for creating ExecutionReportEvent instances.
+        """Create a validated ExecutionReportEvent instance.
 
         Args:
             source_module: The module creating this event

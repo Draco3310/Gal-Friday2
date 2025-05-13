@@ -1,16 +1,14 @@
-"""
-Tests for the data_ingestor module.
-"""
-import pytest
-from unittest.mock import MagicMock, patch
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
+"""Tests for the data_ingestor module."""
 
-from gal_friday.data_ingestor import DataIngestor
-from gal_friday.event_bus import EventBus
+from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
+
+import pandas as pd
+import pytest
+
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import MarketDataEvent
+from gal_friday.data_ingestor import DataIngestor
 
 
 @pytest.fixture
@@ -26,12 +24,9 @@ def data_config():
             "max_retries": 3,
             "retry_delay_seconds": 5,
             "update_interval_seconds": 60,
-            "historical_start_date": "2023-01-01"
+            "historical_start_date": "2023-01-01",
         },
-        "database": {
-            "connection_string": "sqlite:///:memory:",
-            "table_prefix": "market_data_"
-        }
+        "database": {"connection_string": "sqlite:///:memory:", "table_prefix": "market_data_"},
     }
 
 
@@ -48,8 +43,7 @@ def test_data_ingestor_initialization(data_config, event_bus):
 
 
 @patch("ccxt.kraken")
-def test_data_ingestor_fetch_historical_data(
-        mock_ccxt_kraken, data_config, event_bus):
+def test_data_ingestor_fetch_historical_data(mock_ccxt_kraken, data_config, event_bus):
     """Test fetching historical data."""
     # Set up mock exchange
     mock_exchange = MagicMock()
@@ -74,22 +68,14 @@ def test_data_ingestor_fetch_historical_data(
 
         # Fetch historical data
         ohlcv_data = data_ingestor.fetch_historical_data(
-            symbol="BTC/USD",
-            timeframe="1h",
-            start_date=datetime.now() - timedelta(days=1)
+            symbol="BTC/USD", timeframe="1h", start_date=datetime.now() - timedelta(days=1)
         )
 
     # Verify data was fetched
     assert mock_exchange.fetch_ohlcv.call_count == 1
     assert len(ohlcv_data) == 10
     assert isinstance(ohlcv_data, pd.DataFrame)
-    assert all(
-        col in ohlcv_data.columns for col in [
-            'open',
-            'high',
-            'low',
-            'close',
-            'volume'])
+    assert all(col in ohlcv_data.columns for col in ["open", "high", "low", "close", "volume"])
 
 
 @patch("ccxt.kraken")
@@ -115,19 +101,14 @@ def test_data_ingestor_process_data(mock_ccxt_kraken, data_config, event_bus):
         data_ingestor = DataIngestor(config, event_bus)
 
         # Process raw data
-        processed_data = data_ingestor.process_data(
-            sample_data,
-            symbol="BTC/USD",
-            timeframe="1h"
-        )
+        processed_data = data_ingestor.process_data(sample_data, symbol="BTC/USD", timeframe="1h")
 
     # Verify data was processed correctly
     assert len(processed_data) == 10
     assert isinstance(processed_data, pd.DataFrame)
-    assert all(col in processed_data.columns for col in [
-               'open', 'high', 'low', 'close', 'volume'])
-    assert processed_data['symbol'].iloc[0] == "BTC/USD"
-    assert processed_data['timeframe'].iloc[0] == "1h"
+    assert all(col in processed_data.columns for col in ["open", "high", "low", "close", "volume"])
+    assert processed_data["symbol"].iloc[0] == "BTC/USD"
+    assert processed_data["timeframe"].iloc[0] == "1h"
 
 
 @patch("ccxt.kraken")
@@ -139,16 +120,18 @@ def test_data_ingestor_store_data(mock_ccxt_kraken, data_config, event_bus):
     mock_db = MagicMock()
 
     # Create sample dataframe
-    sample_df = pd.DataFrame({
-        'timestamp': [datetime.now() - timedelta(hours=i) for i in range(10, 0, -1)],
-        'open': [100 + i for i in range(10, 0, -1)],
-        'high': [105 + i for i in range(10, 0, -1)],
-        'low': [95 + i for i in range(10, 0, -1)],
-        'close': [102 + i for i in range(10, 0, -1)],
-        'volume': [1000 + i for i in range(10, 0, -1)],
-        'symbol': ["BTC/USD"] * 10,
-        'timeframe': ["1h"] * 10
-    })
+    sample_df = pd.DataFrame(
+        {
+            "timestamp": [datetime.now() - timedelta(hours=i) for i in range(10, 0, -1)],
+            "open": [100 + i for i in range(10, 0, -1)],
+            "high": [105 + i for i in range(10, 0, -1)],
+            "low": [95 + i for i in range(10, 0, -1)],
+            "close": [102 + i for i in range(10, 0, -1)],
+            "volume": [1000 + i for i in range(10, 0, -1)],
+            "symbol": ["BTC/USD"] * 10,
+            "timeframe": ["1h"] * 10,
+        }
+    )
 
     # Initialize ingestor
     config = ConfigManager(config_dict=data_config)
@@ -168,8 +151,7 @@ def test_data_ingestor_store_data(mock_ccxt_kraken, data_config, event_bus):
 
 
 @patch("ccxt.kraken")
-def test_data_ingestor_publish_market_data(
-        mock_ccxt_kraken, data_config, event_bus):
+def test_data_ingestor_publish_market_data(mock_ccxt_kraken, data_config, event_bus):
     """Test publishing market data events."""
     # Set up mock exchange
     mock_exchange = MagicMock()
@@ -187,14 +169,8 @@ def test_data_ingestor_publish_market_data(
 
         # Create sample latest data
         latest_data = {
-            "BTC/USD": {
-                "price": 50000.0,
-                "timestamp": datetime.now()
-            },
-            "ETH/USD": {
-                "price": 3000.0,
-                "timestamp": datetime.now()
-            }
+            "BTC/USD": {"price": 50000.0, "timestamp": datetime.now()},
+            "ETH/USD": {"price": 3000.0, "timestamp": datetime.now()},
         }
 
         # Store sample data
@@ -221,15 +197,15 @@ def test_data_ingestor_update_data(mock_ccxt_kraken, data_config, event_bus):
     mock_exchange = MagicMock()
     mock_exchange.fetch_ticker.side_effect = lambda symbol: {
         "BTC/USD": {
-            'symbol': 'BTC/USD',
-            'last': 51000.0,
-            'timestamp': datetime.now().timestamp() * 1000
+            "symbol": "BTC/USD",
+            "last": 51000.0,
+            "timestamp": datetime.now().timestamp() * 1000,
         },
         "ETH/USD": {
-            'symbol': 'ETH/USD',
-            'last': 3100.0,
-            'timestamp': datetime.now().timestamp() * 1000
-        }
+            "symbol": "ETH/USD",
+            "last": 3100.0,
+            "timestamp": datetime.now().timestamp() * 1000,
+        },
     }[symbol]
     mock_ccxt_kraken.return_value = mock_exchange
 
@@ -253,13 +229,11 @@ def test_data_ingestor_update_data(mock_ccxt_kraken, data_config, event_bus):
 
 
 @patch("ccxt.kraken")
-def test_data_ingestor_error_handling(
-        mock_ccxt_kraken, data_config, event_bus):
+def test_data_ingestor_error_handling(mock_ccxt_kraken, data_config, event_bus):
     """Test error handling in data fetching."""
     # Set up mock exchange with error
     mock_exchange = MagicMock()
-    mock_exchange.fetch_ohlcv.side_effect = Exception(
-        "API rate limit exceeded")
+    mock_exchange.fetch_ohlcv.side_effect = Exception("API rate limit exceeded")
     mock_ccxt_kraken.return_value = mock_exchange
 
     # Set up mock logger
@@ -276,9 +250,7 @@ def test_data_ingestor_error_handling(
 
             # Attempt to fetch data (should handle the error)
             result = data_ingestor.fetch_historical_data(
-                symbol="BTC/USD",
-                timeframe="1h",
-                start_date=datetime.now() - timedelta(days=1)
+                symbol="BTC/USD", timeframe="1h", start_date=datetime.now() - timedelta(days=1)
             )
 
     # Verify error was logged

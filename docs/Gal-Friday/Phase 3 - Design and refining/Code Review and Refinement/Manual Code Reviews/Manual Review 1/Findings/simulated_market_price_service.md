@@ -85,48 +85,48 @@ While the module provides basic functionality for price simulation, it has sever
    ```python
    def get_bid_ask(self, trading_pair: str) -> Optional[Tuple[Decimal, Decimal]]:
        """Gets the bid and ask prices for a trading pair at the current simulation time.
-       
+
        Args:
            trading_pair: The trading pair symbol (e.g., "XRP/USD")
-           
+
        Returns:
            A tuple of (bid, ask) prices, or None if prices cannot be determined
        """
        close_price = self.get_latest_price(trading_pair)
        if close_price is None:
            return None
-           
+
        # Get spread parameters from config or use default
        base_spread_pct = self._config.get(
-           f"simulation.spread.{trading_pair}", 
+           f"simulation.spread.{trading_pair}",
            self._config.get("simulation.spread.default", 0.1)
        )
-       
+
        # Calculate spread based on market conditions (e.g., volatility)
        spread_pct = self._adjust_spread_for_volatility(
            trading_pair, base_spread_pct
        )
-       
+
        # Calculate the half-spread amount
        half_spread = close_price * (spread_pct / 100) / 2
-       
+
        # Calculate bid and ask
        bid = close_price - half_spread
        ask = close_price + half_spread
-       
+
        return (bid, ask)
    ```
 
 2. **Align Interface with Real Service**:
    ```python
    def get_price_sync(self, trading_pair: str, use_mid: bool = True) -> Optional[Decimal]:
-       """Synchronously gets the latest price for a trading pair, matching the 
+       """Synchronously gets the latest price for a trading pair, matching the
        interface of the real MarketPriceService.
-       
+
        Args:
            trading_pair: The trading pair symbol (e.g., "XRP/USD")
            use_mid: If True, returns mid price; if False, returns last traded price
-           
+
        Returns:
            The price as a Decimal, or None if unavailable
        """
@@ -145,47 +145,47 @@ While the module provides basic functionality for price simulation, it has sever
    ```python
    def get_order_book_snapshot(self, trading_pair: str, depth: int = 5) -> Optional[Dict[str, List]]:
        """Simulates an order book snapshot based on the current price.
-       
+
        Args:
            trading_pair: The trading pair symbol
            depth: Number of price levels to generate
-           
+
        Returns:
            A dictionary with 'bids' and 'asks' lists, or None if unavailable
        """
        close_price = self.get_latest_price(trading_pair)
        if close_price is None:
            return None
-           
+
        bid_ask = self.get_bid_ask(trading_pair)
        if bid_ask is None:
            return None
-           
+
        bid, ask = bid_ask
-       
+
        # Generate simulated order book with declining volume at each level
        bids = []
        asks = []
-       
+
        # Generate bid levels (price descending)
        base_volume = self._get_base_volume(trading_pair)
        price_increment = bid * Decimal('0.0005')  # 0.05% between levels
-       
+
        for i in range(depth):
            price = bid - (i * price_increment)
            # Volume decreases at deeper levels
            volume = base_volume * (1 - (i * 0.15))
            bids.append([float(price), float(volume)])
-           
+
        # Generate ask levels (price ascending)
        price_increment = ask * Decimal('0.0005')  # 0.05% between levels
-       
+
        for i in range(depth):
            price = ask + (i * price_increment)
            # Volume decreases at deeper levels
            volume = base_volume * (1 - (i * 0.15))
            asks.append([float(price), float(volume)])
-           
+
        return {
            'bids': bids,
            'asks': asks
@@ -200,14 +200,14 @@ While the module provides basic functionality for price simulation, it has sever
        """Provides synchronous access to the latest market prices based on historical
        data during a backtest simulation.
        """
-   
-       def __init__(self, 
+
+       def __init__(self,
                    historical_data: Dict[str, pd.DataFrame],
                    config: Dict[str, Any],
                    logger_service: LoggerService):
            """
            Initializes the service with historical market data.
-   
+
            Args:
                historical_data: A dictionary where keys are trading pairs (e.g., "XRP/USD")
                                 and values are pandas DataFrames containing OHLCV data
@@ -220,7 +220,7 @@ While the module provides basic functionality for price simulation, it has sever
            self.logger = logger_service
            self._current_timestamp: Optional[datetime] = None
            self._source_module = self.__class__.__name__
-   
+
            # Validate data format minimally
            for pair, df in historical_data.items():
                if not isinstance(df.index, pd.DatetimeIndex):
@@ -233,7 +233,7 @@ While the module provides basic functionality for price simulation, it has sever
                        f"Historical data for {pair} is missing 'close' column.",
                        source_module=self._source_module
                    )
-   
+
            self.logger.info(
                "SimulatedMarketPriceService initialized.",
                source_module=self._source_module
@@ -244,10 +244,10 @@ While the module provides basic functionality for price simulation, it has sever
    ```python
    def update_time(self, timestamp: datetime) -> bool:
        """Updates the current simulation time.
-       
+
        Args:
            timestamp: The current simulation time
-           
+
        Returns:
            True if successful, False otherwise
        """
@@ -257,20 +257,20 @@ While the module provides basic functionality for price simulation, it has sever
                source_module=self._source_module
            )
            return False
-           
+
        self.logger.debug(
            f"Updating simulated time to: {timestamp}",
            source_module=self._source_module
        )
        self._current_timestamp = timestamp
        return True
-       
+
    def validate_data_requirements(self, trading_pair: str) -> bool:
        """Validates that required data is available for a trading pair.
-       
+
        Args:
            trading_pair: The trading pair to validate
-           
+
        Returns:
            True if valid data exists, False otherwise
        """
@@ -281,11 +281,11 @@ While the module provides basic functionality for price simulation, it has sever
                if base == quote:
                    return True
            return False
-           
+
        pair_data = self.historical_data[trading_pair]
        if "close" not in pair_data.columns:
            return False
-           
+
        return True
    ```
 
@@ -294,30 +294,30 @@ While the module provides basic functionality for price simulation, it has sever
    def _load_configuration(self) -> None:
        """Loads simulation parameters from configuration."""
        sim_config = self._config.get("simulation", {})
-       
+
        # Load spread configuration
        self._default_spread_pct = Decimal(str(
            sim_config.get("default_spread_pct", "0.1")
        ))
-       
+
        # Load volatility impact on spread
        self._volatility_spread_multiplier = Decimal(str(
            sim_config.get("volatility_spread_multiplier", "1.5")
        ))
-       
+
        # Load market depth configuration
        self._base_volume = Decimal(str(
            sim_config.get("base_volume", "100.0")
        ))
-       
+
        # Load volume decay factor for order book simulation
        self._volume_decay_factor = Decimal(str(
            sim_config.get("volume_decay_factor", "0.15")
        ))
-       
+
        # Price column to use (default to 'close')
        self._price_column = sim_config.get("price_column", "close")
-       
+
        self.logger.info(
            f"Loaded simulation parameters: spread={self._default_spread_pct}%, "
            f"vol_multiplier={self._volatility_spread_multiplier}",
@@ -331,23 +331,23 @@ While the module provides basic functionality for price simulation, it has sever
    ```python
    def _calculate_volatility(self, trading_pair: str, lookback_periods: int = 10) -> Optional[Decimal]:
        """Calculates the recent volatility for a trading pair.
-       
+
        Args:
            trading_pair: The trading pair to calculate volatility for
            lookback_periods: Number of periods to look back
-           
+
        Returns:
            Volatility as a percentage, or None if cannot be calculated
        """
        if self._current_timestamp is None:
            return None
-           
+
        if trading_pair not in self.historical_data:
            return None
-           
+
        try:
            pair_data = self.historical_data[trading_pair]
-           
+
            # Find the index location of current timestamp
            if self._current_timestamp in pair_data.index:
                current_idx = pair_data.index.get_loc(self._current_timestamp)
@@ -357,21 +357,21 @@ While the module provides basic functionality for price simulation, it has sever
                if nearest_idx < 0:
                    return None
                current_idx = nearest_idx
-               
+
            # Get data for volatility calculation
            start_idx = max(0, current_idx - lookback_periods)
            historical_window = pair_data.iloc[start_idx:current_idx+1]["close"]
-           
+
            if len(historical_window) < 2:
                return None
-               
+
            # Calculate percentage returns
            returns = historical_window.pct_change().dropna()
-           
+
            # Calculate volatility as standard deviation of returns
            volatility = Decimal(str(returns.std() * 100))
            return volatility
-           
+
        except Exception as e:
            self.logger.error(
                f"Error calculating volatility for {trading_pair}: {e}",
@@ -379,25 +379,25 @@ While the module provides basic functionality for price simulation, it has sever
                exc_info=True
            )
            return None
-           
+
    def _adjust_spread_for_volatility(self, trading_pair: str, base_spread_pct: Decimal) -> Decimal:
        """Adjusts the spread based on recent market volatility.
-       
+
        Args:
            trading_pair: The trading pair
            base_spread_pct: The base spread percentage
-           
+
        Returns:
            Adjusted spread percentage
        """
        volatility = self._calculate_volatility(trading_pair)
        if volatility is None:
            return base_spread_pct
-           
+
        # Higher volatility = wider spread, with configurable multiplier
        volatility_factor = 1 + (volatility * self._volatility_spread_multiplier / Decimal("100"))
        adjusted_spread = base_spread_pct * volatility_factor
-       
+
        # Cap maximum spread to reasonable value
        max_spread_pct = Decimal("2.0")  # 2%
        return min(adjusted_spread, max_spread_pct)
@@ -407,10 +407,10 @@ While the module provides basic functionality for price simulation, it has sever
    ```python
    def get_ohlc(self, trading_pair: str) -> Optional[Dict[str, Decimal]]:
        """Gets the OHLC data for a trading pair at the current simulation time.
-       
+
        Args:
            trading_pair: The trading pair symbol
-           
+
        Returns:
            Dictionary with OHLC values, or None if unavailable
        """
@@ -420,7 +420,7 @@ While the module provides basic functionality for price simulation, it has sever
                source_module=self._source_module
            )
            return None
-           
+
        pair_data = self.historical_data.get(trading_pair)
        if pair_data is None:
            self.logger.warning(
@@ -428,7 +428,7 @@ While the module provides basic functionality for price simulation, it has sever
                source_module=self._source_module
            )
            return None
-           
+
        try:
            # Find the nearest data point
            if self._current_timestamp in pair_data.index:
@@ -441,7 +441,7 @@ While the module provides basic functionality for price simulation, it has sever
                if timestamp is None:
                    return None
                data_point = pair_data.loc[timestamp]
-               
+
            # Convert to Decimal dictionary
            ohlc = {
                "open": Decimal(str(data_point["open"])),
@@ -451,7 +451,7 @@ While the module provides basic functionality for price simulation, it has sever
                "volume": Decimal(str(data_point["volume"])) if "volume" in data_point else Decimal("0")
            }
            return ohlc
-           
+
        except Exception as e:
            self.logger.error(
                f"Error retrieving OHLC for {trading_pair}: {e}",
@@ -465,7 +465,7 @@ While the module provides basic functionality for price simulation, it has sever
    ```python
    def get_simulation_status(self) -> Dict[str, Any]:
        """Gets the current status of the price simulation.
-       
+
        Returns:
            Dictionary with simulation status information
        """
@@ -475,7 +475,7 @@ While the module provides basic functionality for price simulation, it has sever
            "data_timeframes": {},
            "missing_data_warnings": []
        }
-       
+
        # For each pair, calculate data coverage
        for pair, df in self.historical_data.items():
            if len(df) > 0:
@@ -485,36 +485,36 @@ While the module provides basic functionality for price simulation, it has sever
                    "points": len(df),
                    "interval": self._detect_interval(df)
                }
-               
+
                # Check for missing data
                if self._has_missing_data(df):
                    status["missing_data_warnings"].append(
                        f"{pair}: Potential gaps detected in historical data"
                    )
-                   
+
        return status
-       
+
    def _detect_interval(self, df: pd.DataFrame) -> str:
        """Attempts to detect the interval of the dataframe.
-       
+
        Args:
            df: DataFrane with time-indexed data
-           
+
        Returns:
            String representing the approximate interval
        """
        if len(df) < 2:
            return "unknown"
-           
+
        # Get the first few intervals
        intervals = []
        for i in range(min(5, len(df) - 1)):
            diff = df.index[i+1] - df.index[i]
            intervals.append(diff.total_seconds())
-           
+
        # Calculate average interval
        avg_interval = sum(intervals) / len(intervals)
-       
+
        # Convert to human-readable format
        if avg_interval < 60:
            return f"{avg_interval:.0f}s"
@@ -524,28 +524,28 @@ While the module provides basic functionality for price simulation, it has sever
            return f"{avg_interval/3600:.0f}h"
        else:
            return f"{avg_interval/86400:.0f}d"
-           
+
    def _has_missing_data(self, df: pd.DataFrame) -> bool:
        """Checks if the dataframe has potential missing data points.
-       
+
        Args:
            df: DataFrame with time-indexed data
-           
+
        Returns:
            True if missing data is suspected, False otherwise
        """
        if len(df) < 3:
            return False
-           
+
        # Calculate common interval
        intervals = [(df.index[i+1] - df.index[i]).total_seconds() for i in range(len(df) - 1)]
        most_common_interval = max(set(intervals), key=intervals.count)
-       
+
        # Check for intervals significantly larger than the common interval
        for interval in intervals:
            if interval > most_common_interval * 1.5:
                return True
-               
+
        return False
    ```
 

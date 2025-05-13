@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from collections import defaultdict
-from typing import Callable, Coroutine, Dict, List, Any, TypeVar, Optional, Tuple, Protocol
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Protocol, Tuple, TypeVar
 
 # Fix import path for ConfigManager
 from ..config_manager import ConfigManager
@@ -28,6 +28,12 @@ class PubSubManager:
     """Manages event subscriptions and publishing within the application."""
 
     def __init__(self, logger: logging.Logger, config_manager: ConfigManager):
+        """Initialize the PubSub manager.
+
+        Args:
+            logger: Logger instance for reporting operations
+            config_manager: Configuration manager for fetching settings
+        """
         # Subscribers stored by EventType enum member
         self._subscribers: Dict[EventType, List[Callable[[Event], Coroutine[Any, Any, None]]]] = (
             defaultdict(list)
@@ -110,29 +116,19 @@ class PubSubManager:
         """Remove a handler for a specific EventType."""
         try:
             self._subscribers[event_type].remove(handler)
-            self._logger.info(
-                f"Handler {
-                    getattr(
-                        handler,
-                        '__name__',
-                        repr(handler))} unsubscribed from {
-                    event_type.name}"
-            )
+            handler_name = getattr(handler, "__name__", repr(handler))
+            self._logger.info(f"Handler {handler_name} unsubscribed from {event_type.name}")
         except ValueError:
+            handler_name = getattr(handler, "__name__", repr(handler))
             self._logger.warning(
-                f"Attempted to unsubscribe handler {
-                    getattr(
-                        handler,
-                        '__name__',
-                        repr(handler))} from {
-                    event_type.name}, "
+                f"Attempted to unsubscribe handler {handler_name} from {event_type.name}, "
                 f"but it was not found."
             )
 
     async def _dispatch_event_to_handler(
         self, handler: Callable[[Event], Coroutine[Any, Any, None]], event: Event
     ) -> None:
-        """Wrapper to execute a single handler with timeout and error handling."""
+        """Execute a single handler with timeout and error handling."""
         handler_name = getattr(handler, "__name__", repr(handler))
         event_type = getattr(event, "event_type", None)
         event_type_name = (
@@ -203,7 +199,7 @@ class PubSubManager:
             )
 
     async def _event_consumer(self) -> None:
-        """Internal task to consume events from the queue and dispatch them."""
+        """Consume events from the queue and dispatch them to handlers."""
         self._logger.info("Event consumer task started.")
         while True:
             try:
@@ -243,7 +239,7 @@ class PubSubManager:
         self._logger.info("Event consumer task stopped.")
 
     async def _log_metrics_periodically(self) -> None:
-        """Periodically log queue metrics."""
+        """Log queue metrics at regular intervals."""
         while True:
             await asyncio.sleep(self._metrics_log_interval_s)
             qsize = self._event_queue.qsize()

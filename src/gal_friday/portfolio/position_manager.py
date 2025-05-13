@@ -56,16 +56,16 @@ class PositionManager:
 
     @property
     def positions(self) -> Dict[str, PositionInfo]:
-        """Get all positions (read-only copy)."""
+        """Return all positions as a read-only copy."""
         return self._positions.copy()
 
     def get_open_positions(self) -> List[PositionInfo]:
-        """Returns a list of open positions (non-zero quantity)."""
+        """Return a list of open positions (non-zero quantity)."""
         return [pos for pos in self._positions.values() if pos.quantity != 0]
 
     def get_position(self, trading_pair: str) -> Optional[PositionInfo]:
         """
-        Get position information for a specific trading pair.
+        Get position details for a specific trading pair.
 
         Args:
             trading_pair: Trading pair symbol (e.g., "BTC/USD")
@@ -124,7 +124,7 @@ class PositionManager:
         commission_asset: Optional[str] = None,
     ) -> Tuple[Decimal, Optional[PositionInfo]]:
         """
-        Updates position information based on trade execution.
+        Update position based on trade execution.
 
         Args:
             trading_pair: Trading pair symbol
@@ -169,7 +169,7 @@ class PositionManager:
         return realized_pnl, position
 
     def _validate_trade_parameters(self, side: str, quantity: Decimal, price: Decimal) -> None:
-        """Validates trade parameters."""
+        """Validate trade parameters."""
         if side not in ("BUY", "SELL"):
             raise DataValidationError(f"Invalid trade side: {side}")
 
@@ -182,7 +182,7 @@ class PositionManager:
     async def _get_or_create_position(
         self, trading_pair: str, base_asset: str, quote_asset: str
     ) -> PositionInfo:
-        """Gets existing position or creates a new one if it doesn't exist."""
+        """Get existing position or create a new one if it doesn't exist."""
         async with self._lock:
             position = self._positions.get(trading_pair)
             if position is None:
@@ -201,7 +201,7 @@ class PositionManager:
         commission: Decimal,
         commission_asset: Optional[str],
     ) -> TradeInfo:
-        """Creates a trade record for the trade history."""
+        """Create a trade record for the trade history."""
         return TradeInfo(
             timestamp=timestamp,
             side=side,
@@ -218,7 +218,7 @@ class PositionManager:
         cost: Decimal,
         price: Decimal,
     ) -> Decimal:
-        """Handles a BUY trade for a position."""
+        """Handle a BUY trade for a position."""
         realized_pnl = Decimal(0)
         async with self._lock:
             if position.quantity >= 0:
@@ -236,7 +236,7 @@ class PositionManager:
         quantity: Decimal,
         price: Decimal,
     ) -> Decimal:
-        """Handles a SELL trade for a position."""
+        """Handle a SELL trade for a position."""
         realized_pnl = Decimal(0)
         async with self._lock:
             if position.quantity > 0:
@@ -251,7 +251,7 @@ class PositionManager:
     async def _increase_long_position(
         self, position: PositionInfo, quantity: Decimal, cost: Decimal
     ) -> None:
-        """Increases a long position."""
+        """Increase a long position."""
         # Calculate new average entry price
         new_total_quantity = position.quantity + quantity
         total_cost = (position.quantity * position.average_entry_price) + cost
@@ -265,7 +265,7 @@ class PositionManager:
     async def _reduce_short_position(
         self, position: PositionInfo, quantity: Decimal, price: Decimal
     ) -> Decimal:
-        """Reduces a short position, potentially flipping to long."""
+        """Reduce a short position, potentially flipping to long."""
         realized_pnl = Decimal(0)
 
         # Calculate realized P&L: (short entry price - close price) * quantity_closed
@@ -294,7 +294,7 @@ class PositionManager:
     async def _reduce_long_position(
         self, position: PositionInfo, quantity: Decimal, price: Decimal
     ) -> Decimal:
-        """Reduces a long position, potentially flipping to short."""
+        """Reduce a long position, potentially flipping to short."""
         realized_pnl = Decimal(0)
 
         # Calculate realized P&L: (close price - long entry price) * quantity_closed
@@ -323,7 +323,7 @@ class PositionManager:
     async def _increase_short_position(
         self, position: PositionInfo, quantity: Decimal, price: Decimal
     ) -> None:
-        """Increases a short position."""
+        """Increase a short position."""
         # Calculate new average entry price for the short
         new_total_quantity = abs(position.quantity) + quantity
         # For shorts, we weight by quantity and adjust the sign later

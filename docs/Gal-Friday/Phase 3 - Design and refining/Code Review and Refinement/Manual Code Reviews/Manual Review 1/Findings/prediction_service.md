@@ -70,9 +70,9 @@ While the module has several strengths, including robust error handling and prop
 1. **Implement Support for Additional Model Types**:
    ```python
    def _run_inference_task(
-       model_path: str, 
+       model_path: str,
        model_type: str,  # Add model type parameter
-       feature_vector: np.ndarray, 
+       feature_vector: np.ndarray,
        model_feature_names: List[str]
    ) -> Dict[str, Any]:
        """Runs inference based on model type."""
@@ -106,10 +106,10 @@ While the module has several strengths, including robust error handling and prop
        feature_vector = self._prepare_features_for_model(features_dict)
        if feature_vector is None:
            return None
-           
+
        # Apply model-specific preprocessing
        preprocessing_config = self._config.get("preprocessing", {})
-       
+
        # Apply scaling if configured
        if preprocessing_config.get("apply_scaling", False):
            scaler_path = preprocessing_config.get("scaler_path")
@@ -120,7 +120,7 @@ While the module has several strengths, including robust error handling and prop
                    feature_vector = scaler.transform(feature_vector.reshape(1, -1))[0]
                except Exception as e:
                    self.logger.error(f"Error applying scaling: {e}", source_module=self._source_module)
-       
+
        return feature_vector
    ```
 
@@ -132,11 +132,11 @@ While the module has several strengths, including robust error handling and prop
        if not models:
            # Fall back to single model if no ensemble configured
            return await self._run_single_model_prediction(
-               self._model_path, 
+               self._model_path,
                self._model_id,
                feature_vector
            )
-           
+
        # Run predictions for all models in parallel
        prediction_futures = []
        for model_config in models:
@@ -144,10 +144,10 @@ While the module has several strengths, including robust error handling and prop
            model_id = model_config.get("id", "unknown")
            model_type = model_config.get("type", "xgboost")
            model_weight = float(model_config.get("weight", 1.0))
-           
+
            future = self._run_single_model_prediction(model_path, model_id, model_type, feature_vector)
            prediction_futures.append((future, model_weight))
-           
+
        # Gather results
        results = []
        total_weight = 0
@@ -157,7 +157,7 @@ While the module has several strengths, including robust error handling and prop
            if "prediction" in result:
                results.append((result["prediction"], weight))
                total_weight += weight
-               
+
        # Apply weighted average
        if total_weight > 0:
            ensemble_prediction = sum(pred * weight for pred, weight in results) / total_weight
@@ -178,12 +178,12 @@ While the module has several strengths, including robust error handling and prop
            if not model_path:
                self.logger.error("Cannot reload model: no model_path configured")
                return False
-               
+
            self._model_path = model_path
            self.logger.info(f"Model will be reloaded from {model_path} on next inference")
            return True
        except Exception as e:
-           self.logger.error(f"Error preparing for model reload: {e}", 
+           self.logger.error(f"Error preparing for model reload: {e}",
                           source_module=self._source_module)
            return False
    ```
@@ -194,7 +194,7 @@ While the module has several strengths, including robust error handling and prop
    # if self._main_task:
    #    ...
    # self._main_task = None
-   
+
    # Standardize on logger_service:
    # Remove module-level logger:
    # log = logging.getLogger(__name__)
@@ -209,10 +209,10 @@ While the module has several strengths, including robust error handling and prop
        if nan_count > 0:
            # Calculate what percentage of features are NaN
            nan_pct = nan_count / len(feature_vector) * 100
-           
+
            # Get configuration threshold (default 20%)
            max_nan_pct = self._config.get("max_nan_percentage", 20.0)
-           
+
            if nan_pct > max_nan_pct:
                self.logger.warning(
                    f"Too many NaN features: {nan_pct:.1f}% (threshold: {max_nan_pct}%)",
@@ -242,19 +242,19 @@ While the module has several strengths, including robust error handling and prop
                "max": float('-inf'),
                "latencies": []
            }
-           
+
        # Update statistics
        self._prediction_stats["count"] += 1
        self._prediction_stats["sum"] += prediction
        self._prediction_stats["sum_squared"] += prediction * prediction
        self._prediction_stats["min"] = min(self._prediction_stats["min"], prediction)
        self._prediction_stats["max"] = max(self._prediction_stats["max"], prediction)
-       
+
        # Log every N predictions
        if self._prediction_stats["count"] % 100 == 0:
            mean = self._prediction_stats["sum"] / self._prediction_stats["count"]
            variance = (self._prediction_stats["sum_squared"] / self._prediction_stats["count"]) - (mean * mean)
-           
+
            self.logger.info(
                f"Prediction statistics after {self._prediction_stats['count']} predictions: "
                f"mean={mean:.4f}, std={np.sqrt(variance):.4f}, "
@@ -273,11 +273,11 @@ While the module has several strengths, including robust error handling and prop
            import json
            with open(metadata_path, 'r') as f:
                metadata = json.load(f)
-               
+
            self._model_version = metadata.get("version", "unknown")
            self._model_training_date = metadata.get("training_date", "unknown")
            self._model_metrics = metadata.get("metrics", {})
-           
+
            self.logger.info(
                f"Loaded model metadata: version={self._model_version}, "
                f"trained={self._model_training_date}, "
@@ -303,20 +303,20 @@ While the module has several strengths, including robust error handling and prop
        # Sort keys to ensure consistent ordering
        sorted_items = sorted(features.items())
        return "_".join(f"{k}:{v}" for k, v in sorted_items)
-       
+
    async def _get_cached_or_new_prediction(self, event: FeatureEvent) -> Dict[str, Any]:
        """Check cache before running prediction."""
        # Check if caching is enabled
        if not self._config.get("enable_caching", False):
            return await self._run_prediction_pipeline(event)
-           
+
        # Generate cache key
        cache_key = self._get_prediction_cache_key(event.features)
-       
+
        # Check if prediction is cached and not expired
        cache_ttl = self._config.get("cache_ttl_seconds", 5)  # Default 5 seconds TTL
        current_time = datetime.utcnow().timestamp()
-       
+
        if hasattr(self, "_prediction_cache"):
            cached_item = self._prediction_cache.get(cache_key)
            if cached_item:
@@ -329,12 +329,12 @@ While the module has several strengths, including robust error handling and prop
                    return {"prediction": prediction, "cached": True}
        else:
            self._prediction_cache = {}
-           
+
        # Run prediction and cache result
        result = await self._run_prediction_pipeline(event)
        if "prediction" in result:
            self._prediction_cache[cache_key] = (result["prediction"], current_time)
-           
+
        return result
    ```
 

@@ -24,11 +24,11 @@ No significant functional issues were identified during the review. The implemen
 ### A. Interface Divergence
 
 The implementation differs from the `EventBus` interface defined in section 2.13 of the interface definitions document:
-1. **Specified Interface**: 
+1. **Specified Interface**:
    ```python
    async publish(self, event_type: str, payload: dict) -> None
    ```
-2. **Implementation**: 
+2. **Implementation**:
    ```python
    async publish(self, event: Event) -> None
    ```

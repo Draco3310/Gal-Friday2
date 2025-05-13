@@ -70,19 +70,19 @@ However, there are several areas of concern including insufficient API rate limi
        def __init__(self, limit_per_second: int = 1):
            self.limit_per_second = limit_per_second
            self.requests = []
-           
+
        async def wait_if_needed(self):
            """Wait if we're approaching the rate limit."""
            now = time.time()
            # Remove old requests from tracking
            self.requests = [r for r in self.requests if r > now - 1]
-           
+
            if len(self.requests) >= self.limit_per_second:
                # Wait until we're under the limit
                sleep_time = 1 - (now - self.requests[0])
                if sleep_time > 0:
                    await asyncio.sleep(sleep_time)
-           
+
            self.requests.append(time.time())
    ```
 
@@ -93,19 +93,19 @@ However, there are several areas of concern including insufficient API rate limi
        retry_count = 0
        max_retries = self.config.get_int("websocket.max_retries", 10)
        base_delay = self.config.get_float("websocket.base_delay_seconds", 1.0)
-       
+
        while retry_count < max_retries:
            try:
                delay = base_delay * (2 ** retry_count)
                jitter = random.uniform(0, 0.1 * delay)
                total_delay = delay + jitter
-               
+
                self.logger.info(
                    f"Reconnecting websocket in {total_delay:.2f} seconds "
                    f"(attempt {retry_count + 1}/{max_retries})",
                    source_module=self.__class__.__name__
                )
-               
+
                await asyncio.sleep(total_delay)
                await self._connect_websocket()
                return  # Success
@@ -116,7 +116,7 @@ However, there are several areas of concern including insufficient API rate limi
                        source_module=self.__class__.__name__
                    )
                    break
-                   
+
                retry_count += 1
    ```
 
@@ -131,7 +131,7 @@ However, there are several areas of concern including insufficient API rate limi
                    source_module=self.__class__.__name__
                )
                return False
-               
+
            channel_name = message[2]
            if channel_name != "book":
                self.logger.warning(
@@ -139,7 +139,7 @@ However, there are several areas of concern including insufficient API rate limi
                    source_module=self.__class__.__name__
                )
                return False
-               
+
            data = message[1]
            # Check for required fields in the data structure
            if not isinstance(data, dict):
@@ -148,10 +148,10 @@ However, there are several areas of concern including insufficient API rate limi
                    source_module=self.__class__.__name__
                )
                return False
-               
+
            # Validate specific fields based on Kraken's documentation
            # [Additional validation logic here]
-           
+
            return True
        except Exception as e:
            self.logger.error(
@@ -170,10 +170,10 @@ However, there are several areas of concern including insufficient API rate limi
        """Monitor heartbeats from Kraken WebSocket."""
        last_heartbeat = time.time()
        max_heartbeat_interval = self.config.get_int(
-           "websocket.max_heartbeat_interval_seconds", 
+           "websocket.max_heartbeat_interval_seconds",
            30
        )
-       
+
        while self._ws and not self._ws.closed:
            now = time.time()
            if now - last_heartbeat > max_heartbeat_interval:
@@ -184,7 +184,7 @@ However, there are several areas of concern including insufficient API rate limi
                )
                await self._reconnect_websocket()
                last_heartbeat = time.time()
-           
+
            await asyncio.sleep(5)  # Check every 5 seconds
    ```
 
@@ -192,24 +192,24 @@ However, there are several areas of concern including insufficient API rate limi
    ```python
    class ExchangeAdapter:
        """Base class for exchange-specific adapters."""
-       
+
        async def connect_websocket(self) -> None:
            """Connect to the exchange websocket."""
            raise NotImplementedError
-           
+
        async def subscribe_to_orderbook(self, trading_pair: str) -> None:
            """Subscribe to orderbook updates for a trading pair."""
            raise NotImplementedError
-           
+
        # Additional exchange-specific methods
-   
+
    class KrakenExchangeAdapter(ExchangeAdapter):
        """Kraken-specific implementation of the exchange adapter."""
-       
+
        async def connect_websocket(self) -> None:
            # Kraken-specific websocket connection logic
            pass
-           
+
        async def subscribe_to_orderbook(self, trading_pair: str) -> None:
            # Kraken-specific subscription logic
            pass
@@ -219,25 +219,25 @@ However, there are several areas of concern including insufficient API rate limi
    ```python
    class RequestThrottler:
        """Throttles API requests to stay within rate limits."""
-       
+
        def __init__(self, max_requests_per_second: int):
            self.max_requests_per_second = max_requests_per_second
            self.request_times = []
            self._lock = asyncio.Lock()
-           
+
        async def acquire(self):
            """Acquire permission to make a request, waiting if necessary."""
            async with self._lock:
                now = time.time()
                # Remove old requests
                self.request_times = [t for t in self.request_times if t > now - 1]
-               
+
                if len(self.request_times) >= self.max_requests_per_second:
                    # Calculate wait time
                    wait_time = 1 - (now - self.request_times[0])
                    if wait_time > 0:
                        await asyncio.sleep(wait_time)
-                       
+
                # Add current request time
                self.request_times.append(time.time())
    ```
@@ -254,19 +254,19 @@ However, there are several areas of concern including insufficient API rate limi
            "trading.pairs",
            "polling.ohlcv_interval_seconds"
        ]
-       
+
        missing_params = []
        for param in required_params:
            if self.config.get(param) is None:
                missing_params.append(param)
-               
+
        if missing_params:
            self.logger.error(
                f"Missing required configuration parameters: {', '.join(missing_params)}",
                source_module=self.__class__.__name__
            )
            return False
-           
+
        return True
    ```
 
@@ -278,13 +278,13 @@ However, there are several areas of concern including insufficient API rate limi
            total=self.config.get_int("http.timeout_seconds", 30),
            connect=self.config.get_int("http.connect_timeout_seconds", 5)
        )
-       
+
        connector = aiohttp.TCPConnector(
            limit=self.config.get_int("http.max_connections", 100),
            ttl_dns_cache=self.config.get_int("http.dns_cache_ttl_seconds", 300),
            ssl=False  # Kraken uses SSL by default in their URL
        )
-       
+
        return aiohttp.ClientSession(
            timeout=timeout,
            connector=connector,
@@ -297,14 +297,14 @@ However, there are several areas of concern including insufficient API rate limi
    class DataIngestor:
        """
        Handles market data acquisition from Kraken exchange.
-       
+
        Exchange-Specific Behavior:
        - Kraken WebSocket provides L2 depth data with up to 10 levels by default
        - Order book snapshots are provided on initial subscription, then updates
        - OHLCV data is retrieved via REST API, with candles returned in reverse chronological order
        - Kraken rate limits: 15 requests per minute for REST API without API key
        - WebSocket connections may be terminated by the server after prolonged inactivity
-       
+
        Assumptions:
        - Trading pairs are specified in format XBT/USD in config but converted to Kraken format (XBTUSD)
        - System will operate with the limited depth provided by the public feed

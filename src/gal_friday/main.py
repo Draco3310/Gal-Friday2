@@ -7,16 +7,17 @@ This script initializes all necessary components (configuration, logging, servic
  graceful shutdown.
 """
 
-import logging
+import argparse  # Added for command-line argument parsing
 import asyncio
-import signal
-import os
-import sys
 import concurrent.futures
 import functools
-import argparse  # Added for command-line argument parsing
+import logging
 import logging.handlers  # Added for RotatingFileHandler
-from typing import List, Optional, Type, Any, TYPE_CHECKING, Union, Dict
+import os
+import signal
+import sys
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
+
 import pandas as pd
 
 # Version information
@@ -24,28 +25,27 @@ __version__ = "0.1.0"  # Add version tracking
 
 # --- Conditional Imports for Type Checking --- #
 if TYPE_CHECKING:
+    # from .simulated_market_price_service import SimulatedMarketPriceService # Removed for F811
+    # Define a proper protocol/interface for execution handlers
+    from typing import Protocol
+
+    from .cli_service import CLIService as CLIServiceType
     from .config_manager import ConfigManager as ConfigManagerType
     from .core.pubsub import PubSubManager as PubSubManagerType
     from .data_ingestor import DataIngestor as DataIngestorType
-    from .feature_engine import FeatureEngine as FeatureEngineType
-    from .prediction_service import PredictionService as PredictionServiceType
-    from .strategy_arbitrator import StrategyArbitrator as StrategyArbitratorType
-    from .portfolio_manager import PortfolioManager as PortfolioManagerType
-    from .risk_manager import RiskManager as RiskManagerType
 
     # Ensure these are imported if they are to be used as string literals in hints
     from .execution.kraken import KrakenExecutionHandler
-    from .simulated_execution_handler import SimulatedExecutionHandler
-    from .logger_service import LoggerService as LoggerServiceType
-    from .monitoring_service import MonitoringService as MonitoringServiceType
-    from .cli_service import CLIService as CLIServiceType
-    from .market_price_service import MarketPriceService as MarketPriceServiceType
+    from .feature_engine import FeatureEngine as FeatureEngineType
     from .historical_data_service import HistoricalDataService as HistoricalDataServiceType
-
-    # from .simulated_market_price_service import SimulatedMarketPriceService # Removed for F811
-
-    # Define a proper protocol/interface for execution handlers
-    from typing import Protocol
+    from .logger_service import LoggerService as LoggerServiceType
+    from .market_price_service import MarketPriceService as MarketPriceServiceType
+    from .monitoring_service import MonitoringService as MonitoringServiceType
+    from .portfolio_manager import PortfolioManager as PortfolioManagerType
+    from .prediction_service import PredictionService as PredictionServiceType
+    from .risk_manager import RiskManager as RiskManagerType
+    from .simulated_execution_handler import SimulatedExecutionHandler
+    from .strategy_arbitrator import StrategyArbitrator as StrategyArbitratorType
 
     class ExecutionHandlerProtocol(Protocol):
         """Protocol defining interface for execution handlers."""
@@ -57,16 +57,47 @@ if TYPE_CHECKING:
             pubsub_manager: "PubSubManagerType",
             logger_service: "LoggerServiceType",
             **kwargs: Any,
-        ) -> None: ...
+        ) -> None:
+            """Initialize an execution handler.
 
-        async def start(self) -> None: ...
+            Args:
+                config_manager: Configuration manager instance
+                pubsub_manager: Publish-subscribe manager instance
+                logger_service: Logger service instance
+                **kwargs: Additional keyword arguments
+            """
+            ...
 
-        async def stop(self) -> None: ...
+        async def start(self) -> None:
+            """Start the execution handler and initialize any connections."""
+            ...
+
+        async def stop(self) -> None:
+            """Stop the execution handler and clean up resources."""
+            ...
 
         # Add other common methods that execution handlers should implement
-        def submit_order(self, order_data: Dict[str, Any]) -> str: ...
+        def submit_order(self, order_data: Dict[str, Any]) -> str:
+            """Submit an order to the exchange.
 
-        def cancel_order(self, order_id: str) -> bool: ...
+            Args:
+                order_data: Dictionary containing order details
+
+            Returns:
+                Order ID from the exchange
+            """
+            ...
+
+        def cancel_order(self, order_id: str) -> bool:
+            """Cancel an existing order.
+
+            Args:
+                order_id: ID of the order to cancel
+
+            Returns:
+                True if cancellation was successful, False otherwise
+            """
+            ...
 
     # Now use this protocol for type annotations
     ExecutionHandlerTypeHint = Type[ExecutionHandlerProtocol]
@@ -205,7 +236,7 @@ shutdown_event = asyncio.Event()
 def setup_logging(
     config: Optional["ConfigManagerType"], log_level_override: Optional[str] = None
 ) -> None:
-    """Configures logging based on the application configuration."""
+    """Configure logging based on the application configuration."""
     # Runtime check still needed
     if config is None or ConfigManager is None:
         log.warning("ConfigManager instance or class not available, cannot configure logging.")
@@ -291,11 +322,8 @@ def setup_logging(
 
 # --- Graceful Shutdown Handler --- #
 def handle_shutdown(sig: signal.Signals) -> None:
-    """Sets the shutdown event when a signal is received."""
-    log.warning(
-        f"Received shutdown signal: {
-            sig.name}. Initiating graceful shutdown..."
-    )
+    """Set the shutdown event when a signal is received."""
+    log.warning(f"Received shutdown signal: {sig.name}. Initiating graceful shutdown...")
     shutdown_event.set()
 
 
@@ -304,7 +332,7 @@ class GalFridayApp:
     """Encapsulates the main application logic and lifecycle."""
 
     def __init__(self) -> None:  # Add return type
-        """Initializes application state attributes."""
+        """Initialize application state attributes."""
         log.info("Initializing GalFridayApp...")
         # Use Optional['ClassName'] string literals for type hints
         self.config: Optional["ConfigManagerType"] = None
@@ -332,7 +360,7 @@ class GalFridayApp:
         self.strategy_arbitrator: Optional["StrategyArbitratorType"] = None
 
     def _load_configuration(self, config_path: str) -> None:  # Accept config_path parameter
-        """Loads the application configuration."""
+        """Load the application configuration."""
         try:
             if ConfigManager is None:  # Runtime check for the class
                 raise RuntimeError("ConfigManager class is not available.")
@@ -345,7 +373,7 @@ class GalFridayApp:
             raise SystemExit("Configuration loading failed.")
 
     def _setup_executor(self) -> None:  # Add return type
-        """Sets up the ProcessPoolExecutor."""
+        """Set up the ProcessPoolExecutor."""
         if self.config is None or ConfigManager is None:  # Runtime checks
             log.error("Cannot setup executor without configuration.")
             self.executor = None
@@ -363,7 +391,7 @@ class GalFridayApp:
             self.executor = None
 
     def _instantiate_pubsub(self) -> None:  # Add return type
-        """Instantiates the PubSubManager."""
+        """Instantiate the PubSubManager."""
         try:
             if PubSubManager is None:  # Runtime check for the class
                 raise RuntimeError("PubSubManager class is not available.")
@@ -380,7 +408,7 @@ class GalFridayApp:
             raise SystemExit("PubSubManager instantiation failed.")
 
     def _instantiate_services(self) -> None:  # noqa: C901
-        """Instantiates all core services based on configuration and run mode."""
+        """Instantiate all core services based on configuration and run mode."""
         log.info("Instantiating core services...")
         self.services = []  # Clear any previous list
 
@@ -610,7 +638,7 @@ class GalFridayApp:
 
     # Add return type
     def _instantiate_execution_handler(self, run_mode: str) -> None:
-        """Instantiates the correct ExecutionHandler based on the run mode."""
+        """Instantiate the correct ExecutionHandler based on the run mode."""
         self.execution_handler = None
 
         # Runtime checks for required classes and instances
@@ -674,7 +702,7 @@ class GalFridayApp:
             )
 
     async def initialize(self, args: argparse.Namespace) -> None:  # Add return type
-        """Loads configuration, sets up logging, and instantiates components."""
+        """Load configuration, set up logging, and instantiate components."""
         log.info(f"Initializing GalFridayApp (Version: {__version__})...")
         self.args = args  # args should be guaranteed by main_async
 
@@ -708,7 +736,7 @@ class GalFridayApp:
         log.info("Initialization phase complete.")
 
     async def _start_pubsub_manager(self) -> None:
-        """Starts the PubSubManager if it exists and has a start method."""
+        """Start the PubSubManager if it exists and has a start method."""
         if self.pubsub and hasattr(self.pubsub, "start"):
             try:
                 log.info("Starting PubSubManager...")
@@ -720,7 +748,7 @@ class GalFridayApp:
 
     async def _create_and_run_service_start_tasks(self) -> List[Union[Any, BaseException]]:
         # Changed return type
-        """Creates and runs start tasks for all registered services."""
+        """Create and run start tasks for all registered services."""
         log.info(f"Starting {len(self.services)} services...")
         start_tasks = []
         start_exceptions = []
@@ -759,7 +787,7 @@ class GalFridayApp:
     def _handle_service_startup_results(
         self, results: List[Union[Any, BaseException]]  # Changed parameter type
     ) -> None:
-        """Handles the results of service startup tasks."""
+        """Handle the results of service startup tasks."""
         failed_services = []
         for i, result in enumerate(results):
             # Ensure we are within bounds of self.running_tasks if it was modified
@@ -791,7 +819,7 @@ class GalFridayApp:
             log.info("All services started successfully.")
 
     async def start(self) -> None:  # Add return type
-        """Starts all registered services and the PubSub manager."""
+        """Start all registered services and the PubSub manager."""
         log.info("Starting application services...")
         self.running_tasks = []  # Clear any previous tasks
 
@@ -850,7 +878,7 @@ class GalFridayApp:
         return results
 
     async def _cancel_active_tasks(self) -> None:
-        """Cancels all tasks in self.running_tasks."""
+        """Cancel all tasks in self.running_tasks."""
         if not self.running_tasks:
             log.info("No active tasks to cancel.")
             return
@@ -898,7 +926,7 @@ class GalFridayApp:
             log.info("No ProcessPoolExecutor to shut down.")
 
     async def stop(self) -> None:  # Add return type
-        """Stops all registered services, the PubSub manager, and the executor."""
+        """Stop all registered services, the PubSub manager, and the executor."""
         log.info("Initiating shutdown sequence...")
 
         # 1. Stop services and PubSubManager
@@ -913,7 +941,7 @@ class GalFridayApp:
         log.info("Shutdown sequence complete.")
 
     async def run(self) -> None:  # Add return type
-        """Runs the main application lifecycle: initialize, start, wait, stop."""
+        """Run the main application lifecycle: initialize, start, wait, stop."""
         log.info("Running GalFridayApp main lifecycle...")
         # Ensure args is set before calling initialize
         if self.args is None:
@@ -936,7 +964,7 @@ class GalFridayApp:
 
 # --- Asynchronous Main Function --- #
 async def main_async(args: argparse.Namespace) -> None:  # Add return type
-    """Sets up signal handlers and runs the main application loop."""
+    """Set up signal handlers and run the main application loop."""
     app = GalFridayApp()
     app.args = args  # Set args before running
 
@@ -949,15 +977,9 @@ async def main_async(args: argparse.Namespace) -> None:  # Add return type
             loop.add_signal_handler(sig, functools.partial(handle_shutdown, sig))
             log.info(f"Registered handler for signal {sig.name}")
         except NotImplementedError:
-            log.warning(
-                f"Signal handling for {
-                    sig.name} not supported on this platform."
-            )
+            log.warning(f"Signal handling for {sig.name} not supported on this platform.")
         except ValueError:
-            log.warning(
-                f"Cannot register signal handler for {
-                    sig.name} in non-main thread."
-            )
+            log.warning(f"Cannot register signal handler for {sig.name} in non-main thread.")
 
     await app.run()
 
@@ -983,7 +1005,7 @@ def _parse_arguments() -> argparse.Namespace:
 
 
 def create_arg_parser() -> argparse.ArgumentParser:
-    """Creates and returns the argument parser for CLI args."""
+    """Create and return the argument parser for CLI args."""
     parser = argparse.ArgumentParser(
         description=f"Gal-Friday Trading Bot (Version: {__version__})"
     )
@@ -1014,7 +1036,11 @@ def create_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(args: Optional[argparse.Namespace] = None) -> None:
-    """Command-line entry point."""
+    """Execute the application with the given command-line arguments.
+
+    Args:
+        args: Command-line arguments (parsed). If None, arguments will be parsed.
+    """
     if args is None:
         args = _parse_arguments()
 
@@ -1033,14 +1059,18 @@ def main(args: Optional[argparse.Namespace] = None) -> None:
 
 
 def process_args_and_run() -> None:
-    """Main function that processes arguments and runs the application."""
+    """Process command line arguments and run the application.
+
+    This function is the main entry point when running the module directly.
+    It sets up argument parsing and runs the application with proper error handling.
+    """
     log.info(f"--- Starting Gal-Friday Application (Version: {__version__}) ---")
     # --- Argument Parsing --- #
     parser = create_arg_parser()
     cli_args = parser.parse_args()
 
     try:
-        asyncio.run(main_async(cli_args))
+        main(cli_args)
     except (KeyboardInterrupt, SystemExit):
         # Catch exceptions that signal intentional stop (like SystemExit from
         # failed init)

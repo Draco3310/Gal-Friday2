@@ -1,22 +1,27 @@
 # Prediction Service Module
+"""
+Machine learning prediction service for market data analysis.
+
+This module provides infrastructure for running ML model inference against
+market features, handling the prediction lifecycle from feature consumption
+to prediction publishing.
+"""
 
 import asyncio
-from concurrent.futures import ProcessPoolExecutor
 import logging
+import uuid
+from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, TypeVar
+
 import numpy as np
 import xgboost as xgb
-import uuid
-from datetime import datetime
-from typing import Dict, List, Optional, Any, Set, Coroutine, TypeVar, Callable
 
 # Import necessary components
-from .core.events import (
-    EventType,
-    FeatureEvent,
-    PredictionEvent,  # Import PredictionEvent from core.events
-)
-from .logger_service import LoggerService
+from .core.events import PredictionEvent  # Import PredictionEvent from core.events
+from .core.events import EventType, FeatureEvent
 from .core.pubsub import PubSubManager
+from .logger_service import LoggerService
 
 # Set up logging
 log = logging.getLogger(__name__)
@@ -31,7 +36,7 @@ def _run_inference_task(
     model_path: str, feature_vector: np.ndarray, model_feature_names: List[str]
 ) -> Dict[str, Any]:
     """
-    Loads a model (native XGBoost format) and runs inference in a separate process.
+    Load a model and run inference in a separate process.
 
     Args:
         model_path: Path to the saved model file (e.g., .xgb, .ubj, .json).
@@ -58,8 +63,7 @@ def _run_inference_task(
             # Handle unexpected prediction format
             return {
                 "error": (
-                    f"Unexpected prediction output format: {
-                        type(prediction)}, "
+                    f"Unexpected prediction output format: {type(prediction)}, "
                     f"value: {prediction}"
                 )
             }
@@ -77,6 +81,8 @@ def _run_inference_task(
 # --- PredictionService Class ---
 class PredictionService:
     """
+    Consume feature events, run ML model inference, and publish prediction events.
+
     Consumes feature events, runs ML model inference (XGBoost native format)
     in a separate process pool, and publishes prediction events.
     """
@@ -89,7 +95,7 @@ class PredictionService:
         logger_service: LoggerService,
     ):
         """
-        Initializes the PredictionService.
+        Initialize the PredictionService.
 
         Args:
             config (dict): Configuration settings. Expected structure:
@@ -131,7 +137,12 @@ class PredictionService:
         self._active_inference_tasks: Set[InferenceTaskType] = set()
 
     async def start(self) -> None:
-        """Loads model info and starts listening for feature events."""
+        """
+        Start listening for feature events and load model info.
+
+        Subscribes to feature calculation events and prepares the service
+        for processing predictions.
+        """
         if self._is_running:
             self.logger.warning(
                 "PredictionService already running.", source_module=self.__class__.__name__
@@ -156,7 +167,12 @@ class PredictionService:
         )
 
     async def stop(self) -> None:
-        """Stops the event processing loop and cancels pending inference futures."""
+        """
+        Stop the event processing and cancel pending inferences.
+
+        Unsubscribes from events, cancels any active inference tasks,
+        and cleans up resources.
+        """
         if not self._is_running:
             return
         self._is_running = False
@@ -196,7 +212,15 @@ class PredictionService:
         self.logger.info("PredictionService stopped.", source_module=self.__class__.__name__)
 
     async def _handle_feature_event(self, event: FeatureEvent) -> None:
-        """Handles incoming FeatureEvent directly."""
+        """
+        Handle incoming feature events.
+
+        Validates the event type and schedules the prediction pipeline
+        if appropriate.
+
+        Args:
+            event: The feature event containing calculated features
+        """
         # Check type
         if not isinstance(event, FeatureEvent):
             self.logger.warning(
@@ -216,7 +240,15 @@ class PredictionService:
         asyncio.create_task(self._run_prediction_pipeline(event))
 
     async def _run_prediction_pipeline(self, event: FeatureEvent) -> None:
-        """Orchestrates the feature preparation, inference, and publishing for an event."""
+        """
+        Orchestrate the feature preparation, inference, and publishing for an event.
+
+        Processes the input features, runs model inference, and publishes
+        the resulting prediction as an event.
+
+        Args:
+            event: The feature event to process
+        """
         try:
             # 1. Prepare features
             # Use event.features directly
@@ -241,22 +273,14 @@ class PredictionService:
             )
 
             # 3. Await result
-            self.logger.debug(
-                f"Waiting for inference result for event {
-                    event.event_id}"
-            )
+            self.logger.debug(f"Waiting for inference result for event {event.event_id}")
             result = await inference_future
-            self.logger.debug(
-                f"Received inference result for event {
-                    event.event_id}"
-            )
+            self.logger.debug(f"Received inference result for event {event.event_id}")
 
             # 4. Process result and publish
             if "error" in result:
                 self.logger.error(
-                    f"Inference failed for event {
-                        event.event_id}: {
-                        result['error']}",
+                    f"Inference failed for event {event.event_id}: {result['error']}",
                     source_module=self.__class__.__name__,
                 )
             elif "prediction" in result:
@@ -281,21 +305,16 @@ class PredictionService:
                 await self._publish_prediction(prediction_event)
             else:
                 self.logger.error(
-                    f"Invalid inference result format for event {
-                        event.event_id}: {result}",
+                    f"Invalid inference result format for event {event.event_id}: {result}",
                     source_module=self.__class__.__name__,
                 )
 
         except asyncio.CancelledError:
-            self.logger.info(
-                f"Prediction pipeline cancelled for event {
-                    event.event_id}"
-            )
+            self.logger.info(f"Prediction pipeline cancelled for event {event.event_id}")
             # No need to reraise typically, task was cancelled externally
         except Exception as e:
             self.logger.error(
-                f"Error in prediction pipeline for event {
-                    event.event_id}: {e}",
+                f"Error in prediction pipeline for event {event.event_id}: {e}",
                 source_module=self.__class__.__name__,
                 exc_info=True,
             )
@@ -303,9 +322,17 @@ class PredictionService:
 
     def _prepare_features_for_model(self, features: Dict[str, str]) -> Optional[np.ndarray]:
         """
-        Converts the feature dictionary from FeatureEvent into a numpy array
+        Convert feature dictionary to numpy array for model input.
+
+        Transforms the feature dictionary from FeatureEvent into a numpy array
         ordered according to self._model_feature_names. Handles missing features
         and type conversion errors.
+
+        Args:
+            features: Dictionary of feature name to feature value strings
+
+        Returns:
+            Numpy array of feature values or None if critical features are missing
         """
         ordered_feature_values = []
         missing_features = []
@@ -351,13 +378,20 @@ class PredictionService:
         return np.array(ordered_feature_values, dtype=np.float32)
 
     async def _publish_prediction(self, event: PredictionEvent) -> None:
-        """Publishes the PredictionEvent."""
+        """
+        Publish the prediction event to subscribers.
+
+        Sends the generated prediction event through the pub/sub manager
+        and logs the result.
+
+        Args:
+            event: The prediction event to publish
+        """
         try:
             await self.pubsub.publish(event)
             self.logger.debug(
-                f"Published PredictionEvent for {
-                    event.trading_pair} at {
-                    event.timestamp_prediction_for}",
+                f"Published PredictionEvent for {event.trading_pair} at "
+                f"{event.timestamp_prediction_for}",
                 source_module=self.__class__.__name__,
             )
         except Exception as e:

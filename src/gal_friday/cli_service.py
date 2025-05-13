@@ -1,19 +1,27 @@
+"""Provide command-line interface functionality for runtime control of the trading system.
+
+This module implements a CLI service that allows users to interact with and control
+the trading system through terminal commands. It handles commands for checking system status,
+halting/resuming trading, and gracefully shutting down the application.
+"""
+
 # CLI Service Module
 
 import asyncio
+import logging  # For example_main logging configuration
 import sys
 import threading
-import logging  # For example_main logging configuration
 import time
-from typing import TYPE_CHECKING, Optional, Dict, Any, Union, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
 import typer
 from rich.console import Console
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from .monitoring_service import MonitoringService
     from .logger_service import LoggerService
     from .main import GalFridayApp
+    from .monitoring_service import MonitoringService
     from .portfolio_manager import PortfolioManager
 
     # Define MainAppController interface for type hinting
@@ -30,21 +38,32 @@ if TYPE_CHECKING:
 else:
     # Placeholders if not type checking
     class MonitoringService:  # Placeholder
+        """Placeholder for MonitoringService when not type checking."""
+
         def is_halted(self) -> bool:
+            """Return whether the system is halted."""
             return False
 
         async def trigger_halt(self, reason: str, source: str):
+            """Trigger a halt of the trading system."""
             print(f"HALT triggered by {source}: {reason}")
 
         async def trigger_resume(self, source: str):
+            """Resume trading after a halt."""
             print(f"RESUME triggered by {source}")
 
     class MainAppController:  # Placeholder
+        """Placeholder for MainAppController when not type checking."""
+
         async def stop(self) -> None:
+            """Stop the application."""
             print("Shutdown requested by CLI.")
 
     class PortfolioManager:  # Placeholder
+        """Placeholder for PortfolioManager when not type checking."""
+
         def get_current_state(self) -> Dict[str, Any]:
+            """Return the current state of the portfolio."""
             return {"total_drawdown_pct": 1.5}
 
     # Allow GalFridayApp to be used where MainAppController is expected
@@ -56,7 +75,7 @@ console = Console()
 
 
 class CLIService:
-    """Handles Command-Line Interface interactions for runtime control through Typer."""
+    """Handle Command-Line Interface interactions for runtime control through Typer."""
 
     def __init__(
         self,
@@ -66,7 +85,7 @@ class CLIService:
         portfolio_manager: Optional["PortfolioManager"] = None,
     ):
         """
-        Initializes the CLIService.
+        Initialize the CLIService.
 
         Args:
             monitoring_service: Instance of the MonitoringService.
@@ -85,7 +104,7 @@ class CLIService:
         self.logger.info("CLIService initialized.", source_module=self.__class__.__name__)
 
     async def start(self) -> None:
-        """Starts listening for commands on stdin."""
+        """Start listening for commands on stdin."""
         if self._running:
             self.logger.warning(
                 "CLIService already running.", source_module=self.__class__.__name__
@@ -122,7 +141,7 @@ class CLIService:
             self._input_thread.start()
 
     def _handle_input_posix(self) -> None:
-        """Callback for add_reader (POSIX)."""
+        """Process input received through the POSIX stdin reader."""
         try:
             line = sys.stdin.readline()
             if not line:  # Handle EOF or empty line gracefully
@@ -144,7 +163,7 @@ class CLIService:
             )
 
     def _threaded_input_loop(self) -> None:
-        """Input loop running in a separate thread for Windows compatibility."""
+        """Run input loop in a separate thread for Windows compatibility."""
         loop = asyncio.get_running_loop()
         while not self._stop_event.is_set():
             try:
@@ -176,7 +195,7 @@ class CLIService:
                 time.sleep(0.5)
 
     async def _run_typer_command(self, args: List[str]) -> None:
-        """Runs the Typer app with the given arguments."""
+        """Run the Typer app with the given arguments."""
         try:
             # Register instance with global state for command access
             global_cli_instance.set_instance(self)
@@ -198,7 +217,7 @@ class CLIService:
             print("Error executing command. Check logs for details.")
 
     async def stop(self) -> None:
-        """Stops listening for commands on stdin."""
+        """Stop listening for commands on stdin."""
         if not self._running:
             return
 
@@ -243,13 +262,18 @@ class CLIService:
 
 # Global state to allow Typer commands to access the CLIService instance
 class GlobalCLIInstance:
+    """Store and provide access to the global CLI instance."""
+
     def __init__(self) -> None:
+        """Initialize with empty instance."""
         self._instance: Optional[CLIService] = None
 
     def set_instance(self, instance: CLIService) -> None:
+        """Set the CLI instance."""
         self._instance = instance
 
     def get_instance(self) -> Optional[CLIService]:
+        """Get the CLI instance."""
         return self._instance
 
 
@@ -259,7 +283,7 @@ global_cli_instance = GlobalCLIInstance()
 # Define Typer commands
 @app.command()
 def status() -> None:
-    """Displays the current operational status of the system."""
+    """Display the current operational status of the system."""
     cli = global_cli_instance.get_instance()
     if not cli:
         print("Error: CLI service not initialized")
@@ -298,7 +322,7 @@ def status() -> None:
 def halt(
     reason: str = typer.Option("Manual user command via CLI", help="Reason for halting trading.")
 ) -> None:
-    """Temporarily halts trading activity."""
+    """Temporarily halt trading activity."""
     cli = global_cli_instance.get_instance()
     if not cli:
         print("Error: CLI service not initialized")
@@ -319,7 +343,7 @@ def halt(
 
 @app.command()
 def resume() -> None:
-    """Resumes trading activity if halted."""
+    """Resume trading activity if halted."""
     cli = global_cli_instance.get_instance()
     if not cli:
         print("Error: CLI service not initialized")
@@ -335,7 +359,7 @@ def resume() -> None:
 
 @app.command(name="stop")
 def stop_command() -> None:
-    """Initiates a graceful shutdown of the application."""
+    """Initiate a graceful shutdown of the application."""
     cli = global_cli_instance.get_instance()
     if not cli:
         print("Error: CLI service not initialized")
@@ -351,14 +375,20 @@ def stop_command() -> None:
 
 # Example Usage (requires running in a context where stdin is available)
 async def example_main() -> None:  # noqa: C901
+    """Run an example CLI service for testing purposes.
+
+    This function creates mock services needed for the CLI service and runs a simple
+    demonstration of its functionality.
+    """
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
     # Create a mock logger service
     from typing import TypeVar
-    from .logger_service import LoggerService, PoolProtocol
+
     from .core.pubsub import PubSubManager  # Import moved here to fix undefined name error
+    from .logger_service import LoggerService, PoolProtocol
 
     T = TypeVar("T", bound=PoolProtocol)
 

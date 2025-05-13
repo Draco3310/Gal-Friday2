@@ -107,6 +107,97 @@ class ValuationService:
             source_module=self._source_module,
         )
 
+    async def _try_direct_conversion(
+        self, from_currency: str, to_currency: str
+    ) -> Optional[Decimal]:
+        """
+        Try to directly convert between currencies using market price.
+
+        Args:
+            from_currency: Source currency
+            to_currency: Target currency
+
+        Returns:
+            Conversion rate if available, None otherwise
+        """
+        try:
+            # Try direct market price
+            pair = f"{from_currency}/{to_currency}"
+            rate = await self.market_price_service.get_latest_price(pair)
+            if rate is not None:
+                now = datetime.utcnow()
+                cache_key = f"{from_currency}/{to_currency}"
+                self._price_cache[cache_key] = (rate, now)
+                return rate
+        except Exception as e:
+            self.logger.debug(
+                f"Direct price not available for {pair}: {e}", source_module=self._source_module
+            )
+        return None
+
+    async def _try_inverse_conversion(
+        self, from_currency: str, to_currency: str
+    ) -> Optional[Decimal]:
+        """
+        Try to convert between currencies using inverse market price.
+
+        Args:
+            from_currency: Source currency
+            to_currency: Target currency
+
+        Returns:
+            Conversion rate if available, None otherwise
+        """
+        try:
+            inverse_pair = f"{to_currency}/{from_currency}"
+            inverse_rate = await self.market_price_service.get_latest_price(inverse_pair)
+            if inverse_rate is not None and inverse_rate > Decimal("0"):
+                rate = Decimal("1") / inverse_rate
+                now = datetime.utcnow()
+                cache_key = f"{from_currency}/{to_currency}"
+                self._price_cache[cache_key] = (rate, now)
+                return rate
+        except Exception as e:
+            self.logger.debug(
+                f"Inverse price not available for {inverse_pair}: {e}",
+                source_module=self._source_module,
+            )
+        return None
+
+    async def _try_usd_conversion(self, from_currency: str, to_currency: str) -> Optional[Decimal]:
+        """
+        Try to convert between currencies using USD as an intermediate.
+
+        Args:
+            from_currency: Source currency
+            to_currency: Target currency
+
+        Returns:
+            Conversion rate if available, None otherwise
+        """
+        if from_currency == "USD" or to_currency == "USD":
+            return None
+
+        try:
+            from_usd_rate = await self.get_currency_conversion_rate(from_currency, "USD")
+            usd_to_rate = await self.get_currency_conversion_rate("USD", to_currency)
+            rate = from_usd_rate * usd_to_rate
+            now = datetime.utcnow()
+            cache_key = f"{from_currency}/{to_currency}"
+            self._price_cache[cache_key] = (rate, now)
+            return rate
+        except PriceNotAvailableError:
+            self.logger.debug(
+                f"USD conversion path failed for {from_currency}->{to_currency}",
+                source_module=self._source_module,
+            )
+        except Exception as e:
+            self.logger.debug(
+                f"Error during USD conversion for {from_currency}->{to_currency}: {e}",
+                source_module=self._source_module,
+            )
+        return None
+
     async def get_currency_conversion_rate(self, from_currency: str, to_currency: str) -> Decimal:
         """
         Get the conversion rate between two currencies.
@@ -136,50 +227,18 @@ class ValuationService:
             if age_seconds < self._price_cache_ttl_seconds:
                 return rate
 
-        # Try direct market price
-        try:
-            pair = f"{from_currency}/{to_currency}"
-            rate = await self.market_price_service.get_latest_price(pair)
-            if rate is not None:
-                self._price_cache[cache_key] = (rate, now)
-                return rate
-        except Exception as e:
-            self.logger.debug(
-                f"Direct price not available for {pair}: {e}", source_module=self._source_module
-            )
+        # Try different conversion methods in sequence
+        rate = await self._try_direct_conversion(from_currency, to_currency)
+        if rate is not None:
+            return rate
 
-        # Try inverse market price
-        try:
-            inverse_pair = f"{to_currency}/{from_currency}"
-            inverse_rate = await self.market_price_service.get_latest_price(inverse_pair)
-            if inverse_rate is not None and inverse_rate > Decimal("0"):
-                rate = Decimal("1") / inverse_rate
-                self._price_cache[cache_key] = (rate, now)
-                return rate
-        except Exception as e:
-            self.logger.debug(
-                f"Inverse price not available for {inverse_pair}: {e}",
-                source_module=self._source_module,
-            )
+        rate = await self._try_inverse_conversion(from_currency, to_currency)
+        if rate is not None:
+            return rate
 
-        # Try conversion through USD
-        if from_currency != "USD" and to_currency != "USD":
-            try:
-                from_usd_rate = await self.get_currency_conversion_rate(from_currency, "USD")
-                usd_to_rate = await self.get_currency_conversion_rate("USD", to_currency)
-                rate = from_usd_rate * usd_to_rate
-                self._price_cache[cache_key] = (rate, now)
-                return rate
-            except PriceNotAvailableError:
-                self.logger.debug(
-                    f"USD conversion path failed for {from_currency}->{to_currency}",
-                    source_module=self._source_module,
-                )
-            except Exception as e:
-                self.logger.debug(
-                    f"Error during USD conversion for {from_currency}->{to_currency}: {e}",
-                    source_module=self._source_module,
-                )
+        rate = await self._try_usd_conversion(from_currency, to_currency)
+        if rate is not None:
+            return rate
 
         raise PriceNotAvailableError(
             f"Cannot determine conversion rate: {from_currency} to {to_currency}"
@@ -189,7 +248,7 @@ class ValuationService:
         self, positions: Dict[str, Any], valuation_currency: Optional[str] = None
     ) -> Tuple[Decimal, bool, Dict[str, Decimal]]:
         """
-        Calculates total value of all positions in the valuation currency.
+        Calculate total value of all positions in the valuation currency.
 
         Args:
             positions: Dictionary of position information
@@ -264,7 +323,7 @@ class ValuationService:
         self, funds: Dict[str, Decimal], valuation_currency: Optional[str] = None
     ) -> Tuple[Decimal, bool]:
         """
-        Calculates the value of cash balances in valuation currency.
+        Calculate the value of cash balances in valuation currency.
 
         Args:
             funds: Dictionary of currency balances
@@ -305,7 +364,7 @@ class ValuationService:
         self, funds: Dict[str, Decimal], positions: Dict[str, Any]
     ) -> Tuple[Decimal, Dict[str, Decimal], Decimal]:
         """
-        Updates total portfolio value, drawdowns, and exposure metrics.
+        Update total portfolio value, drawdowns, and exposure metrics.
 
         Args:
             funds: Dictionary of currency balances
@@ -374,7 +433,7 @@ class ValuationService:
         return exposure_pct
 
     async def _update_drawdown_metrics(self) -> None:
-        """Updates peak equity values and calculates drawdown metrics."""
+        """Update peak equity values and calculate drawdown metrics."""
         now = datetime.utcnow()
 
         # Check if we need to reset daily/weekly peaks
@@ -421,7 +480,7 @@ class ValuationService:
 
     async def _check_reset_periods(self, current_time: datetime) -> None:
         """
-        Checks if daily/weekly peak values should be reset.
+        Check if daily/weekly peak values should be reset.
 
         Args:
             current_time: Current UTC datetime

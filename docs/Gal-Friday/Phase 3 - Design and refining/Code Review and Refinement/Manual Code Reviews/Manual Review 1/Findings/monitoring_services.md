@@ -77,11 +77,11 @@ While the core functionality is implemented, several requirements specified in t
    async def _check_api_connectivity(self) -> None:
        """Checks connectivity to the Kraken API."""
        # Implementation here
-       
+
    async def _check_market_data_freshness(self) -> None:
        """Checks that market data is up-to-date."""
        # Implementation here
-       
+
    async def _check_system_resources(self) -> None:
        """Monitors system resources like memory and CPU usage."""
        # Implementation here
@@ -92,7 +92,7 @@ While the core functionality is implemented, several requirements specified in t
    async def _check_consecutive_losses(self) -> None:
        """Checks if consecutive loss limit has been exceeded."""
        # Implementation here
-       
+
    async def _check_market_volatility(self) -> None:
        """Checks for excessive market volatility."""
        # Implementation here
@@ -122,7 +122,7 @@ While the core functionality is implemented, several requirements specified in t
            "monitoring.api_connectivity.check_interval": {"type": int, "default": 30},
            # etc.
        }
-       
+
        # Load and validate each config item
        for key, schema in self._config_schema.items():
            try:
@@ -175,10 +175,10 @@ While the core functionality is implemented, several requirements specified in t
    async def main(logger: Optional["LoggerService[Any]"] = None) -> None:
        """
        Example usage of the MonitoringService for testing/demonstration.
-       
+
        WARNING: This function is intended for demonstration purposes only
        and should not be included in production code.
-       
+
        Args:
            logger: Optional logger service instance to use for logging.
                   If None, a test logger will be created.
@@ -192,7 +192,7 @@ While the core functionality is implemented, several requirements specified in t
    def register_check(self, name: str, check_func: Callable[[], Coroutine[Any, Any, None]]) -> None:
        """
        Registers an additional health check to be run during periodic checks.
-       
+
        Args:
            name: The name of the check for logging and reporting.
            check_func: An async function that performs the check.
