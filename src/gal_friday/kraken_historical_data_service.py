@@ -383,12 +383,14 @@ class KrakenHistoricalDataService(HistoricalDataService):
             records = []
             for table in tables:
                 for record in table.records:
-                    records.append({
-                        "timestamp": record.values.get("_time"),
-                        "high": float(record.values.get("high", 0)),
-                        "low": float(record.values.get("low", 0)),
-                        "close": float(record.values.get("close", 0)),
-                    })
+                    records.append(
+                        {
+                            "timestamp": record.values.get("_time"),
+                            "high": float(record.values.get("high", 0)),
+                            "low": float(record.values.get("low", 0)),
+                            "close": float(record.values.get("close", 0)),
+                        }
+                    )
 
             if not records:
                 return None
@@ -472,14 +474,16 @@ class KrakenHistoricalDataService(HistoricalDataService):
             open_price = close_price * (1 + (np.random.random() - 0.5) * 0.01)  # float
             volume = np.random.random() * 100  # float
 
-            data.append({
-                "timestamp": timestamp,  # pd.Timestamp
-                "open": open_price,  # float
-                "high": high_price,  # float
-                "low": low_price,  # float
-                "close": close_price,  # float
-                "volume": volume,  # float
-            })
+            data.append(
+                {
+                    "timestamp": timestamp,  # pd.Timestamp
+                    "open": open_price,  # float
+                    "high": high_price,  # float
+                    "low": low_price,  # float
+                    "close": close_price,  # float
+                    "volume": volume,  # float
+                }
+            )
 
             # Update base price for next iteration
             base_price = close_price
@@ -626,14 +630,16 @@ class KrakenHistoricalDataService(HistoricalDataService):
             records = []
             for table in tables:
                 for record in table.records:
-                    records.append({
-                        "timestamp": record.values.get("_time"),
-                        "open": float(record.values.get("open", 0)),
-                        "high": float(record.values.get("high", 0)),
-                        "low": float(record.values.get("low", 0)),
-                        "close": float(record.values.get("close", 0)),
-                        "volume": float(record.values.get("volume", 0)),
-                    })
+                    records.append(
+                        {
+                            "timestamp": record.values.get("_time"),
+                            "open": float(record.values.get("open", 0)),
+                            "high": float(record.values.get("high", 0)),
+                            "low": float(record.values.get("low", 0)),
+                            "close": float(record.values.get("close", 0)),
+                            "volume": float(record.values.get("volume", 0)),
+                        }
+                    )
 
             if not records:
                 self.logger.debug(
@@ -679,12 +685,14 @@ class KrakenHistoricalDataService(HistoricalDataService):
             records = []
             for table in tables:
                 for record in table.records:
-                    records.append({
-                        "timestamp": record.values.get("_time"),
-                        "price": float(record.values.get("price", 0)),
-                        "volume": float(record.values.get("volume", 0)),
-                        "side": record.values.get("side", ""),
-                    })
+                    records.append(
+                        {
+                            "timestamp": record.values.get("_time"),
+                            "price": float(record.values.get("price", 0)),
+                            "volume": float(record.values.get("volume", 0)),
+                            "side": record.values.get("side", ""),
+                        }
+                    )
 
             if not records:
                 self.logger.debug(

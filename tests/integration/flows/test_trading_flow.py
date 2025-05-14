@@ -120,7 +120,7 @@ class MockExecutionHandler(ExecutionHandlerInterface):
             order_type = order_details.get("order_type", "LIMIT")
             side = order_details.get("side", "BUY")
             quantity = order_details.get("quantity", "1.0")
-            
+
             # Simulate order cancellation
             cancel_report = FillEvent(
                 event_id=f"cancel-{exchange_order_id}",

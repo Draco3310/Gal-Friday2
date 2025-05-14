@@ -9,7 +9,8 @@ import pytest
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import EventType, MarketDataL2Event, PredictionEvent, SystemStateEvent
-from gal_friday.core.pubsub import BackpressureStrategy, PubSubManager, SimpleThresholdBackpressure
+from gal_friday.event_bus import BackpressureStrategy, SimpleThresholdBackpressure
+from gal_friday.core.pubsub import PubSubManager
 
 
 class CustomBackpressureStrategy(BackpressureStrategy):

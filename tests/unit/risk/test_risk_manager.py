@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gal_friday.config_manager import ConfigManager
-from gal_friday.core.events import OrderEvent, SignalEvent
+from gal_friday.event_bus import OrderEvent, SignalEvent
 from gal_friday.risk_manager import RiskManager
 
 

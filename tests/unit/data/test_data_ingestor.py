@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from gal_friday.config_manager import ConfigManager
-from gal_friday.core.events import MarketDataEvent
+from gal_friday.event_bus import MarketDataEvent
 from gal_friday.data_ingestor import DataIngestor
 
 

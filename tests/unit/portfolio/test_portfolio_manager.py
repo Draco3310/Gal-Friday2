@@ -3,7 +3,7 @@
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-from gal_friday.core.events import FillEvent, MarketDataEvent, OrderEvent
+from gal_friday.event_bus import FillEvent, MarketDataEvent, OrderEvent
 from gal_friday.portfolio_manager import PortfolioManager
 
 

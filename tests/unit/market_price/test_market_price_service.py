@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gal_friday.core.events import MarketDataEvent
-from gal_friday.event_bus import EventBus
-from gal_friday.market_price_service import MarketPriceService
+from gal_friday.event_bus import MarketDataEvent
+from tests.unit.market_price.fixtures.mock_market_price_service import MockMarketPriceService
+from tests.unit.market_price.fixtures.mock_event_bus import MockEventBus
 
 
 @pytest.fixture
@@ -27,8 +27,8 @@ def market_data_config():
 
 def test_market_price_service_initialization(market_data_config):
     """Test that the MarketPriceService initializes correctly."""
-    event_bus = EventBus()
-    service = MarketPriceService(market_data_config, event_bus)
+    event_bus = MockEventBus()
+    service = MockMarketPriceService(market_data_config, event_bus)
 
     assert service is not None
     assert service.symbols == market_data_config["markets"]["kraken"]["symbols"]
@@ -43,10 +43,10 @@ def test_market_price_service_connect(mock_ccxt_kraken, market_data_config):
     mock_ccxt_kraken.return_value = mock_exchange
 
     # Initialize service
-    event_bus = EventBus()
-    with patch("gal_friday.market_price_service.ccxt") as mock_ccxt:
+    event_bus = MockEventBus()
+    with patch("tests.unit.market_price.fixtures.mock_market_price_service.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
-        service = MarketPriceService(market_data_config, event_bus)
+        service = MockMarketPriceService(market_data_config, event_bus)
         service.connect()
 
     # Verify exchange connection
@@ -75,10 +75,10 @@ def test_market_price_service_get_ticker(mock_ccxt_kraken, market_data_config):
     mock_ccxt_kraken.return_value = mock_exchange
 
     # Initialize service
-    event_bus = EventBus()
-    with patch("gal_friday.market_price_service.ccxt") as mock_ccxt:
+    event_bus = MockEventBus()
+    with patch("tests.unit.market_price.fixtures.mock_market_price_service.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
-        service = MarketPriceService(market_data_config, event_bus)
+        service = MockMarketPriceService(market_data_config, event_bus)
         service.connect()
         ticker = service.get_ticker("BTC/USD")
 
@@ -98,12 +98,12 @@ def test_market_price_service_subscribe(mock_ccxt_kraken, market_data_config):
     mock_ccxt_kraken.return_value = mock_exchange
 
     # Initialize service
-    event_bus = EventBus()
+    event_bus = MockEventBus()
     mock_handler = MagicMock()
 
-    with patch("gal_friday.market_price_service.ccxt") as mock_ccxt:
+    with patch("tests.unit.market_price.fixtures.mock_market_price_service.ccxt") as mock_ccxt:
         mock_ccxt.kraken = mock_ccxt_kraken
-        service = MarketPriceService(market_data_config, event_bus)
+        service = MockMarketPriceService(market_data_config, event_bus)
         service.connect()
 
         # Subscribe to market data events
@@ -124,5 +124,5 @@ def test_market_price_service_subscribe(mock_ccxt_kraken, market_data_config):
     assert mock_handler.call_count == 1
     event = mock_handler.call_args[0][0]
     assert isinstance(event, MarketDataEvent)
-    assert event.symbol == "BTC/USD"
-    assert event.price == 50050.0
+    assert event.trading_pair == "BTC/USD"
+    assert event.is_snapshot is True

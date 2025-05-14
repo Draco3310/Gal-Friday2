@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gal_friday.config_manager import ConfigManager
-from gal_friday.core.events import MarketDataEvent, SignalEvent
+from gal_friday.event_bus import MarketDataEvent, SignalEvent
 from gal_friday.strategy_arbitrator import StrategyArbitrator
 
 

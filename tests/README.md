@@ -1,4 +1,4 @@
-# Gal-Friday2 Test Suite
+# Gal-Friday Test Suite
 
 This directory contains the test suite for the Gal-Friday2 cryptocurrency trading system, organized to ensure code quality, correctness and maintainability.
 
@@ -37,6 +37,42 @@ Interface contract tests ensure that all implementations of an interface correct
 ### Integration Tests
 
 Integration tests verify that different components work correctly together. These tests focus on the interactions between components and ensure that the system works as a whole.
+
+## Import Guidelines
+
+When writing tests, certain imports need to come from specific locations:
+
+### Event Classes
+
+**Always import event classes from `gal_friday.event_bus`, not from `gal_friday.core.events`:**
+
+```python
+# Correct imports
+from gal_friday.event_bus import (
+    MarketDataEvent,
+    FillEvent,
+    OrderEvent,
+    SignalEvent
+)
+
+# Incorrect imports - these will cause mypy errors
+from gal_friday.core.events import MarketDataEvent  # Wrong!
+```
+
+### Backpressure Classes
+
+Backpressure strategy classes should be imported from `gal_friday.event_bus`:
+
+```python
+# Correct imports
+from gal_friday.event_bus import (
+    BackpressureStrategy,
+    SimpleThresholdBackpressure
+)
+
+# Incorrect imports
+from gal_friday.core.pubsub import BackpressureStrategy  # Wrong!
+```
 
 ## Running Tests
 
@@ -130,3 +166,21 @@ When adding new features or fixing bugs, please ensure:
 Shared fixtures are defined in `conftest.py`. Use these fixtures whenever possible to maintain consistency across tests.
 
 For external dependencies, use appropriate mocking to ensure tests can run without external services.
+
+To run all tests:
+
+```bash
+python -m pytest
+```
+
+To run specific tests with verbose output:
+
+```bash
+python -m pytest tests/unit/market_price/test_market_price_service.py -v
+```
+
+To run type checking on the test suite:
+
+```bash
+mypy tests
+```

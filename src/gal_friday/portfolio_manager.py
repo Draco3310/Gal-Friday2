@@ -515,8 +515,10 @@ class PortfolioManager:
             for k, v in self.funds_manager.available_funds.items()
         }
         positions_str = {
-            pair: f"Qty={pos.quantity.quantize(Decimal('1e-8'))}, "
-            f"AvgPx={pos.average_entry_price.quantize(Decimal('0.0001'))}"
+            pair: (
+                f"Qty={pos.quantity.quantize(Decimal('1e-8'))}, "
+                f"AvgPx={pos.average_entry_price.quantize(Decimal('0.0001'))}"
+            )
             for pair, pos in self.position_manager.positions.items()
         }
         equity = self.valuation_service.total_equity
@@ -661,16 +663,18 @@ class PortfolioManager:
         # Format the trade history
         result = []
         for trade in position.trade_history:
-            result.append({
-                "timestamp": trade.timestamp.isoformat() + "Z",
-                "side": trade.side,
-                "quantity": str(trade.quantity),
-                "price": str(trade.price),
-                "commission": str(trade.commission),
-                "commission_asset": trade.commission_asset,
-                # Realized PNL is now stored at the position level, not per trade
-                # "realized_pnl": str(trade.realized_pnl),
-            })
+            result.append(
+                {
+                    "timestamp": trade.timestamp.isoformat() + "Z",
+                    "side": trade.side,
+                    "quantity": str(trade.quantity),
+                    "price": str(trade.price),
+                    "commission": str(trade.commission),
+                    "commission_asset": trade.commission_asset,
+                    # Realized PNL is now stored at the position level, not per trade
+                    # "realized_pnl": str(trade.realized_pnl),
+                }
+            )
         return result
 
     def get_open_positions(self) -> List[PositionInfo]:

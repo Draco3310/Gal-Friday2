@@ -129,12 +129,6 @@ except ImportError:
     DataIngestor = None  # type: ignore[assignment,misc]
 
 try:
-    from .feature_engine import FeatureEngine
-except ImportError:
-    print("Failed to import FeatureEngine")
-    FeatureEngine = None
-
-try:
     from .prediction_service import PredictionService
 except ImportError:
     print("Failed to import PredictionService")
@@ -570,13 +564,13 @@ class GalFridayApp:
             log.debug("DataIngestor instantiated.")
 
             # 9. FeatureEngine
-            if FeatureEngine is None:
+            if FeatureEngineType is None:
                 raise RuntimeError("FeatureEngine class not available.")
             feature_engine_config = (
                 self.config.get_all() if hasattr(self.config, "get_all") else {}
             )
             # FeatureEngine might need historical_data_service for initial data loading
-            self.feature_engine = FeatureEngine(
+            self.feature_engine = FeatureEngineType(
                 config=feature_engine_config,
                 pubsub_manager=self.pubsub,
                 logger_service=self.logger_service,

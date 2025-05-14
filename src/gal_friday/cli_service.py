@@ -14,11 +14,10 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
-import typer
-from rich.console import Console
-from rich.table import Table
-
 if TYPE_CHECKING:
+    import typer
+    from rich.console import Console
+    from rich.table import Table
     from .logger_service import LoggerService
     from .main import GalFridayApp
     from .monitoring_service import MonitoringService
@@ -36,7 +35,33 @@ if TYPE_CHECKING:
     MainAppControllerType = Union[MainAppController, "GalFridayApp"]
 
 else:
-    # Placeholders if not type checking
+    # Use stub module when not type checking
+    from .typer_stubs import Typer as typer
+
+    # Mock rich modules - these would normally be installed dependencies
+    class Console:
+        """Mock implementation of rich.console.Console for non-type-checking mode."""
+
+        def print(self, *args, **kwargs):
+            """Print to console, simplified version of rich.console.Console.print."""
+            print(*args)
+
+    class Table:
+        """Mock implementation of rich.table.Table for non-type-checking mode."""
+
+        def __init__(self, *args, **kwargs):
+            """Initialize a mock table."""
+            pass
+
+        def add_column(self, *args, **kwargs):
+            """Add a column to the table."""
+            pass
+
+        def add_row(self, *args, **kwargs):
+            """Add a row to the table."""
+            pass
+
+    # Placeholders for other imports
     class MonitoringService:  # Placeholder
         """Placeholder for MonitoringService when not type checking."""
 
@@ -66,8 +91,42 @@ else:
             """Return the current state of the portfolio."""
             return {"total_drawdown_pct": 1.5}
 
+    class LoggerService:
+        """Placeholder for LoggerService when not type checking."""
+
+        def info(
+            self,
+            message: str,
+            source_module: Optional[str] = None,
+            context: Optional[Dict[Any, Any]] = None,
+        ) -> None:
+            """Log info message."""
+            print(f"INFO: {message}")
+
+        def warning(
+            self,
+            message: str,
+            source_module: Optional[str] = None,
+            context: Optional[Dict[Any, Any]] = None,
+        ) -> None:
+            """Log warning message."""
+            print(f"WARNING: {message}")
+
+        def error(
+            self,
+            message: str,
+            source_module: Optional[str] = None,
+            context: Optional[Dict[Any, Any]] = None,
+            exc_info: Optional[Any] = None,
+        ) -> None:
+            """Log error message."""
+            print(f"ERROR: {message}")
+
+    # Define GalFridayApp as alias to MainAppController for non-type-checking mode
+    GalFridayApp = MainAppController
+
     # Allow GalFridayApp to be used where MainAppController is expected
-    MainAppControllerType = Union[MainAppController, "GalFridayApp"]
+    MainAppControllerType = Union[MainAppController, GalFridayApp]
 
 # Create Typer application instance
 app = typer.Typer(help="Gal-Friday Trading System Control CLI")
@@ -263,18 +322,28 @@ class CLIService:
 
 # Global state to allow Typer commands to access the CLIService instance
 class GlobalCLIInstance:
-    """Store and provide access to the global CLI instance."""
+    """Singleton class to maintain a global reference to the CLI service instance."""
 
     def __init__(self) -> None:
-        """Initialize with empty instance."""
+        """Initialize the GlobalCLIInstance with an empty reference."""
         self._instance: Optional[CLIService] = None
 
     def set_instance(self, instance: CLIService) -> None:
-        """Set the CLI instance."""
+        """Set the global CLI service instance.
+
+        Args
+        ----
+            instance: The CLIService instance to store globally.
+        """
         self._instance = instance
 
     def get_instance(self) -> Optional[CLIService]:
-        """Get the CLI instance."""
+        """Retrieve the global CLI service instance.
+
+        Returns
+        -------
+            The globally stored CLIService instance, or None if not set.
+        """
         return self._instance
 
 

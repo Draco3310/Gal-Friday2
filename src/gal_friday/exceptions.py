@@ -45,10 +45,12 @@ class APIError(GalFridayError):
             details: Optional dictionary with additional error details
         """
         details = details or {}
-        details.update({
-            "service_name": service_name,
-            "status_code": status_code,
-        })
+        details.update(
+            {
+                "service_name": service_name,
+                "status_code": status_code,
+            }
+        )
         super().__init__(message, details)
 
 

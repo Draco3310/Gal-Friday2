@@ -732,14 +732,18 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 break  # Stop if volume is zero or less
 
             if i == 0:  # BBO level
-                bids_levels.append([
-                    price_format_str.format(current_bid_for_level),
-                    volume_format_str.format(current_volume_for_level),
-                ])
-                asks_levels.append([
-                    price_format_str.format(current_ask_for_level),
-                    volume_format_str.format(current_volume_for_level),
-                ])
+                bids_levels.append(
+                    [
+                        price_format_str.format(current_bid_for_level),
+                        volume_format_str.format(current_volume_for_level),
+                    ]
+                )
+                asks_levels.append(
+                    [
+                        price_format_str.format(current_ask_for_level),
+                        volume_format_str.format(current_volume_for_level),
+                    ]
+                )
             else:
                 # Ensure subsequent levels do not cross or create invalid book structure
                 # (e.g. new bid > best_ask or new_ask < best_bid)
@@ -764,15 +768,19 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     )
                     # Allow asks to continue if bids hit zero
                 else:
-                    bids_levels.append([
-                        price_format_str.format(current_bid_for_level),
-                        volume_format_str.format(current_volume_for_level),
-                    ])
+                    bids_levels.append(
+                        [
+                            price_format_str.format(current_bid_for_level),
+                            volume_format_str.format(current_volume_for_level),
+                        ]
+                    )
 
-                asks_levels.append([
-                    price_format_str.format(current_ask_for_level),
-                    volume_format_str.format(current_volume_for_level),
-                ])
+                asks_levels.append(
+                    [
+                        price_format_str.format(current_ask_for_level),
+                        volume_format_str.format(current_volume_for_level),
+                    ]
+                )
 
             # Calculate prices for the *next* level (i+1)
             if current_level_bid_price > Decimal(0):  # Avoid issues if bid is already zero

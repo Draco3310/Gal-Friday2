@@ -10,13 +10,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gal_friday.config_manager import ConfigManager
-from gal_friday.core.events import (
+from gal_friday.event_bus import (
     FillEvent,
     MarketDataEvent,
     OrderEvent,
-    PredictionEvent,
     SignalEvent,
 )
+from gal_friday.core.events import PredictionEvent
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.execution_handler import ExecutionHandler
 from gal_friday.market_price_service import MarketPriceService

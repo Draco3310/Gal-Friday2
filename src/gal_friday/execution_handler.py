@@ -558,7 +558,7 @@ class ExecutionHandler:
             "API-Key": self.api_key,
             "API-Sign": api_sign,
             # Important for Kraken's API requirements
-            "Content-Type": ("application/x-www-form-urlencoded; charset=utf-8"),
+            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
         }
         url = self.api_base_url + uri_path
 
