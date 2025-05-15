@@ -1,0 +1,14 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+- **PostgreSQL Schema:** All interactions with PostgreSQL MUST adhere to the schemas defined in `docs/Gal-Friday/Phase 1 - Requirements Analysis & Planning/db_schema_gal_friday_v0.1.md` and visualized in `docs/Gal-Friday/Phase 1 - Requirements Analysis & Planning/db_schema_diagram_gal_friday_v0.1.md`.
+  - Pay close attention to table structures (e.g., `signals`, `orders`, `fills`, `trades`, `system_logs`, `portfolio_snapshots`).
+  - Use specified data types: `TIMESTAMPTZ` (stored in UTC), `NUMERIC` for financials, `UUID` for internal IDs, `JSONB` for semi-structured data.
+  - Respect foreign key relationships and constraints.
+- **InfluxDB Schema:** For time-series data, use the InfluxDB measurements and conventions outlined in `docs/Gal-Friday/Phase 1 - Requirements Analysis & Planning/db_schema_gal_friday_v0.1.md` (Section 3).
+  - Measurements include: `market_data_l2`, `market_data_ohlcv`, `features`, `predictions`, `portfolio_metrics`, `system_metrics`.
+  - Correctly use tags for filtering/grouping and fields for data values.
+- **Data Conventions:** Follow general data conventions specified, such as ISO 8601 for timestamp representation outside the DB, and defined precision for numeric types.
+- **ORM/Querying:** If using an ORM (like SQLAlchemy, mentioned in SRS NFR-303), ensure queries are efficient and map correctly to the schema. For direct SQL, ensure it's compliant with PostgreSQL.

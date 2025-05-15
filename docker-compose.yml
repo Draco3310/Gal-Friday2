@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: gal-friday-app
+    volumes:
+      - ./config:/app/config
+    depends_on:
+      - db
+    environment:
+      - ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/galfrday
+    command: python -m src.gal_friday.main
+    restart: unless-stopped
+
+  db:
+    image: postgres:14
+    container_name: gal-friday-db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+      - ./db/schema:/docker-entrypoint-initdb.d
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=galfrday
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  # Uncomment to add a time-series database for market data storage
+  # influxdb:
+  #   image: influxdb:2.0
+  #   container_name: gal-friday-influxdb
+  #   volumes:
+  #     - influxdb_data:/var/lib/influxdb2
+  #   ports:
+  #     - "8086:8086"
+  #   environment:
+  #     - DOCKER_INFLUXDB_INIT_MODE=setup
+  #     - DOCKER_INFLUXDB_INIT_USERNAME=admin
+  #     - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword
+  #     - DOCKER_INFLUXDB_INIT_ORG=galfriday
+  #     - DOCKER_INFLUXDB_INIT_BUCKET=market_data
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:
+  # influxdb_data:

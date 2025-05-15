@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  app:
+    image: gal-friday:test
+    environment:
+      - ENV=test
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/galfrday_test
+    command: python -m pytest
+    depends_on:
+      - db
+
+  db:
+    image: postgres:14
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=galfrday_test
+    volumes:
+      - ./db/schema:/docker-entrypoint-initdb.d
+    tmpfs:
+      - /var/lib/postgresql/data

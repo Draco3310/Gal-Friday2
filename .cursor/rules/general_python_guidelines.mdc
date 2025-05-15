@@ -1,0 +1,12 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+- Follow PEP 8 for Python code.
+- Use type hints for all function signatures and important variables.
+- Write clear and concise docstrings for all public modules, classes, and functions, preferably in Google style.
+- Aim for high test coverage. New features should include corresponding unit tests.
+- Keep functions and methods short and focused on a single responsibility.
+- Avoid overly complex list comprehensions or lambda functions if they harm readability.
+- Comment non-obvious code sections.

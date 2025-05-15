@@ -1,0 +1,71 @@
+# Sample Configuration File for Gal-Friday2
+
+# Prediction Service Configuration
+prediction_service:
+  # Process pool configuration
+  process_pool_workers: 4
+
+  # Model definitions
+  models:
+    # XGBoost model for XRP/USD
+    - model_id: "xgb_model_xrp_v1"
+      trading_pair: "XRP/USD"
+      model_path: "models/xgboost_xrp_v1.xgb"
+      model_type: "xgboost"
+      model_feature_names: ["mid_price", "spread_pct", "vwap", "rsi_14", "macd", "bb_upper", "bb_lower"]
+      prediction_target: "prob_price_up_0.1pct_5min"
+      preprocessing:
+        scaler_path: "models/scaler_xrp_v1.joblib"
+        max_nan_percentage: 15.0  # Maximum allowed percentage of NaN values
+
+    # Scikit-learn RandomForest model for XRP/USD
+    - model_id: "rf_model_xrp_v1"
+      trading_pair: "XRP/USD"
+      model_path: "models/randomforest_xrp_v1.joblib"
+      model_type: "sklearn"
+      model_feature_names: ["mid_price", "spread_pct", "vwap", "rsi_14", "macd", "bb_upper", "bb_lower"]
+      prediction_target: "prob_price_up_0.1pct_5min"
+      preprocessing:
+        scaler_path: "models/scaler_xrp_v1.joblib"  # Can reuse same scaler
+        max_nan_percentage: 15.0
+
+    # XGBoost model for DOGE/USD
+    - model_id: "xgb_model_doge_v1"
+      trading_pair: "DOGE/USD"
+      model_path: "models/xgboost_doge_v1.xgb"
+      model_type: "xgboost"
+      model_feature_names: ["mid_price", "spread_pct", "vwap", "rsi_14", "macd", "bb_upper", "bb_lower"]
+      prediction_target: "prob_price_up_0.1pct_5min"
+      preprocessing:
+        scaler_path: "models/scaler_doge_v1.joblib"
+        max_nan_percentage: 15.0
+
+  # Ensemble definitions
+  ensembles:
+    # Simple average ensemble for XRP/USD
+    - ensemble_id: "xrp_ensemble_v1"
+      trading_pair: "XRP/USD"
+      model_ids: ["xgb_model_xrp_v1", "rf_model_xrp_v1"]
+      strategy: "average"  # Options: "average" or "weighted"
+      output_model_id: "xrp_ensemble_v1"  # ID used in PredictionEvent
+      prediction_target: "prob_price_up_0.1pct_5min"
+
+    # Weighted ensemble example
+    - ensemble_id: "xrp_weighted_ensemble_v1"
+      trading_pair: "XRP/USD"
+      model_ids: ["xgb_model_xrp_v1", "rf_model_xrp_v1"]
+      strategy: "weighted"
+      weights:
+        "xgb_model_xrp_v1": 0.7
+        "rf_model_xrp_v1": 0.3
+      output_model_id: "xrp_weighted_ensemble_v1"
+      prediction_target: "prob_price_up_0.1pct_5min"
+
+# Other service configurations would go here...
+feature_engine:
+  # Feature engine configuration
+
+market_price_service:
+  # Market price service configuration
+
+# And so on...

@@ -1,0 +1,11 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+- **Modular Monolith:** Remember that Gal-Friday is a Modular Monolith. Prioritize low latency for the critical trading path and simplified data consistency. Refer to `docs/Gal-Friday/Phase 1 - Requirements Analysis & Planning/architecture_concept_gal_friday_v0.1.md` for details.
+- **Internal Event Bus/Queues:** Primary communication between most modules MUST use the internal, asyncio-based event bus or queues. This promotes loose coupling and asynchronous processing. Refer to event payload definitions in `docs/Gal-Friday/Phase 1 - Requirements Analysis & Planning/inter_module_comm_gal_friday_v0.1.md`.
+- **Synchronous Access:** For critical, time-sensitive state (e.g., `RiskManager` querying `PortfolioManager`), direct synchronous calls are permitted but should be exceptions. See `architecture_concept_gal_friday_v0.1.md` and `inter_module_comm_gal_friday_v0.1.md` (Section 4.1).
+- **Module Interfaces:** Adhere strictly to the defined module interfaces (classes and public methods) outlined in `docs/Gal-Friday/Phase 1 - Requirements Analysis & Planning/interface_definitions_gal_friday_v0.1.md`. This is crucial for maintaining modularity.
+- **Data Flow:** Understand the core data flow as depicted in `docs/Gal-Friday/Phase 1 - Requirements Analysis & Planning/architecture_diagram_gal_friday_v0.1.md`.
+- **Avoid "Big Ball of Mud":** Maintain strict adherence to module boundaries and defined interfaces to prevent architectural degradation.

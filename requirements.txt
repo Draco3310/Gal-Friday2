@@ -1,21 +1,57 @@
-# Core Application & Async
-python>=3.9
-asyncio; python_version >= '3.9' # asyncio is built-in
-websockets
-aiohttp
-asyncpg # For async PostgreSQL interaction
-PyYAML # For configuration files
-APScheduler # For scheduling tasks like retraining checks
-pypubsub # For internal event bus (as mentioned potential library)
+# Core Async and Networking
+aiohttp>=3.8.0
+websockets>=10.4  # Explicitly requiring a newer version that supports ClientProtocol
+aiodns>=3.0.0
+aiosignal>=1.2.0
+yarl>=1.7.0
+multidict>=6.0.0
 
-# Data Handling & ML
-pandas
-numpy
-scikit-learn
-xgboost
+# Database and Storage
+asyncpg>=0.27.0
+influxdb-client>=1.30.0
+
+# Event Handling and Message Queue
+pypubsub>=4.0.3
+sortedcontainers>=2.4.0
+APScheduler>=3.9.0
+
+# Configuration
+PyYAML>=6.0
+
+# Data Science and ML
+numpy>=1.24.0,<1.25.0  # Compatible with pandas_ta
+pandas>=1.5.0
+scikit-learn>=1.1.0
+xgboost>=1.6.0
+pandas-ta>=0.3.14b
 
 # Exchange Interaction
-ccxt
+ccxt>=4.0.0
 
-# Development & Testing
-pytest 
+# Development and Testing
+pytest>=7.0.0
+pytest-asyncio>=0.23.0  # For testing async code
+pytest-cov>=4.1.0  # For code coverage reporting
+pytest-mock>=3.12.0  # For better mocking
+pytest-sugar>=1.0.0  # For better UI
+pytest-xdist>=3.5.0  # For parallel testing
+mypy>=1.15.0  # For type checking
+ruff>=0.11.9  # Replaces flake8, black, isort, pydocstyle, etc.
+pre-commit>=3.5.0  # For managing pre-commit hooks
+bandit>=1.8.3  # For security checks
+
+# Utilities
+python-dateutil>=2.8.2
+python-json-logger>=2.0.4
+typing-extensions>=4.0.0
+
+# System Monitoring
+psutil>=5.9.0
+types-psutil>=5.9.0 # For mypy type checking
+
+# HTTP-related dependencies
+certifi>=2021.10.8
+charset-normalizer>=2.0.12
+urllib3>=1.26.9
+requests>=2.27.1
+idna>=3.3
