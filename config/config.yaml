@@ -98,8 +98,50 @@ feature_engine:
 
 # Prediction Service Settings
 prediction_service:
-  model_path: "models/xgb_model_v1.joblib" # Path where trained model will be saved/loaded
-  # model_type: "xgboost" # Could add this for clarity if supporting multiple types
+  # Defines how predictions from multiple models (for the same target) are combined.
+  # "none": Publish individual predictions for each model.
+  # "average": Simple average of prediction values.
+  # "weighted_average": Weighted average based on ensemble_weights.
+  ensemble_strategy: "none" # Default to individual predictions
+  ensemble_weights: {} # Example: {"xgb_v1_price_up": 0.7, "rf_v1_price_up": 0.3}
+
+  models:
+    - model_id: "xgb_v1_price_up"
+      predictor_type: "xgboost"  # Maps to XGBoostPredictor
+      model_path: "models/prod/xgb_v1_price_up.xgb"
+      scaler_path: "models/prod/xgb_v1_price_up_scaler.pkl" # Optional
+      model_feature_names: ["rsi_14", "macd_12_26_9_macdhist", "bbands_20_2.0_upperband_pct_dist"] # Example
+      prediction_target: "prob_price_up_5min" # What this model predicts
+      critical: true # If true, service won't start if this model fails to load
+
+    - model_id: "rf_v1_price_up"
+      predictor_type: "sklearn" # Maps to SKLearnPredictor
+      model_path: "models/prod/rf_v1_price_up.joblib"
+      scaler_path: "models/prod/rf_v1_price_up_scaler.pkl"
+      # model_feature_names: ["alt_feat1", "alt_feat2"] # SKLearn can often get from model
+      prediction_target: "prob_price_up_5min" # Same target, can be ensembled
+      critical: false
+
+    # Example LSTM model configuration
+    - model_id: "lstm_seq_v1_price_up"
+      predictor_type: "lstm"
+      framework: "tensorflow" # Specify "tensorflow" or "pytorch"
+      model_path: "models/prod/lstm_seq_v1_price_up.h5"
+      scaler_path: "models/prod/lstm_seq_v1_price_up_scaler.pkl"
+      model_feature_names: ["close_scaled", "volume_scaled", "rsi_14"] # Features per timestep
+      sequence_length: 20 # LSTM expects a sequence of 20 past timesteps
+      prediction_target: "prob_price_up_5min"
+      critical: false
+      # output_activation: "sigmoid" # Optional: hint for LSTMPredictor if needed for confidence calc
+
+    # Example of a model predicting a different target
+    # - model_id: "xgb_v2_volatility"
+    #   predictor_type: "xgboost"
+    #   model_path: "models/prod/xgb_v2_volatility.xgb"
+    #   scaler_path: "models/prod/xgb_v2_volatility_scaler.pkl"
+    #   model_feature_names: ["atr_14", "stdev_20"]
+    #   prediction_target: "predicted_volatility_1min"
+    #   critical: false
 
 # Model Training Script Settings
 training:
@@ -111,10 +153,10 @@ training:
     # start_date: "2022-01-01T00:00:00Z"
     # end_date: "2023-12-31T23:59:59Z"
     train_split_ratio: 0.8 # Proportion of data used for training (rest for testing)
-    feature_list: ["rsi_14", "macd_12_26_9", "bbands_20_2_upper", "bbands_20_2_lower", "atr_14"] # Example feature names to use
+    feature_list: ["rsi_14", "macd_12_26_9_macdhist", "bbands_20_2.0_upperband_pct_dist", "atr_14"] # Example feature names to use
   model:
-    type: "xgboost" # Specify model type
-    params: # Hyperparameters for XGBoost (example)
+    type: "xgboost" # Specify model type for a default training run, actual models used are per prediction_service config
+    params: # Hyperparameters for XGBoost (example for a default training run)
       objective: 'binary:logistic'
       eval_metric: 'logloss'
       eta: 0.1 # learning_rate

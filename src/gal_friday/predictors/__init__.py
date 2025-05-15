@@ -1,15 +1,16 @@
 """
-Predictors module for Gal-Friday.
+Predictors for Gal-Friday.
 
-This module contains implementations of different machine learning model predictors.
+This package contains implementations of the PredictorInterface
+for various machine learning model types.
 """
 
-from ..interfaces.predictor_interface import PredictorInterface
-from .sklearn_predictor import SklearnPredictor
+from .lstm_predictor import LSTMPredictor
+from .sklearn_predictor import SKLearnPredictor
 from .xgboost_predictor import XGBoostPredictor
 
 __all__ = [
-    "PredictorInterface",
-    "SklearnPredictor",
+    "LSTMPredictor",
+    "SKLearnPredictor",
     "XGBoostPredictor",
 ]

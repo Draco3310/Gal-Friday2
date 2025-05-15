@@ -18,7 +18,9 @@ from ..interfaces.predictor_interface import PredictorInterface
 class SKLearnPredictor(PredictorInterface):
     """Implementation of PredictorInterface for scikit-learn models."""
 
-    def __init__(self, model_path: str, model_id: str, config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self, model_path: str, model_id: str, config: Optional[Dict[str, Any]] = None
+    ) -> None:
         """Initialize the SKLearn predictor.
 
         Args
@@ -119,14 +121,16 @@ class SKLearnPredictor(PredictorInterface):
                 # We typically want the probability of the positive class (index 1)
                 all_class_probabilities = self.model.predict_proba(processed_features)
                 # Assuming binary classification, take prob of class 1
-                prediction_output = all_class_probabilities[:, 1] 
+                prediction_output = all_class_probabilities[:, 1]
             elif hasattr(self.model, "predict"):
                 # For regressors or classifiers without predict_proba
                 prediction_output = self.model.predict(processed_features)
             else:
-                self.logger.error("Loaded model object does not have a 'predict' or 'predict_proba' method.")
+                self.logger.error(
+                    "Loaded model object does not have a 'predict' or 'predict_proba' method."
+                )
                 raise TypeError("Model does not support predict or predict_proba methods.")
-            
+
             # Ensure output is a 1D numpy array of float32 for consistency
             return np.asarray(prediction_output, dtype=np.float32).flatten()
 
@@ -139,7 +143,7 @@ class SKLearnPredictor(PredictorInterface):
         """Return the list of feature names the model expects.
         Tries to get it from model.feature_names_in_ first, then from config.
         """
-        if hasattr(self.model, 'feature_names_in_') and self.model.feature_names_in_ is not None:
+        if hasattr(self.model, "feature_names_in_") and self.model.feature_names_in_ is not None:
             return list(self.model.feature_names_in_)
         return self.config.get("model_feature_names")
 
@@ -149,9 +153,11 @@ class SKLearnPredictor(PredictorInterface):
         model_id: str,
         model_path: str,
         scaler_path: Optional[str],
-        feature_vector: np.ndarray, # Expects 1D raw feature vector
-        model_feature_names: List[str], # From model config, might be used if model doesn't store them
-        predictor_specific_config: Dict[str, Any] # Full model config
+        feature_vector: np.ndarray,  # Expects 1D raw feature vector
+        model_feature_names: List[
+            str
+        ],  # From model config, might be used if model doesn't store them
+        predictor_specific_config: Dict[str, Any],  # Full model config
     ) -> Dict[str, Any]:
         """
         Load model and scaler, preprocess, predict. Executed in a separate process.
@@ -193,27 +199,56 @@ class SKLearnPredictor(PredictorInterface):
                 logger.debug("No scaler used.")
 
             # 4. Predict
-            prediction_output: np.ndarray
+            prediction_float: float
+            confidence_float: Optional[float] = None
+
             if hasattr(model, "predict_proba"):
-                all_class_probabilities = model.predict_proba(processed_features)
-                # Assuming binary classification, prob of positive class (index 1)
-                prediction_output = all_class_probabilities[:, 1]
+                # For classifiers that support probability
+                all_class_probabilities = model.predict_proba(
+                    processed_features
+                )  # Shape: (n_samples, n_classes)
+                if all_class_probabilities.shape[1] >= 2:
+                    # Assuming binary classification, prediction is prob of positive class (index 1)
+                    prediction_float = float(all_class_probabilities[0, 1])
+                    confidence_float = prediction_float  # Use this probability as confidence
+                elif (
+                    all_class_probabilities.shape[1] == 1
+                ):  # Single class output (unusual for proba)
+                    prediction_float = float(all_class_probabilities[0, 0])
+                    confidence_float = prediction_float  # Or abs(prediction_float - 0.5) * 2 for nearness to 0 or 1
+                else:  # No classes
+                    return {
+                        "error": "predict_proba returned no class probabilities.",
+                        "model_id": model_id,
+                    }
             elif hasattr(model, "predict"):
+                # For regressors or classifiers without predict_proba
                 prediction_output = model.predict(processed_features)
+                if isinstance(prediction_output, np.ndarray) and prediction_output.size == 1:
+                    prediction_float = float(prediction_output.item())
+                elif isinstance(prediction_output, (float, int, np.floating, np.integer)):
+                    prediction_float = float(prediction_output)
+                else:
+                    return {
+                        "error": f"Unsupported prediction output type from model.predict: {type(prediction_output)}",
+                        "model_id": model_id,
+                    }
+                # Confidence is None for models without predict_proba, unless a specific method is defined
+                confidence_float = None
             else:
-                return {"error": "Model has no predict or predict_proba method.", "model_id": model_id}
+                return {
+                    "error": "Model has no predict or predict_proba method.",
+                    "model_id": model_id,
+                }
 
-            # Ensure the output is a single float value (e.g., probability or regression value)
-            if prediction_output.size == 1:
-                prediction_float = float(prediction_output.item())
-            else:
-                 # This might happen if predict_proba returns for multiple samples (though we send 1)
-                 # or if a regressor predict returns multiple targets. For now, assume single output.
-                logger.warning(f"Unexpected prediction output shape for {model_id}: {prediction_output.shape}. Taking first element.")
-                prediction_float = float(prediction_output.flatten()[0])
-
-            logger.debug(f"Prediction for {model_id} successful: {prediction_float}")
-            return {"prediction": prediction_float, "model_id": model_id}
+            logger.debug(
+                f"Prediction for {model_id} successful: {prediction_float}, Confidence: {confidence_float}"
+            )
+            return {
+                "prediction": prediction_float,
+                "confidence": confidence_float,
+                "model_id": model_id,
+            }
 
         except FileNotFoundError as e:
             logger.error(f"File not found error during inference for {model_id}: {e!s}")

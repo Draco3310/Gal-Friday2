@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import joblib # For loading scalers
+import joblib  # For loading scalers
 import numpy as np
 import xgboost as xgb
 
@@ -19,7 +19,9 @@ from ..interfaces.predictor_interface import PredictorInterface
 class XGBoostPredictor(PredictorInterface):
     """Implementation of PredictorInterface for XGBoost models."""
 
-    def __init__(self, model_path: str, model_id: str, config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self, model_path: str, model_id: str, config: Optional[Dict[str, Any]] = None
+    ) -> None:
         """
         Initialize the XGBoost predictor.
 
@@ -59,9 +61,9 @@ class XGBoostPredictor(PredictorInterface):
 
         except xgb.core.XGBoostError as e:
             self.logger.exception(f"Failed to load XGBoost model from {self.model_path}")
-            raise e # Re-raise the specific exception
+            raise e  # Re-raise the specific exception
         except FileNotFoundError as e:
-            raise e # Re-raise
+            raise e  # Re-raise
 
         # Load Scaler
         if self.scaler_path:
@@ -72,14 +74,13 @@ class XGBoostPredictor(PredictorInterface):
                 self.scaler = joblib.load(self.scaler_path)
                 self.logger.info(f"Scaler loaded successfully from {self.scaler_path}")
             except FileNotFoundError as e:
-                raise e # Re-raise
+                raise e  # Re-raise
             except Exception as e:
                 self.logger.exception(f"Failed to load scaler from {self.scaler_path}")
-                raise e # Re-raise a generic exception or a custom one
+                raise e  # Re-raise a generic exception or a custom one
         else:
             self.logger.info("No scaler_path provided. Proceeding without a scaler.")
             self.scaler = None
-
 
     def predict(self, features: np.ndarray) -> np.ndarray:
         """Generate predictions using the XGBoost model.
@@ -134,8 +135,10 @@ class XGBoostPredictor(PredictorInterface):
             # Ensure it's a simple float or 1D array.
             if isinstance(raw_predictions, np.ndarray):
                 # If it's like array([0.7]), get 0.7. If it's already a scalar float, it's fine.
-                return raw_predictions.astype(np.float32) # Ensure correct type
-            return np.array([raw_predictions], dtype=np.float32) # Convert scalar to 1-element array
+                return raw_predictions.astype(np.float32)  # Ensure correct type
+            return np.array(
+                [raw_predictions], dtype=np.float32
+            )  # Convert scalar to 1-element array
 
         except xgb.core.XGBoostError as e:
             self.logger.exception("XGBoost prediction failed.")
@@ -155,9 +158,9 @@ class XGBoostPredictor(PredictorInterface):
         model_id: str,
         model_path: str,
         scaler_path: Optional[str],
-        feature_vector: np.ndarray, # Expects 1D raw feature vector
-        model_feature_names: List[str], # From model config
-        predictor_specific_config: Dict[str, Any] # Full model config for this predictor
+        feature_vector: np.ndarray,  # Expects 1D raw feature vector
+        model_feature_names: List[str],  # From model config
+        predictor_specific_config: Dict[str, Any],  # Full model config for this predictor
     ) -> Dict[str, Any]:
         """
         Load model and scaler, preprocess, predict. Executed in a separate process.
@@ -186,7 +189,7 @@ class XGBoostPredictor(PredictorInterface):
 
             # 3. Prepare features (reshape and scale)
             if feature_vector.ndim != 1:
-                 return {"error": "Feature vector must be 1D for processing.", "model_id": model_id}
+                return {"error": "Feature vector must be 1D for processing.", "model_id": model_id}
             features_2d = feature_vector.reshape(1, -1)
 
             if scaler:
@@ -200,24 +203,39 @@ class XGBoostPredictor(PredictorInterface):
                 logger.debug("No scaler used.")
 
             # 4. Predict
-            # model_feature_names is passed directly, taken from this model's config
             dmatrix = xgb.DMatrix(processed_features, feature_names=model_feature_names)
-            prediction = model.predict(dmatrix)
+            prediction_val = model.predict(
+                dmatrix
+            )  # Typically prob of positive class for binary:logistic
 
             prediction_float: float
-            if isinstance(prediction, np.ndarray) and prediction.size == 1:
-                prediction_float = float(prediction.item())
-            elif isinstance(prediction, (float, np.floating)): # Handles scalar output
-                prediction_float = float(prediction)
+            confidence_float: Optional[float] = None
+
+            if isinstance(prediction_val, np.ndarray) and prediction_val.size == 1:
+                prediction_float = float(prediction_val.item())
+            elif isinstance(prediction_val, (float, np.floating)):
+                prediction_float = float(prediction_val)
             else:
                 return {
-                    "error": f"Unexpected prediction output format: {type(prediction)}, value: {prediction}",
-                    "model_id": model_id
+                    "error": f"Unexpected prediction output format: {type(prediction_val)}, value: {prediction_val}",
+                    "model_id": model_id,
                 }
-            logger.debug(f"Prediction for {model_id} successful: {prediction_float}")
-            return {"prediction": prediction_float, "model_id": model_id}
 
-        except FileNotFoundError as e: # Should be caught by Path.exists earlier
+            # For binary:logistic, the prediction_float is the probability of the positive class.
+            # This can also serve as the confidence.
+            # If it were multi-class, one might take the max probability as confidence.
+            confidence_float = prediction_float
+
+            logger.debug(
+                f"Prediction for {model_id} successful: {prediction_float}, Confidence: {confidence_float}"
+            )
+            return {
+                "prediction": prediction_float,
+                "confidence": confidence_float,
+                "model_id": model_id,
+            }
+
+        except FileNotFoundError as e:  # Should be caught by Path.exists earlier
             logger.error(f"File not found error during inference for {model_id}: {e!s}")
             return {"error": f"File not found during inference: {e!s}", "model_id": model_id}
         except xgb.core.XGBoostError as xgb_err:
@@ -226,6 +244,7 @@ class XGBoostPredictor(PredictorInterface):
         except Exception as e:
             logger.error(f"Generic error during inference for {model_id}: {e!s}", exc_info=True)
             return {"error": f"Inference failed: {e!s}", "model_id": model_id}
+
 
 # Example of how it might be used (for illustration, not part of the class)
 # if __name__ == '__main__':
