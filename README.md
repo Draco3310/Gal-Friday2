@@ -13,30 +13,47 @@ As of May 2025, the project has made significant progress with the implementatio
 - Backtesting engine for strategy validation
 - Multiple service components including portfolio management, risk management, and execution handling
 - Configuration management system
-- Modular design to support both live trading and simulated environments
+- Advanced, modular `PredictionService` supporting multiple, concurrent ML models (XGBoost, Scikit-learn, TensorFlow/Keras LSTMs), feature preprocessing (scaling), and various ensembling strategies (average, weighted average, confidence-weighted, voting).
+- Modular predictor implementations for different ML frameworks.
+- Initial framework for dynamic model reloading in the `PredictionService`.
 
 ## Technology Stack
 
 *   Python 3.9+ with extensive use of `asyncio` for asynchronous operations
 *   PostgreSQL for persistent storage
 *   Event-driven architecture with a custom publish-subscribe system
-*   XGBoost and other ML models for prediction
+*   Machine Learning Models: XGBoost, Scikit-learn (e.g., RandomForest), TensorFlow/Keras (for LSTMs).
 *   Kraken API integration
-*   Key Libraries: `pandas`, `numpy`, `scikit-learn`, `talib`, `websockets`, `aiohttp`, `asyncpg`, `PyYAML`
+*   Key Libraries: `pandas`, `numpy`, `scikit-learn`, `xgboost`, `tensorflow`, `talib`, `websockets`, `aiohttp`, `asyncpg`, `PyYAML`, `joblib`.
 
 ## Repository Structure
 
 - `src/gal_friday/` - Core trading system components
   - `core/` - Core event system and communication primitives
   - `execution/` - Order execution components
+  - `interfaces/` - Abstract base classes for service contracts (e.g., `PredictorInterface`)
+  - `predictors/` - Concrete implementations for different ML model types (XGBoost, scikit-learn, LSTM)
+  - `model_training/` - Scripts and utilities for training and retraining ML models (conceptual placeholder)
 - `config/` - Configuration files and templates
 - `docs/` - Comprehensive documentation
-  - `Phase 1/` - Requirements analysis and planning
-  - `Phase 3/` - Design refinements and code review plans
+  - `Phase 1 - Requirements Analysis & Planning/`
+  - `Phase 3 - Design and refining/`
   - `KrakenAPI/` - API documentation for Kraken integration
 - `db/schema/` - Database schema definitions
 - `tests/` - Test suite for components
-- `scripts/` - Utility scripts including model training
+- `scripts/` - Utility scripts
+
+## Machine Learning & Prediction
+
+The `PredictionService` is central to the bot's intelligence. It is designed to:
+- Consume features from the `FeatureEngine`.
+- Load and manage multiple, diverse ML models concurrently as defined in `config.yaml`.
+- Support predictors for different frameworks: XGBoost, Scikit-learn, and TensorFlow/Keras for LSTMs (with PyTorch LSTM support planned).
+- Handle model-specific feature preprocessing, such as scaling, via scaler objects loaded alongside models.
+- For LSTM models requiring sequence inputs, the `PredictionService` buffers features over time to construct the necessary input sequences.
+- Offer various ensembling strategies to combine predictions from multiple models, including simple averaging, weighted averaging (by configuration or model confidence), and voting for classification tasks.
+- Publish `PredictionEvent`s containing either individual model predictions or ensembled results.
+- Includes a basic framework for dynamic model reloading in response to configuration updates.
 
 ## Setup
 
