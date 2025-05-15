@@ -102,6 +102,21 @@ if __name__ == "__main__":
 
 The project is currently in active development. See `docs/post_mvp_plan_gal_friday_v0.1.md` for upcoming features and improvements.
 
+## Development Tools and Configuration
+
+We use several tools to maintain code quality:
+
+- **Black**: Code formatting
+- **isort**: Import sorting
+- **mypy**: Static type checking
+- **flake8**: Style guide enforcement
+- **pytest**: Testing framework
+- **pre-commit**: Git hooks to enforce quality
+
+Configuration for these tools is maintained primarily in **pyproject.toml** with additional configuration in **.flake8** for flake8-specific settings. These standardized configurations help ensure consistent code quality across local development and CI/CD pipelines.
+
+For contributor guidelines and detailed information on setting up the development environment, please see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 [Specify your license information here]

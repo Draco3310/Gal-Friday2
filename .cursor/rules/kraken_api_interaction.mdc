@@ -1,0 +1,21 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+- **Official API Usage:** All interactions with Kraken MUST use the official Kraken APIs (REST and WebSocket) as per SRS NFR-106.
+- **Secure Communication:** Use HTTPS for REST (SRS NFR-401) and Secure WebSockets (WSS) (SRS NFR-402).
+- **Error Handling & Retries:** Implement comprehensive error handling for API responses and network issues. This includes: 
+  - Graceful handling of Kraken-specific errors (refer to Kraken API documentation).
+  - Implementing retry mechanisms with exponential backoff for transient errors.
+  - Considering circuit breaker patterns for repeated failures (see `ExecutionHandler` design in `architecture_concept_gal_friday_v0.1.md`).
+  - Logging API errors thoroughly (SRS FR-609).
+- **Rate Limiting:** Be mindful of Kraken API rate limits. Implement necessary delays or queueing if requests are too frequent. Log rate limit warnings/errors.
+- **Order Placement & Management:** 
+  - Follow guidelines for Limit and Market orders (SRS FR-604, FR-606).
+  - Handle partial fills correctly (SRS FR-607).
+  - Manage SL/TP order lifecycle, considering OCO if feasible (SRS FR-606).
+- **API Key Security:** API keys MUST be handled securely (SRS NFR-701) and have restricted permissions (SRS NFR-702).
+- **Private WebSocket Feed:** Utilize the private WebSocket feed for real-time order/fill updates if suitable to minimize REST polling (SRS FR-603).
+- **Reconciliation:** Periodically reconcile internal state with Kraken via REST API (SRS FR-706).
+

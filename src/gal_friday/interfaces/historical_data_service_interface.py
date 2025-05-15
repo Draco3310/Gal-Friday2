@@ -21,7 +21,7 @@ class HistoricalDataService(abc.ABC):
     ) -> Optional[pd.DataFrame]:
         """Get historical OHLCV data for a given pair, time range, and interval."""
         # DataFrame should have columns like
-        # ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+        # 'timestamp', 'open', 'high', 'low', 'close', 'volume'
         # Timestamp should ideally be the index and timezone-aware (UTC)
         raise NotImplementedError
 

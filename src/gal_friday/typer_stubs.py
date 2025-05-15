@@ -64,7 +64,6 @@ class Typer:
         ----
             **kwargs: Additional arguments for running the application
         """
-        pass
 
 
 # Common typer functions stubs
@@ -76,7 +75,6 @@ def run(function: Callable[..., Any], **kwargs: Any) -> None:
         function: The function to run as a Typer application
         **kwargs: Additional arguments for running the application
     """
-    pass
 
 
 def Argument(

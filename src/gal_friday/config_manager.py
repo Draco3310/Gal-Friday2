@@ -7,12 +7,13 @@ both file-based configuration and environment variable overrides.
 
 # Configuration Manager Module
 
+from decimal import Decimal
+from functools import reduce
 import logging
 import operator
 import os
-from decimal import Decimal
-from functools import reduce
-from typing import Any, Dict, List, Optional
+from pathlib import Path  # Added for PTH110 and PTH123
+from typing import Any, Optional
 
 import yaml
 
@@ -22,11 +23,13 @@ log = logging.getLogger(__name__)
 class ConfigManager:
     """Manage loading and accessing application configuration from a YAML file."""
 
+    _EXPECTED_TRADING_PAIR_COMPONENTS = 2
+
     def __init__(
         self,
         config_path: str = "config/config.yaml",
         logger_service: Optional[logging.Logger] = None,
-    ):
+    ) -> None:
         """
         Initialize the ConfigManager, load config, and validate it.
 
@@ -37,11 +40,11 @@ class ConfigManager:
         """
         self._config_path = config_path
         self._config: Optional[dict] = None
-        self.validation_errors: List[str] = []  # Initialize validation errors list
+        self.validation_errors: list[str] = []  # Initialize validation errors list
 
         # Use injected logger or default
         self._logger = logger_service or logging.getLogger(__name__)
-        self._logger.info(f"Initializing ConfigManager with path: {self._config_path}")
+        self._logger.info("Initializing ConfigManager with path: %s", self._config_path)
 
         self.load_config()  # Load the configuration file into self._config
 
@@ -50,45 +53,48 @@ class ConfigManager:
 
     def load_config(self) -> None:
         """Load or reload the configuration from the specified YAML file."""
-        self._logger.info(f"Attempting to load configuration from: {self._config_path}")
+        self._logger.info("Attempting to load configuration from: %s", self._config_path)
         try:
             # Ensure the path is absolute or relative to the workspace root
             # Assuming the script runs from the workspace root for simplicity here.
             # A more robust solution might involve finding the project root
             # dynamically.
-            if not os.path.exists(self._config_path):
-                self._logger.error(f"Configuration file not found at: {self._config_path}")
+            config_file = Path(self._config_path)  # Use Path object
+            if not config_file.exists():  # PTH110 fix
+                self._logger.error("Configuration file not found at: %s", self._config_path)
                 self._config = {}
                 return
 
-            with open(self._config_path, "r") as f:
+            with config_file.open() as f:  # PTH123 fix
                 self._config = yaml.safe_load(f)
-            self._logger.info(f"Successfully loaded configuration from {self._config_path}")
+            self._logger.info("Successfully loaded configuration from %s", self._config_path)
         except yaml.YAMLError as e:
             self._logger.exception(
-                f"Error parsing YAML configuration file: {self._config_path}", exc_info=e
+                "Error parsing YAML configuration file: %s", self._config_path, exc_info=e
             )
             self._config = {}
-        except IOError as e:
+        except OSError as e:
             self._logger.exception(
-                f"Error reading configuration file: {self._config_path}", exc_info=e
+                "Error reading configuration file: %s", self._config_path, exc_info=e
             )
             self._config = {}
         except Exception as e:
             self._logger.exception(
-                f"Error loading configuration from " f"{self._config_path}",
+                "Error loading configuration from %s", self._config_path,
                 exc_info=e,
             )
             self._config = {}
 
         if not isinstance(self._config, dict):
             self._logger.error(
-                f"Configuration file {self._config_path} did not load as a dictionary. "
-                f"Loaded type: {type(self._config)}. Setting config to empty dict."
+                "Configuration file %s did not load as a dictionary. "
+                "Loaded type: %s. Setting config to empty dict.",
+                self._config_path,
+                type(self._config),
             )
             self._config = {}
 
-    def get(self, key: str, default: Optional[Any] = None) -> Any:
+    def get(self, key: str, default: Optional[Any] = None) -> Any:  # noqa: ANN401
         """
         Retrieve a configuration value using a dot-separated key.
 
@@ -111,21 +117,22 @@ class ConfigManager:
             return default
 
         try:
-            # Use reduce to navigate the nested dictionary structure
-            value = reduce(operator.getitem, key.split("."), self._config)
-            return value
+            pass  # Logic is in the else block
         except (KeyError, TypeError):
             # KeyError if a key in the path doesn't exist
             # TypeError if trying to index into a non-dictionary
             self._logger.debug(
-                f"Key '{key}' not found in configuration. Returning default: {default}"
+                "Key '%s' not found in configuration. Returning default: %s", key, default
             )
             return default
         except Exception as e:
             self._logger.exception(
-                f"Unexpected error retrieving key '{key}' from configuration.", exc_info=e
+                "Unexpected error retrieving key '%s' from configuration.", key, exc_info=e
             )
             return default
+        else:
+            # This else block executes if the try block completes without an exception.
+            return reduce(operator.getitem, key.split("."), self._config)
 
     def get_int(self, key: str, default: int = 0) -> int:
         """Retrieve a config value and attempt to cast it to an integer."""
@@ -134,8 +141,12 @@ class ConfigManager:
             return int(value)
         except (ValueError, TypeError) as e:
             self._logger.warning(
-                f"Could not convert value for key '{key}' ('{value}') to int. "
-                f"Returning default {default}. Error: {e}"
+                "Could not convert value for key '%s' ('%s') to int. "
+                "Returning default %s. Error: %s",
+                key,
+                value,
+                default,
+                e,
             )
             return default
 
@@ -146,8 +157,12 @@ class ConfigManager:
             return float(value)
         except (ValueError, TypeError) as e:
             self._logger.warning(
-                f"Could not convert value for key '{key}' ('{value}') to float. "
-                f"Returning default {default}. Error: {e}"
+                "Could not convert value for key '%s' ('%s') to float. "
+                "Returning default %s. Error: %s",
+                key,
+                value,
+                default,
+                e,
             )
             return default
 
@@ -159,7 +174,7 @@ class ConfigManager:
                 default = Decimal(str(default))
             except Exception:
                 self._logger.warning(
-                    f"Invalid default value '{default}' for get_decimal, using 0.0"
+                    "Invalid default value '%s' for get_decimal, using 0.0", default
                 )
                 default = Decimal("0.0")
 
@@ -169,8 +184,12 @@ class ConfigManager:
             return Decimal(str(value))
         except Exception as e:
             self._logger.warning(
-                f"Could not convert value for key '{key}' ('{value}') to Decimal. "
-                f"Returning default {default}. Error: {e}"
+                "Could not convert value for key '%s' ('%s') to Decimal. "
+                "Returning default %s. Error: %s",
+                key,
+                value,
+                default,
+                e,
             )
             return default
 
@@ -196,12 +215,15 @@ class ConfigManager:
 
         # If not interpretable, return default
         self._logger.warning(
-            f"Could not interpret value for key '{key}' ('{value}') as bool. "
-            f"Returning default {default}."
+            "Could not interpret value for key '%s' ('%s') as bool. "
+            "Returning default %s.",
+            key,
+            value,
+            default,
         )
         return default
 
-    def get_list(self, key: str, default: Optional[List[Any]] = None) -> List[Any]:
+    def get_list(self, key: str, default: Optional[list[Any]] = None) -> list[Any]:
         """Retrieve a config value expected to be a list."""
         if default is None:
             default = []  # Default to empty list if None specified
@@ -209,13 +231,15 @@ class ConfigManager:
         value = self.get(key, default)
         if isinstance(value, list):
             return value
-        else:
-            self._logger.warning(
-                f"Value for key '{key}' is not a list (type: {type(value)}). "
-                f"Returning default {default}."
-            )
-            # Ensure the default is returned if the fetched value wasn't a list
-            return default if isinstance(default, list) else []
+        self._logger.warning(
+            "Value for key '%s' is not a list (type: %s). "
+            "Returning default %s.",
+            key,
+            type(value),
+            default,
+        )
+        # Ensure the default is returned if the fetched value wasn't a list
+        return default if isinstance(default, list) else []
 
     def get_dict(self, key: str, default: Optional[dict] = None) -> dict:
         """Retrieve a config value expected to be a dictionary."""
@@ -225,21 +249,23 @@ class ConfigManager:
         value = self.get(key, default)
         if isinstance(value, dict):
             return value
-        else:
-            self._logger.warning(
-                f"Value for key '{key}' is not a dict (type: {type(value)}). "
-                f"Returning default {default}."
-            )
-            # Ensure the default is returned if the fetched value wasn't a dict
-            return default if isinstance(default, dict) else {}
+        self._logger.warning(
+            "Value for key '%s' is not a dict (type: %s). "
+            "Returning default %s.",
+            key,
+            type(value),
+            default,
+        )
+        # Ensure the default is returned if the fetched value wasn't a dict
+        return default if isinstance(default, dict) else {}
 
-    def validate_configuration(self) -> List[str]:
+    def validate_configuration(self) -> list[str]:
         """
         Validate the loaded configuration against predefined rules.
 
         Returns a list of validation error messages. An empty list indicates success.
         """
-        errors: List[str] = []
+        errors: list[str] = []
 
         if self._config is None:
             errors.append("Internal error: Configuration object is None.")
@@ -283,13 +309,11 @@ class ConfigManager:
         if "/" not in pair:
             return False
         parts = pair.split("/")
-        if len(parts) != 2:
+        if len(parts) != self._EXPECTED_TRADING_PAIR_COMPONENTS:
             return False
-        if not all(p.strip() for p in parts):
-            return False
-        return True
+        return all(p.strip() for p in parts)
 
-    def _validate_trading_section(self, errors: List[str]) -> None:
+    def _validate_trading_section(self, errors: list[str]) -> None:
         """Validate the 'trading' section of the configuration."""
         if self.get("trading") is None:
             return
@@ -317,7 +341,7 @@ class ConfigManager:
         elif not isinstance(exchange, str) or not exchange.strip():
             errors.append("'trading.exchange' must be a non-empty string.")
 
-    def _validate_risk_section(self, errors: List[str]) -> None:
+    def _validate_risk_section(self, errors: list[str]) -> None:
         """Validate the 'risk' section of the configuration."""
         if self.get("risk") is None:
             return
@@ -341,7 +365,7 @@ class ConfigManager:
         ):
             errors.append("'risk.stop_loss_pct' must be less than 'risk.take_profit_pct'.")
 
-    def _validate_api_section(self, errors: List[str]) -> None:
+    def _validate_api_section(self, errors: list[str]) -> None:
         """Validate the 'api' section of the configuration."""
         if self.get("api") is None:
             return
@@ -355,7 +379,7 @@ class ConfigManager:
             )
             return
         # Validate specific services if needed (e.g., ensure kraken has key/secret)
-        for service_name in self.get_dict("api").keys():
+        for service_name in self.get_dict("api"):
             # Use the secure getters which check env vars first
             api_key = self.get_secure_api_key(service_name)
             api_secret = self.get_secure_api_secret(service_name)
@@ -374,30 +398,29 @@ class ConfigManager:
 
     # --- Optional specific getters (can be added as needed) ---
 
-    def get_trading_pairs(self) -> List[str]:
+    def get_trading_pairs(self) -> list[str]:
         """Retrieve the list of trading pairs."""
         # Validation happens in validate_configuration
-        pairs = self.get_list("trading.pairs", [])
-        return pairs
+        return self.get_list("trading.pairs", [])
 
-    def get_risk_parameters(self) -> Dict[str, Any]:
+    def get_risk_parameters(self) -> dict[str, Any]:
         """Retrieve the risk configuration section."""
         # Validation happens in validate_configuration
         return self.get_dict("risk", {})
 
-    def get_strategy_parameters(self, strategy_id: str) -> Dict[str, Any]:
+    def get_strategy_parameters(self, strategy_id: str) -> dict[str, Any]:
         """Retrieve parameters for a specific strategy."""
         # Validation happens in validate_configuration
         return self.get_dict(f"strategies.{strategy_id}", {})
 
-    def get_api_keys(self, service_name: str) -> Dict[str, Optional[str]]:
+    def get_api_keys(self, service_name: str) -> dict[str, Optional[str]]:
         """
         Retrieve API key/secret pair securely for a given service.
 
         Assumes standard key names 'key' and 'secret'.
         Returns a dict with 'key' and 'secret' containing Optional[str].
         """
-        self._logger.info(f"Retrieving secure API credentials for service: {service_name}")
+        self._logger.info("Retrieving secure API credentials for service: %s", service_name)
         return {
             "key": self.get_secure_api_key(service_name, "key"),
             "secret": self.get_secure_api_secret(service_name, "secret"),
@@ -405,7 +428,7 @@ class ConfigManager:
             # 'password': self.get_secure_value(f'api.{service_name}.password')
         }
 
-    def reload_config(self) -> List[str]:
+    def reload_config(self) -> list[str]:
         """
         Reload the configuration from the file and re-validate it.
 
@@ -416,7 +439,7 @@ class ConfigManager:
             List of validation errors encountered during the reload and validation process.
             An empty list indicates the reload and validation were successful.
         """
-        self._logger.info(f"Attempting to reload configuration from: {self._config_path}")
+        self._logger.info("Attempting to reload configuration from: %s", self._config_path)
 
         self.load_config()  # Reloads self._config. Handles file read errors internally.
 
@@ -450,34 +473,38 @@ class ConfigManager:
         if env_value is not None:
             # Log that it was found in env, but not the value
             self._logger.info(
-                f"Retrieved secure value for '{key}' from environment variable '{env_var_name}'."
+                ("Retrieved secure value for '%s' "
+                 "from environment variable '%s'."),
+                key,
+                env_var_name,
             )
             return env_value
-        else:
-            # Fall back to config file using the regular 'get' method
-            config_value = self.get(key, default)  # 'get' handles logging for missing keys
-            if config_value is not None and config_value != default:
-                # Log that it was found in config, but not the value
-                self._logger.debug(
-                    f"Retrieved secure value for '{key}' from config file "
-                    f"(env var '{env_var_name}' not set)."
-                )
-            elif config_value is None and default is None:
-                # Log warning only if it's truly missing (not just using default=None)
-                self._logger.warning(
-                    f"Secure value for '{key}' not found in environment or config file. "
-                    f"Returning None."
-                )
+        # Fall back to config file using the regular 'get' method
+        config_value = self.get(key, default)  # 'get' handles logging for missing keys
+        if config_value is not None and config_value != default:
+            # Log that it was found in config, but not the value
+            self._logger.debug(
+                ("Retrieved secure value for '%s' from config file "
+                 "(env var '%s' not set)."),
+                key,
+                env_var_name,
+            )
+        elif config_value is None and default is None:
+            # Log warning only if it's truly missing (not just using default=None)
+            self._logger.warning(
+                ("Secure value for '%s' not found in environment or config file. "
+                 "Returning None."),
+                key,
+            )
 
-            # Ensure we return an Optional[str] to satisfy mypy
-            if config_value is None:
-                return None
-            elif isinstance(config_value, str):
-                return config_value
-            else:
-                # Convert non-string values to strings
-                self._logger.debug(f"Converting non-string config value for '{key}' to string.")
-                return str(config_value)
+        # Ensure we return an Optional[str] to satisfy mypy
+        if config_value is None:
+            return None
+        if isinstance(config_value, str):
+            return config_value
+        # Convert non-string values to strings
+        self._logger.debug("Converting non-string config value for '%s' to string.", key)
+        return str(config_value)
 
     def get_secure_api_key(self, service_name: str, key_name: str = "key") -> Optional[str]:
         """Retrieve a specific API key securely for a given service."""

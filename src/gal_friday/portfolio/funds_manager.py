@@ -2,76 +2,86 @@
 
 import asyncio
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from ..exceptions import DataValidationError, InsufficientFundsError
+from ..logger_service import LoggerService
 
 
 class FundsManager:
     """
-    Manages available funds in different currencies.
-
-    Handles updates to funds based on trades, deposits, withdrawals,
-    and converts between different currencies for valuation.
+    Manages available funds for trading, handling deposits, withdrawals,
+    and updates based on trade executions and commission payments.
+    Ensures thread-safe operations on fund balances.
     """
 
-    def __init__(self, logger_service: Any, valuation_currency: str = "USD"):
+    def __init__(self, logger_service: LoggerService, valuation_currency: str = "USD") -> None:
         """
         Initialize the funds manager.
 
         Args
         ----
-            logger_service: Logger service for logging
-            valuation_currency: Base currency for portfolio valuation
+            logger_service: Service for logging.
+            valuation_currency: The currency for overall valuation (default: "USD").
         """
         self.logger = logger_service
         self._source_module = self.__class__.__name__
-        self._available_funds: Dict[str, Decimal] = {}
+        self._available_funds: dict[str, Decimal] = {}
         self.valuation_currency = valuation_currency
         self._lock = asyncio.Lock()
 
     @property
-    def available_funds(self) -> Dict[str, Decimal]:
+    def available_funds(self) -> dict[str, Decimal]:
         """Get a copy of available funds."""
         return self._available_funds.copy()
 
-    async def initialize_funds(self, initial_capital: Dict[str, Any]) -> None:
+    async def initialize_funds(self, initial_capital: dict[str, Any]) -> None:
         """
         Initialize funds from configuration.
 
         Args
         ----
-            initial_capital: Dictionary of initial capital by currency
+            initial_capital: A dictionary where keys are currency symbols (e.g., "USD")
+                             and values are the initial amounts.
         """
         async with self._lock:
-            # Convert to Decimal and uppercase currency codes
-            self._available_funds = {
-                k.upper(): Decimal(str(v)) for k, v in initial_capital.items()
-            }
-
-            # Ensure valuation currency is present, default to 0
-            if self.valuation_currency not in self._available_funds:
-                self._available_funds[self.valuation_currency] = Decimal("0")
-
+            self._available_funds.clear()
+            for currency, amount_any in initial_capital.items():
+                try:
+                    amount = Decimal(str(amount_any))
+                    if amount < 0:
+                        self.logger.warning("Initial capital for %s is negative (%s), setting to 0.", currency, amount, source_module=self._source_module)
+                        amount = Decimal(0)
+                    self._available_funds[currency.upper()] = amount
+                except Exception as e:
+                    self.logger.error("Error processing initial capital for %s: %s. Setting to 0.", currency, e, source_module=self._source_module)
+                    self._available_funds[currency.upper()] = Decimal(0)
             self.logger.info(
-                f"Initialized funds: {self._available_funds}",
+                "Initialized funds: %s", self._available_funds,
                 source_module=self._source_module,
             )
 
     async def update_funds_for_trade(
         self,
+        base_asset: str,
         quote_asset: str,
         side: str,
+        quantity: Decimal,
+        price: Decimal,
         cost_or_proceeds: Decimal,
     ) -> None:
         """
-        Update available funds based on trade execution.
+        Update available funds based on a trade execution.
 
         Args
         ----
-            quote_asset: Quote currency symbol
-            side: Trade side ("BUY" or "SELL")
-            cost_or_proceeds: Total cost or proceeds amount
+            base_asset: The asset being bought or sold.
+            quote_asset: The asset used for payment or received.
+            side: "BUY" or "SELL".
+            quantity: Amount of base_asset traded.
+            price: Price of the trade.
+            cost_or_proceeds: Net amount in quote_asset. For BUYs, this is a positive
+                              value representing cost. For SELLs, it's positive, representing proceeds.
 
         Raises
         ------
@@ -79,30 +89,35 @@ class FundsManager:
             InsufficientFundsError: If not enough funds for a buy
         """
         if side not in ("BUY", "SELL"):
-            raise DataValidationError(f"Invalid side '{side}' in trade")
+            raise DataValidationError("Invalid trade side")
+
+        base_asset_upper = base_asset.upper()
+        quote_asset_upper = quote_asset.upper()
 
         async with self._lock:
-            # Ensure currency exists in our funds tracking
-            current_balance = self._available_funds.get(quote_asset, Decimal(0))
+            current_balance_quote = self._available_funds.get(quote_asset_upper, Decimal(0))
+            current_balance_base = self._available_funds.get(base_asset_upper, Decimal(0))
 
             if side == "BUY":
-                if current_balance < cost_or_proceeds:
+                if current_balance_quote < cost_or_proceeds:
                     raise InsufficientFundsError(
-                        f"Insufficient {quote_asset} funds for trade. "
-                        f"Required: {cost_or_proceeds}, "
-                        f"Available: {current_balance}"
+                        "Insufficient %s funds for trade. Required: %s, Available: %s" % (quote_asset_upper, cost_or_proceeds, current_balance_quote)
                     )
-                self._available_funds[quote_asset] = current_balance - cost_or_proceeds
+                self._available_funds[quote_asset_upper] = current_balance_quote - cost_or_proceeds
+                self._available_funds[base_asset_upper] = current_balance_base + quantity
                 self.logger.debug(
-                    f"Decreased {quote_asset} by {cost_or_proceeds} for BUY. "
-                    f"New balance: {self._available_funds[quote_asset]}",
+                    "Decreased %s by %s for BUY. New balance: %s. Increased %s by %s. New balance: %s",
+                    quote_asset_upper, cost_or_proceeds, self._available_funds[quote_asset_upper],
+                    base_asset_upper, quantity, self._available_funds[base_asset_upper],
                     source_module=self._source_module,
                 )
             elif side == "SELL":
-                self._available_funds[quote_asset] = current_balance + cost_or_proceeds
+                self._available_funds[quote_asset_upper] = current_balance_quote + cost_or_proceeds
+                self._available_funds[base_asset_upper] = current_balance_base - quantity
                 self.logger.debug(
-                    f"Increased {quote_asset} by {cost_or_proceeds} for SELL. "
-                    f"New balance: {self._available_funds[quote_asset]}",
+                    "Increased %s by %s for SELL. New balance: %s. Decreased %s by %s. New balance: %s",
+                    quote_asset_upper, cost_or_proceeds, self._available_funds[quote_asset_upper],
+                    base_asset_upper, quantity, self._available_funds[base_asset_upper],
                     source_module=self._source_module,
                 )
 
@@ -201,7 +216,7 @@ class FundsManager:
             )
 
     async def reconcile_with_exchange_balances(
-        self, exchange_balances: Dict[str, Decimal]
+        self, exchange_balances: dict[str, Decimal]
     ) -> None:
         """
         Reconciles internal fund balances with exchange-reported balances.

@@ -1,60 +1,74 @@
 """Utility functions for the Gal Friday application."""
 
+from collections.abc import Coroutine
+from dataclasses import dataclass, field
 import logging
-from typing import Any, Callable, Coroutine, Optional, Type, TypeVar
+from typing import Any, Callable, Generic, Optional, TypeVar
 
 T = TypeVar("T")
 
 
+@dataclass
+class ExceptionHandlerConfig(Generic[T]):
+    """Configuration for the exception handlers."""
+
+    specific_exceptions: Optional[tuple[type[Exception], ...]] = None
+    default_return: Optional[T] = None
+    message: str = "An error occurred: {error}"
+    include_traceback: bool = True
+    source_module: Optional[str] = None
+    re_raise: bool = False
+    # Ensure specific_exceptions is initialized as a tuple for the 'except' clause logic later
+    # We'll handle the default (Exception,)
+    # logic within the handler functions if it's None after init.
+    # Or, we could use a field with a default_factory
+    # if we want to initialize it to (Exception,) here.
+    # For now, let the handlers manage the default if it remains None.
+
+
 def handle_exceptions(
     logger: logging.Logger,
-    *,  # Force keyword arguments for all parameters after this
-    specific_exceptions: Optional[tuple[Type[Exception], ...]] = None,
-    default_return: Any = None,
-    message: str = "An error occurred: {error}",
-    include_traceback: bool = True,
-    source_module: str = "",
-    re_raise: bool = False,
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    config: ExceptionHandlerConfig[T],
+) -> Callable[..., T]:
     """
     Handle exceptions in a standardized way.
 
     Args
     ----
         logger: The logger to use for error reporting
-        specific_exceptions: Tuple of exception types to catch (defaults to Exception)
-        default_return: Value to return on exception
-        message: Message template for the error
-        include_traceback: Whether to include traceback in logs
-        source_module: Source module name for logging
-        re_raise: Whether to re-raise the exception after logging
+        config: Configuration for exception handling.
 
     Returns
     -------
         Decorated function
     """
-    if specific_exceptions is None:
-        specific_exceptions = (Exception,)
+    effective_exceptions: tuple[type[Exception], ...]
+    if (\
+        config.specific_exceptions\
+        and isinstance(config.specific_exceptions, tuple)\
+        and len(config.specific_exceptions) > 0\
+    ):
+        effective_exceptions = config.specific_exceptions
+    else:
+        effective_exceptions = (Exception,)
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
+        def wrapper(*args: object, **kwargs: object) -> T:
             try:
                 return func(*args, **kwargs)
-            except specific_exceptions as exc:
-                formatted_message = message.format(error=str(exc))
+            except effective_exceptions as e:
+                formatted_message = config.message.format(error=e)
+                module_name = config.source_module or func.__module__
 
-                # Log with traceback if needed
-                if include_traceback:
-                    logger.error(f"[{source_module}] {formatted_message}", exc_info=True)
+                if config.include_traceback:
+                    logger.exception("[%s] %s", module_name, formatted_message)
                 else:
-                    logger.error(f"[{source_module}] {formatted_message}")
+                    logger.exception("[%s] %s", module_name, formatted_message, exc_info=False)
 
-                # Re-raise with proper chaining if required
-                if re_raise:
-                    # Get the original exception type to preserve the type
-                    raise exc.__class__(formatted_message) from exc
+                if config.re_raise:
+                    raise e.__class__(formatted_message) from e
 
-                return default_return
+                return config.default_return # type: ignore
 
         return wrapper
 
@@ -63,59 +77,48 @@ def handle_exceptions(
 
 async def handle_exceptions_async(
     logger: logging.Logger,
-    *,  # Force keyword arguments for all parameters after this
-    specific_exceptions: Optional[tuple[Type[Exception], ...]] = None,
-    default_return: Any = None,
-    message: str = "An error occurred: {error}",
-    include_traceback: bool = True,
-    source_module: str = "",
-    re_raise: bool = False,
-) -> Callable[
-    [Callable[..., Coroutine[Any, Any, T]]],
-    Callable[..., Coroutine[Any, Any, T]],
-]:
+    config: ExceptionHandlerConfig[T],
+) -> Callable[..., Coroutine[Any, Any, T]]:
     """
     Handle exceptions in a standardized way for async functions.
 
     Args
     ----
         logger: The logger to use for error reporting
-        specific_exceptions: Tuple of exception types to catch (defaults to Exception)
-        default_return: Value to return on exception
-        message: Message template for the error
-        include_traceback: Whether to include traceback in logs
-        source_module: Source module name for logging
-        re_raise: Whether to re-raise the exception after logging
+        config: Configuration for exception handling.
 
     Returns
     -------
         Decorated function
     """
-    if specific_exceptions is None:
-        specific_exceptions = (Exception,)
+    effective_exceptions: tuple[type[Exception], ...]
+    if (\
+        config.specific_exceptions\
+        and isinstance(config.specific_exceptions, tuple)\
+        and len(config.specific_exceptions) > 0\
+    ):
+        effective_exceptions = config.specific_exceptions
+    else:
+        effective_exceptions = (Exception,)
 
     def decorator(
         func: Callable[..., Coroutine[Any, Any, T]],
     ) -> Callable[..., Coroutine[Any, Any, T]]:
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        async def wrapper(*args: object, **kwargs: object) -> T:
             try:
                 return await func(*args, **kwargs)
-            except specific_exceptions as exc:
-                formatted_message = message.format(error=str(exc))
+            except effective_exceptions as e:
+                formatted_message = config.message.format(error=e)
+                module_name = config.source_module or func.__module__
 
-                # Log with traceback if needed
-                if include_traceback:
-                    logger.error(f"[{source_module}] {formatted_message}", exc_info=True)
+                if config.include_traceback:
+                    logger.exception("[%s] %s", module_name, formatted_message)
                 else:
-                    logger.error(f"[{source_module}] {formatted_message}")
+                    logger.exception("[%s] %s", module_name, formatted_message, exc_info=False)
 
-                # Re-raise with proper chaining if required
-                if re_raise:
-                    # Get the original exception type to preserve the type
-                    raise exc.__class__(formatted_message) from exc
+                if config.re_raise:
+                    raise e.__class__(formatted_message) from e
 
-                return default_return
-
+                return config.default_return # type: ignore
         return wrapper
-
     return decorator

@@ -62,6 +62,17 @@ jobs:
     - name: Run pre-commit checks
       uses: pre-commit/action@v3.0.0
 
+    - name: Manual code quality checks
+      run: |
+        echo "Running black checks..."
+        black --check src tests
+        echo "Running isort checks..."
+        isort --check-only --profile black src tests
+        echo "Running mypy checks..."
+        mypy src tests
+        echo "Running flake8 checks..."
+        flake8 src tests
+
     - name: Run tests with pytest
       run: |
         pytest -v --cov=src tests/

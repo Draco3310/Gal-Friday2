@@ -7,10 +7,10 @@ It also supports volatility-adjusted spread calculation and market depth simulat
 
 """
 
-import logging
 from datetime import datetime, timezone
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+import logging
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -601,14 +601,13 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                         extra={"source_module": self._source_module},
                     )
                     return (bid, ask)  # Return as tuple
-                else:
-                    self.logger.warning(
-                        f"Simulated spread resulted in bid ({bid}) >= ask ({ask}) for "
-                        f"{trading_pair} with final_spread_pct {final_spread_pct}. "
-                        "Returning None.",
-                        extra={"source_module": self._source_module},
-                    )
-                    return None
+                self.logger.warning(
+                    f"Simulated spread resulted in bid ({bid}) >= ask ({ask}) for "
+                    f"{trading_pair} with final_spread_pct {final_spread_pct}. "
+                    "Returning None.",
+                    extra={"source_module": self._source_module},
+                )
+                return None
 
             return (bid, ask)  # Return as tuple
 
@@ -634,8 +633,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 # Example usage in file implies it is timezone-aware (pytz.UTC).
                 pass  # Assuming _current_timestamp is already correctly UTC and aware
             return self._current_timestamp
-        else:
-            return None
+        return None
 
     async def is_price_fresh(self, trading_pair: str, max_age_seconds: float = 60.0) -> bool:
         """Check if price data is available at the current simulation time."""
@@ -725,7 +723,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
             if current_volume_for_level <= Decimal(0):
                 self.logger.debug(
-                    f"Volume for level {i+1} for {trading_pair} became zero or negative. "
+                    f"Volume for level {i + 1} for {trading_pair} became zero or negative. "
                     "Stopping depth generation.",
                     extra={"source_module": self._source_module},
                 )
@@ -754,7 +752,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     and best_bid_price == best_ask_price
                 ):
                     self.logger.debug(
-                        f"At level {i+1}, calculated bid {current_bid_for_level} "
+                        f"At level {i + 1}, calculated bid {current_bid_for_level} "
                         f"crossed/met ask {current_ask_for_level} for {trading_pair}. "
                         "Stopping depth here.",
                         extra={"source_module": self._source_module},
@@ -762,7 +760,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     break
                 if current_bid_for_level <= Decimal(0):
                     self.logger.debug(
-                        f"At level {i+1}, calculated bid {current_bid_for_level} "
+                        f"At level {i + 1}, calculated bid {current_bid_for_level} "
                         f"is zero/negative for {trading_pair}. Stopping bid depth here.",
                         extra={"source_module": self._source_module},
                     )
@@ -844,8 +842,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 rate2, is_direct2 = intermediary_to_target_rate_info
                 if is_direct2:
                     return amount_in_intermediary * rate2
-                else:
-                    return amount_in_intermediary / rate2
+                return amount_in_intermediary / rate2
         return None
 
     async def convert_amount(
@@ -1065,7 +1062,7 @@ async def main() -> None:  # Made async
     ts_ltc = await price_service.get_price_timestamp("LTC/USD")  # For an unknown pair
     is_fresh_ltc = await price_service.is_price_fresh("LTC/USD")
     main_logger.info(
-        f"LTC Price Timestamp at {ts1}: {ts_ltc}, Fresh: {is_fresh_ltc} " "(Should be None, False)"
+        f"LTC Price Timestamp at {ts1}: {ts_ltc}, Fresh: {is_fresh_ltc} (Should be None, False)"
     )
 
     # Test Order Book Snapshot

@@ -21,12 +21,9 @@ pre-commit run --all-files
 
 ### Current Tools
 
-1. **Black** - Code formatter with a line length of 99 characters
-2. **isort** - Import sorter, configured to be compatible with Black
-3. **flake8** - Linter for style guide enforcement with plugins for docstring checking
-4. **mypy** - Static type checker
-5. **pydocstyle** - Docstring style checker (using NumPy convention)
-6. **Bandit** - Security issue scanner
+1. **Ruff** - Fast, modern Python linter and formatter that replaces multiple tools (flake8, black, isort, pydocstyle, etc.)
+2. **mypy** - Static type checker
+3. **Bandit** - Security issue scanner
 
 ## Testing
 
@@ -39,17 +36,39 @@ We use pytest for unit and integration testing. Tests are located in the `tests/
 pytest
 
 # Run with coverage report
-pytest --cov=src tests/
+pytest --cov=src/gal_friday tests/
 
 # Run only unit tests
-pytest tests/unit/
+pytest -m unit
 
 # Run only integration tests
-pytest tests/integration/
+pytest -m integration
 
 # Run with verbose output
 pytest -v
+
+# Run tests in parallel
+pytest -xvs
+
+# Include slow tests (disabled by default)
+pytest --run-slow
+
+# Include tests that require network access (disabled by default)
+pytest --run-network
+
+# Include tests that interact with exchanges (disabled by default)
+pytest --run-exchange
 ```
+
+### Test Categories
+
+Tests are categorized using markers:
+
+- `@pytest.mark.unit`: Fast, isolated unit tests
+- `@pytest.mark.integration`: Tests that interact with multiple components
+- `@pytest.mark.slow`: Tests that take a long time to run
+- `@pytest.mark.network`: Tests that require network access
+- `@pytest.mark.exchange`: Tests that interact with exchanges
 
 ## Common Issues and Solutions
 
@@ -86,7 +105,19 @@ If you encounter mypy errors:
 
 ### Line Length
 
-Maximum line length is 99 characters. Black will format code to adhere to this limit, but sometimes manual adjustment is needed.
+Maximum line length is 99 characters. Ruff will format code to adhere to this limit, but sometimes manual adjustment is needed.
+
+### Fixing Linting Issues
+
+Ruff can automatically fix many issues:
+
+```bash
+# Fix all auto-fixable issues
+ruff check --fix .
+
+# Format code
+ruff format .
+```
 
 ### Bypass Pre-commit Hooks
 
@@ -107,3 +138,12 @@ Our GitHub Actions workflow runs the same checks as pre-commit hooks, plus addit
 - Manual triggers
 
 To ensure your code passes the CI/CD pipeline, run pre-commit hooks and tests locally before pushing.
+
+## Test Best Practices
+
+1. **Isolate tests**: Each test should focus on testing a single behavior or function
+2. **Use fixtures**: Use pytest fixtures for test setup and teardown
+3. **Mock external dependencies**: Use pytest-mock to replace external services
+4. **Test edge cases**: Include tests for boundary conditions and error cases
+5. **Maintain test quality**: Apply the same code quality standards to tests as to production code
+6. **Descriptive test names**: Use clear names that describe what the test is verifying

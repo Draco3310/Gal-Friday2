@@ -19,7 +19,7 @@ APScheduler>=3.9.0
 PyYAML>=6.0
 
 # Data Science and ML
-numpy==1.24.3  # Pinned to specific version for compatibility with pandas_ta
+numpy>=1.24.0,<1.25.0  # Compatible with pandas_ta
 pandas>=1.5.0
 scikit-learn>=1.1.0
 xgboost>=1.6.0
@@ -30,14 +30,15 @@ ccxt>=4.0.0
 
 # Development and Testing
 pytest>=7.0.0
-mypy>=1.0.0  # Added for type checking
-black # Added for code formatting
-flake8 # Added for linting
-flake8-docstrings # Added for flake8 docstring checks
-isort # Added for import sorting
-autopep8 # Added for code formatting
-pydocstyle # Added for docstring style checking
-pre-commit # Added for managing pre-commit hooks
+pytest-asyncio>=0.23.0  # For testing async code
+pytest-cov>=4.1.0  # For code coverage reporting
+pytest-mock>=3.12.0  # For better mocking
+pytest-sugar>=1.0.0  # For better UI
+pytest-xdist>=3.5.0  # For parallel testing
+mypy>=1.15.0  # For type checking
+ruff>=0.11.9  # Replaces flake8, black, isort, pydocstyle, etc.
+pre-commit>=3.5.0  # For managing pre-commit hooks
+bandit>=1.8.3  # For security checks
 
 # Utilities
 python-dateutil>=2.8.2
@@ -46,7 +47,7 @@ typing-extensions>=4.0.0
 
 # System Monitoring
 psutil>=5.9.0
-types-psutil>=5.9.0 # Added for mypy type checking
+types-psutil>=5.9.0 # For mypy type checking
 
 # HTTP-related dependencies
 certifi>=2021.10.8

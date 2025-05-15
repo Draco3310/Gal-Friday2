@@ -13,8 +13,8 @@ from typing import Tuple
 
 import joblib
 import pandas as pd
-import xgboost as xgb
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+import xgboost as xgb
 
 # Add src directory to Python path to allow importing modules like ConfigManager
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -80,12 +80,11 @@ def load_historical_data(config: "ConfigManager") -> pd.DataFrame:
                 raise ValueError("Cannot find a suitable timestamp column.")
         elif all_data.index.tz is None:
             all_data = all_data.tz_localize("UTC")
+        # For mypy, ensure we're operating on a DatetimeIndex
+        elif isinstance(all_data.index, pd.DatetimeIndex):
+            all_data.index = all_data.index.tz_convert("UTC")
         else:
-            # For mypy, ensure we're operating on a DatetimeIndex
-            if isinstance(all_data.index, pd.DatetimeIndex):
-                all_data.index = all_data.index.tz_convert("UTC")
-            else:
-                raise TypeError("Expected DatetimeIndex but got different index type")
+            raise TypeError("Expected DatetimeIndex but got different index type")
 
         all_data = all_data.sort_index()
 
@@ -360,11 +359,11 @@ def evaluate_model(model: xgb.XGBClassifier, X_test: pd.DataFrame, y_test: pd.Se
     roc_auc = roc_auc_score(y_test, y_proba)
 
     log.info("Test Set Performance:")
-    log.info("  Accuracy:  {:.4f}".format(accuracy))
-    log.info("  Precision: {:.4f}".format(precision))
-    log.info("  Recall:    {:.4f}".format(recall))
-    log.info("  F1-Score:  {:.4f}".format(f1))
-    log.info("  ROC AUC:   {:.4f}".format(roc_auc))
+    log.info(f"  Accuracy:  {accuracy:.4f}")
+    log.info(f"  Precision: {precision:.4f}")
+    log.info(f"  Recall:    {recall:.4f}")
+    log.info(f"  F1-Score:  {f1:.4f}")
+    log.info(f"  ROC AUC:   {roc_auc:.4f}")
 
 
 def save_model(model: xgb.XGBClassifier, config: "ConfigManager") -> None:

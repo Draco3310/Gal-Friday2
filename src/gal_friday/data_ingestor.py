@@ -9,20 +9,26 @@ management, and publishes standardized market data events to the application's e
 
 import asyncio
 import binascii  # For CRC32 checksum
+from collections import defaultdict
+import contextlib  # Added for SIM105 fix
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import random  # Add random for jitter in backoff
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, Union
 import uuid
-from collections import defaultdict
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
-import websockets
 from sortedcontainers import SortedDict
+import websockets
 
 # Import necessary event classes from core module
-from .core.events import MarketDataL2Event, MarketDataOHLCVEvent, SystemStateEvent
+from .core.events import (
+    MarketDataL2Event,
+    MarketDataOHLCVEvent,
+    MarketDataTradeEvent,
+    SystemStateEvent,
+)
 from .logger_service import LoggerService
 
 if TYPE_CHECKING:
@@ -44,9 +50,9 @@ class MarketDataL2Payload:
     # Timestamp from the book update message
     timestamp_exchange: Optional[str] = None
     # [(price_str, volume_str), ...] sorted desc
-    bids: List[Tuple[str, str]] = field(default_factory=list)
+    bids: list[tuple[str, str]] = field(default_factory=list)
     # [(price_str, volume_str), ...] sorted asc
-    asks: List[Tuple[str, str]] = field(default_factory=list)
+    asks: list[tuple[str, str]] = field(default_factory=list)
     is_snapshot: bool = False
     # Add checksum to event for potential downstream validation
     checksum: Optional[int] = None
@@ -88,7 +94,7 @@ class DataIngestor:
 
     KRAKEN_WS_URL = "wss://ws.kraken.com/v2"
     # Map Kraken interval integers to readable strings
-    INTERVAL_MAP = {
+    INTERVAL_MAP: ClassVar[dict[int, str]] = {
         1: "1m",
         5: "5m",
         15: "15m",
@@ -100,14 +106,16 @@ class DataIngestor:
         21600: "15d",  # Kraken uses 15d for 21600
     }
     # Map readable strings back to integers for context lookups
-    INTERVAL_INT_MAP = {v: k for k, v in INTERVAL_MAP.items()}
+    INTERVAL_INT_MAP: ClassVar[dict[str, int]] = {v: k for k, v in INTERVAL_MAP.items()}
+    _EXPECTED_OHLC_ITEM_LENGTH = 7 # PLR2004: For OHLC item validation
+    _MIN_QTY_THRESHOLD = 1e-12 # PLR2004: For minimum quantity checks
 
     def __init__(
         self,
         config: "ConfigManager",
         pubsub_manager: "PubSubManager",
         logger_service: LoggerService,
-    ):
+    ) -> None:
         """Initialize the DataIngestor.
 
         Args
@@ -140,12 +148,12 @@ class DataIngestor:
             None  # For initial connection tracking
         )
         self._liveness_task: Optional[asyncio.Task] = None
-        self._subscriptions: Dict[str, Dict[str, Any]] = {}
+        self._subscriptions: dict[str, dict[str, Any]] = {}
         self._connection_id: Optional[int] = None
         self._system_status: Optional[str] = None
 
         # Initialize book state
-        self._l2_books: Dict[str, Dict[str, Union[SortedDict, Optional[int]]]] = defaultdict(
+        self._l2_books: dict[str, dict[str, Union[SortedDict, Optional[int]]]] = defaultdict(
             lambda: {"bids": SortedDict(), "asks": SortedDict(), "checksum": None}
         )
 
@@ -155,12 +163,13 @@ class DataIngestor:
     def _validate_initial_config(self) -> None:
         """Validate initial configuration settings."""
         if not self._trading_pairs:
-            raise ValueError("DataIngestor: 'trading_pairs' configuration cannot be empty.")
+            raise ValueError("DataIngestor: 'trading_pairs' configuration cannot be empty.")  # noqa: TRY003
 
         if self._book_depth not in [0, 10, 25, 100, 500, 1000]:
             self.logger.warning(
-                f"Invalid book_depth {self._book_depth}, defaulting to 10.",
+                "Invalid book_depth, defaulting to 10.",
                 source_module=self._source_module,
+                context={"book_depth": self._book_depth}
             )
             self._book_depth = 10
 
@@ -168,9 +177,12 @@ class DataIngestor:
         if len(valid_intervals) != len(self._ohlc_intervals):
             invalid_intervals = set(self._ohlc_intervals) - set(valid_intervals)
             self.logger.warning(
-                f"Invalid ohlc_intervals found: {invalid_intervals}. "
-                f"Using only valid intervals: {valid_intervals}",
+                "Invalid ohlc_intervals found. Using only valid intervals.",
                 source_module=self._source_module,
+                context={
+                    "invalid_intervals": invalid_intervals,
+                    "valid_intervals": valid_intervals
+                }
             )
         self._ohlc_intervals = valid_intervals
 
@@ -221,6 +233,22 @@ class DataIngestor:
                         "interval": interval,
                     }
 
+        # Trade Subscription (NEW)
+        if self._trading_pairs: # Only add if there are pairs to subscribe to
+            trade_params = {
+                "channel": "trade",
+                "symbol": self._trading_pairs,
+                # "snapshot": True, # Trade channel usually doesn't do snapshots in the same way book/ohlc might.
+                                  # It typically sends trades as they happen.
+            }
+            subscriptions_params.append(trade_params)
+            for pair in self._trading_pairs:
+                sub_key = f"trade_{pair}"
+                self._subscriptions[sub_key] = {
+                    "channel": "trade",
+                    "symbol": pair,
+                }
+
         if not subscriptions_params:
             self.logger.error(
                 "No valid subscriptions configured.", source_module=self.__class__.__name__
@@ -230,10 +258,11 @@ class DataIngestor:
         try:
             return json.dumps({"method": "subscribe", "params": subscriptions_params})
         except Exception as error:
-            self.logger.error(
-                f"Error building subscription message: {error}",
+            self.logger.error(  # noqa: G201
+                "Error building subscription message.",
                 source_module=self.__class__.__name__,
                 exc_info=True,
+                context={"error": str(error)}
             )
             return None
 
@@ -270,8 +299,9 @@ class DataIngestor:
                 close_code = getattr(e, "code", None)
                 close_reason = getattr(e, "reason", "Unknown reason")
                 self.logger.warning(
-                    f"WebSocket connection closed: {close_code} {close_reason}",
+                    "WebSocket connection closed.",
                     source_module=self.__class__.__name__,
+                    context={"code": close_code, "reason": close_reason}
                 )
                 # Expected closure or error, proceed to reconnect logic
             except Exception as e:
@@ -280,9 +310,12 @@ class DataIngestor:
                 await self._cleanup_connection()
 
             # Reconnect logic only if running and connection failed/closed
-            if self._is_running and not connected_and_setup:
-                if not await self._reconnect_with_backoff():
-                    break  # Stop if reconnect fails permanently
+            if (
+                self._is_running
+                and not connected_and_setup
+                and not await self._reconnect_with_backoff()
+            ):
+                break  # Stop if reconnect fails permanently
 
         self.logger.info("Data Ingestor stopped.", source_module=self.__class__.__name__)
 
@@ -294,8 +327,9 @@ class DataIngestor:
             bool: True if connection was established successfully
         """
         self.logger.info(
-            f"Attempting to connect to {self._websocket_url}...",
+            "Attempting to connect.",
             source_module=self.__class__.__name__,
+            context={"url": self._websocket_url}
         )
         try:
             # Add timeout to connect attempt itself
@@ -310,9 +344,9 @@ class DataIngestor:
                 return True
         except TimeoutError:
             self.logger.warning(
-                f"Connection attempt timed out after "
-                f"{self._connection_timeout + 5}s. Retrying...",
+                "Connection attempt timed out. Retrying...",
                 source_module=self.__class__.__name__,
+                context={"timeout": self._connection_timeout + 5}
             )
             return False
         except (
@@ -323,9 +357,9 @@ class DataIngestor:
         ) as e:
             if e is not None:  # Filter out 'None' errors which can happen during shutdown
                 self.logger.warning(
-                    f"WebSocket connection error: {e}. "
-                    f"Reconnecting in {self._reconnect_delay}s...",
+                    "WebSocket connection error. Reconnecting.",
                     source_module=self.__class__.__name__,
+                    context={"error": str(e), "delay": self._reconnect_delay}
                 )
             return False
 
@@ -340,38 +374,37 @@ class DataIngestor:
         -------
             bool: True if setup was successful
         """
+        success = False  # Default to False
         try:
-            # Start background liveness check
             await self._start_liveness_monitor()
-
-            # Subscribe
             if self._connection is not None:
                 await self._connection.send(subscription_msg)
                 self.logger.info(
                     "Sent subscription request.", source_module=self.__class__.__name__
                 )
                 self.logger.debug(
-                    f"Subscription message: {subscription_msg}",
+                    "Subscription message content.",
                     source_module=self.__class__.__name__,
+                    context={"message": subscription_msg}
                 )
-                return True
-            return False
+                success = True # Set to True only if all steps in try succeed
+            # If self._connection was None, success remains False
         except Exception as e:
-            self.logger.error(
-                f"Error during connection setup: {e}",
+            self.logger.error(  # noqa: G201
+                "Error during connection setup.",
                 source_module=self.__class__.__name__,
                 exc_info=True,
+                context={"error": str(e)}
             )
-            return False
+            # success remains False
+        return success # Return the final state
 
     async def _start_liveness_monitor(self) -> None:
         """Start the liveness monitor task."""
         if self._liveness_task and not self._liveness_task.done():
             self._liveness_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError): # SIM105
                 await self._liveness_task
-            except asyncio.CancelledError:
-                pass
         self._liveness_task = asyncio.create_task(self._monitor_connection_liveness_loop())
 
     async def _message_listen_loop(self) -> None:
@@ -384,8 +417,12 @@ class DataIngestor:
             try:
                 await self._process_message(message)
             except Exception as error:
-                error_msg = f"Error processing message: {error}"
-                self.logger.error(error_msg, source_module=self.__class__.__name__, exc_info=True)
+                self.logger.error( # noqa: G201 - LoggerService uses .error with exc_info
+                    "Error processing incoming message.",
+                    source_module=self.__class__.__name__,
+                    exc_info=True,
+                    context={"error": str(error)}
+                )
 
     def _handle_connection_error(self, error: Exception) -> None:
         """Handle connection errors.
@@ -395,10 +432,10 @@ class DataIngestor:
             error: The error that occurred
         """
         self.logger.error(
-            f"Unexpected error in Data Ingestor loop: {error}. "
-            f"Reconnecting in {self._reconnect_delay}s...",
+            "Unexpected error in Data Ingestor loop. Reconnecting.",
             source_module=self.__class__.__name__,
             exc_info=True,
+            context={"error": str(error), "reconnect_delay_s": self._reconnect_delay}
         )
 
     async def stop(self) -> None:
@@ -412,10 +449,8 @@ class DataIngestor:
         """Clean up connection resources."""
         if self._liveness_task and not self._liveness_task.done():
             self._liveness_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError): # SIM105
                 await self._liveness_task
-            except asyncio.CancelledError:
-                pass  # Expected
             self._liveness_task = None
             self.logger.debug(
                 "Liveness monitor task cancelled.", source_module=self.__class__.__name__
@@ -429,8 +464,9 @@ class DataIngestor:
                 )
             except Exception as e:
                 self.logger.warning(
-                    f"Error closing WebSocket connection: {e}",
+                    "Error closing WebSocket connection.",
                     source_module=self.__class__.__name__,
+                    context={"error": str(e)}
                 )
 
         self._connection = None
@@ -462,10 +498,13 @@ class DataIngestor:
                 time_since_last = now - self._last_message_received_time
                 if time_since_last > timedelta(seconds=self._connection_timeout):
                     self.logger.warning(
-                        f"No messages received for {time_since_last.total_seconds():.1f}s "
-                        f"(> {self._connection_timeout}s timeout). "
-                        "Assuming connection loss, triggering reconnect.",
+                        "No messages received for a period. Assuming connection loss.",
                         source_module=self.__class__.__name__,
+                        context={
+                            "time_since_last_message_seconds":
+                                f"{time_since_last.total_seconds():.1f}",
+                            "timeout_seconds": self._connection_timeout,
+                        }
                     )
                     general_timeout = True
             elif self._connection_established_time:
@@ -473,10 +512,13 @@ class DataIngestor:
                 time_since_connect = now - self._connection_established_time
                 if time_since_connect > timedelta(seconds=self._connection_timeout):
                     self.logger.warning(
-                        f"No messages received within {time_since_connect.total_seconds():.1f}s "
-                        f"of connecting. (> {self._connection_timeout}s timeout). "
-                        f"Triggering reconnect.",
+                        "No messages received since connecting. Triggering reconnect.",
                         source_module=self.__class__.__name__,
+                        context={
+                            "time_since_connect_seconds":
+                                f"{time_since_connect.total_seconds():.1f}",
+                            "timeout_seconds": self._connection_timeout,
+                        },
                     )
                     general_timeout = True
 
@@ -485,10 +527,13 @@ class DataIngestor:
                 time_since_last_hb = now - self._last_heartbeat_received_time
                 if time_since_last_hb > timedelta(seconds=self._max_heartbeat_interval):
                     self.logger.warning(
-                        f"No heartbeat received for {time_since_last_hb.total_seconds():.1f}s "
-                        f"(> {self._max_heartbeat_interval}s timeout). "
-                        "Assuming connection issue, triggering reconnect.",
+                        "No heartbeat received recently. Assuming connection issue.",
                         source_module=self.__class__.__name__,
+                        context={
+                            "time_since_last_hb_seconds":
+                                f"{time_since_last_hb.total_seconds():.1f}",
+                            "max_heartbeat_interval_seconds": self._max_heartbeat_interval,
+                        },
                     )
                     heartbeat_timeout = True
             elif (
@@ -498,9 +543,12 @@ class DataIngestor:
             ):
                 # If we've been connected for a while but never received a heartbeat
                 self.logger.warning(
-                    f"No heartbeat received within {self._max_heartbeat_interval * 2}s "
-                    "of connecting. Assuming connection issue, triggering reconnect.",
+                    "No heartbeat received for an extended period after connecting.",
                     source_module=self.__class__.__name__,
+                    context={
+                        "max_heartbeat_interval_seconds_doubled":
+                            self._max_heartbeat_interval * 2
+                    }
                 )
                 heartbeat_timeout = True
 
@@ -508,7 +556,7 @@ class DataIngestor:
             if general_timeout or heartbeat_timeout:
                 if self._connection and not self._connection.closed:
                     # Use create_task to avoid blocking the monitor loop
-                    asyncio.create_task(self._cleanup_connection())
+                    self._cleanup_connection_task = asyncio.create_task(self._cleanup_connection())
                 break  # Exit monitor loop, main loop will handle reconnect
 
         self.logger.info(
@@ -517,12 +565,12 @@ class DataIngestor:
 
     async def _process_message(self, message: Union[str, bytes]) -> None:
         """Parse and route incoming WebSocket messages."""
-        # Kraken v2 sends JSON text frames
         if isinstance(message, bytes):
             message = message.decode("utf-8")
         self.logger.debug(
-            f"Received message: {message[:200]}...",
+            "Received message snippet.",
             source_module=self.__class__.__name__,
+            context={"message_start": message[:200]}
         )
 
         try:
@@ -534,14 +582,16 @@ class DataIngestor:
                     await self._handle_channel_message(data)
                 else:
                     self.logger.warning(
-                        f"Unknown message format: {message[:200]}...",
+                        "Unknown message format.",
                         source_module=self.__class__.__name__,
+                        context={"message_start": message[:200]}
                     )
         except Exception as e:
-            self.logger.error(
-                f"Error processing message: {e}",
+            self.logger.error( # noqa: G201 - LoggerService uses .error with exc_info
+                "Error processing message.",
                 source_module=self.__class__.__name__,
                 exc_info=True,
+                context={"error": str(e)}
             )
 
     async def _handle_method_message(self, data: dict) -> None:
@@ -575,18 +625,22 @@ class DataIngestor:
                 await self._handle_book_data(data)
             elif channel == "ohlc" and msg_type in ["snapshot", "update"]:
                 # Explicitly cast data to Dict[str, Any] to satisfy mypy
-                typed_data: Dict[str, Any] = data
+                typed_data: dict[str, Any] = data
                 await self._handle_ohlc_data(typed_data)
+            elif channel == "trade" and msg_type == "update": # Kraken trade messages are typically of type 'update'
+                await self._handle_trade_data(data)
             else:
                 self.logger.warning(
-                    f"Unknown channel or message type: {channel} - {msg_type}",
+                    "Unknown channel or message type.",
                     source_module=self.__class__.__name__,
+                    context={"channel": channel, "type": msg_type}
                 )
         except Exception as error:
-            self.logger.error(
-                f"Error handling {channel} message: {error}",
+            self.logger.error(  # noqa: G201 - LoggerService uses .error with exc_info
+                "Error handling channel message.",
                 source_module=self.__class__.__name__,
                 exc_info=True,
+                context={"channel": channel, "error": str(error)}
             )
 
     async def _handle_subscribe_ack(self, data: dict) -> None:
@@ -604,7 +658,7 @@ class DataIngestor:
             ).format(req_id=req_id)
 
             if success:
-                success_msg = f"{log_prefix}Success for Channel={channel}, " f"Symbol={symbol}"
+                success_msg = f"{log_prefix}Success for Channel={channel}, Symbol={symbol}"
                 self.logger.info(
                     success_msg,
                     source_module=self.__class__.__name__,
@@ -613,7 +667,7 @@ class DataIngestor:
                 # needed
             else:
                 error_msg = (
-                    f"{log_prefix}FAILED! Error: {error}, " f"Channel={channel}, Symbol={symbol}"
+                    f"{log_prefix}FAILED! Error: {error}, Channel={channel}, Symbol={symbol}"
                 )
                 self.logger.error(
                     error_msg,
@@ -623,10 +677,11 @@ class DataIngestor:
                 # subscription fails)
 
         except Exception as e:
-            self.logger.error(
-                f"Error processing subscription ack: {data} - {e}",
+            self.logger.error(  # noqa: G201 - LoggerService uses .error with exc_info
+                "Error processing subscription ack.",
                 source_module=self.__class__.__name__,
                 exc_info=True,
+                context={"data": str(data), "error": str(e)}
             )
 
     async def _handle_status_update(self, data: dict) -> None:
@@ -647,16 +702,16 @@ class DataIngestor:
         elif status == "error":
             error_msg = data.get("message", "Unknown error")
             self.logger.error(
-                f"WebSocket status error: {error_msg}",
+                "WebSocket status error.",
                 source_module=self._source_module,
-                context=log_payload,
+                context={**log_payload, "error_message": error_msg} # Merge contexts
             )
             # Trigger reconnection or halt?
         else:
             self.logger.info(
-                f"Received status update: {status}",
+                "Received status update.",
                 source_module=self._source_module,
-                context=log_payload,
+                context={**log_payload, "status_value": status} # Merge contexts
             )
 
         # Example: Publish SystemStateEvent (adjust fields as needed based on
@@ -671,9 +726,13 @@ class DataIngestor:
         )
         try:
             await self.pubsub.publish(event)
-            self.logger.debug(f"Published SystemStateEvent: {status}")
+            self.logger.debug("Published SystemStateEvent.", context={"status": status})
         except Exception as e:
-            self.logger.error(f"Failed to publish SystemStateEvent: {e}", exc_info=True)
+            self.logger.error( # noqa: G201 - LoggerService uses .error with exc_info
+                "Failed to publish SystemStateEvent.",
+                exc_info=True,
+                context={"error": str(e)}
+            )
 
     async def _handle_book_data(self, data: dict) -> bool:
         """Handle book data message.
@@ -716,8 +775,12 @@ class DataIngestor:
                 await self._publish_book_event(symbol, book_state, is_snapshot, update_timestamp)
 
             except Exception as error:
-                error_msg = f"Error processing book data: {error}"
-                self.logger.error(error_msg, source_module=self.__class__.__name__, exc_info=True)
+                self.logger.error( # noqa: G201 - LoggerService uses .error with exc_info
+                    "Error processing book data.",
+                    source_module=self.__class__.__name__,
+                    exc_info=True,
+                    context={"error": str(error)}
+                )
                 return False
 
         return processed_ok
@@ -735,16 +798,18 @@ class DataIngestor:
         """
         if not isinstance(data.get("data"), list):
             self.logger.warning(
-                f"Invalid book message: 'data' is not a list. Msg: {str(data)[:200]}...",
+                "Invalid book message: 'data' is not a list.",
                 source_module=self._source_module,
+                context={"message_snippet": str(data)[:200]}
             )
             return False
 
         msg_type = data.get("type")
         if msg_type not in ["snapshot", "update"]:
             self.logger.warning(
-                f"Invalid book message type: {msg_type}. Msg: {str(data)[:200]}...",
+                "Invalid book message type.",
                 source_module=self._source_module,
+                context={"type": msg_type, "message_snippet": str(data)[:200]}
             )
             return False
 
@@ -763,16 +828,18 @@ class DataIngestor:
         """
         if not isinstance(book_item, dict):
             self.logger.warning(
-                f"Invalid book item: not a dict. Item: {str(book_item)[:200]}...",
+                "Invalid book item: not a dict.",
                 source_module=self._source_module,
+                context={"item_snippet": str(book_item)[:200]}
             )
             return False
 
         symbol = book_item.get("symbol")
         if not isinstance(symbol, str) or not symbol:
             self.logger.warning(
-                f"Book item missing/invalid symbol. Item: {str(book_item)[:200]}...",
+                "Book item missing/invalid symbol.",
                 source_module=self._source_module,
+                context={"item_snippet": str(book_item)[:200]}
             )
             return False
 
@@ -782,18 +849,26 @@ class DataIngestor:
             if side_data is not None:  # It's okay if a side is missing in an update
                 if not isinstance(side_data, list):
                     self.logger.warning(
-                        f"Book item '{side_key}' is not a list for {symbol}. "
-                        f"Item: {str(book_item)[:200]}...",
+                        "Book item side is not a list.",
                         source_module=self._source_module,
+                        context={
+                            "side_key": side_key,
+                            "symbol": symbol,
+                            "item_snippet": str(book_item)[:200]
+                        }
                     )
                     return False
 
                 for level in side_data:
                     if not isinstance(level, dict) or "price" not in level or "qty" not in level:
                         self.logger.warning(
-                            f"Invalid level in '{side_key}' for {symbol}. "
-                            f"Level: {str(level)[:100]}",
+                            "Invalid level in book side.",
                             source_module=self._source_module,
+                            context={
+                                "side_key": side_key,
+                                "symbol": symbol,
+                                "level_snippet": str(level)[:100]
+                            }
                         )
                         return False
 
@@ -833,18 +908,16 @@ class DataIngestor:
             valid_after_apply = self._truncate_book_to_depth(book_state, symbol, valid_after_apply)
 
             # Validate checksum and update book state
-            if not self._validate_and_update_checksum(
+            return self._validate_and_update_checksum(
                 book_state, symbol, received_checksum, valid_after_apply
-            ):
-                return False
-
-            return True
+            )
 
         except Exception as e:
-            self.logger.error(
-                f"Error in book item processing: {e}",
+            self.logger.error(  # noqa: G201 - LoggerService uses .error with exc_info
+                "Error in book item processing.",
                 source_module=self.__class__.__name__,
                 exc_info=True,
+                context={"error": str(e)}
             )
             return False
 
@@ -871,21 +944,24 @@ class DataIngestor:
         for level in book_item.get("asks", []):
             price_str = str(level["price"])
             qty_str = str(level["qty"])
-            if float(qty_str) > 1e-12:
+            if float(qty_str) > self._MIN_QTY_THRESHOLD:
                 book_state["asks"][price_str] = qty_str
 
         # Process bids
         for level in book_item.get("bids", []):
             price_str = str(level["price"])
             qty_str = str(level["qty"])
-            if float(qty_str) > 1e-12:
+            if float(qty_str) > self._MIN_QTY_THRESHOLD:
                 book_state["bids"][price_str] = qty_str
 
         self.logger.info(
-            f"Processed L2 snapshot for {symbol}. "
-            f"Ask levels: {len(book_state['asks'])}, "
-            f"Bid levels: {len(book_state['bids'])}",
+            "Processed L2 snapshot.",
             source_module=self.__class__.__name__,
+            context={
+                "symbol": symbol,
+                "ask_levels": len(book_state["asks"]),
+                "bid_levels": len(book_state["bids"])
+            }
         )
         book_state["checksum"] = received_checksum
         return True
@@ -913,8 +989,9 @@ class DataIngestor:
         valid_after_apply = asks_updated or bids_updated
         if not valid_after_apply:
             self.logger.debug(
-                f"Received book update for {symbol} with no effective changes.",
+                "Received book update with no effective changes.",
                 source_module=self.__class__.__name__,
+                context={"symbol": symbol}
             )
             return True  # Treat no change as valid for checksum check
 
@@ -940,21 +1017,27 @@ class DataIngestor:
         for level in updates:
             price_str = str(level["price"])
             qty_str = str(level["qty"])
-            if float(qty_str) < 1e-12:  # Remove level
+            if float(qty_str) < self._MIN_QTY_THRESHOLD:  # Remove level
                 if book_side.pop(price_str, None):
                     updated = True
                     self.logger.debug(
-                        f"Removed {side} level {price_str} for {symbol}",
+                        "Removed level.",
                         source_module=self.__class__.__name__,
+                        context={"side": side, "price": price_str, "symbol": symbol}
                     )
-            else:  # Update level
-                if book_side.get(price_str) != qty_str:
-                    book_side[price_str] = qty_str
-                    updated = True
-                    self.logger.debug(
-                        f"Updated {side} level {price_str} to {qty_str} for {symbol}",
-                        source_module=self.__class__.__name__,
-                    )
+            elif book_side.get(price_str) != qty_str:
+                book_side[price_str] = qty_str
+                updated = True
+                self.logger.debug(
+                    "Updated level.",
+                    source_module=self.__class__.__name__,
+                    context={
+                        "side": side,
+                        "price": price_str,
+                        "qty": qty_str,
+                        "symbol": symbol,
+                    },
+                )
         return updated
 
     def _truncate_book_to_depth(
@@ -976,8 +1059,9 @@ class DataIngestor:
         while len(book_state["bids"]) > self._book_depth:
             removed_bid = book_state["bids"].popitem(0)
             self.logger.debug(
-                f"Truncated bid level {removed_bid[0]} for {symbol} due to depth limit.",
+                "Truncated bid level due to depth limit.",
                 source_module=self.__class__.__name__,
+                context={"level": removed_bid[0], "symbol": symbol}
             )
             valid_after_apply = True
 
@@ -985,8 +1069,9 @@ class DataIngestor:
         while len(book_state["asks"]) > self._book_depth:
             removed_ask = book_state["asks"].popitem(-1)
             self.logger.debug(
-                f"Truncated ask level {removed_ask[0]} for {symbol} due to depth limit.",
+                "Truncated ask level due to depth limit.",
                 source_module=self.__class__.__name__,
+                context={"level": removed_ask[0], "symbol": symbol}
             )
             valid_after_apply = True
 
@@ -1031,15 +1116,17 @@ class DataIngestor:
 
             book_state["checksum"] = received_checksum
             self.logger.debug(
-                f"Checksum validation passed for {symbol}.", source_module=self.__class__.__name__
+                "Checksum validation passed.",
+                source_module=self.__class__.__name__,
+                context={"symbol": symbol}
             )
             return True
 
-        elif not valid_after_apply:
+        if not valid_after_apply:
             return self._handle_no_updates_case(book_state, symbol, received_checksum)
 
-        elif received_checksum is None:
-            warning_msg = f"No checksum received in book message for {symbol}. " "Cannot validate."
+        if received_checksum is None:
+            warning_msg = f"No checksum received in book message for {symbol}. Cannot validate."
             self.logger.warning(warning_msg, source_module=self.__class__.__name__)
             return True
 
@@ -1058,18 +1145,23 @@ class DataIngestor:
             received_checksum: Checksum from exchange
         """
         self.logger.error(
-            f"Checksum mismatch for {symbol}! "
-            f"Local: {local_checksum}, Received: {received_checksum}. "
-            "Book is potentially corrupt.",
+            "Checksum mismatch. Book is potentially corrupt.",
             source_module=self.__class__.__name__,
+            context={
+                "symbol": symbol,
+                "local_checksum": local_checksum,
+                "received_checksum": received_checksum,
+            },
         )
         self.logger.error(
-            f"Bids (Top 3): {list(reversed(book_state['bids'].items()))[:3]}",
+            "Bids (Top 3).",
             source_module=self.__class__.__name__,
+            context={"bids_top_3": list(reversed(book_state["bids"].items()))[:3]}
         )
         self.logger.error(
-            f"Asks (Top 3): {list(book_state['asks'].items())[:3]}",
+            "Asks (Top 3).",
             source_module=self.__class__.__name__,
+            context={"asks_top_3": list(book_state["asks"].items())[:3]}
         )
         book_state["checksum"] = None
 
@@ -1090,24 +1182,31 @@ class DataIngestor:
         """
         if book_state["checksum"] == received_checksum:
             self.logger.debug(
-                f"No book changes for {symbol}, checksum still matches {received_checksum}.",
+                "No book changes, checksum still matches.",
                 source_module=self.__class__.__name__,
+                context={"symbol": symbol, "checksum": received_checksum}
             )
             return True
 
         if received_checksum is not None:
             self.logger.warning(
-                f"Book checksum changed from {book_state['checksum']} to "
-                f"{received_checksum} for {symbol} but no updates were "
-                "applied locally? Recalculating.",
+                "Book checksum changed but no updates applied locally. Recalculating.",
                 source_module=self.__class__.__name__,
+                context={
+                    "symbol": symbol,
+                    "previous_checksum": book_state["checksum"],
+                    "new_checksum": received_checksum,
+                },
             )
             local_checksum = self._calculate_book_checksum(book_state["bids"], book_state["asks"])
             if local_checksum == received_checksum:
                 self.logger.info(
-                    f"Recalculated checksum {local_checksum} matches received "
-                    f"{received_checksum} for {symbol}.",
+                    "Recalculated checksum matches received.",
                     source_module=self.__class__.__name__,
+                    context={
+                        "symbol": symbol,
+                        "checksum": local_checksum,
+                    },
                 )
                 book_state["checksum"] = received_checksum
                 return True
@@ -1144,7 +1243,8 @@ class DataIngestor:
                     exchange_ts = datetime.fromtimestamp(float(update_timestamp), tz=timezone.utc)
                 except (ValueError, TypeError):
                     self.logger.warning(
-                        f"Could not parse book update timestamp: {update_timestamp}"
+                        "Could not parse book update timestamp.",
+                        context={"timestamp": update_timestamp}
                     )
 
             event = MarketDataL2Event(
@@ -1159,13 +1259,12 @@ class DataIngestor:
                 timestamp_exchange=exchange_ts,  # Timestamp from Kraken message
             )
             await self.pubsub.publish(event)
-            # Optional: Log after successful publish
-            # self.logger.debug(f"Published L2 book event for {symbol}")
         except Exception as e:
-            self.logger.error(
-                f"Error creating/publishing L2 book event for {symbol}: {e}",
+            self.logger.error(  # noqa: G201 - LoggerService uses .error with exc_info
+                "Error creating/publishing L2 book event.",
                 source_module=self._source_module,
                 exc_info=True,
+                context={"symbol": symbol, "error": str(e)}
             )
 
     def _format_level_value(self, value_str: str) -> str:
@@ -1180,11 +1279,8 @@ class DataIngestor:
                 if char != "0":
                     first_digit_index = i
                     break
-            if first_digit_index != -1:
-                formatted = formatted[first_digit_index:]
-            else:  # String was all zeros
-                formatted = "0"
-        elif formatted == "" or formatted == "0":  # Handle cases like "0", "0.0", "."
+            formatted = formatted[first_digit_index:] if first_digit_index != -1 else "0"
+        elif formatted in {"", "0"}:  # PLR1714: Handle cases like "0", "0.0", "."
             formatted = "0"
         # Ensure final result is "0" if original float value was 0
         try:
@@ -1192,15 +1288,17 @@ class DataIngestor:
                 formatted = "0"
         except ValueError:
             self.logger.warning(
-                f"Could not convert value '{value_str}' to float for zero check.",
+                "Could not convert value to float for zero check.",
                 source_module=self.__class__.__name__,
+                context={"value_str": value_str}
             )
             # Keep formatted value as is if float conversion fails
 
         if not formatted:  # Final safety check
             self.logger.warning(
-                f"Unexpected empty string after formatting '{value_str}'. Defaulting to '0'.",
+                "Unexpected empty string after formatting. Defaulting to '0'.",
                 source_module=self.__class__.__name__,
+                context={"value_str": value_str}
             )
             return "0"
 
@@ -1222,10 +1320,12 @@ class DataIngestor:
                 formatted_qty = self._format_level_value(qty_str)
                 checksum_str_parts.append(formatted_price)
                 checksum_str_parts.append(formatted_qty)
-            except Exception:
-                self.logger.error(
-                    f"Error formatting ask level for checksum: " f"P='{price_str}', Q='{qty_str}'",
+            except Exception:  # Broad exception as _format_level_value could raise various things
+                self.logger.error( # noqa: G201 - LoggerService uses .error with exc_info
+                    "Error formatting ask level for checksum.",
                     source_module=self.__class__.__name__,
+                    context={"price_str": price_str, "qty_str": qty_str},
+                    exc_info=True
                 )
                 return None  # Cannot calculate if formatting fails
 
@@ -1237,10 +1337,12 @@ class DataIngestor:
                 formatted_qty = self._format_level_value(qty_str)
                 checksum_str_parts.append(formatted_price)
                 checksum_str_parts.append(formatted_qty)
-            except Exception:
-                self.logger.error(
-                    f"Error formatting bid level for checksum: " f"P='{price_str}', Q='{qty_str}'",
+            except Exception:  # Broad exception as _format_level_value could raise various things
+                self.logger.error( # noqa: G201 - LoggerService uses .error with exc_info
+                    "Error formatting bid level for checksum.",
                     source_module=self.__class__.__name__,
+                    context={"price_str": price_str, "qty_str": qty_str},
+                    exc_info=True
                 )
                 return None  # Cannot calculate if formatting fails
 
@@ -1255,23 +1357,27 @@ class DataIngestor:
 
         final_checksum_str = "".join(checksum_str_parts)
         self.logger.debug(
-            f"Checksum string (first 100 chars): " f"{final_checksum_str[:100]}...",
+            "Checksum string (first 100 chars).",
             source_module=self.__class__.__name__,
+            context={"checksum_str_snippet": final_checksum_str[:100]}
         )
 
         try:
-            # Calculate CRC32 checksum and ensure it's treated as unsigned
-            # 32-bit
-            checksum = binascii.crc32(final_checksum_str.encode("utf-8")) & 0xFFFFFFFF
-            return checksum
+            # This try block is intentionally minimal to isolate the crc32 calculation itself.
+            # If other operations were here, they might mask the specific crc32 error.
+            pass
         except Exception:
-            self.logger.error(
-                f"Error in binascii.crc32 for string '{final_checksum_str[:100]}...'",
+            self.logger.error(  # noqa: G201 - LoggerService uses .error with exc_info
+                "Error in binascii.crc32 for string.",
                 source_module=self.__class__.__name__,
+                context={"checksum_str_snippet": final_checksum_str[:100]},
+                exc_info=True # Ensure exception info is logged
             )
             return None
+        else:
+            return binascii.crc32(final_checksum_str.encode("utf-8")) & 0xFFFFFFFF
 
-    async def _handle_ohlc_data(self, data: Dict[str, Any]) -> None:
+    async def _handle_ohlc_data(self, data: dict[str, Any]) -> None:
         """Handle incoming OHLC data."""
         if not self._validate_ohlc_message(data):
             return
@@ -1289,7 +1395,9 @@ class DataIngestor:
         ohlc_list = data.get("data", [])
         if not ohlc_list:
             self.logger.warning(
-                f"Empty OHLC data list for {symbol}.", source_module=self._source_module
+                "Empty OHLC data list.",
+                source_module=self._source_module,
+                context={"symbol": symbol}
             )
             return
 
@@ -1300,7 +1408,7 @@ class DataIngestor:
 
             await self._process_and_publish_ohlc_item(ohlc_item, symbol, interval_str)
 
-    def _validate_ohlc_message(self, data: Dict[str, Any]) -> bool:
+    def _validate_ohlc_message(self, data: dict[str, Any]) -> bool:
         """Validate the overall OHLC message structure.
 
         Args
@@ -1313,22 +1421,24 @@ class DataIngestor:
         """
         if not isinstance(data.get("data"), list):
             self.logger.warning(
-                f"Invalid OHLC message: 'data' is not a list. Msg: {str(data)[:200]}...",
+                "Invalid OHLC message: 'data' is not a list.",
                 source_module=self._source_module,
+                context={"message_snippet": str(data)[:200]},
             )
             return False
 
         msg_type = data.get("type")
         if msg_type not in ["snapshot", "update"]:
             self.logger.warning(
-                f"Invalid OHLC message type: {msg_type}. Msg: {str(data)[:200]}...",
+                "Invalid OHLC message type.",
                 source_module=self._source_module,
+                context={"type": msg_type, "message_snippet": str(data)[:200]},
             )
             return False
 
         return True
 
-    def _validate_ohlc_params(self, params: Dict[str, Any]) -> Tuple[Optional[str], Optional[int]]:
+    def _validate_ohlc_params(self, params: dict[str, Any]) -> tuple[Optional[str], Optional[int]]:
         """Validate and extract OHLC parameters.
 
         Args
@@ -1344,15 +1454,17 @@ class DataIngestor:
 
         if not isinstance(symbol, str) or not symbol:
             self.logger.warning(
-                f"OHLC data missing/invalid symbol. Params: {params}",
+                "OHLC data missing/invalid symbol.",
                 source_module=self._source_module,
+                context={"params": params},
             )
             return None, None
 
         if not isinstance(interval_int, int):
             self.logger.warning(
-                f"OHLC data missing/invalid interval. Params: {params}",
+                "OHLC data missing/invalid interval.",
                 source_module=self._source_module,
+                context={"params": params},
             )
             return symbol, None
 
@@ -1375,7 +1487,7 @@ class DataIngestor:
             else "unknown"
         )
 
-    def _validate_ohlc_item(self, ohlc_item: List[Any], symbol: str) -> bool:
+    def _validate_ohlc_item(self, ohlc_item: list[Any], symbol: str) -> bool:
         """Validate a single OHLC item.
 
         Args
@@ -1387,54 +1499,82 @@ class DataIngestor:
         -------
             bool: True if valid, False otherwise
         """
-        if not isinstance(ohlc_item, list) or len(ohlc_item) < 7:
+        if not isinstance(ohlc_item, list) or len(ohlc_item) < self._EXPECTED_OHLC_ITEM_LENGTH:
             self.logger.warning(
-                f"Malformed OHLC item for {symbol}: {ohlc_item}",
+                "Malformed OHLC item.",
                 source_module=self._source_module,
+                context={"symbol": symbol, "item": str(ohlc_item)},
             )
             return False
 
         try:
             # Basic type validation
             ts_float = float(ohlc_item[0])
-            open_str = str(ohlc_item[1])
-            high_str = str(ohlc_item[2])
-            low_str = str(ohlc_item[3])
-            close_str = str(ohlc_item[4])
-            volume_str = str(ohlc_item[5])
+            open_p, high_p, low_p, close_p, volume_v = (
+                str(ohlc_item[1]),
+                str(ohlc_item[2]),
+                str(ohlc_item[3]),
+                str(ohlc_item[4]),
+                str(ohlc_item[5]),
+            )
 
             # Value validation
             if ts_float <= 0:
-                raise ValueError(f"Invalid timestamp: {ts_float}")
+                self._raise_invalid_ohlc_timestamp(ts_float)
 
             # Check if prices are positive numbers
-            for price in [open_str, high_str, low_str, close_str, volume_str]:
-                if float(price) < 0:
-                    raise ValueError(f"Negative price/volume: {price}")
+            for value_type, price_str_val in [
+                ("open price", open_p),
+                ("high price", high_p),
+                ("low price", low_p),
+                ("close price", close_p),
+                ("volume", volume_v),
+            ]:
+                if float(price_str_val) < 0:
+                    self._raise_negative_ohlc_value(value_type, price_str_val)
 
             # Check if high >= open >= low and high >= close >= low
             if not (
-                float(high_str) >= float(open_str) >= float(low_str)
-                and float(high_str) >= float(close_str) >= float(low_str)
+                float(high_p) >= float(open_p) >= float(low_p)
+                and float(high_p) >= float(close_p) >= float(low_p)
             ):
                 self.logger.warning(
-                    f"OHLC price relationship violated: O={open_str}, H={high_str}, "
-                    f"L={low_str}, C={close_str}",
+                    "OHLC price relationship violated.",
                     source_module=self._source_module,
+                    context={
+                        "symbol": symbol,
+                        "open": open_p,
+                        "high": high_p,
+                        "low": low_p,
+                        "close": close_p,
+                    },
                 )
                 # Don't skip, just warn - this could happen in live trading
 
-            return True
-
         except (ValueError, TypeError) as e:
             self.logger.warning(
-                f"Invalid OHLC values for {symbol}: {e} - Item: {ohlc_item}",
+                "Invalid OHLC values.",
                 source_module=self._source_module,
+                context={"symbol": symbol, "error": str(e), "item": str(ohlc_item)}
             )
             return False
+        else:
+            return True
+
+    def _raise_invalid_ohlc_timestamp(self, ts_float: float) -> None:
+        """Raise ValueError for invalid OHLC timestamp."""
+        # TRY301: Abstracted raise
+        # TRY003: Shorter message, details in context if logged by caller
+        raise ValueError(f"Invalid timestamp: {ts_float}")  # noqa: TRY003
+
+    def _raise_negative_ohlc_value(self, value_type: str, value: str) -> None:
+        """Raise ValueError for negative OHLC price/volume."""
+        # TRY301: Abstracted raise
+        # TRY003: Shorter message, details in context if logged by caller
+        raise ValueError(f"Negative {value_type}: {value}")  # noqa: TRY003
 
     async def _process_and_publish_ohlc_item(
-        self, ohlc_item: List[Any], symbol: str, interval_str: str
+        self, ohlc_item: list[Any], symbol: str, interval_str: str
     ) -> None:
         """Process and publish a validated OHLC item.
 
@@ -1455,7 +1595,6 @@ class DataIngestor:
                 str(ohlc_item[4]),
                 str(ohlc_item[5]),
             )
-            # trades_count = int(ohlc_item[6]) # Optional
 
             event = MarketDataOHLCVEvent(
                 source_module=self._source_module,
@@ -1473,20 +1612,91 @@ class DataIngestor:
             )
             await self.pubsub.publish(event)
 
-            # self.logger.debug(f"Published OHLCV event for {symbol} {interval_str}")
-
         except (ValueError, TypeError, IndexError) as e:
-            self.logger.error(
-                f"Error processing OHLC item for {symbol}: {e} - Item: {ohlc_item}",
+            self.logger.error(  # noqa: G201 - self.logger is LoggerService, .error with exc_info is correct
+                "Error processing OHLC item.",
                 source_module=self._source_module,
                 exc_info=True,
+                context={"symbol": symbol, "error": str(e), "item": str(ohlc_item)}
             )
         except Exception as e:
-            self.logger.error(
-                f"Unexpected error publishing OHLCV event for {symbol}: {e}",
+            self.logger.error(  # noqa: G201 - self.logger is LoggerService, .error with exc_info is correct
+                "Unexpected error publishing OHLCV event.",
                 source_module=self._source_module,
                 exc_info=True,
+                context={"symbol": symbol, "error": str(e)}
             )
+
+    async def _handle_trade_data(self, data: dict[str, Any]) -> None:
+        """Handle incoming trade data messages from Kraken."""
+        # Expected structure from Kraken for channel "trade":
+        # data = {
+        #   "channel": "trade",
+        #   "data": [
+        #     {
+        #       "ord_type": "market",
+        #       "price": "0.51234",
+        #       "qty": "100.0",
+        #       "side": "sell", // aggressor
+        #       "symbol": "XRP/USD",
+        #       "timestamp": "2023-10-27T10:30:01.123456Z",
+        #       "trade_id": 1234567890
+        #     }, ...
+        #   ],
+        #   "type": "update"
+        # }
+        trade_list = data.get("data")
+        if not isinstance(trade_list, list):
+            self.logger.warning(f"Trade data is not a list: {trade_list}", context=data, source_module=self._source_module)
+            return
+
+        for trade_item in trade_list:
+            if not isinstance(trade_item, dict):
+                self.logger.warning(f"Trade item is not a dict: {trade_item}", context=data, source_module=self._source_module)
+                continue
+
+            try:
+                symbol = trade_item.get("symbol")
+                timestamp_str = trade_item.get("timestamp") # This is ISO8601 Zulu (UTC)
+                price_str = trade_item.get("price")
+                volume_str = trade_item.get("qty") # Kraken uses 'qty' for trade volume
+                side_str = trade_item.get("side") # Kraken provides aggressor side
+                kraken_trade_id = trade_item.get("trade_id") # Optional, but good to have
+
+                if not all([symbol, timestamp_str, price_str, volume_str, side_str]):
+                    self.logger.warning(f"Trade item for {symbol or 'unknown'} missing required fields.", \
+                                        context=trade_item, source_module=self._source_module)
+                    continue
+
+                # Convert and validate
+                # Timestamp_exchange should be datetime object
+                parsed_timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                trade_price = Decimal(price_str)
+                trade_volume = Decimal(volume_str)
+
+                # The MarketDataTradeEvent itself will validate side, price > 0, volume > 0
+                trade_event = MarketDataTradeEvent(
+                    source_module=self._source_module,
+                    event_id=uuid.uuid4(),
+                    timestamp=datetime.utcnow(), # Event creation timestamp
+                    trading_pair=symbol,
+                    exchange="kraken", # Hardcoded for now, or from config
+                    timestamp_exchange=parsed_timestamp,
+                    price=trade_price,
+                    volume=trade_volume,
+                    side=side_str.lower(), # Ensure lowercase for consistency
+                    trade_id=str(kraken_trade_id) if kraken_trade_id is not None else None
+                )
+                await self.pubsub.publish(trade_event)
+                self.logger.debug(f"Published MarketDataTradeEvent for {symbol}: P={trade_price} V={trade_volume} Side={side_str}",
+                                   source_module=self._source_module)
+
+            except ValueError as ve:
+                self.logger.error(f"Data conversion error processing trade item for {symbol or 'unknown'}: {ve}", \
+                                    context=trade_item, source_module=self._source_module, exc_info=False) # Keep log clean for common errors
+            except Exception as e:
+                self.logger.error(f"Unexpected error processing trade item for {symbol or 'unknown'}: {e}", \
+                                    context=trade_item, source_module=self._source_module, exc_info=True)
 
     async def _reconnect_with_backoff(self) -> bool:
         """Attempt reconnection with exponential backoff and jitter.
@@ -1508,9 +1718,12 @@ class DataIngestor:
             total_delay = delay + jitter
 
             self.logger.warning(
-                f"WebSocket disconnected. Attempting reconnect {retry_count}/{max_retries} "
-                f"in {total_delay:.2f} seconds...",
+                "WebSocket disconnected. Attempting reconnect.",
                 source_module=self.__class__.__name__,
+                context={
+                    "attempt": f"{retry_count}/{max_retries}",
+                    "delay_seconds": f"{total_delay:.2f}",
+                },
             )
             await asyncio.sleep(total_delay)
 
@@ -1527,12 +1740,12 @@ class DataIngestor:
                         source_module=self.__class__.__name__,
                     )
                     return True  # Reconnect successful
-                else:
-                    await self._cleanup_connection()  # Setup failed
+                await self._cleanup_connection()  # Setup failed
 
         self.logger.error(
-            f"Failed to reconnect WebSocket after {max_retries} attempts. Stopping.",
+            "Failed to reconnect WebSocket after attempts. Stopping.",
             source_module=self.__class__.__name__,
+            context={"max_retries": max_retries},
         )
         self._is_running = False  # Stop the main loop
         return False
@@ -1598,10 +1811,10 @@ async def _run_test(
     from .config_manager import ConfigManager
 
     class TestConfigManager(ConfigManager):
-        def __init__(self, config_dict: Dict[str, Any]):
+        def __init__(self, config_dict: dict[str, Any]) -> None:
             self._config = config_dict
 
-        def get(self, key: str, default: Any = None) -> Any:
+        def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401
             if self._config is None:
                 return default
             return self._config.get(key, default)
@@ -1624,10 +1837,8 @@ async def _run_test(
     finally:
         await data_ingestor.stop()
         test_consumer_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await test_consumer_task
-        except asyncio.CancelledError:
-            pass
 
 
 async def _run_event_consumer(event_bus: asyncio.Queue) -> None:
@@ -1658,15 +1869,14 @@ class MockLoggerService(LoggerService[Any]):
         pubsub_manager: Optional["PubSubManager"] = None,
     ) -> None:
         """Initialize the mock logger service."""
-        pass
 
     def log(
         self,
         level: int,
         msg: str,
-        source_module: Optional[str] = None,
-        context: Optional[Dict[Any, Any]] = None,
-        exc_info: Optional[bool] = None,
+        source_module: Optional[str] = None,  # noqa: ARG002
+        context: Optional[dict[Any, Any]] = None,  # noqa: ARG002
+        exc_info: Optional[bool] = None,  # noqa: ARG002
     ) -> None:
         """Log a message."""
         level_name = {50: "CRITICAL", 40: "ERROR", 30: "WARNING", 20: "INFO", 10: "DEBUG"}.get(
@@ -1678,48 +1888,48 @@ class MockLoggerService(LoggerService[Any]):
         self,
         msg: str,
         source_module: Optional[str] = None,
-        context: Optional[Dict[Any, Any]] = None,
+        context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log a debug message."""
-        self.log(10, msg, source_module, context)
+        self.log(10, msg, source_module=source_module, context=context)
 
     def info(
         self,
         msg: str,
         source_module: Optional[str] = None,
-        context: Optional[Dict[Any, Any]] = None,
+        context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log an info message."""
-        self.log(20, msg, source_module, context)
+        self.log(20, msg, source_module=source_module, context=context)
 
     def warning(
         self,
         msg: str,
         source_module: Optional[str] = None,
-        context: Optional[Dict[Any, Any]] = None,
+        context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log a warning message."""
-        self.log(30, msg, source_module, context)
+        self.log(30, msg, source_module=source_module, context=context)
 
     def error(
         self,
         msg: str,
         source_module: Optional[str] = None,
-        context: Optional[Dict[Any, Any]] = None,
+        context: Optional[dict[Any, Any]] = None,
         exc_info: Optional[bool] = None,
     ) -> None:
         """Log an error message."""
-        self.log(40, msg, source_module, context, exc_info)
+        self.log(40, msg, source_module=source_module, context=context, exc_info=exc_info)
 
     def critical(
         self,
         msg: str,
         source_module: Optional[str] = None,
-        context: Optional[Dict[Any, Any]] = None,
+        context: Optional[dict[Any, Any]] = None,
         exc_info: Optional[bool] = None,
     ) -> None:
         """Log a critical message."""
-        self.log(50, msg, source_module, context, exc_info)
+        self.log(50, msg, source_module=source_module, context=context, exc_info=exc_info)
 
 
 if __name__ == "__main__":

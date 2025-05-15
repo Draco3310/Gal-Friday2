@@ -7,10 +7,10 @@ supports configurable threshold strategies with secondary confirmation rules.
 
 # Strategy Arbitrator Module
 
-import uuid
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Optional, Tuple
+import uuid
 
 # Event imports
 from .core.events import EventType, PredictionEvent, TradeSignalProposedEvent
@@ -261,13 +261,12 @@ class StrategyArbitrator:
         """Determine the proposed entry price based on order type."""
         if self._entry_type == "MARKET":
             return None  # No specific price for market orders
-        elif self._entry_type == "LIMIT":
+        if self._entry_type == "LIMIT":
             try:
                 # Fetch current spread
                 spread_data = await self.market_price_service.get_bid_ask_spread(trading_pair)
                 if (
-                    spread_data
-                    is None
+                    spread_data is None
                     # or spread_data.get("bid") is None # spread_data is now a tuple or None
                     # or spread_data.get("ask") is None
                 ):
@@ -348,17 +347,14 @@ class StrategyArbitrator:
             threshold = Decimal(str(threshold_str))
 
             passes = False
-            if condition == "gt" and feature_value > threshold:
-                passes = True
-            elif condition == "lt" and feature_value < threshold:
-                passes = True
-            elif condition == "eq" and feature_value == threshold:
-                passes = True
-            elif condition == "gte" and feature_value >= threshold:
-                passes = True
-            elif condition == "lte" and feature_value <= threshold:
-                passes = True
-            elif condition == "ne" and feature_value != threshold:
+            if (
+                (condition == "gt" and feature_value > threshold)
+                or (condition == "lt" and feature_value < threshold)
+                or (condition == "eq" and feature_value == threshold)
+                or (condition == "gte" and feature_value >= threshold)
+                or (condition == "lte" and feature_value <= threshold)
+                or (condition == "ne" and feature_value != threshold)
+            ):
                 passes = True
             else:
                 self.logger.warning(
@@ -651,5 +647,3 @@ class StrategyArbitrator:
 # Custom Exception for configuration errors
 class StrategyConfigurationError(ValueError):
     """Custom exception for strategy configuration errors."""
-
-    pass

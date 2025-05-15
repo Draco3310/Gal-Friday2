@@ -6,12 +6,12 @@ including position sizing, drawdown limits, and trade validation.
 """
 
 import asyncio
-import time  # Added for retry delay
-import uuid
 from dataclasses import dataclass  # Added import
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import time  # Added for retry delay
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+import uuid
 
 # Event Definitions
 from .core.events import (
@@ -37,8 +37,6 @@ class RiskManagerError(Exception):
     Used to indicate errors in risk management operations, such as
     invalid configurations or trade validation failures.
     """
-
-    pass
 
 
 # Type hint for PortfolioManager without circular import

@@ -6,7 +6,7 @@ cryptocurrency exchange, including price, spread information, and currency conve
 
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import aiohttp
 
@@ -22,6 +22,8 @@ class KrakenMarketPriceService(MarketPriceService):
     Fetches real-time price data from the Kraken cryptocurrency exchange.
     """
 
+    HTTP_OK = 200
+
     def __init__(self, config_manager: ConfigManager, logger_service: LoggerService) -> None:
         """
         Initialize the Kraken market price service.
@@ -36,7 +38,7 @@ class KrakenMarketPriceService(MarketPriceService):
         self._api_url = self.config.get("kraken.api_url", "https://api.kraken.com")
         self._session: Optional[aiohttp.ClientSession] = None
         self._source_module = self.__class__.__name__
-        self._price_timestamps: Dict[str, datetime] = {}
+        self._price_timestamps: dict[str, datetime] = {}
         self.logger.info(
             "KrakenMarketPriceService initialized.", source_module=self._source_module
         )
@@ -69,67 +71,65 @@ class KrakenMarketPriceService(MarketPriceService):
         -------
             The latest price as a Decimal or None if it couldn't be retrieved.
         """
+        price_to_return: Optional[Decimal] = None
+
         if not self._session:
             self.logger.warning(
                 "Session not initialized. Call start() before using the service.",
                 source_module=self._source_module,
             )
-            return None
+            return price_to_return
 
         try:
-            # Map internal pair to Kraken format
             kraken_pair = self._map_internal_to_kraken_pair(trading_pair)
             if not kraken_pair:
                 self.logger.error(
-                    f"Could not map trading pair {trading_pair} to Kraken format",
+                    "Could not map trading pair %s to Kraken format",
+                    trading_pair,
                     source_module=self._source_module,
                 )
-                return None
+            else:
+                url = f"{self._api_url}/0/public/Ticker?pair={kraken_pair}"
+                self.logger.debug(
+                    "Requesting ticker for %s", kraken_pair, source_module=self._source_module
+                )
 
-            # Construct URL and make request
-            url = f"{self._api_url}/0/public/Ticker?pair={kraken_pair}"
-            self.logger.debug(
-                f"Requesting ticker for {kraken_pair}", source_module=self._source_module
-            )
-
-            async with self._session.get(url) as response:
-                if response.status != 200:
-                    self.logger.error(
-                        f"Error fetching price for {trading_pair}: HTTP {response.status}",
-                        source_module=self._source_module,
-                    )
-                    return None
-
-                data = await response.json()
-
-                # Check for errors in response
-                if data.get("error") and len(data["error"]) > 0:
-                    self.logger.error(
-                        f"Kraken API error: {data['error']}", source_module=self._source_module
-                    )
-                    return None
-
-                # Extract price from response
-                if "result" in data and kraken_pair in data["result"]:
-                    # c[0] is the last trade closed price
-                    price_str = data["result"][kraken_pair]["c"][0]
-                    self._price_timestamps[kraken_pair] = datetime.utcnow()
-                    return Decimal(price_str)
-                else:
-                    self.logger.error(
-                        f"Unexpected response format for {trading_pair}",
-                        source_module=self._source_module,
-                    )
-                    return None
-
-        except Exception as e:
-            self.logger.error(
-                f"Error fetching price for {trading_pair}: {str(e)}",
+                async with self._session.get(url) as response:
+                    if response.status != self.HTTP_OK:
+                        self.logger.error(
+                            "Error fetching price for %s: HTTP %s",
+                            trading_pair, response.status,
+                            source_module=self._source_module,
+                        )
+                    else:
+                        data = await response.json()
+                        if data.get("error") and len(data["error"]) > 0:
+                            self.logger.error(
+                                "Kraken API error: %s",
+                                data["error"],
+                                source_module=self._source_module
+                            )
+                        elif "result" in data and kraken_pair in data["result"]:
+                            # c[0] is the last trade closed price
+                            price_str = data["result"][kraken_pair]["c"][0]
+                            self._price_timestamps[kraken_pair] = datetime.utcnow()
+                            price_to_return = Decimal(price_str)
+                        else:
+                            self.logger.error(
+                                "Unexpected response format for %s",
+                                trading_pair,
+                                source_module=self._source_module,
+                            )
+        except Exception:
+            self.logger.exception(
+                "Error fetching price for %s",
+                trading_pair,
                 source_module=self._source_module,
             )
-            return None
 
-    async def get_bid_ask_spread(self, trading_pair: str) -> Optional[Tuple[Decimal, Decimal]]:
+        return price_to_return
+
+    async def get_bid_ask_spread(self, trading_pair: str) -> Optional[tuple[Decimal, Decimal]]:
         """
         Get best bid/ask using Kraken public Ticker endpoint.
 
@@ -141,66 +141,64 @@ class KrakenMarketPriceService(MarketPriceService):
         -------
             A tuple of (bid_price, ask_price) as Decimals, or None if not retrieved.
         """
+        spread_to_return: Optional[tuple[Decimal, Decimal]] = None
+
         if not self._session:
             self.logger.warning(
                 "Session not initialized. Call start() before using the service.",
                 source_module=self._source_module,
             )
-            return None
+            return spread_to_return
 
         try:
-            # Map internal pair to Kraken format
             kraken_pair = self._map_internal_to_kraken_pair(trading_pair)
             if not kraken_pair:
                 self.logger.error(
-                    f"Could not map trading pair {trading_pair} to Kraken format",
+                    "Could not map trading pair %s to Kraken format",
+                    trading_pair,
                     source_module=self._source_module,
                 )
-                return None
+            else:
+                url = f"{self._api_url}/0/public/Ticker?pair={kraken_pair}"
+                self.logger.debug(
+                    "Requesting ticker for %s", kraken_pair, source_module=self._source_module
+                )
 
-            # Construct URL and make request
-            url = f"{self._api_url}/0/public/Ticker?pair={kraken_pair}"
-            self.logger.debug(
-                f"Requesting ticker for {kraken_pair}", source_module=self._source_module
-            )
-
-            async with self._session.get(url) as response:
-                if response.status != 200:
-                    self.logger.error(
-                        f"Error fetching spread for {trading_pair}: HTTP {response.status}",
-                        source_module=self._source_module,
-                    )
-                    return None
-
-                data = await response.json()
-
-                # Check for errors in response
-                if data.get("error") and len(data["error"]) > 0:
-                    self.logger.error(
-                        f"Kraken API error: {data['error']}", source_module=self._source_module
-                    )
-                    return None
-
-                # Extract bid and ask from response
-                if "result" in data and kraken_pair in data["result"]:
-                    # b[0] is the best bid price, a[0] is the best ask price
-                    bid_str = data["result"][kraken_pair]["b"][0]
-                    ask_str = data["result"][kraken_pair]["a"][0]
-                    self._price_timestamps[kraken_pair] = datetime.utcnow()
-                    return (Decimal(bid_str), Decimal(ask_str))
-                else:
-                    self.logger.error(
-                        f"Unexpected response format for {trading_pair}",
-                        source_module=self._source_module,
-                    )
-                    return None
-
-        except Exception as e:
-            self.logger.error(
-                f"Error fetching spread for {trading_pair}: {str(e)}",
+                async with self._session.get(url) as response:
+                    if response.status != self.HTTP_OK:
+                        self.logger.error(
+                            "Error fetching spread for %s: HTTP %s",
+                            trading_pair, response.status,
+                            source_module=self._source_module,
+                        )
+                    else:
+                        data = await response.json()
+                        if data.get("error") and len(data["error"]) > 0:
+                            self.logger.error(
+                                "Kraken API error: %s",
+                                data["error"],
+                                source_module=self._source_module
+                            )
+                        elif "result" in data and kraken_pair in data["result"]:
+                            # b[0] is the best bid price, a[0] is the best ask price
+                            bid_str = data["result"][kraken_pair]["b"][0]
+                            ask_str = data["result"][kraken_pair]["a"][0]
+                            self._price_timestamps[kraken_pair] = datetime.utcnow()
+                            spread_to_return = (Decimal(bid_str), Decimal(ask_str))
+                        else:
+                            self.logger.error(
+                                "Unexpected response format for %s",
+                                trading_pair,
+                                source_module=self._source_module,
+                            )
+        except Exception:
+            self.logger.exception(
+                "Error fetching spread for %s",
+                trading_pair,
                 source_module=self._source_module,
             )
-            return None
+
+        return spread_to_return
 
     def _map_internal_to_kraken_pair(self, internal_pair: str) -> Optional[str]:
         """
@@ -235,17 +233,15 @@ class KrakenMarketPriceService(MarketPriceService):
         if quote in ["USD", "EUR", "GBP", "JPY"]:
             quote = "Z" + quote
 
-        # Construct Kraken pair
-        kraken_pair = base + quote
-
-        return kraken_pair
+        return base + quote
 
     async def get_price_timestamp(self, trading_pair: str) -> Optional[datetime]:
         """Get the timestamp (UTC) associated with the latest price data."""
         kraken_pair = self._map_internal_to_kraken_pair(trading_pair)
         if not kraken_pair:
             self.logger.warning(
-                f"Could not map trading pair {trading_pair} for timestamp lookup.",
+                "Could not map trading pair %s for timestamp lookup.",
+                trading_pair,
                 source_module=self._source_module,
             )
             return None
@@ -260,10 +256,8 @@ class KrakenMarketPriceService(MarketPriceService):
         is_fresh = (datetime.utcnow() - timestamp) < timedelta(seconds=max_age_seconds)
         if not is_fresh:
             self.logger.debug(
-                (
-                    f"Price data for {trading_pair} (timestamp: {timestamp}) "
-                    f"is older than {max_age_seconds}s."
-                ),
+                "Price data for %s (timestamp: %s) is older than %ss.",
+                trading_pair, timestamp, max_age_seconds,
                 source_module=self._source_module,
             )
         return is_fresh
@@ -274,7 +268,7 @@ class KrakenMarketPriceService(MarketPriceService):
         if price_decimal is not None and price_decimal > 0:
             return price_decimal
         self.logger.debug(
-            f"Safe price for {pair} is None or zero.", source_module=self._source_module
+            "Safe price for %s is None or zero.", pair, source_module=self._source_module
         )
         return None
 
@@ -291,10 +285,8 @@ class KrakenMarketPriceService(MarketPriceService):
         price_direct = await self._get_safe_price(direct_pair)
         if price_direct:
             self.logger.debug(
-                (
-                    f"Converting {amount} {from_currency} to {to_currency} "
-                    f"via direct pair {direct_pair} with price {price_direct}"
-                ),
+                "Converting %s %s to %s via direct pair %s with price %s",
+                amount, from_currency, to_currency, direct_pair, price_direct,
                 source_module=self._source_module,
             )
             return amount * price_direct
@@ -304,10 +296,8 @@ class KrakenMarketPriceService(MarketPriceService):
         price_reverse = await self._get_safe_price(reverse_pair)
         if price_reverse:
             self.logger.debug(
-                (
-                    f"Converting {amount} {from_currency} to {to_currency} "
-                    f"via reverse pair {reverse_pair} with price {price_reverse}"
-                ),
+                "Converting %s %s to %s via reverse pair %s with price %s",
+                amount, from_currency, to_currency, reverse_pair, price_reverse,
                 source_module=self._source_module,
             )
             return amount / price_reverse
@@ -349,21 +339,20 @@ class KrakenMarketPriceService(MarketPriceService):
             and from_currency != to_currency
         ):
             self.logger.warning(
-                (
-                    f"Direct/reverse conversion failed for intermediaries {from_currency} "
-                    f"to {to_currency}. This is unexpected."
-                ),
+                "Direct/reverse conversion failed for intermediaries %s to %s. Unexpected.",
+                from_currency, to_currency,
                 source_module=self._source_module,
             )
 
         for intermediary in intermediaries:
             # Skip if the intermediary is the source or target currency itself,
             # as that would have been covered by the initial direct/reverse attempt.
-            if from_currency == intermediary or to_currency == intermediary:
+            if intermediary in (from_currency, to_currency):
                 continue
 
             self.logger.debug(
-                f"Attempting conversion via intermediary: {intermediary}",
+                "Attempting conversion via intermediary: %s",
+                intermediary,
                 source_module=self._source_module,
             )
 
@@ -374,8 +363,8 @@ class KrakenMarketPriceService(MarketPriceService):
 
             if amount_in_intermediary is not None:
                 self.logger.debug(
-                    f"Converted {from_amount} {from_currency} to "
-                    f"{amount_in_intermediary} {intermediary}",
+                    "Converted %s %s to %s %s",
+                    from_amount, from_currency, amount_in_intermediary, intermediary,
                     source_module=self._source_module,
                 )
                 # Second leg: intermediary -> to_currency
@@ -384,29 +373,26 @@ class KrakenMarketPriceService(MarketPriceService):
                 )
                 if final_amount is not None:
                     self.logger.debug(
-                        (
-                            f"Successfully converted {from_amount} {from_currency} "
-                            f"to {final_amount} {to_currency} via {intermediary}"
-                        ),
+                        "Successfully converted %s %s to %s %s via %s",
+                        from_amount, from_currency, final_amount, to_currency, intermediary,
                         source_module=self._source_module,
                     )
                     return final_amount
-                else:
-                    self.logger.debug(
-                        f"Failed second leg of conversion: {intermediary} to {to_currency}",
-                        source_module=self._source_module,
-                    )
+                self.logger.debug(
+                    "Failed second leg of conversion: %s to %s",
+                    intermediary, to_currency,
+                    source_module=self._source_module,
+                )
             else:
                 self.logger.debug(
-                    f"Failed first leg of conversion: {from_currency} to {intermediary}",
+                    "Failed first leg of conversion: %s to %s",
+                    from_currency, intermediary,
                     source_module=self._source_module,
                 )
 
         self.logger.warning(
-            (
-                f"Could not convert {from_amount} {from_currency} to {to_currency}. "
-                f"No direct, reverse, or intermediary path found."
-            ),
+            "Could not convert %s %s to %s. No direct, reverse, or intermediary path found.",
+            from_amount, from_currency, to_currency,
             source_module=self._source_module,
         )
         return None

@@ -9,14 +9,36 @@ import base64
 import hashlib
 import hmac
 import time
+from typing import Any  # Removed Optional, Tuple, Dict
 import urllib.parse
-from typing import Any, Dict  # Removed Optional, Tuple
 
 from ..config_manager import ConfigManager
 from ..core.pubsub import PubSubManager
 from ..execution_handler import ExecutionHandler
 from ..logger_service import LoggerService
 from ..monitoring_service import MonitoringService
+
+
+class KrakenExecutionError(Exception):
+    """Base exception for Kraken execution errors."""
+
+class UnknownKrakenActionError(KrakenExecutionError):
+    """Raised when an unknown Kraken action is encountered."""
+
+    def __init__(self, action: str) -> None:
+        super().__init__(f"Unknown execution action: {action}")
+
+class KrakenCredentialsMissingError(KrakenExecutionError):
+    """Raised when Kraken API credentials are not configured."""
+
+    def __init__(self) -> None:
+        super().__init__("API key and secret are required for private Kraken API requests")
+
+class KrakenApiSecretMissingError(KrakenExecutionError):
+    """Raised when Kraken API secret is not set."""
+
+    def __init__(self) -> None:
+        super().__init__("API secret is not set.")
 
 
 class KrakenExecutionHandler(ExecutionHandler):
@@ -119,10 +141,10 @@ class KrakenExecutionHandler(ExecutionHandler):
 
         path = endpoints.get(action)
         if not path:
-            raise ValueError(f"Unknown execution action: {action}")
+            raise UnknownKrakenActionError(action)
         return path
 
-    def _prepare_add_order_params(self, internal_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _prepare_add_order_params(self, internal_data: dict[str, Any]) -> dict[str, Any]:
         """Prepare parameters for the 'add_order' action."""
         kraken_params = {}
         # Map internal trading pair to Kraken pair format
@@ -157,7 +179,7 @@ class KrakenExecutionHandler(ExecutionHandler):
             kraken_params["oflags"] = internal_data["time_in_force"]
         return kraken_params
 
-    def _prepare_request_data(self, internal_data: Dict[str, Any], action: str) -> Dict[str, Any]:
+    def _prepare_request_data(self, internal_data: dict[str, Any], action: str) -> dict[str, Any]:
         """
         Translate internal order details to Kraken API parameters.
 
@@ -170,22 +192,20 @@ class KrakenExecutionHandler(ExecutionHandler):
         -------
             Kraken-specific parameters
         """
-        kraken_params: Dict[str, Any] = {"nonce": int(time.time() * 1000)}
+        kraken_params: dict[str, Any] = {"nonce": int(time.time() * 1000)}
 
         if action == "add_order":
             kraken_params.update(self._prepare_add_order_params(internal_data))
-        elif action == "cancel_order":
-            if "order_id" in internal_data:
-                kraken_params["txid"] = internal_data["order_id"]
-        elif action == "query_orders":
-            if "order_ids" in internal_data:
-                kraken_params["txid"] = ",".join(internal_data["order_ids"])
+        elif action == "cancel_order" and "order_id" in internal_data:
+            kraken_params["txid"] = internal_data["order_id"]
+        elif action == "query_orders" and "order_ids" in internal_data:
+            kraken_params["txid"] = ",".join(internal_data["order_ids"])
 
         return kraken_params
 
     def _generate_auth_headers(
-        self, uri_path: str, request_data: Dict[str, Any]
-    ) -> Dict[str, str]:
+        self, uri_path: str, request_data: dict[str, Any]
+    ) -> dict[str, str]:
         """
         Generate Kraken-specific authentication headers.
 
@@ -199,7 +219,7 @@ class KrakenExecutionHandler(ExecutionHandler):
             Authentication headers
         """
         if not self._api_key or not self._api_secret:
-            raise ValueError("API key and secret are required for private Kraken API requests")
+            raise KrakenCredentialsMissingError
 
         # Nonce is already in request_data and should be an int
         nonce = int(request_data["nonce"])
@@ -213,7 +233,7 @@ class KrakenExecutionHandler(ExecutionHandler):
             "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
         }
 
-    def _parse_response(self, response_data: Dict[str, Any], action: str) -> Dict[str, Any]:
+    def _parse_response(self, response_data: dict[str, Any], action: str) -> dict[str, Any]:
         """
         Parse Kraken's response for a given action into a standard format.
 
@@ -226,13 +246,15 @@ class KrakenExecutionHandler(ExecutionHandler):
         -------
             Standardized response dictionary
         """
-        parsed: Dict[str, Any] = {"success": False, "data": None, "error": None}
+        parsed: dict[str, Any] = {"success": False, "data": None, "error": None}
 
         # Check for error field (Kraken returns errors as a list)
         if response_data.get("error") and len(response_data["error"]) > 0:
             parsed["error"] = str(response_data["error"])
             self.logger.error(
-                f"Kraken API error for {action}: {parsed['error']}",
+                "Kraken API error for %s: %s",
+                action,
+                parsed["error"],
                 source_module=self.__class__.__name__,
             )
         # Check for result field
@@ -243,24 +265,27 @@ class KrakenExecutionHandler(ExecutionHandler):
             # Log specific details based on action type
             if action == "add_order" and "txid" in response_data["result"]:
                 self.logger.info(
-                    f"Order placed successfully: {response_data['result']['txid']}",
+                    "Order placed successfully: %s",
+                    response_data["result"]["txid"],
                     source_module=self.__class__.__name__,
                 )
             elif action == "cancel_order":
                 self.logger.info(
-                    f"Order cancelled: {response_data['result']}",
+                    "Order cancelled: %s",
+                    response_data["result"],
                     source_module=self.__class__.__name__,
                 )
         else:
             parsed["error"] = "Unknown response format from Kraken API"
             self.logger.error(
-                f"Unknown response format from Kraken API for {action}",
+                "Unknown response format from Kraken API for %s",
+                action,
                 source_module=self.__class__.__name__,
             )
 
         return parsed
 
-    def _generate_kraken_signature(self, uri_path: str, data: Dict[str, Any], nonce: int) -> str:
+    def _generate_kraken_signature(self, uri_path: str, data: dict[str, Any], nonce: int) -> str:
         """
         Generate the API-Sign header required by Kraken private endpoints.
 
@@ -279,7 +304,7 @@ class KrakenExecutionHandler(ExecutionHandler):
         if self._api_secret is None:
             # Should have been caught by _api_key/_api_secret check in _generate_auth_headers
             # but as a safeguard for direct calls or typing.
-            raise ValueError("API secret is not set.")
+            raise KrakenApiSecretMissingError
 
         post_data_str = urllib.parse.urlencode(data)  # Urlencode the data here
 
@@ -298,7 +323,7 @@ class KrakenExecutionHandler(ExecutionHandler):
         # Return base64-encoded signature
         return base64.b64encode(signature.digest()).decode()
 
-    async def place_order(self, order_details: Dict[str, Any]) -> Dict[str, Any]:
+    async def place_order(self, order_details: dict[str, Any]) -> dict[str, Any]:
         """
         Place an order on the Kraken exchange.
 
@@ -321,8 +346,9 @@ class KrakenExecutionHandler(ExecutionHandler):
             return {"success": False, "data": None, "error": "Quantity is required"}
 
         self.logger.info(
-            f"Placing {order_details.get('order_type')} order "
-            f"for {order_details.get('trading_pair')}",
+            "Placing %s order for %s",
+            order_details.get("order_type"),
+            order_details.get("trading_pair"),
             source_module=self.__class__.__name__,
         )
 
@@ -350,7 +376,7 @@ class KrakenExecutionHandler(ExecutionHandler):
         -------
             True if cancellation was successful (or acknowledged by Kraken), False otherwise.
         """
-        self.logger.info(f"Cancelling order: {order_id}", source_module=self.__class__.__name__)
+        self.logger.info("Cancelling order: %s", order_id, source_module=self.__class__.__name__)
 
         action = "cancel_order"
         uri_path = self._get_api_endpoint(action)
@@ -387,11 +413,11 @@ class KrakenExecutionHandler(ExecutionHandler):
             # This case is ambiguous. Let's default to False if positive confirmation is missing.
             # Re-evaluating: if success is True and no error, it should be True.
             # The presence of 'data' with 'count' > 0 is a stronger confirmation.
-            return True  # If success is true and no error, treat as successful.
+            return not parsed_response.get("error")  # Treat as successful if no error.
 
         return False  # Default to False if not explicitly successful
 
-    async def get_order_status(self, order_id: str) -> Dict[str, Any]:
+    async def get_order_status(self, order_id: str) -> dict[str, Any]:
         """
         Get the current status of an order on the Kraken exchange.
 

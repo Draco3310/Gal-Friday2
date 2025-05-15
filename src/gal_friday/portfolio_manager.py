@@ -8,18 +8,15 @@ of the trading account's state.
 """
 
 import asyncio
+from collections.abc import Coroutine
 from datetime import datetime
 from decimal import Decimal, getcontext
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Coroutine,
-    Dict,
-    List,
     Optional,
     Protocol,
-    Tuple,
     cast,
     runtime_checkable,
 )
@@ -58,7 +55,7 @@ else:
 class ReconcilableExecutionHandler(Protocol):
     """Protocol for execution handlers that support account reconciliation."""
 
-    async def get_account_balances(self) -> Dict[str, Decimal]:
+    async def get_account_balances(self) -> dict[str, Decimal]:
         """
         Retrieve account balances from exchange.
 
@@ -68,7 +65,7 @@ class ReconcilableExecutionHandler(Protocol):
         """
         ...
 
-    async def get_open_positions(self) -> Dict[str, PositionInfo]:
+    async def get_open_positions(self) -> dict[str, PositionInfo]:
         """
         Retrieve open positions from exchange.
 
@@ -97,7 +94,7 @@ class PortfolioManager:
         market_price_service: "MarketPriceService",
         logger_service: "LoggerService",
         execution_handler: Optional["ExecutionHandler"] = None,
-    ):
+    ) -> None:
         """
         Initialize the PortfolioManager with required dependencies.
 
@@ -126,7 +123,7 @@ class PortfolioManager:
         )
 
         # --- Load Initial State & Config ---
-        asyncio.create_task(self._initialize_state())
+        self._initialization_task = asyncio.create_task(self._initialize_state())
         self._configure_reconciliation()
         self._configure_drawdown_resets()
 
@@ -138,13 +135,13 @@ class PortfolioManager:
         ] = None
 
         # Cache for the latest state snapshot (used by get_current_state)
-        self._last_known_prices: Dict[str, Decimal] = {}
+        self._last_known_prices: dict[str, Decimal] = {}
         self._last_state_update_time: Optional[datetime] = None
         self._last_total_exposure_pct: Decimal = Decimal(0)
 
         self.logger.info("PortfolioManager initialized.", source_module=self._source_module)
         self.logger.info(
-            f"Valuation Currency: {self.valuation_currency}", source_module=self._source_module
+            "Valuation Currency: %s", self.valuation_currency, source_module=self._source_module
         )
 
     async def _initialize_state(self) -> None:
@@ -167,27 +164,28 @@ class PortfolioManager:
             await self._update_portfolio_value_and_cache()
 
             self.logger.info(
-                f"Initial Available Funds: {self.funds_manager.available_funds}",
+                "Initial Available Funds: %s", self.funds_manager.available_funds,
                 source_module=self._source_module,
             )
             self.logger.info(
-                f"Initial Positions: {self.position_manager.positions}",
+                "Initial Positions: %s", self.position_manager.positions,
                 source_module=self._source_module,
             )
             self.logger.info(
-                f"Initial Equity: {self.valuation_service.total_equity:.2f} "
-                f"{self.valuation_currency}",
+                "Initial Equity: %.2f %s",
+                self.valuation_service.total_equity,
+                self.valuation_currency,
                 source_module=self._source_module,
             )
 
         except Exception as e:
             self.logger.critical(
-                f"CRITICAL: Failed to initialize portfolio state: {e}",
+                "CRITICAL: Failed to initialize portfolio state:",
                 source_module=self._source_module,
                 exc_info=True,
             )
             # Consider raising a specific exception or halting
-            raise RuntimeError("Portfolio initialization failed") from e
+            raise RuntimeError from e
 
     def _configure_reconciliation(self) -> None:
         """
@@ -207,11 +205,10 @@ class PortfolioManager:
                 "portfolio.reconciliation.auto_update", False
             )
             self.logger.info("Reconciliation configured.", source_module=self._source_module)
-        except Exception as e:
-            self.logger.error(
-                f"Error loading reconciliation config: {e}. Using defaults.",
+        except Exception:
+            self.logger.exception(
+                "Error loading reconciliation config. Using defaults.",
                 source_module=self._source_module,
-                exc_info=True,
             )
             self._reconciliation_interval = 3600
             self._reconciliation_threshold = Decimal("0.01")
@@ -232,17 +229,16 @@ class PortfolioManager:
                 "portfolio.drawdown.weekly_reset_day", 0
             )
             self.valuation_service.configure_drawdown_resets(daily_reset_hour, weekly_reset_day)
-        except ValueError as ve:
-            self.logger.error(
-                f"Invalid drawdown reset config: {ve}. Using defaults (0, 0).",
+        except ValueError:
+            self.logger.exception(
+                "Invalid drawdown reset config. Using defaults (0, 0).",
                 source_module=self._source_module,
             )
             self.valuation_service.configure_drawdown_resets(0, 0)
-        except Exception as e:
-            self.logger.error(
-                f"Error configuring drawdown resets: {e}. Using defaults.",
+        except Exception:
+            self.logger.exception(
+                "Error configuring drawdown resets. Using defaults.",
                 source_module=self._source_module,
-                exc_info=True,
             )
             self.valuation_service.configure_drawdown_resets(0, 0)  # Ensure defaults are set
 
@@ -266,22 +262,21 @@ class PortfolioManager:
 
         if self._reconciliation_interval > 0 and self._execution_handler is not None:
             self.logger.info(
-                f"Starting periodic reconciliation every {self._reconciliation_interval}s.",
+                "Starting periodic reconciliation every %ss.", self._reconciliation_interval,
                 source_module=self._source_module,
             )
             self._reconciliation_task = asyncio.create_task(self._run_periodic_reconciliation())
-        else:
-            # Log reasons for not starting reconciliation
-            if self._reconciliation_interval <= 0:
-                self.logger.info(
-                    "Reconciliation disabled by interval config.",
-                    source_module=self._source_module,
-                )
-            elif self._execution_handler is None:
-                self.logger.warning(
-                    "Reconciliation disabled (no execution handler).",
-                    source_module=self._source_module,
-                )
+        # Log reasons for not starting reconciliation
+        elif self._reconciliation_interval <= 0:
+            self.logger.info(
+                "Reconciliation disabled by interval config.",
+                source_module=self._source_module,
+            )
+        elif self._execution_handler is None:
+            self.logger.warning(
+                "Reconciliation disabled (no execution handler).",
+                source_module=self._source_module,
+            )
 
     async def stop(self) -> None:
         """
@@ -298,11 +293,10 @@ class PortfolioManager:
                     source_module=self._source_module,
                 )
                 self._execution_report_handler = None
-            except Exception as e:
-                self.logger.error(
-                    f"Error unsubscribing from EXECUTION_REPORT: {e}",
+            except Exception:
+                self.logger.exception(
+                    "Error unsubscribing from EXECUTION_REPORT:",
                     source_module=self._source_module,
-                    exc_info=True,
                 )
 
         # Stop reconciliation task if running
@@ -311,15 +305,13 @@ class PortfolioManager:
             self._reconciliation_task.cancel()
             try:
                 await self._reconciliation_task
-            except asyncio.CancelledError:
                 self.logger.info(
                     "Reconciliation task cancelled.", source_module=self._source_module
                 )
-            except Exception as e:
-                self.logger.error(
-                    f"Error stopping reconciliation task: {e}",
+            except Exception:
+                self.logger.exception(
+                    "Error stopping reconciliation task:",
                     source_module=self._source_module,
-                    exc_info=True,
                 )
             finally:
                 self._reconciliation_task = None
@@ -338,13 +330,13 @@ class PortfolioManager:
         # differences between the placeholder class and actual implementation
         if not hasattr(event, "order_status") or not hasattr(event, "exchange_order_id"):
             self.logger.warning(
-                f"Received event missing required attributes: {type(event)}",
+                "Received event missing required attributes: %s", type(event),
                 source_module=self._source_module,
             )
             return
 
         self.logger.debug(
-            f"Handling exec report: {event.exchange_order_id} - {event.order_status}",
+            "Handling exec report: %s - %s", event.exchange_order_id, event.order_status,
             source_module=self._source_module,
         )
 
@@ -354,7 +346,7 @@ class PortfolioManager:
 
         if event.order_status not in ["FILLED", "PARTIALLY_FILLED"]:
             self.logger.debug(
-                f"Ignoring exec report status: {event.order_status}",
+                "Ignoring exec report status: %s", event.order_status,
                 source_module=self._source_module,
             )
             return
@@ -387,7 +379,7 @@ class PortfolioManager:
 
             if pnl != Decimal(0):
                 self.logger.info(
-                    f"Realized PNL from trade: {pnl}",
+                    "Realized PNL from trade: %s", pnl,
                     source_module=self._source_module,
                 )
 
@@ -401,21 +393,20 @@ class PortfolioManager:
             # 6. Log Updated State
             self._log_updated_state()
 
-        except (DataValidationError, InsufficientFundsError) as ve:
-            self.logger.error(
-                f"Data/Funds error processing execution report {event.exchange_order_id}: {ve}",
+        except (DataValidationError, InsufficientFundsError):
+            self.logger.exception(
+                "Data/Funds error processing execution report %s:", event.exchange_order_id,
                 source_module=self._source_module,
             )
-        except ValueError as ve:  # Catch specific parsing/symbol errors
-            self.logger.error(
-                f"Value error processing execution report {event.exchange_order_id}: {ve}",
+        except ValueError:  # Catch specific parsing/symbol errors
+            self.logger.exception(
+                "Value error processing execution report %s:", event.exchange_order_id,
                 source_module=self._source_module,
             )
-        except Exception as e:
-            self.logger.error(
-                f"Unexpected error processing execution report {event.exchange_order_id}: {e}",
+        except Exception:  # Catch all other unexpected errors
+            self.logger.exception(
+                "Unexpected error processing execution report %s:", event.exchange_order_id,
                 source_module=self._source_module,
-                exc_info=True,
             )
 
     def _handle_order_cancellation(self, event: "ExecutionReportEvent") -> None:
@@ -429,14 +420,18 @@ class PortfolioManager:
             event: The execution report event with cancellation details
         """
         self.logger.info(
-            f"Order {event.exchange_order_id} for {event.trading_pair} was cancelled.",
+            "Order %s for %s was cancelled.", event.exchange_order_id, event.trading_pair,
             source_module=self._source_module,
         )
         # Optional: Could track pending orders locally if needed
 
+    def _raise_for_invalid_parsed_values(self) -> None:
+        """Raise ValueError for invalid parsed execution values."""
+        raise ValueError
+
     def _parse_execution_values(
         self, event: "ExecutionReportEvent"
-    ) -> Tuple[str, str, Decimal, Decimal, Decimal, Optional[str]]:
+    ) -> tuple[str, str, Decimal, Decimal, Decimal, Optional[str]]:
         """
         Parse and validate numeric values from the execution report.
 
@@ -462,12 +457,16 @@ class PortfolioManager:
             commission = Decimal(str(event.commission or 0))
             commission_asset = event.commission_asset.upper() if event.commission_asset else None
 
-            if qty_filled <= 0 or avg_price <= 0:
-                raise ValueError("Quantity filled and price must be positive.")
+            # Check for the valid condition first and return if met
+            if qty_filled > 0 and avg_price > 0:
+                return pair, side, qty_filled, avg_price, commission, commission_asset
 
-            return pair, side, qty_filled, avg_price, commission, commission_asset
+            # If the above condition wasn't met (i.e., values are not valid), call helper to raise.
+            self._raise_for_invalid_parsed_values()
+            # The helper function will always raise, so code execution stops here for this path.
+
         except (TypeError, ValueError, ArithmeticError) as e:
-            raise ValueError(f"Invalid numeric value in execution report: {e}") from e
+            raise ValueError from e
 
     async def _update_portfolio_value_and_cache(self) -> None:
         """
@@ -489,17 +488,16 @@ class PortfolioManager:
                 self._last_total_exposure_pct = exposure_pct
                 self._last_state_update_time = datetime.utcnow()
 
-        except PriceNotAvailableError as pnae:
-            self.logger.error(
-                f"Valuation failed due to missing prices: {pnae}",
+        except PriceNotAvailableError:
+            self.logger.exception(
+                "Valuation failed due to missing prices:",
                 source_module=self._source_module,
             )
             # Keep old cached values, but log the error
-        except Exception as e:
-            self.logger.error(
-                f"Error updating portfolio value: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error updating portfolio value:",
                 source_module=self._source_module,
-                exc_info=True,
             )
 
     def _log_updated_state(self) -> None:
@@ -528,19 +526,19 @@ class PortfolioManager:
         weekly_dd = self.valuation_service.weekly_drawdown_pct
 
         self.logger.info(
-            f"State Update: Funds={funds_str}, Positions={positions_str}",
+            "State Update: Funds=%s, Positions=%s",
+            funds_str, positions_str,
             source_module=self._source_module,
         )
         self.logger.info(
-            f"Valuation: Equity={equity:.2f} {self.valuation_currency}, "
-            f"Peak={peak_equity:.2f}, "
-            f"DD(Total={total_dd:.2f}%, Daily={daily_dd:.2f}%, Weekly={weekly_dd:.2f}%)",
+            "Valuation: Equity=%.2f %s, Peak=%.2f, DD(Total=%.2f%%, Daily=%.2f%%, Weekly=%.2f%%)",
+            equity, self.valuation_currency, peak_equity, total_dd, daily_dd, weekly_dd,
             source_module=self._source_module,
         )
 
     # --- State Retrieval ---
 
-    def get_current_state(self) -> Dict[str, Any]:
+    def get_current_state(self) -> dict[str, Any]:
         """
         Return the latest known portfolio state snapshot using cached data.
 
@@ -644,7 +642,7 @@ class PortfolioManager:
         # Delegate to ValuationService (synchronous access okay for read)
         return self.valuation_service.total_equity
 
-    def get_position_history(self, pair: str) -> List[Dict[str, Any]]:
+    def get_position_history(self, pair: str) -> list[dict[str, Any]]:
         """
         Return the trade history for a specific pair.
 
@@ -671,13 +669,11 @@ class PortfolioManager:
                     "price": str(trade.price),
                     "commission": str(trade.commission),
                     "commission_asset": trade.commission_asset,
-                    # Realized PNL is now stored at the position level, not per trade
-                    # "realized_pnl": str(trade.realized_pnl),
                 }
             )
         return result
 
-    def get_open_positions(self) -> List[PositionInfo]:
+    def get_open_positions(self) -> list[PositionInfo]:
         """
         Return a list of open positions.
 
@@ -688,7 +684,9 @@ class PortfolioManager:
         # Delegate to PositionManager
         return self.position_manager.get_open_positions()
 
-    def _split_symbol(self, symbol: str) -> Tuple[str, str]:
+    EXPECTED_SYMBOL_PARTS = 2
+
+    def _split_symbol(self, symbol: str) -> tuple[str, str]:
         """
         Split a trading symbol into base and quote assets.
 
@@ -706,9 +704,9 @@ class PortfolioManager:
         """
         # Keep this utility method local or move to a shared utils module
         parts = symbol.split("/")
-        if len(parts) == 2:
+        if len(parts) == self.EXPECTED_SYMBOL_PARTS:
             return parts[0].upper(), parts[1].upper()
-        raise ValueError(f"Invalid symbol format: {symbol}. Expected 'BASE/QUOTE'.")
+        raise ValueError
 
     # --- Reconciliation ---
 
@@ -732,11 +730,10 @@ class PortfolioManager:
                     "Reconciliation loop cancelled.", source_module=self._source_module
                 )
                 break
-            except Exception as e:
-                self.logger.error(
-                    f"Error in reconciliation loop: {e}",
+            except Exception:
+                self.logger.exception(
+                    "Error in reconciliation loop:",
                     source_module=self._source_module,
-                    exc_info=True,
                 )
                 await asyncio.sleep(self._reconciliation_interval)  # Avoid tight loop
 
@@ -807,7 +804,7 @@ class PortfolioManager:
             if bal_discrepancies:
                 discrepancies_found = True
                 self.logger.warning(
-                    f"Reconciliation: Balance mismatches: {bal_discrepancies}",
+                    "Reconciliation: Balance mismatches: %s", bal_discrepancies,
                     source_module=self._source_module,
                 )
                 if self._auto_reconcile:
@@ -818,11 +815,11 @@ class PortfolioManager:
             if pos_discrepancies:
                 discrepancies_found = True
                 self.logger.warning(
-                    f"Reconciliation: Position mismatches: {pos_discrepancies}",
+                    "Reconciliation: Position mismatches: %s", pos_discrepancies,
                     source_module=self._source_module,
                 )
                 if self._auto_reconcile:
-                    await self._auto_reconcile_positions(internal_positions, exchange_positions)
+                    await self._auto_reconcile_positions(exchange_positions)
 
             # Log final status and update value if reconciled
             if not discrepancies_found:
@@ -842,14 +839,13 @@ class PortfolioManager:
                     source_module=self._source_module,
                 )
 
-        except Exception as e:
-            self.logger.error(
-                f"Error during exchange reconciliation: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error during exchange reconciliation:",
                 source_module=self._source_module,
-                exc_info=True,
             )
 
-    async def _auto_reconcile_balances(self, exchange_balances: Dict[str, Decimal]) -> None:
+    async def _auto_reconcile_balances(self, exchange_balances: dict[str, Decimal]) -> None:
         """
         Auto-reconcile balances with exchange data.
 
@@ -866,8 +862,7 @@ class PortfolioManager:
 
     async def _auto_reconcile_positions(
         self,
-        internal_positions: Dict[str, PositionInfo],
-        exchange_positions: Dict[str, PositionInfo],
+        exchange_positions: dict[str, PositionInfo],
     ) -> None:
         """
         Auto-reconcile positions with exchange data.
@@ -876,7 +871,6 @@ class PortfolioManager:
 
         Args
         ----
-            internal_positions: Dictionary of current internal positions
             exchange_positions: Dictionary of positions reported by exchange
         """
         self.logger.info("Auto-reconciling positions...", source_module=self._source_module)
@@ -885,7 +879,7 @@ class PortfolioManager:
         self.logger.info("Positions auto-reconciled.", source_module=self._source_module)
 
     async def _reconcile_positions_with_exchange(
-        self, exchange_positions: Dict[str, PositionInfo]
+        self, exchange_positions: dict[str, PositionInfo]
     ) -> None:
         """
         Reconcile positions with exchange data.
@@ -904,7 +898,8 @@ class PortfolioManager:
                 # Position exists in both - check if quantities match
                 if int_pos.quantity != ex_pos.quantity:
                     self.logger.info(
-                        f"Adjusting position for {pair}: {int_pos.quantity} → {ex_pos.quantity}",
+                        "Adjusting position for %s: %s → %s",
+                        pair, int_pos.quantity, ex_pos.quantity,
                         source_module=self._source_module,
                     )
                     base_asset, quote_asset = self._split_symbol(pair)
@@ -916,7 +911,7 @@ class PortfolioManager:
                 # Position exists on exchange but not internally - create it
                 base_asset, quote_asset = self._split_symbol(pair)
                 self.logger.info(
-                    f"Creating missing position for {pair} with qty {ex_pos.quantity}",
+                    "Creating missing position for %s with qty %s", pair, ex_pos.quantity,
                     source_module=self._source_module,
                 )
                 # Create new position through a mock trade
@@ -926,7 +921,7 @@ class PortfolioManager:
         for pair, int_pos in self.position_manager.positions.items():
             if pair not in exchange_positions and int_pos.quantity != 0:
                 self.logger.info(
-                    f"Closing position {pair} that doesn't exist on exchange",
+                    "Closing position %s that doesn't exist on exchange", pair,
                     source_module=self._source_module,
                 )
                 base_asset, quote_asset = self._split_symbol(pair)
@@ -1060,7 +1055,7 @@ class PortfolioManager:
         # Create mock trade to establish the position
         timestamp = datetime.utcnow()
         self.logger.info(
-            f"Creating position from exchange: {pair} {side} {abs_qty} @ {price}",
+            "Creating position from exchange: %s %s %s @ %s", pair, side, abs_qty, price,
             source_module=self._source_module,
         )
 
@@ -1083,8 +1078,8 @@ class PortfolioManager:
         await self._update_portfolio_value_and_cache()
 
     def _compare_balances(
-        self, internal: Dict[str, Decimal], exchange: Dict[str, Decimal]
-    ) -> Dict[str, Dict[str, Decimal]]:
+        self, internal: dict[str, Decimal], exchange: dict[str, Decimal]
+    ) -> dict[str, dict[str, Decimal]]:
         """
         Compare internal and exchange balances, return discrepancies.
 
@@ -1115,8 +1110,8 @@ class PortfolioManager:
         return discrepancies
 
     def _compare_positions(
-        self, internal: Dict[str, PositionInfo], exchange: Dict[str, PositionInfo]
-    ) -> Dict[str, Dict[str, Decimal]]:
+        self, internal: dict[str, PositionInfo], exchange: dict[str, PositionInfo]
+    ) -> dict[str, dict[str, Decimal]]:
         """
         Compare internal and exchange positions, return discrepancies.
 
@@ -1152,9 +1147,3 @@ class PortfolioManager:
         return discrepancies
 
 
-# The example_usage code has been moved to tests/examples/portfolio_example.py
-if __name__ == "__main__":
-    # To run example:
-    # from tests.examples.portfolio_example import example_usage
-    # asyncio.run(example_usage())
-    pass

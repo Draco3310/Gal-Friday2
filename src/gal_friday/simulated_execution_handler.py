@@ -6,15 +6,22 @@ without requiring a connection to an actual exchange.
 """
 
 import asyncio  # Required for test coroutines
-import decimal  # noqa: F401 # Used in error handling
-import logging
-import uuid  # Add missing uuid import
 from collections import defaultdict  # Added for _active_sl_tp
 from dataclasses import dataclass, field  # noqa: F401 # Used in placeholder classes
 from datetime import datetime, timedelta
+import decimal  # Used in error handling
 from decimal import Decimal, getcontext
-from typing import TYPE_CHECKING  # Used in type hints and conditional imports
-from typing import Any, Dict, List, Optional, Tuple, Union  # noqa: F401
+import logging
+from typing import (  # noqa: F401
+    TYPE_CHECKING,  # Used in type hints and conditional imports
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
+import uuid  # Add missing uuid import
 
 import pandas as pd  # Used in type hints for pd.Series
 
@@ -23,9 +30,12 @@ getcontext().prec = 28
 
 if TYPE_CHECKING:
     from .config_manager import ConfigManager
-    from .core.events import Event  # Base class for events
-    from .core.events import EventType  # Event type enumeration
-    from .core.events import ExecutionReportEvent, TradeSignalApprovedEvent
+    from .core.events import (
+        Event,  # Base class for events
+        EventType,  # Event type enumeration
+        ExecutionReportEvent,
+        TradeSignalApprovedEvent,
+    )
     from .core.pubsub import PubSubManager
     from .historical_data_service import HistoricalDataService
     from .logger_service import LoggerService
@@ -87,20 +97,24 @@ class SimulatedExecutionHandler:
         # New configurations based on whiteboard
         self._active_sl_tp: Dict[str, Dict[str, Any]] = defaultdict(dict)
         self._fill_liquidity_ratio = self.config.get_decimal(
-            "backtest.fill_liquidity_ratio", Decimal("0.1")  # Default 10% of bar volume
+            "backtest.fill_liquidity_ratio",
+            Decimal("0.1"),  # Default 10% of bar volume
         )
         self.limit_order_timeout_bars = self.config.get_int(  # Not fully used in this iteration
-            "backtest.limit_order_timeout_bars", 3  # Example: check up to 3 future bars
+            "backtest.limit_order_timeout_bars",
+            3,  # Example: check up to 3 future bars
         )
         # Slippage model: market_impact parameters
         self.slip_market_impact_base_pct = self.config.get_decimal(
-            "backtest.slippage_market_impact_base_pct", Decimal("0.0001")  # 0.01% base
+            "backtest.slippage_market_impact_base_pct",
+            Decimal("0.0001"),  # 0.01% base
         )
         self.slip_market_impact_factor = self.config.get_decimal(
             "backtest.slippage_market_impact_factor", Decimal("0.1")
         )
         self.slip_market_impact_exponent = self.config.get_decimal(
-            "backtest.slippage_market_impact_exponent", Decimal("1.0")  # Linear impact initially
+            "backtest.slippage_market_impact_exponent",
+            Decimal("1.0"),  # Linear impact initially
         )
 
         # Placeholder for min/max order sizes (needs actual config keys)
@@ -156,7 +170,7 @@ class SimulatedExecutionHandler:
     async def handle_trade_signal_approved(self, event: "TradeSignalApprovedEvent") -> None:
         """Process an approved signal and simulate fill based on next bar data."""
         self.logger.debug(
-            (f"SimExec received approved signal: " f"{event.signal_id} at {event.timestamp}"),
+            (f"SimExec received approved signal: {event.signal_id} at {event.timestamp}"),
             source_module=self.__class__.__name__,
         )
 
@@ -367,32 +381,31 @@ class SimulatedExecutionHandler:
                 commission_pct,
                 fill_timestamp,
             )
-        elif event.order_type.upper() == "LIMIT":
+        if event.order_type.upper() == "LIMIT":
             return await self._simulate_limit_order(
                 event,
                 next_bar,
                 commission_pct,
                 fill_timestamp,
             )
-        else:
-            error_msg = (
-                f"Unsupported order type '{event.order_type}' for simulation. "
-                f"Signal {event.signal_id}."
-            )
-            self.logger.error(
-                error_msg,
-                source_module=self.__class__.__name__,
-            )
-            await self._publish_simulated_report(
-                event,
-                "REJECTED",
-                Decimal(0),
-                None,
-                Decimal(0),
-                None,
-                f"Unsupported order type: {event.order_type}",
-            )
-            return None
+        error_msg = (
+            f"Unsupported order type '{event.order_type}' for simulation. "
+            f"Signal {event.signal_id}."
+        )
+        self.logger.error(
+            error_msg,
+            source_module=self.__class__.__name__,
+        )
+        await self._publish_simulated_report(
+            event,
+            "REJECTED",
+            Decimal(0),
+            None,
+            Decimal(0),
+            None,
+            f"Unsupported order type: {event.order_type}",
+        )
+        return None
 
     async def _simulate_market_order(
         self,
@@ -500,7 +513,7 @@ class SimulatedExecutionHandler:
         """Simulate a limit order fill."""
         limit_price = event.limit_price
         if limit_price is None:
-            error_msg = f"Limit price missing for signal {event.signal_id}. " "Cannot simulate."
+            error_msg = f"Limit price missing for signal {event.signal_id}. Cannot simulate."
             self.logger.error(
                 error_msg,
                 source_module=self.__class__.__name__,
@@ -519,7 +532,7 @@ class SimulatedExecutionHandler:
         # Check if order would be filled
         filled = self._check_limit_order_fill(event.side, limit_price, next_bar)
         if not filled:
-            bar_info = f"Limit={limit_price}, " f"Bar H/L={next_bar['high']}/{next_bar['low']}"
+            bar_info = f"Limit={limit_price}, Bar H/L={next_bar['high']}/{next_bar['low']}"
             self.logger.debug(
                 f" Limit order {event.signal_id} NOT filled. {bar_info}",
                 source_module=self.__class__.__name__,
@@ -575,8 +588,8 @@ class SimulatedExecutionHandler:
         try:
             if side.upper() == "BUY":
                 return bool(next_bar["low"] <= limit_price)
-            else:  # SELL
-                return bool(next_bar["high"] >= limit_price)
+            # SELL
+            return bool(next_bar["high"] >= limit_price)
         except Exception as e:
             self.logger.error(
                 f"Error checking limit order fill: {e}",
@@ -878,9 +891,9 @@ class SimulatedExecutionHandler:
 
 
 # Example Usage
-async def _setup_services_for_main_example() -> (
-    Tuple["ConfigManager", "PubSubManager", "HistoricalDataService", "LoggerService"]
-):
+async def _setup_services_for_main_example() -> Tuple[
+    "ConfigManager", "PubSubManager", "HistoricalDataService", "LoggerService"
+]:
     """Set up required services for the main example function."""
     logger = logging.getLogger("sim_exec_example")
     config = ConfigManager()
@@ -1016,9 +1029,7 @@ async def _run_sl_tp_check_test(sim_exec: SimulatedExecutionHandler) -> None:
         "volume": Decimal("500"),
     }
     sl_trigger_bar = pd.Series(sl_trigger_bar_data, name=sl_tp_check_ts)
-    print(
-        f"\n--- Checking SL/TP with bar at {sl_tp_check_ts} " f"(Low: {sl_trigger_bar['low']}) ---"
-    )
+    print(f"\n--- Checking SL/TP with bar at {sl_tp_check_ts} (Low: {sl_trigger_bar['low']}) ---")
     await sim_exec.check_active_sl_tp(sl_trigger_bar, sl_tp_check_ts)
 
     if pos_id_to_check in sim_exec._active_sl_tp:
@@ -1032,8 +1043,7 @@ async def _run_sl_tp_check_test(sim_exec: SimulatedExecutionHandler) -> None:
         }
         tp_trigger_bar = pd.Series(tp_trigger_bar_data, name=tp_check_ts)
         print(
-            f"\n--- Checking SL/TP with bar at {tp_check_ts} "
-            f"(High: {tp_trigger_bar['high']}) ---"
+            f"\n--- Checking SL/TP with bar at {tp_check_ts} (High: {tp_trigger_bar['high']}) ---"
         )
         await sim_exec.check_active_sl_tp(tp_trigger_bar, tp_check_ts)
 

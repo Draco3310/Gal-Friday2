@@ -3,7 +3,7 @@
 import abc
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, Tuple
+from typing import Optional
 
 
 class MarketPriceService(abc.ABC):
@@ -61,7 +61,7 @@ class MarketPriceService(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def get_bid_ask_spread(self, trading_pair: str) -> Optional[Tuple[Decimal, Decimal]]:
+    async def get_bid_ask_spread(self, trading_pair: str) -> Optional[tuple[Decimal, Decimal]]:
         """
         Get the current best bid and ask prices from the data source.
 

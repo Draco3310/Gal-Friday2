@@ -13,19 +13,35 @@ import concurrent.futures
 import functools
 import logging
 import logging.handlers  # Added for RotatingFileHandler
-import os
+from pathlib import Path  # PTHxxx fix: Import Path
 import signal
 import sys
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import pandas as pd
 
 # Version information
 __version__ = "0.1.0"  # Add version tracking
 
+# --- Custom Exceptions Import ---
+from .exceptions import (
+    ConfigurationLoadingFailedExit,  # Added
+    DependencyMissingError,
+    ExecutionHandlerInstantiationFailedExit,
+    LoggerServiceInstantiationFailedExit,
+    MarketPriceServiceCriticalFailureExit,
+    MarketPriceServiceUnsupportedModeError,
+    PortfolioManagerInstantiationFailedExit,
+    PubSubManagerInstantiationFailedExit,
+    PubSubManagerStartFailedExit,
+    RiskManagerInstantiationFailedExit,
+    ServiceInstantiationFailedExit,
+    UnsupportedModeError,
+)
+
 # --- Conditional Imports for Type Checking --- #
 if TYPE_CHECKING:
-    # from .simulated_market_price_service import SimulatedMarketPriceService # Removed for F811
+    # ERA001: Removed commented-out import.
     # Define a proper protocol/interface for execution handlers
     from typing import Protocol
 
@@ -56,7 +72,7 @@ if TYPE_CHECKING:
             config_manager: "ConfigManagerType",
             pubsub_manager: "PubSubManagerType",
             logger_service: "LoggerServiceType",
-            **kwargs: Any,
+            **kwargs: object,
         ) -> None:
             """Initialize an execution handler.
 
@@ -78,7 +94,7 @@ if TYPE_CHECKING:
             ...
 
         # Add other common methods that execution handlers should implement
-        def submit_order(self, order_data: Dict[str, Any]) -> str:
+        def submit_order(self, order_data: dict[str, Any]) -> str:
             """Submit an order to the exchange.
 
             Args
@@ -105,7 +121,7 @@ if TYPE_CHECKING:
             ...
 
     # Now use this protocol for type annotations
-    ExecutionHandlerTypeHint = Type[ExecutionHandlerProtocol]
+    ExecutionHandlerTypeHint = type[ExecutionHandlerProtocol]
     _ExecutionHandlerType = Union[KrakenExecutionHandler, SimulatedExecutionHandler]
 
 
@@ -154,13 +170,13 @@ except ImportError:
 
 # --- Execution Handler Imports (Runtime) --- #
 try:
-    from .execution.kraken import KrakenExecutionHandler  # noqa: F811
+    from .execution.kraken import KrakenExecutionHandler
 except ImportError as e:
     print(f"Failed to import KrakenExecutionHandler: {e}")
     KrakenExecutionHandler = None  # type: ignore
 
 try:
-    from .simulated_execution_handler import SimulatedExecutionHandler  # noqa: F811
+    from .simulated_execution_handler import SimulatedExecutionHandler
 except ImportError:
     print("Failed to import SimulatedExecutionHandler")
     SimulatedExecutionHandler = None  # type: ignore
@@ -256,7 +272,7 @@ def setup_logging(
         root_logger.removeHandler(handler)
         handler.close()
 
-    log.info(f"Root logger level set to {log_level_name}")
+    log.info("Root logger level set to %s", log_level_name)
 
     # --- Console Handler --- #
     console_config = log_config.get("console", {})
@@ -280,13 +296,13 @@ def setup_logging(
         log_filename = json_file_config.get("filename")
         if log_filename:
             # Ensure log directory exists
-            log_dir = os.path.dirname(log_filename)
-            if log_dir and not os.path.exists(log_dir):
+            log_dir_path = Path(log_filename).parent
+            if log_dir_path and not log_dir_path.exists():
                 try:
-                    os.makedirs(log_dir)
-                    log.info(f"Created log directory: {log_dir}")
-                except OSError as e:
-                    log.error(f"Could not create log directory {log_dir}: {e}", exc_info=True)
+                    log_dir_path.mkdir(parents=True, exist_ok=True)
+                    log.info("Created log directory: %s", log_dir_path)
+                except OSError:
+                    log.exception("Could not create log directory %s", log_dir_path)
                     log_filename = None  # Prevent handler creation if dir fails
 
             if log_filename:
@@ -308,7 +324,7 @@ def setup_logging(
                 )
                 file_handler.setFormatter(file_formatter)
                 root_logger.addHandler(file_handler)
-                log.info(f"File logging enabled: {log_filename}")
+                log.info("File logging enabled: %s", log_filename)
         else:
             log.warning("File logging enabled in config but no filename specified.")
 
@@ -322,7 +338,7 @@ def setup_logging(
 # --- Graceful Shutdown Handler --- #
 def handle_shutdown(sig: signal.Signals) -> None:
     """Set the shutdown event when a signal is received."""
-    log.warning(f"Received shutdown signal: {sig.name}. Initiating graceful shutdown...")
+    log.warning("Received shutdown signal: %s. Initiating graceful shutdown...", sig.name)
     shutdown_event.set()
 
 
@@ -334,42 +350,41 @@ class GalFridayApp:
         """Initialize application state attributes."""
         log.info("Initializing GalFridayApp...")
         # Use Optional['ClassName'] string literals for type hints
-        self.config: Optional["ConfigManagerType"] = None
-        self.pubsub: Optional["PubSubManagerType"] = None
+        self.config: Optional[ConfigManagerType] = None
+        self.pubsub: Optional[PubSubManagerType] = None
         self.executor: Optional[concurrent.futures.ProcessPoolExecutor] = None
-        self.services: List[Any] = []  # Use Any for now, can refine later
-        self.running_tasks: List[asyncio.Task] = []
+        self.services: list[Any] = []  # UP006: List -> list; Use Any for now, can refine later
+        self.running_tasks: list[asyncio.Task] = [] # UP006: List -> list
         self.args: Optional[argparse.Namespace] = None
 
         # Store references to specific services after instantiation for DI
-        self.logger_service: Optional["LoggerServiceType"] = None
+        self.logger_service: Optional[LoggerServiceType] = None
         # Added
-        self.market_price_service: Optional["MarketPriceServiceType"] = None
+        self.market_price_service: Optional[MarketPriceServiceType] = None
         # Added
-        self.historical_data_service: Optional["HistoricalDataServiceType"] = None
-        self.portfolio_manager: Optional["PortfolioManagerType"] = None
+        self.historical_data_service: Optional[HistoricalDataServiceType] = None
+        self.portfolio_manager: Optional[PortfolioManagerType] = None
         # Use the type alias defined in TYPE_CHECKING
         self.execution_handler: Optional[_ExecutionHandlerType] = None
-        self.monitoring_service: Optional["MonitoringServiceType"] = None
-        self.cli_service: Optional["CLIServiceType"] = None
-        self.risk_manager: Optional["RiskManagerType"] = None
-        self.data_ingestor: Optional["DataIngestorType"] = None
-        self.feature_engine: Optional["FeatureEngineType"] = None
-        self.prediction_service: Optional["PredictionServiceType"] = None
-        self.strategy_arbitrator: Optional["StrategyArbitratorType"] = None
+        self.monitoring_service: Optional[MonitoringServiceType] = None
+        self.cli_service: Optional[CLIServiceType] = None
+        self.risk_manager: Optional[RiskManagerType] = None
+        self.data_ingestor: Optional[DataIngestorType] = None
+        self.feature_engine: Optional[FeatureEngineType] = None
+        self.prediction_service: Optional[PredictionServiceType] = None
+        self.strategy_arbitrator: Optional[StrategyArbitratorType] = None
 
     def _load_configuration(self, config_path: str) -> None:  # Accept config_path parameter
         """Load the application configuration."""
         try:
-            if ConfigManager is None:  # Runtime check for the class
-                raise RuntimeError("ConfigManager class is not available.")
+            self._ensure_class_available(ConfigManager, "ConfigManager", "Configuration loading")
             self.config = ConfigManager(config_path=config_path)  # Use the provided path
-            log.info(f"Configuration loaded successfully from: {config_path}")
+            log.info("Configuration loaded successfully from: %s", config_path)
         except Exception as e:
             log.exception(
-                f"FATAL: Failed to load configuration from {config_path}: {e}", exc_info=True
+                "FATAL: Failed to load configuration from %s", config_path
             )
-            raise SystemExit("Configuration loading failed.")
+            raise ConfigurationLoadingFailedExit from e
 
     def _setup_executor(self) -> None:  # Add return type
         """Set up the ProcessPoolExecutor."""
@@ -381,21 +396,23 @@ class GalFridayApp:
             # No assertion needed due to check above
             max_workers = self.config.get_int("prediction_service.executor_workers", 1)
             if max_workers < 1:
-                log.warning(f"Invalid executor_workers count ({max_workers}), defaulting to 1.")
+                log.warning("Invalid executor_workers count (%s), defaulting to 1.", max_workers)
                 max_workers = 1
             self.executor = concurrent.futures.ProcessPoolExecutor(max_workers=max_workers)
-            log.info(f"ProcessPoolExecutor created with max_workers={max_workers}.")
-        except Exception as e:
-            log.exception(f"ERROR: Failed to create ProcessPoolExecutor: {e}", exc_info=True)
+            log.info("ProcessPoolExecutor created with max_workers=%s.", max_workers)
+        except Exception:
+            log.exception("ERROR: Failed to create ProcessPoolExecutor")
             self.executor = None
 
     def _instantiate_pubsub(self) -> None:  # Add return type
         """Instantiate the PubSubManager."""
         try:
-            if PubSubManager is None:  # Runtime check for the class
-                raise RuntimeError("PubSubManager class is not available.")
+            self._ensure_class_available(
+                PubSubManager, "PubSubManager", "PubSubManager instantiation"
+            )
+
             if self.config is None:
-                raise RuntimeError("Configuration not loaded before instantiating PubSubManager.")
+                self._raise_config_not_loaded_for_pubsub()
             # Pass the root logger or a specific logger instance
             self.pubsub = PubSubManager(
                 logger=logging.getLogger("gal_friday.pubsub"),
@@ -403,127 +420,134 @@ class GalFridayApp:
             )
             log.info("PubSubManager instantiated successfully.")
         except Exception as e:
-            log.exception(f"FATAL: Failed to instantiate PubSubManager: {e}", exc_info=True)
-            raise SystemExit("PubSubManager instantiation failed.")
+            log.exception("FATAL: Failed to instantiate PubSubManager")
+            raise PubSubManagerInstantiationFailedExit from e
 
-    def _instantiate_services(self) -> None:  # noqa: C901
+    def _instantiate_services(self) -> None:
         """Instantiate all core services based on configuration and run mode."""
         log.info("Instantiating core services...")
         self.services = []  # Clear any previous list
 
         if self.args is None:
-            raise RuntimeError("Command line arguments not parsed before instantiating services.")
-        if self.config is None or ConfigManager is None:
-            raise RuntimeError("Configuration not loaded/available before instantiating services.")
-        if self.pubsub is None or PubSubManager is None:
-            raise RuntimeError(
-                "PubSubManager not instantiated/available before instantiating services."
+            raise DependencyMissingError(
+                component="_instantiate_services",
+                dependency="Parsed command line arguments (self.args)"
             )
+        if self.config is None or ConfigManager is None:
+            raise DependencyMissingError(
+                component="_instantiate_services",
+                dependency="Configuration (self.config or ConfigManager class)"
+            )
+        if self.pubsub is None or PubSubManager is None:
+            self._raise_dependency_not_instantiated("Core Services", "PubSubManager instance")
 
         run_mode = self.args.mode or self.config.get("trading.mode", "paper")
-        log.info(f"Determined run mode: {run_mode}")
+        log.info("Determined run mode: %s", run_mode)
 
         try:
-            # 1. LoggerService
-            if LoggerService is None:
-                raise RuntimeError("LoggerService class not available.")
-            self.logger_service = LoggerService(
-                config_manager=self.config, pubsub_manager=self.pubsub
+            self._init_logger_service()
+            self._init_historical_data_service()
+            self._init_market_price_service(run_mode)
+            self._init_portfolio_manager()
+            self._init_risk_manager()
+            self._init_monitoring_service()
+            # _instantiate_execution_handler appends to self.services internally
+            self.execution_handler = self._instantiate_execution_handler(run_mode)
+            self._init_data_ingestor()
+            self._init_feature_engine()
+            self._init_prediction_service()
+            self._init_strategy_arbitrator()
+            self._init_cli_service()
+
+            log.info("Successfully instantiated %s core services.", len(self.services))
+
+        except Exception as e:
+            log.exception("FATAL: Failed to instantiate services")
+            raise ServiceInstantiationFailedExit from e
+
+    # --- Individual Service Initializers ---
+    def _init_logger_service(self) -> None:
+        """Instantiate the LoggerService."""
+        self._ensure_class_available(LoggerService, "LoggerService", "LoggerService instantiation")
+        self.logger_service = LoggerService(
+            config_manager=self.config, pubsub_manager=self.pubsub
+        )
+        self.services.append(self.logger_service)
+        log.debug("LoggerService instantiated.")
+        if self.logger_service is None: # Should not happen if constructor succeeded
+            self._raise_logger_service_instantiation_failed()
+
+    def _init_historical_data_service(self) -> None:
+        """Instantiate the HistoricalDataService."""
+        if HistoricalDataService is None:
+            log.warning("HistoricalDataService class not available.")
+            self.historical_data_service = None
+            return
+
+        if KrakenHistoricalDataService is not None:
+            historical_data_config = (
+                self.config.get_section("historical_data")
+                if hasattr(self.config, "get_section")
+                else {}
             )
-            self.services.append(self.logger_service)
-            log.debug("LoggerService instantiated.")
-            if self.logger_service is None:
-                raise SystemExit("LoggerService instantiation failed.")
-
-            # 2. HistoricalDataService
-            # Assumes KrakenHistoricalDataService is the
-            # default for now if HistoricalDataService is needed
-            # This might need to be configurable or mode-dependent
-            if HistoricalDataService is None:
-                log.warning("HistoricalDataService class not available.")
-                self.historical_data_service = None
-            elif KrakenHistoricalDataService is not None:
-                historical_data_config = (
-                    self.config.get_section("historical_data")
-                    if hasattr(self.config, "get_section")
-                    else {}
-                )
-                self.historical_data_service = KrakenHistoricalDataService(
-                    config=historical_data_config, logger_service=self.logger_service
-                )
-                self.services.append(self.historical_data_service)
-                log.debug("KrakenHistoricalDataService instantiated.")
-            else:
-                self.historical_data_service = None
-                log.warning("No concrete HistoricalDataService implementation found.")
-
-            # 3. MarketPriceService
-            if MarketPriceService is None:
-                raise RuntimeError(
-                    "MarketPriceService class not available. This is a critical service."
-                )
-
-            if run_mode == "live":
-                if KrakenMarketPriceService is None:
-                    raise RuntimeError("KrakenMarketPriceService not available for live mode.")
-                self.market_price_service = KrakenMarketPriceService(
-                    config_manager=self.config, logger_service=self.logger_service
-                )
-                log.debug("KrakenMarketPriceService instantiated for live mode.")
-            elif (
-                SimulatedMarketPriceService is not None
-            ):  # For paper or backtest (if main handles backtest init)
-                # TODO: historical_data dict for
-                # SimulatedMarketPriceService needs to be properly populated,
-                # perhaps from HistoricalDataService or specific backtest setup.
-                # For now, using empty dict to allow instantiation.
-                sim_hist_data: Dict[str, pd.DataFrame] = {}
-                # Assuming LoggerService has a .logger attribute that is a logging.Logger
-                sim_logger = (
-                    self.logger_service.logger
-                    if hasattr(self.logger_service, "logger")
-                    else logging.getLogger("SimulatedMarketPrice")
-                )
-
-                self.market_price_service = SimulatedMarketPriceService(
-                    historical_data=sim_hist_data, config_manager=self.config, logger=sim_logger
-                )
-                log.debug("SimulatedMarketPriceService instantiated for non-live mode.")
-            else:
-                raise RuntimeError(
-                    f"Cannot instantiate MarketPriceService for mode '{run_mode}'. "
-                    f"Missing implementation."
-                )
-
-            if self.market_price_service is None:
-                raise SystemExit("MarketPriceService instantiation failed critically.")
-            self.services.append(self.market_price_service)
-
-            # 4. PortfolioManager
-            if self.market_price_service is None:
-                raise RuntimeError(
-                    "MarketPriceService not instantiated. PortfolioManager cannot be created."
-                )
-            if PortfolioManager is None:
-                raise RuntimeError("PortfolioManager class not available.")
-            self.portfolio_manager = PortfolioManager(
-                config_manager=self.config,
-                pubsub_manager=self.pubsub,
-                market_price_service=self.market_price_service,
-                logger_service=self.logger_service,
+            self.historical_data_service = KrakenHistoricalDataService(
+                config=historical_data_config, logger_service=self.logger_service
             )
-            self.services.append(self.portfolio_manager)
-            log.debug("PortfolioManager instantiated.")
-            if self.portfolio_manager is None:
-                raise SystemExit("PortfolioManager instantiation failed.")
+            self.services.append(self.historical_data_service)
+            log.debug("KrakenHistoricalDataService instantiated.")
+        else:
+            self.historical_data_service = None
+            log.warning("No concrete HistoricalDataService implementation found.")
 
-            # 5. RiskManager
-            if self.market_price_service is None:
-                raise RuntimeError(
-                    "MarketPriceService not instantiated. RiskManager cannot be created."
-                )
-            if RiskManager is None:
-                raise RuntimeError("RiskManager class not available.")
+    def _init_market_price_service(self, run_mode: str) -> None:
+        """Instantiate the MarketPriceService based on run_mode."""
+        self._ensure_class_available(
+            MarketPriceService, "MarketPriceService", "MarketPriceService instantiation"
+        )
+
+        if run_mode == "live":
+            if KrakenMarketPriceService is None:
+                self._raise_kraken_market_price_service_unavailable_for_live_mode()
+            self.market_price_service = KrakenMarketPriceService(
+                config_manager=self.config, logger_service=self.logger_service
+            )
+            log.debug("KrakenMarketPriceService instantiated for live mode.")
+        elif SimulatedMarketPriceService is not None:
+            sim_hist_data: dict[str, pd.DataFrame] = {}
+            sim_logger = (
+                self.logger_service.logger
+                if hasattr(self.logger_service, "logger")
+                else logging.getLogger("SimulatedMarketPrice")
+            )
+            self.market_price_service = SimulatedMarketPriceService(
+                historical_data=sim_hist_data, config_manager=self.config, logger=sim_logger
+            )
+            log.debug("SimulatedMarketPriceService instantiated for non-live mode.")
+        else:
+            self._raise_market_price_service_unsupported_mode(run_mode)
+
+        if self.market_price_service is None: # Should not happen if logic above is correct
+            self._raise_market_price_service_critical_failure()
+        self.services.append(self.market_price_service)
+
+    def _init_portfolio_manager(self) -> None:
+        """Instantiate the PortfolioManager."""
+        self._ensure_portfolio_manager_prerequisites()
+        self.portfolio_manager = PortfolioManager(
+            config_manager=self.config,
+            pubsub_manager=self.pubsub,
+            market_price_service=self.market_price_service,
+            logger_service=self.logger_service,
+        )
+        self.services.append(self.portfolio_manager)
+        log.debug("PortfolioManager instantiated.")
+        if self.portfolio_manager is None: # Should not happen
+            self._raise_portfolio_manager_instantiation_failed()
+
+    def _init_risk_manager(self) -> None:
+        """Instantiate the RiskManager."""
+        self._ensure_risk_manager_prerequisites()
+        try:
             risk_config = self.config.get("risk") if hasattr(self.config, "get") else {}
             self.risk_manager = RiskManager(
                 config=risk_config,
@@ -534,127 +558,251 @@ class GalFridayApp:
             )
             self.services.append(self.risk_manager)
             log.debug("RiskManager instantiated.")
-            if self.risk_manager is None:
-                raise SystemExit("RiskManager instantiation failed.")
-
-            # 6. MonitoringService
-            if MonitoringService is None:
-                raise RuntimeError("MonitoringService class not available.")
-            self.monitoring_service = MonitoringService(
-                config_manager=self.config,
-                pubsub_manager=self.pubsub,
-                portfolio_manager=self.portfolio_manager,
-                logger_service=self.logger_service,
-            )
-            self.services.append(self.monitoring_service)
-            log.debug("MonitoringService instantiated.")
-
-            # 7. ExecutionHandler
-            self._instantiate_execution_handler(run_mode)
-            if self.execution_handler is None:
-                raise SystemExit(f"Execution Handler failed to instantiate for mode: {run_mode}")
-
-            # 8. DataIngestor
-            if DataIngestor is None:
-                raise RuntimeError("DataIngestor class not available.")
-            self.data_ingestor = DataIngestor(
-                config=self.config, pubsub_manager=self.pubsub, logger_service=self.logger_service
-            )
-            self.services.append(self.data_ingestor)
-            log.debug("DataIngestor instantiated.")
-
-            # 9. FeatureEngine
-            if FeatureEngineType is None:
-                raise RuntimeError("FeatureEngine class not available.")
-            feature_engine_config = (
-                self.config.get_all() if hasattr(self.config, "get_all") else {}
-            )
-            # FeatureEngine might need historical_data_service for initial data loading
-            self.feature_engine = FeatureEngineType(
-                config=feature_engine_config,
-                pubsub_manager=self.pubsub,
-                logger_service=self.logger_service,
-                historical_data_service=self.historical_data_service,  # Pass HDS
-            )
-            self.services.append(self.feature_engine)
-            log.debug("FeatureEngine instantiated.")
-
-            # 10. PredictionService
-            if PredictionService is None:
-                raise RuntimeError("PredictionService class not available.")
-            prediction_service_config = (
-                self.config.get_section("prediction_service")
-                if hasattr(self.config, "get_section")
-                else {}
-            )
-            self.prediction_service = PredictionService(
-                config=prediction_service_config,
-                pubsub_manager=self.pubsub,
-                logger_service=self.logger_service,
-                process_pool_executor=self.executor,  # type: ignore[arg-type]
-            )
-            self.services.append(self.prediction_service)
-            log.debug("PredictionService instantiated.")
-
-            # 11. StrategyArbitrator
-            if self.market_price_service is None:
-                raise RuntimeError(
-                    "MarketPriceService not instantiated. StrategyArbitrator cannot be created."
-                )
-            if StrategyArbitrator is None:
-                raise RuntimeError("StrategyArbitrator class not available.")
-            strategy_arbitrator_config = (
-                self.config.get("strategy_arbitrator") if hasattr(self.config, "get") else {}
-            )
-            self.strategy_arbitrator = StrategyArbitrator(
-                config=strategy_arbitrator_config,
-                pubsub_manager=self.pubsub,
-                logger_service=self.logger_service,
-                market_price_service=self.market_price_service,
-            )
-            self.services.append(self.strategy_arbitrator)
-            log.debug("StrategyArbitrator instantiated.")
-
-            # 12. CLIService
-            if CLIService is not None:
-                self.cli_service = CLIService(
-                    monitoring_service=self.monitoring_service,
-                    logger_service=self.logger_service,
-                    main_app_controller=self,
-                    portfolio_manager=self.portfolio_manager,  # Pass portfolio_manager to CLI
-                )
-                self.services.append(self.cli_service)
-                log.debug("CLIService instantiated.")
-            else:
-                self.cli_service = None
-                log.info("CLIService not available or not configured.")
-
-            log.info(f"Successfully instantiated {len(self.services)} core services.")
-
+            if self.risk_manager is None: # Should not happen
+                self._handle_risk_manager_none_after_init()
         except Exception as e:
-            log.exception(f"FATAL: Failed to instantiate services: {e}", exc_info=True)
-            raise SystemExit("Service instantiation failed.")
+            log.exception("Failed to instantiate RiskManager")
+            raise RiskManagerInstantiationFailedExit(
+                component_name="RiskManager"
+            ) from e
+
+    def _init_monitoring_service(self) -> None:
+        """Instantiate the MonitoringService."""
+        self._ensure_class_available(MonitoringService, "MonitoringService")
+        if self.portfolio_manager is None:
+             raise DependencyMissingError(
+                 component="MonitoringService",
+                 dependency="PortfolioManager instance"
+             )
+        self.monitoring_service = MonitoringService(
+            config_manager=self.config,
+            pubsub_manager=self.pubsub,
+            portfolio_manager=self.portfolio_manager,
+            logger_service=self.logger_service,
+        )
+        self.services.append(self.monitoring_service)
+        log.debug("MonitoringService instantiated.")
+
+    def _init_data_ingestor(self) -> None:
+        """Instantiate the DataIngestor."""
+        self._ensure_class_available(DataIngestor, "DataIngestor")
+        self.data_ingestor = DataIngestor(
+            config=self.config, pubsub_manager=self.pubsub, logger_service=self.logger_service
+        )
+        self.services.append(self.data_ingestor)
+        log.debug("DataIngestor instantiated.")
+
+    def _init_feature_engine(self) -> None:
+        """Instantiate the FeatureEngine."""
+        self._ensure_class_available(FeatureEngineType, "FeatureEngineType")
+        feature_engine_config = (
+            self.config.get_all() if hasattr(self.config, "get_all") else {}
+        )
+        self.feature_engine = FeatureEngineType(
+            config=feature_engine_config,
+            pubsub_manager=self.pubsub,
+            logger_service=self.logger_service,
+            historical_data_service=self.historical_data_service,
+        )
+        self.services.append(self.feature_engine)
+        log.debug("FeatureEngine instantiated.")
+
+    def _init_prediction_service(self) -> None:
+        """Instantiate the PredictionService."""
+        self._ensure_class_available(PredictionService, "PredictionService")
+        prediction_service_config = (
+            self.config.get_section("prediction_service")
+            if hasattr(self.config, "get_section")
+            else {}
+        )
+        self.prediction_service = PredictionService(
+            config=prediction_service_config,
+            pubsub_manager=self.pubsub,
+            logger_service=self.logger_service,
+            process_pool_executor=self.executor,  # type: ignore[arg-type]
+        )
+        self.services.append(self.prediction_service)
+        log.debug("PredictionService instantiated.")
+
+    def _init_strategy_arbitrator(self) -> None:
+        """Instantiate the StrategyArbitrator."""
+        self._ensure_strategy_arbitrator_prerequisites()
+        strategy_arbitrator_config = (
+            self.config.get("strategy_arbitrator") if hasattr(self.config, "get") else {}
+        )
+        self.strategy_arbitrator = StrategyArbitrator(
+            config=strategy_arbitrator_config,
+            pubsub_manager=self.pubsub,
+            logger_service=self.logger_service,
+            market_price_service=self.market_price_service,
+        )
+        self.services.append(self.strategy_arbitrator)
+        log.debug("StrategyArbitrator instantiated.")
+
+    def _init_cli_service(self) -> None:
+        """Instantiate the CLIService."""
+        if CLIService is not None:
+            # Prerequisite checks for CLIService (monitoring_service, portfolio_manager)
+            if self.monitoring_service is None:
+                raise DependencyMissingError(
+                    component="CLIService", dependency="MonitoringService instance"
+                )
+            if self.portfolio_manager is None:
+                raise DependencyMissingError(
+                    component="CLIService", dependency="PortfolioManager instance"
+                )
+
+            self.cli_service = CLIService(
+                monitoring_service=self.monitoring_service,
+                logger_service=self.logger_service,
+                main_app_controller=self, # Pass self for app control
+                portfolio_manager=self.portfolio_manager,
+            )
+            self.services.append(self.cli_service)
+            log.debug("CLIService instantiated.")
+        else:
+            self.cli_service = None
+            log.info("CLIService not available or not configured.")
+
+    def _ensure_class_available(
+        self,
+        class_obj: Optional[type],
+        class_name_str: str,
+        required_by_component: str = "GalFridayApp",
+    ) -> None:
+        """Ensure a class is available (not None), raises DependencyMissingError if not."""
+        if class_obj is None:
+            raise DependencyMissingError(
+                component=required_by_component,
+                dependency=f"{class_name_str} class not available or import failed"
+            )
+
+    def _ensure_strategy_arbitrator_prerequisites(self) -> None:
+        """Ensure all prerequisites for StrategyArbitrator are met before instantiation."""
+        if self.market_price_service is None:
+            raise DependencyMissingError(
+                component="StrategyArbitrator", dependency="MarketPriceService instance"
+            )
+        if StrategyArbitrator is None: # This is the class itself from the import block
+            raise DependencyMissingError(
+                component="StrategyArbitrator",
+                dependency="StrategyArbitrator class (import failed or not available)"
+            )
+
+    def _ensure_risk_manager_prerequisites(self) -> None:
+        """Ensure all prerequisites for RiskManager are met before instantiation."""
+        if self.market_price_service is None:
+            raise DependencyMissingError(
+                component="RiskManager", dependency="MarketPriceService instance"
+            )
+        if self.portfolio_manager is None:
+            raise DependencyMissingError(
+                component="RiskManager", dependency="PortfolioManager instance"
+            )
+        if RiskManager is None:  # This is the class itself from the import block
+            raise DependencyMissingError(
+                component="RiskManager",
+                dependency="RiskManager class (import failed or not available)"
+            )
+
+    def _ensure_portfolio_manager_prerequisites(self) -> None:
+        """Ensure all prerequisites for PortfolioManager are met before instantiation."""
+        if self.market_price_service is None:
+            raise DependencyMissingError(
+                component="PortfolioManager", dependency="MarketPriceService instance"
+            )
+        if PortfolioManager is None:  # This is the class itself
+            raise DependencyMissingError(
+                component="PortfolioManager",
+                dependency="PortfolioManager class (import failed or not available)"
+            )
+
+    def _handle_risk_manager_none_after_init(self) -> None:
+        """Handle the case where RiskManager is None after a successful init call."""
+        # This method exists to abstract the raise for TRY301.
+        raise RiskManagerInstantiationFailedExit(component_name="RiskManager")
+
+    def _raise_config_not_loaded_for_pubsub(self) -> None:
+        """Raise DependencyMissingError if config is not loaded for PubSub init."""
+        raise DependencyMissingError(
+            component="PubSubManager instantiation",
+            dependency="Configuration (self.config) not loaded"
+        )
+
+    def _raise_dependency_not_instantiated(
+        self, component_name: str, dependency_name: str
+    ) -> None:
+        """Raise DependencyMissingError for a non-instantiated dependency."""
+        raise DependencyMissingError(
+            component=component_name,
+            dependency=f"{dependency_name} not instantiated or available"
+        )
+
+    def _raise_logger_service_instantiation_failed(self) -> None:
+        """Raise LoggerServiceInstantiationFailedExit."""
+        raise LoggerServiceInstantiationFailedExit
+
+    def _raise_kraken_market_price_service_unavailable_for_live_mode(self) -> None:
+        """Raise DependencyMissingError for unavailable KrakenMarketPriceService in live mode."""
+        raise DependencyMissingError(
+            component="MarketPriceService (live mode)",
+            dependency="KrakenMarketPriceService class"
+        )
+
+    def _raise_market_price_service_unsupported_mode(self, mode: str) -> None:
+        """Raise MarketPriceServiceUnsupportedModeError."""
+        # Note: supported_modes can be dynamically fetched or hardcoded if static
+        raise MarketPriceServiceUnsupportedModeError(
+            mode=mode, supported_modes=["live", "paper"]  # Example modes
+        )
+
+    def _raise_market_price_service_critical_failure(self) -> None:
+        """Raise MarketPriceServiceCriticalFailureExit."""
+        raise MarketPriceServiceCriticalFailureExit
+
+    def _raise_portfolio_manager_instantiation_failed(self) -> None:
+        """Raise PortfolioManagerInstantiationFailedExit."""
+        raise PortfolioManagerInstantiationFailedExit
 
     # Add return type
-    def _instantiate_execution_handler(self, run_mode: str) -> None:
-        """Instantiate the correct ExecutionHandler based on the run mode."""
+    def _instantiate_execution_handler(self, run_mode: str) -> _ExecutionHandlerType:
+        """Instantiate the correct ExecutionHandler based on the run mode.
+
+        Returns
+        -------
+            The instantiated execution handler.
+
+        Raises
+        ------
+            ExecutionHandlerInstantiationFailedExit: If instantiation fails after attempting.
+            DependencyMissingError: If a required component for the handler is missing.
+            UnsupportedModeError: If the run_mode is not supported.
+        """
+        # Reset self.execution_handler to None at the start of instantiation attempt for
+        # a given mode.
+        # This ensures that if a previous mode set it, it's cleared before the new mode attempts.
+        # However, typically this method is called once per app run with a determined mode.
         self.execution_handler = None
 
         # Runtime checks for required classes and instances
+        # (these should raise if there's an issue)
         if self.config is None or ConfigManager is None:
-            raise RuntimeError("Config not loaded/available for ExecutionHandler.")
+            raise DependencyMissingError(component="ExecutionHandler", dependency="Config")
         if self.pubsub is None or PubSubManager is None:
-            raise RuntimeError("PubSub not loaded/available for ExecutionHandler.")
+            raise DependencyMissingError(component="ExecutionHandler", dependency="PubSub")
         if self.logger_service is None or LoggerService is None:
-            raise RuntimeError("LoggerService not loaded/available for ExecutionHandler.")
+            raise DependencyMissingError(component="ExecutionHandler", dependency="LoggerService")
         if self.monitoring_service is None or MonitoringService is None:  # Added check
-            raise RuntimeError("MonitoringService not loaded/available for ExecutionHandler.")
+            raise DependencyMissingError(
+                component="ExecutionHandler", dependency="MonitoringService"
+            )
 
         if run_mode == "live":
             if KrakenExecutionHandler is None:
-                raise RuntimeError("KrakenExecutionHandler class not available for live mode.")
-            # Assuming KrakenExecutionHandler needs config_manager,
-            # pubsub_manager, logger_service
+                raise DependencyMissingError(
+                    component="Live mode ExecutionHandler",
+                    dependency="KrakenExecutionHandler class"
+                )
             self.execution_handler = KrakenExecutionHandler(
                 config_manager=self.config,
                 pubsub_manager=self.pubsub,
@@ -665,20 +813,14 @@ class GalFridayApp:
 
         elif run_mode == "paper":
             if SimulatedExecutionHandler is None:
-                raise RuntimeError("SimulatedExecutionHandler class not available for paper mode.")
-            # Check dependency: HistoricalDataService
-            if self.historical_data_service is None or HistoricalDataService is None:
-                raise RuntimeError(
-                    "HistoricalDataService not instantiated/available for "
-                    "SimulatedExecutionHandler."
+                raise DependencyMissingError(
+                    component="Paper mode ExecutionHandler",
+                    dependency="SimulatedExecutionHandler class"
                 )
-            # Removed the specific check for monitoring_service for
-            # SimulatedExecutionHandler as it's not a dependency.
-            # The general check at the start of the function handles cases where
-            # MonitoringService might be needed by other handlers.
-
-            # Assuming SimulatedExecutionHandler needs config, pubsub,
-            # data_service, logger
+            if self.historical_data_service is None or HistoricalDataService is None:
+                raise DependencyMissingError(
+                    component="SimulatedExecutionHandler", dependency="HistoricalDataService"
+                )
             self.execution_handler = SimulatedExecutionHandler(
                 config_manager=self.config,
                 pubsub_manager=self.pubsub,
@@ -688,21 +830,26 @@ class GalFridayApp:
             log.debug("SimulatedExecutionHandler instantiated for paper mode.")
 
         else:
-            raise ValueError(f"Unsupported run mode: {run_mode}. Choose 'live' or 'paper'.")
+            # This will raise UnsupportedModeError if run_mode is not 'live' or 'paper'
+            raise UnsupportedModeError(mode=run_mode, supported_modes=["live", "paper"])
 
-        # Append the instantiated handler to the services list
-        if self.execution_handler:
-            self.services.append(self.execution_handler)
-        else:
-            # This path should ideally not be reached due to prior
-            # checks/raises
-            raise RuntimeError(
-                f"Execution handler instantiation failed unexpectedly for mode: {run_mode}"
+        # Final check: If after all mode logic, handler is still None, something is wrong.
+        if self.execution_handler is None:
+            # This path indicates a logic flaw if no specific error (DependencyMissing,
+            # UnsupportedMode) was raised earlier.
+            log.critical(
+                "Execution handler is unexpectedly None after instantiation attempt for mode: %s.",
+                run_mode
             )
+            raise ExecutionHandlerInstantiationFailedExit(mode=run_mode)
+
+        # Append the successfully instantiated handler to the services list
+        self.services.append(self.execution_handler)
+        return self.execution_handler
 
     async def initialize(self, args: argparse.Namespace) -> None:  # Add return type
         """Load configuration, set up logging, and instantiate components."""
-        log.info(f"Initializing GalFridayApp (Version: {__version__})...")
+        log.info("Initializing GalFridayApp (Version: %s)...", __version__)
         self.args = args  # args should be guaranteed by main_async
 
         # --- 1. Configuration Loading ---
@@ -714,8 +861,8 @@ class GalFridayApp:
             # Pass the instance and log_level override
             setup_logging(self.config, args.log_level)
             log.info("Logging configured successfully.")
-        except Exception as e:
-            log.exception(f"ERROR: Failed to configure logging: {e}", exc_info=True)
+        except Exception:
+            log.exception("ERROR: Failed to configure logging")
             # Continue running with basic logging if setup fails
 
         # --- 3. Executor Setup ---
@@ -742,13 +889,13 @@ class GalFridayApp:
                 await self.pubsub.start()
                 log.info("PubSubManager started.")
             except Exception as e:
-                log.exception(f"FATAL: Failed to start PubSubManager: {e}", exc_info=True)
-                raise SystemExit("PubSubManager failed to start.")
+                log.exception("FATAL: Failed to start PubSubManager")
+                raise PubSubManagerStartFailedExit from e
 
-    async def _create_and_run_service_start_tasks(self) -> List[Union[Any, BaseException]]:
+    async def _create_and_run_service_start_tasks(self) -> list[Union[Any, BaseException]]:
         # Changed return type
         """Create and run start tasks for all registered services."""
-        log.info(f"Starting {len(self.services)} services...")
+        log.info("Starting %s services...", len(self.services))
         start_tasks = []
         start_exceptions = []
 
@@ -756,21 +903,22 @@ class GalFridayApp:
             service_name = service.__class__.__name__
             if hasattr(service, "start"):
                 try:
-                    log.debug(f"Creating start task for {service_name}...")
+                    log.debug("Creating start task for %s...", service_name)
                     task = asyncio.create_task(service.start(), name=f"{service_name}_start")
                     start_tasks.append(task)
-                    log.info(f"Start task created for {service_name}.")
+                    log.info("Start task created for %s.", service_name)
                 except Exception as e:
                     log.exception(
-                        f"Error creating start task for {service_name}: {e}", exc_info=True
+                        "Error creating start task for %s",
+                        service_name,
                     )
                     start_exceptions.append(f"{service_name}: {e}")  # Store exception for later
             else:
-                log.warning(f"Service {service_name} does not have a start() method.")
+                log.warning("Service %s does not have a start() method.", service_name)
 
         if start_exceptions:
             # Log collected exceptions from task creation
-            log.error(f"Errors encountered during service task creation: {start_exceptions}")
+            log.error("Errors encountered during service task creation: %s", start_exceptions)
             # Potentially raise an error or handle as critical failure if needed
 
         self.running_tasks.extend(t for t in start_tasks if isinstance(t, asyncio.Task))
@@ -779,12 +927,12 @@ class GalFridayApp:
             log.warning("No service start tasks were created or all failed at creation.")
             return []  # No tasks to await
 
-        log.info(f"Waiting for {len(self.running_tasks)} service start tasks to complete...")
-        results = await asyncio.gather(*self.running_tasks, return_exceptions=True)
-        return results
+        log.info("Waiting for %s service start tasks to complete...", len(self.running_tasks))
+        return await asyncio.gather(*self.running_tasks, return_exceptions=True)
 
     def _handle_service_startup_results(
-        self, results: List[Union[Any, BaseException]]  # Changed parameter type
+        self,
+        results: list[Union[Any, BaseException]],  # Changed parameter type
     ) -> None:
         """Handle the results of service startup tasks."""
         failed_services = []
@@ -799,17 +947,18 @@ class GalFridayApp:
 
             if isinstance(result, Exception):
                 log.error(
-                    f"Service task {task_name} failed during startup: {result}",
-                    exc_info=result if not isinstance(result, asyncio.CancelledError) else None,
+                    "Service task %s failed during startup: %s",
+                    task_name,
+                    result,
                 )
                 failed_services.append(task_name)
             else:
-                log.info(f"Service task {task_name} completed startup successfully.")
+                log.info("Service task %s completed startup successfully.", task_name)
 
         if failed_services:
             log.critical(
-                f"Critical services failed to start: {', '.join(failed_services)}. "
-                "Initiating shutdown."
+                "Critical services failed to start: %s. Initiating shutdown.",
+                ", ".join(failed_services),
             )
             shutdown_event.set()
         elif not results and self.services:  # No results but services were expected
@@ -837,17 +986,17 @@ class GalFridayApp:
 
         log.info("Application startup sequence complete.")
 
-    async def _initiate_service_shutdown(self) -> List[Union[Exception, Any]]:
+    async def _initiate_service_shutdown(self) -> list[Union[Exception, Any]]:
         """Gathers and executes stop coroutines for services and PubSubManager."""
-        log.info(f"Stopping {len(self.services)} services...")
+        log.info("Stopping %s services...", len(self.services))
         stop_coroutines = []
         for service in reversed(self.services):  # Stop in reverse order
             service_name = service.__class__.__name__
             if hasattr(service, "stop"):
-                log.debug(f"Adding stop coroutine for {service_name}...")
+                log.debug("Adding stop coroutine for %s...", service_name)
                 stop_coroutines.append(service.stop())
             else:
-                log.debug(f"Service {service_name} has no stop() method.")
+                log.debug("Service %s has no stop() method.", service_name)
 
         if self.pubsub and hasattr(self.pubsub, "stop"):
             log.debug("Adding stop coroutine for PubSubManager...")
@@ -871,9 +1020,9 @@ class GalFridayApp:
                 service_name = instance.__class__.__name__
 
             if isinstance(result, Exception):
-                log.error(f"Error stopping service {service_name}: {result}", exc_info=result)
+                log.error("Error stopping service %s: %s", service_name, result)
             else:
-                log.debug(f"Service {service_name} stopped successfully.")
+                log.debug("Service %s stopped successfully.", service_name)
         return results
 
     async def _cancel_active_tasks(self) -> None:
@@ -882,7 +1031,7 @@ class GalFridayApp:
             log.info("No active tasks to cancel.")
             return
 
-        log.info(f"Cancelling {len(self.running_tasks)} potentially running service tasks...")
+        log.info("Cancelling %s potentially running service tasks...", len(self.running_tasks))
         for task in self.running_tasks:
             if not task.done():
                 task.cancel()
@@ -892,22 +1041,21 @@ class GalFridayApp:
         error_count = 0
         for i, result in enumerate(results):
             task = self.running_tasks[i]
-            if hasattr(task, "get_name"):
-                task_name = task.get_name()
-            else:
-                task_name = f"Task-{i}"
+            task_name = task.get_name() if hasattr(task, "get_name") else f"Task-{i}"
             if isinstance(result, asyncio.CancelledError):
                 cancelled_count += 1
-                log.debug(f"Task {task_name} cancelled successfully.")
+                log.debug("Task %s cancelled successfully.", task_name)
             elif isinstance(result, Exception):
                 error_count += 1
                 log.error(
-                    f"Error during cancellation/completion of task {task_name}: {result}",
-                    exc_info=result,
+                    "Error during cancellation/completion of task %s: %s",
+                    task_name,
+                    result,
                 )
         log.info(
-            f"Service task cancellation complete. Cancelled: {cancelled_count}, "
-            f"Errors: {error_count}"
+            "Service task cancellation complete. Cancelled: %s, Errors: %s",
+            cancelled_count,
+            error_count
         )
         self.running_tasks.clear()
 
@@ -919,8 +1067,8 @@ class GalFridayApp:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, self.executor.shutdown, True)  # wait=True
                 log.info("ProcessPoolExecutor shut down successfully.")
-            except Exception as e:
-                log.error(f"Error shutting down ProcessPoolExecutor: {e}", exc_info=True)
+            except Exception:
+                log.exception("Error shutting down ProcessPoolExecutor")
         else:
             log.info("No ProcessPoolExecutor to shut down.")
 
@@ -974,114 +1122,10 @@ async def main_async(args: argparse.Namespace) -> None:  # Add return type
         try:
             # Pass only the signal, handle_shutdown sets the global event
             loop.add_signal_handler(sig, functools.partial(handle_shutdown, sig))
-            log.info(f"Registered handler for signal {sig.name}")
+            log.info("Registered handler for signal %s", sig.name)
         except NotImplementedError:
-            log.warning(f"Signal handling for {sig.name} not supported on this platform.")
+            log.warning("Signal handling for %s not supported on this platform.", sig.name)
         except ValueError:
-            log.warning(f"Cannot register signal handler for {sig.name} in non-main thread.")
+            log.warning("Cannot register signal handler for %s in non-main thread.", sig.name)
 
     await app.run()
-
-
-# --- Main Application Logic (Entry Point) --- #
-
-
-def _parse_arguments() -> argparse.Namespace:
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Gal-Friday Trading Bot")
-    parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["live", "paper"],
-        default=None,
-        help=(
-            "Trading mode: 'live' for real trading, 'paper' for simulated "
-            "trading with live data."
-        ),
-    )
-    # Add other potential arguments here (e.g., --config)
-    return parser.parse_args()
-
-
-def create_arg_parser() -> argparse.ArgumentParser:
-    """Create and return the argument parser for CLI args."""
-    parser = argparse.ArgumentParser(
-        description=f"Gal-Friday Trading Bot (Version: {__version__})"
-    )
-    parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["live", "paper"],
-        default=None,  # Default to None, will fallback to config value if not provided
-        help=(
-            "Trading mode: 'live' for real trading, 'paper' for simulated "
-            "trading with live data."
-        ),
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="config/config.yaml",  # Default config path
-        help="Path to the main configuration file (YAML format).",
-    )
-    parser.add_argument(
-        "--log-level",
-        type=str,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default=None,
-        help="Override log level specified in config file.",
-    )
-    return parser
-
-
-def main(args: Optional[argparse.Namespace] = None) -> None:
-    """Execute the application with the given command-line arguments.
-
-    Args
-    ----
-        args: Command-line arguments (parsed). If None, arguments will be parsed.
-    """
-    if args is None:
-        args = _parse_arguments()
-
-    try:
-        asyncio.run(main_async(args))
-    except (KeyboardInterrupt, SystemExit):
-        # Catch exceptions that signal intentional stop (like SystemExit from
-        # failed init)
-        log.warning("Application exit triggered.")
-    except Exception:  # Remove 'as e'
-        log.exception("Caught unexpected critical error in main execution block", exc_info=True)
-    finally:
-        log.info("Performing final logging shutdown...")
-        logging.shutdown()
-        log.info("Gal-Friday Application finished.")
-
-
-def process_args_and_run() -> None:
-    """Process command line arguments and run the application.
-
-    This function is the main entry point when running the module directly.
-    It sets up argument parsing and runs the application with proper error handling.
-    """
-    log.info(f"--- Starting Gal-Friday Application (Version: {__version__}) ---")
-    # --- Argument Parsing --- #
-    parser = create_arg_parser()
-    cli_args = parser.parse_args()
-
-    try:
-        main(cli_args)
-    except (KeyboardInterrupt, SystemExit):
-        # Catch exceptions that signal intentional stop (like SystemExit from
-        # failed init)
-        log.warning("Application exit triggered.")
-    except Exception:  # Remove the 'as e' part
-        log.exception("Caught unexpected critical error in main execution block", exc_info=True)
-    finally:
-        log.info("Performing final logging shutdown...")
-        logging.shutdown()
-        log.info("Gal-Friday Application finished.")
-
-
-if __name__ == "__main__":
-    process_args_and_run()

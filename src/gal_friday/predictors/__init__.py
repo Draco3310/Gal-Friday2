@@ -10,6 +10,6 @@ from .xgboost_predictor import XGBoostPredictor
 
 __all__ = [
     "PredictorInterface",
-    "XGBoostPredictor",
     "SklearnPredictor",
+    "XGBoostPredictor",
 ]

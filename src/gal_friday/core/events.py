@@ -5,12 +5,13 @@ system components, including market data events, trading signals, and execution 
 All events are implemented as immutable dataclasses with comprehensive validation.
 """
 
-import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional
+import uuid
 
 """
 Core Event Definitions for Gal-Friday
@@ -31,12 +32,261 @@ Design Notes
 """
 
 
+# --- Custom Exceptions ---
+
+class ValidationError(ValueError):
+    """Base class for all event validation errors."""
+
+
+
+class CommissionAssetMissingError(ValidationError):
+    """Error raised when commission is specified but commission_asset is missing."""
+
+    def __init__(self) -> None:
+        super().__init__("Commission asset must be provided when commission is specified")
+
+
+class NegativeCommissionError(ValidationError):
+    """Error raised when commission is negative."""
+
+    def __init__(self, commission: Decimal) -> None:
+        super().__init__(f"Commission cannot be negative: {commission}")
+
+
+class MissingAverageFillPriceError(ValidationError):
+    """Error raised when average_fill_price is missing for filled or partially filled orders."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Average fill price must be provided for filled or partially filled orders"
+        )
+
+
+class MissingLimitPriceError(ValidationError):
+    """Error raised when limit_price is missing for LIMIT orders."""
+
+    def __init__(self) -> None:
+        super().__init__("Limit price must be provided for LIMIT orders")
+
+
+class NonPositiveLimitPriceError(ValidationError):
+    """Error raised when limit_price is not positive."""
+
+    def __init__(self, limit_price: Decimal) -> None:
+        super().__init__(f"Limit price must be positive: {limit_price}")
+
+
+class NonPositiveAverageFillPriceError(ValidationError):
+    """Error raised when average_fill_price is not positive."""
+
+    def __init__(self, average_fill_price: Decimal) -> None:
+        super().__init__(f"Average fill price must be positive: {average_fill_price}")
+
+
+class QuantityFilledExceedsOrderedError(ValidationError):
+    """Error raised when quantity_filled exceeds quantity_ordered."""
+
+    def __init__(self, quantity_filled: Decimal, quantity_ordered: Decimal) -> None:
+        message = (
+            f"Quantity filled ({quantity_filled}) cannot exceed "
+            f"quantity ordered ({quantity_ordered})"
+        )
+        super().__init__(message)
+
+
+class NonPositiveQuantityOrderedError(ValidationError):
+    """Error raised when quantity_ordered is not positive."""
+
+    def __init__(self, quantity_ordered: Decimal) -> None:
+        super().__init__(f"Quantity ordered must be positive: {quantity_ordered}")
+
+
+class NegativeQuantityFilledError(ValidationError):
+    """Error raised when quantity_filled is negative."""
+
+    def __init__(self, quantity_filled: Decimal) -> None:
+        super().__init__(f"Quantity filled cannot be negative: {quantity_filled}")
+
+
+class InvalidOrderStatusError(ValidationError):
+    """Error raised when order_status is invalid."""
+
+    def __init__(self, order_status: str, valid_statuses: list[str]) -> None:
+        super().__init__(f"Invalid order_status: {order_status}. Must be one of {valid_statuses}")
+
+
+class InvalidOrderTypeError(ValidationError):
+    """Error raised when order_type is invalid."""
+
+    def __init__(self, order_type: str, valid_order_types: list[str]) -> None:
+        super().__init__(f"Invalid order_type: {order_type}. Must be one of {valid_order_types}")
+
+
+class InvalidSideError(ValidationError):
+    """Error raised when side is invalid."""
+
+    def __init__(self, side: str) -> None:
+        super().__init__(f"Invalid side: {side}. Must be 'BUY' or 'SELL'.")
+
+
+class SellTakeProfitNotBelowEntryError(ValidationError):
+    """Error raised for SELL orders when take profit is not below entry price."""
+
+    def __init__(self, tp_price: Decimal, limit_price: Decimal) -> None:
+        message = (
+            f"For SELL orders, take profit price ({tp_price}) must be below "
+            f"entry price ({limit_price})"
+        )
+        super().__init__(message)
+
+
+class SellStopLossNotAboveEntryError(ValidationError):
+    """Error raised for SELL orders when stop loss is not above entry price."""
+
+    def __init__(self, sl_price: Decimal, limit_price: Decimal) -> None:
+        message = (
+            f"For SELL orders, stop loss price ({sl_price}) must be above "
+            f"entry price ({limit_price})"
+        )
+        super().__init__(message)
+
+
+class InvalidTradeSignalSideError(ValidationError):
+    """Error raised for invalid side in a trade signal."""
+
+    def __init__(self, side: str) -> None:
+        super().__init__(f"Invalid side: {side}. Must be 'BUY' or 'SELL'.")
+
+
+class InvalidTradeSignalEntryTypeError(ValidationError):
+    """Error raised for invalid entry_type in a trade signal."""
+
+    def __init__(self, entry_type: str) -> None:
+        super().__init__(f"Invalid entry_type: {entry_type}. Must be 'LIMIT' or 'MARKET'.")
+
+
+class MissingProposedEntryPriceError(ValidationError):
+    """Error raised when proposed_entry_price is missing for a LIMIT order."""
+
+    def __init__(self) -> None:
+        super().__init__("proposed_entry_price must be provided for LIMIT entry type.")
+
+
+class NonPositiveStopLossPriceError(ValidationError):
+    """Error raised when a stop loss price is not positive."""
+
+    def __init__(self, sl_price: Decimal) -> None:
+        super().__init__(f"Stop loss price must be positive: {sl_price}")
+
+
+class NonPositiveTakeProfitPriceError(ValidationError):
+    """Error raised when a take profit price is not positive."""
+
+    def __init__(self, tp_price: Decimal) -> None:
+        super().__init__(f"Take profit price must be positive: {tp_price}")
+
+
+class NonPositiveProposedEntryPriceError(ValidationError):
+    """Error raised when a proposed entry price is not positive."""
+
+    def __init__(self, entry_price: Decimal) -> None:
+        super().__init__(f"Entry price must be positive: {entry_price}")
+
+
+class BuyStopLossNotBelowEntryError(ValidationError):
+    """Error for BUY orders when stop loss is not below entry price."""
+
+    def __init__(self, sl_price: Decimal, entry_price: Decimal) -> None:
+        message = (
+            f"For BUY orders, stop loss price ({sl_price}) must be below "
+            f"entry price ({entry_price})"
+        )
+        super().__init__(message)
+
+
+class BuyTakeProfitNotAboveEntryError(ValidationError):
+    """Error for BUY orders when take profit is not above entry price."""
+
+    def __init__(self, tp_price: Decimal, entry_price: Decimal) -> None:
+        message = (
+            f"For BUY orders, take profit price ({tp_price}) must be above "
+            f"entry price ({entry_price})"
+        )
+        super().__init__(message)
+
+
+class SellStopLossNotAboveProposedEntryError(ValidationError):
+    """Error for SELL orders when stop loss is not above proposed entry price."""
+
+    def __init__(self, sl_price: Decimal, entry_price: Decimal) -> None:
+        message = (
+            f"For SELL orders, stop loss price ({sl_price}) must be above "
+            f"proposed entry price ({entry_price})"
+        )
+        super().__init__(message)
+
+
+class SellTakeProfitNotBelowProposedEntryError(ValidationError):
+    """Error for SELL orders when take profit is not below proposed entry price."""
+
+    def __init__(self, tp_price: Decimal, entry_price: Decimal) -> None:
+        message = (
+            f"For SELL orders, take profit price ({tp_price}) must be below "
+            f"proposed entry price ({entry_price})"
+        )
+        super().__init__(message)
+
+
+class NonPositiveApprovedQuantityError(ValidationError):
+    """Error raised when quantity is not positive for an approved signal."""
+
+    def __init__(self, quantity: Decimal) -> None:
+        super().__init__(f"Quantity must be positive: {quantity}")
+
+
+class NonPositiveApprovedStopLossPriceError(ValidationError):
+    """Error raised when stop loss price is not positive for an approved signal."""
+
+    def __init__(self, sl_price: Decimal) -> None:
+        super().__init__(f"Stop loss price must be positive: {sl_price}")
+
+
+class NonPositiveApprovedTakeProfitPriceError(ValidationError):
+    """Error raised when take profit price is not positive for an approved signal."""
+
+    def __init__(self, tp_price: Decimal) -> None:
+        super().__init__(f"Take profit price must be positive: {tp_price}")
+
+
+class BuyStopLossNotBelowApprovedLimitError(ValidationError):
+    """Error for BUY orders when stop loss is not below the approved limit price."""
+
+    def __init__(self, sl_price: Decimal, limit_price: Decimal) -> None:
+        message = (
+            f"For BUY orders, stop loss price ({sl_price}) must be below "
+            f"entry price ({limit_price})"
+        )
+        super().__init__(message)
+
+
+class BuyTakeProfitNotAboveApprovedLimitError(ValidationError):
+    """Error for BUY orders when take profit is not above the approved limit price."""
+
+    def __init__(self, tp_price: Decimal, limit_price: Decimal) -> None:
+        message = (
+            f"For BUY orders, take profit price ({tp_price}) must be above "
+            f"entry price ({limit_price})"
+        )
+        super().__init__(message)
+
+
 class EventType(Enum):
     """Enumeration of possible event types within the system."""
 
     # Data Flow Events
     MARKET_DATA_L2 = auto()  # L2 Order Book Update (bids/asks)
     MARKET_DATA_OHLCV = auto()  # OHLCV Bar Update
+    MARKET_DATA_TRADE = auto() # Individual Trade Update (NEW)
     FEATURES_CALCULATED = auto()  # New features calculated by FeatureEngine
     PREDICTION_GENERATED = auto()  # New prediction from PredictionService
     TRADE_SIGNAL_PROPOSED = auto()  # Proposed trade signal from StrategyArbitrator
@@ -49,6 +299,16 @@ class EventType(Enum):
     LOG_ENTRY = auto()  # Log message event (for potential event-based logging)
     # Potential Halt signal (can be published by multiple modules)
     POTENTIAL_HALT_TRIGGER = auto()
+
+    # Portfolio and Risk Events
+    PORTFOLIO_UPDATE = auto()  # Portfolio state update
+    PORTFOLIO_RECONCILIATION = auto()  # Portfolio reconciliation request/result
+    PORTFOLIO_DISCREPANCY = auto()  # Identified discrepancy in portfolio state
+    RISK_LIMIT_ALERT = auto()  # Risk limit breach alert
+
+    # Additional Events
+    MARKET_DATA_RAW = auto()  # Raw market data before processing
+    FEATURE_CALCULATED = auto()  # Alias for FEATURES_CALCULATED (for backward compatibility)
 
 
 # --- Base Event ---
@@ -98,8 +358,8 @@ class MarketDataL2Event(Event):
     # Use Decimal for price/volume internally if possible, converting from str early.
     # Keep as str if exact representation from exchange is critical for
     # checksums etc.
-    bids: List[Tuple[str, str]]  # [[price_str, volume_str], ...]
-    asks: List[Tuple[str, str]]  # [[price_str, volume_str], ...]
+    bids: Sequence[tuple[str, str]]  # [[price_str, volume_str], ...]
+    asks: Sequence[tuple[str, str]]  # [[price_str, volume_str], ...]
     is_snapshot: bool
     timestamp_exchange: Optional[datetime] = None
     event_type: EventType = field(default=EventType.MARKET_DATA_L2, init=False)
@@ -122,6 +382,29 @@ class MarketDataOHLCVEvent(Event):
 
 
 @dataclass(frozen=True)
+class MarketDataTradeEvent(Event):
+    """Event carrying individual executed trade data."""
+
+    trading_pair: str
+    exchange: str
+    timestamp_exchange: datetime # Timestamp from the exchange for the trade
+    price: Decimal
+    volume: Decimal
+    side: str  # Aggressor side: "buy" or "sell"
+    trade_id: Optional[str] = None # Optional: Exchange-specific trade ID
+    event_type: EventType = field(default=EventType.MARKET_DATA_TRADE, init=False)
+
+    def __post_init__(self):
+        """Validate trade side after initialization."""
+        if self.side.lower() not in ["buy", "sell"]:
+            raise ValueError(f"Invalid trade side: '{self.side}'. Must be 'buy' or 'sell'.")
+        if self.price <= Decimal("0"):
+            raise ValueError(f"Trade price must be positive: {self.price}")
+        if self.volume <= Decimal("0"):
+            raise ValueError(f"Trade volume must be positive: {self.volume}")
+
+
+@dataclass(frozen=True)
 class FeatureEvent(Event):
     """Event carrying calculated features."""
 
@@ -129,7 +412,7 @@ class FeatureEvent(Event):
     exchange: str
     timestamp_features_for: datetime
     # Feature values (consider specific types if known)
-    features: Dict[str, Any]
+    features: dict
     event_type: EventType = field(default=EventType.FEATURES_CALCULATED, init=False)
 
 
@@ -145,8 +428,25 @@ class PredictionEvent(Event):
     # Use float or Decimal for probability/value
     prediction_value: float
     confidence: Optional[float] = None
-    associated_features: Optional[Dict[str, Any]] = None
+    associated_features: Optional[dict] = None
     event_type: EventType = field(default=EventType.PREDICTION_GENERATED, init=False)
+
+
+@dataclass
+class TradeSignalProposedParams:
+    """Parameters for creating a TradeSignalProposedEvent."""
+
+    source_module: str
+    trading_pair: str
+    exchange: str
+    side: str
+    entry_type: str
+    proposed_sl_price: Decimal
+    proposed_tp_price: Decimal
+    strategy_id: str
+    proposed_entry_price: Optional[Decimal] = None
+    triggering_prediction_event_id: Optional[uuid.UUID] = None
+    triggering_prediction: Optional[dict] = None
 
 
 @dataclass(frozen=True)
@@ -164,7 +464,7 @@ class TradeSignalProposedEvent(Event):
     strategy_id: str
     proposed_entry_price: Optional[Decimal] = None
     triggering_prediction_event_id: Optional[uuid.UUID] = None
-    triggering_prediction: Optional[Dict[str, Any]] = None  # Added full prediction data
+    triggering_prediction: Optional[dict] = None  # Added full prediction data
     event_type: EventType = field(default=EventType.TRADE_SIGNAL_PROPOSED, init=False)
 
     @classmethod
@@ -195,13 +495,13 @@ class TradeSignalProposedEvent(Event):
     ) -> None:
         """Validate basic parameters for trade signal."""
         if side not in ["BUY", "SELL"]:
-            raise ValueError(f"Invalid side: {side}. Must be 'BUY' or 'SELL'.")
+            raise InvalidTradeSignalSideError(side)
 
         if entry_type not in ["LIMIT", "MARKET"]:
-            raise ValueError(f"Invalid entry_type: {entry_type}. Must be 'LIMIT' or 'MARKET'.")
+            raise InvalidTradeSignalEntryTypeError(entry_type)
 
         if entry_type == "LIMIT" and proposed_entry_price is None:
-            raise ValueError("proposed_entry_price must be provided for LIMIT entry type.")
+            raise MissingProposedEntryPriceError
 
     @staticmethod
     def _validate_price_values(
@@ -209,13 +509,13 @@ class TradeSignalProposedEvent(Event):
     ) -> None:
         """Validate that price values are positive."""
         if sl_price <= Decimal(0):
-            raise ValueError(f"Stop loss price must be positive: {sl_price}")
+            raise NonPositiveStopLossPriceError(sl_price)
 
         if tp_price <= Decimal(0):
-            raise ValueError(f"Take profit price must be positive: {tp_price}")
+            raise NonPositiveTakeProfitPriceError(tp_price)
 
         if entry_price is not None and entry_price <= Decimal(0):
-            raise ValueError(f"Entry price must be positive: {entry_price}")
+            raise NonPositiveProposedEntryPriceError(entry_price)
 
     @staticmethod
     def _validate_sl_tp_positions(
@@ -224,94 +524,75 @@ class TradeSignalProposedEvent(Event):
         """Validate stop loss and take profit positions relative to entry price and side."""
         if side == "BUY":
             if sl_price >= entry_price:
-                raise ValueError(
-                    f"For BUY orders, stop loss price ({sl_price}) "
-                    f"must be below entry price ({entry_price})"
-                )
+                raise BuyStopLossNotBelowEntryError(sl_price, entry_price)
 
             if tp_price <= entry_price:
-                raise ValueError(
-                    f"For BUY orders, take profit price ({tp_price}) "
-                    f"must be above entry price ({entry_price})"
-                )
+                raise BuyTakeProfitNotAboveEntryError(tp_price, entry_price)
         else:  # side == "SELL"
             if sl_price <= entry_price:
-                raise ValueError(
-                    f"For SELL orders, stop loss price ({sl_price}) "
-                    f"must be above entry price ({entry_price})"
-                )
+                raise SellStopLossNotAboveProposedEntryError(sl_price, entry_price)
 
             if tp_price >= entry_price:
-                raise ValueError(
-                    f"For SELL orders, take profit price ({tp_price}) "
-                    f"must be below entry price ({entry_price})"
-                )
+                raise SellTakeProfitNotBelowProposedEntryError(tp_price, entry_price)
 
     @classmethod
-    def create(
-        cls,
-        source_module: str,
-        trading_pair: str,
-        exchange: str,
-        side: str,
-        entry_type: str,
-        proposed_sl_price: Decimal,
-        proposed_tp_price: Decimal,
-        strategy_id: str,
-        proposed_entry_price: Optional[Decimal] = None,
-        triggering_prediction_event_id: Optional[uuid.UUID] = None,
-        triggering_prediction: Optional[Dict[str, Any]] = None,
-    ) -> "TradeSignalProposedEvent":
-        """Create a validated TradeSignalProposedEvent instance.
-
-        Args
-        ----
-            source_module: The module creating this event
-            trading_pair: Symbol pair to trade (e.g., "BTC/USDT")
-            exchange: Exchange to execute on (e.g., "kraken")
-            side: Trade direction, must be "BUY" or "SELL"
-            entry_type: Entry type, must be "LIMIT" or "MARKET"
-            proposed_sl_price: Proposed stop-loss price
-            proposed_tp_price: Proposed take-profit price
-            strategy_id: Identifier for the strategy proposing this signal
-            proposed_entry_price: Proposed entry price (required for LIMIT orders)
-            triggering_prediction_event_id: UUID of the prediction event that triggered this signal
-            triggering_prediction: Full data of the prediction that triggered this signal
-
-        Returns
-        -------
-            A validated TradeSignalProposedEvent instance
-
-        Raises
-        ------
-            ValueError: If any validation check fails
-        """
+    def create(cls, params: TradeSignalProposedParams) -> "TradeSignalProposedEvent":
+        """Create a validated TradeSignalProposedEvent instance."""
         # Validate inputs
         cls._validate_input(
-            side=side,
-            entry_type=entry_type,
-            proposed_sl_price=proposed_sl_price,
-            proposed_tp_price=proposed_tp_price,
-            proposed_entry_price=proposed_entry_price,
+            side=params.side,
+            entry_type=params.entry_type,
+            proposed_sl_price=params.proposed_sl_price,
+            proposed_tp_price=params.proposed_tp_price,
+            proposed_entry_price=params.proposed_entry_price,
         )
 
         # Create and return instance
         return cls(
-            source_module=source_module,
+            source_module=params.source_module,
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(),
             signal_id=uuid.uuid4(),  # Generate a new UUID for this signal
-            trading_pair=trading_pair,
-            exchange=exchange,
-            side=side,
-            entry_type=entry_type,
-            proposed_sl_price=proposed_sl_price,
-            proposed_tp_price=proposed_tp_price,
-            strategy_id=strategy_id,
-            proposed_entry_price=proposed_entry_price,
-            triggering_prediction_event_id=triggering_prediction_event_id,
-            triggering_prediction=triggering_prediction,
+            trading_pair=params.trading_pair,
+            exchange=params.exchange,
+            side=params.side,
+            entry_type=params.entry_type,
+            proposed_sl_price=params.proposed_sl_price,
+            proposed_tp_price=params.proposed_tp_price,
+            strategy_id=params.strategy_id,
+            proposed_entry_price=params.proposed_entry_price,
+            triggering_prediction_event_id=params.triggering_prediction_event_id,
+            triggering_prediction=params.triggering_prediction,
         )
+
+
+@dataclass
+class TradeSignalApprovedParams:
+    """Parameters for creating a TradeSignalApprovedEvent."""
+
+    source_module: str
+    signal_id: uuid.UUID
+    trading_pair: str
+    exchange: str
+    side: str
+    order_type: str
+    quantity: Decimal
+    sl_price: Decimal
+    tp_price: Decimal
+    risk_parameters: dict
+    limit_price: Optional[Decimal] = None
+
+
+@dataclass
+class TradeSignalApprovedValidationParams:
+    """Parameters for validating an approved trade signal."""
+
+    side: str
+    order_type: str
+    quantity: Decimal
+    sl_price: Decimal
+    tp_price: Decimal
+    limit_price: Optional[Decimal] = None
 
 
 @dataclass(frozen=True)
@@ -327,42 +608,38 @@ class TradeSignalApprovedEvent(Event):
     quantity: Decimal
     sl_price: Decimal
     tp_price: Decimal
-    risk_parameters: Dict[str, Any]  # Parameters used by RiskManager for approval
+    risk_parameters: dict  # Parameters used by RiskManager for approval
     limit_price: Optional[Decimal] = None
     event_type: EventType = field(default=EventType.TRADE_SIGNAL_APPROVED, init=False)
 
     @classmethod
-    def _validate_input(
-        cls,
-        side: str,
-        order_type: str,
-        quantity: Decimal,
-        sl_price: Decimal,
-        tp_price: Decimal,
-        limit_price: Optional[Decimal] = None,
-    ) -> None:
+    def _validate_input(cls, params: TradeSignalApprovedValidationParams) -> None:
         """Validate inputs for trade signal approval."""
         # Validate basic parameters
-        cls._validate_basic_params(side, order_type, limit_price)
+        cls._validate_basic_params(params.side, params.order_type, params.limit_price)
 
         # Validate prices and quantity
-        cls._validate_prices_and_quantity(quantity, sl_price, tp_price, limit_price)
+        cls._validate_prices_and_quantity(
+            params.quantity, params.sl_price, params.tp_price, params.limit_price
+        )
 
         # Validate SL/TP positions if limit price is provided
-        if limit_price is not None:
-            cls._validate_sl_tp_positions(side, sl_price, tp_price, limit_price)
+        if params.limit_price is not None:
+            cls._validate_sl_tp_positions(
+                params.side, params.sl_price, params.tp_price, params.limit_price
+            )
 
     @staticmethod
     def _validate_basic_params(side: str, order_type: str, limit_price: Optional[Decimal]) -> None:
         """Validate basic parameters for trade signal."""
         if side not in ["BUY", "SELL"]:
-            raise ValueError(f"Invalid side: {side}. Must be 'BUY' or 'SELL'.")
+            raise InvalidSideError(side)
 
         if order_type not in ["LIMIT", "MARKET"]:
-            raise ValueError(f"Invalid order_type: {order_type}. Must be 'LIMIT' or 'MARKET'.")
+            raise InvalidOrderTypeError(order_type)
 
         if order_type == "LIMIT" and limit_price is None:
-            raise ValueError("limit_price must be provided for LIMIT orders.")
+            raise MissingLimitPriceError
 
     @staticmethod
     def _validate_prices_and_quantity(
@@ -370,16 +647,16 @@ class TradeSignalApprovedEvent(Event):
     ) -> None:
         """Validate that prices and quantity are positive."""
         if quantity <= Decimal(0):
-            raise ValueError(f"Quantity must be positive: {quantity}")
+            raise NonPositiveApprovedQuantityError(quantity)
 
         if sl_price <= Decimal(0):
-            raise ValueError(f"Stop loss price must be positive: {sl_price}")
+            raise NonPositiveApprovedStopLossPriceError(sl_price)
 
         if tp_price <= Decimal(0):
-            raise ValueError(f"Take profit price must be positive: {tp_price}")
+            raise NonPositiveApprovedTakeProfitPriceError(tp_price)
 
         if limit_price is not None and limit_price <= Decimal(0):
-            raise ValueError(f"Limit price must be positive: {limit_price}")
+            raise NonPositiveLimitPriceError(limit_price)
 
     @staticmethod
     def _validate_sl_tp_positions(
@@ -388,94 +665,59 @@ class TradeSignalApprovedEvent(Event):
         """Validate stop loss and take profit positions relative to entry price and side."""
         if side == "BUY":
             if sl_price >= limit_price:
-                raise ValueError(
-                    f"For BUY orders, stop loss price ({sl_price}) "
-                    f"must be below entry price ({limit_price})"
-                )
+                raise BuyStopLossNotBelowApprovedLimitError(sl_price, limit_price)
 
             if tp_price <= limit_price:
-                raise ValueError(
-                    f"For BUY orders, take profit price ({tp_price}) "
-                    f"must be above entry price ({limit_price})"
-                )
+                raise BuyTakeProfitNotAboveApprovedLimitError(tp_price, limit_price)
         else:  # side == "SELL"
             if sl_price <= limit_price:
-                raise ValueError(
-                    f"For SELL orders, stop loss price ({sl_price}) "
-                    f"must be above entry price ({limit_price})"
-                )
+                raise SellStopLossNotAboveEntryError(sl_price, limit_price)
 
             if tp_price >= limit_price:
-                raise ValueError(
-                    f"For SELL orders, take profit price ({tp_price}) "
-                    f"must be below entry price ({limit_price})"
-                )
+                raise SellTakeProfitNotBelowEntryError(tp_price, limit_price)
 
     @classmethod
-    def create(
-        cls,
-        source_module: str,
-        signal_id: uuid.UUID,
-        trading_pair: str,
-        exchange: str,
-        side: str,
-        order_type: str,
-        quantity: Decimal,
-        sl_price: Decimal,
-        tp_price: Decimal,
-        risk_parameters: Dict[str, Any],
-        limit_price: Optional[Decimal] = None,
-    ) -> "TradeSignalApprovedEvent":
-        """Create a validated TradeSignalApprovedEvent instance.
-
-        Args
-        ----
-            source_module: The module creating this event
-            signal_id: UUID of the original trade signal proposal
-            trading_pair: Symbol pair to trade (e.g., "BTC/USDT")
-            exchange: Exchange to execute on (e.g., "kraken")
-            side: Trade direction, must be "BUY" or "SELL"
-            order_type: Order type, must be "LIMIT" or "MARKET"
-            quantity: Amount to trade
-            sl_price: Stop-loss price
-            tp_price: Take-profit price
-            risk_parameters: Risk parameters used by RiskManager for approval
-            limit_price: Limit price (required for LIMIT orders)
-
-        Returns
-        -------
-            A validated TradeSignalApprovedEvent instance
-
-        Raises
-        ------
-            ValueError: If any validation check fails
-        """
+    def create(cls, params: TradeSignalApprovedParams) -> "TradeSignalApprovedEvent":
+        """Create a validated TradeSignalApprovedEvent instance."""
         # Validate inputs
-        cls._validate_input(
-            side=side,
-            order_type=order_type,
-            quantity=quantity,
-            sl_price=sl_price,
-            tp_price=tp_price,
-            limit_price=limit_price,
+        validation_params = TradeSignalApprovedValidationParams(
+            side=params.side,
+            order_type=params.order_type,
+            quantity=params.quantity,
+            sl_price=params.sl_price,
+            tp_price=params.tp_price,
+            limit_price=params.limit_price,
         )
+        cls._validate_input(validation_params)
 
         # Create and return instance
         return cls(
-            source_module=source_module,
+            source_module=params.source_module,
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(),
-            signal_id=signal_id,
-            trading_pair=trading_pair,
-            exchange=exchange,
-            side=side,
-            order_type=order_type,
-            quantity=quantity,
-            sl_price=sl_price,
-            tp_price=tp_price,
-            risk_parameters=risk_parameters,
-            limit_price=limit_price,
+            signal_id=params.signal_id,
+            trading_pair=params.trading_pair,
+            exchange=params.exchange,
+            side=params.side,
+            order_type=params.order_type,
+            quantity=params.quantity,
+            sl_price=params.sl_price,
+            tp_price=params.tp_price,
+            risk_parameters=params.risk_parameters,
+            limit_price=params.limit_price,
         )
+
+
+@dataclass
+class TradeSignalRejectedParams:
+    """Parameters for creating a TradeSignalRejectedEvent."""
+
+    source_module: str
+    signal_id: uuid.UUID
+    trading_pair: str
+    exchange: str
+    side: str
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -492,38 +734,67 @@ class TradeSignalRejectedEvent(Event):
     @classmethod
     def create(
         cls,
-        source_module: str,
-        signal_id: uuid.UUID,
-        trading_pair: str,
-        exchange: str,
-        side: str,
-        reason: str,
+        params: TradeSignalRejectedParams
     ) -> "TradeSignalRejectedEvent":
         """Create a TradeSignalRejectedEvent instance.
 
         Args
         ----
-            source_module: The module creating this event
-            signal_id: UUID of the rejected trade signal proposal
-            trading_pair: Symbol pair of the rejected trade
-            exchange: Exchange of the rejected trade
-            side: Trade direction that was rejected
-            reason: Reason for rejection
+            params: Dataclass with all parameters for creating a TradeSignalRejectedEvent
 
         Returns
         -------
             A TradeSignalRejectedEvent instance
         """
         return cls(
-            source_module=source_module,
+            source_module=params.source_module,
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(),
-            signal_id=signal_id,
-            trading_pair=trading_pair,
-            exchange=exchange,
-            side=side,
-            reason=reason,
+            signal_id=params.signal_id,
+            trading_pair=params.trading_pair,
+            exchange=params.exchange,
+            side=params.side,
+            reason=params.reason,
         )
+
+
+@dataclass
+class ExecutionReportParams:
+    """Parameters for creating an ExecutionReportEvent."""
+
+    source_module: str
+    exchange_order_id: str
+    trading_pair: str
+    exchange: str
+    order_status: str
+    order_type: str
+    side: str
+    quantity_ordered: Decimal
+    signal_id: Optional[uuid.UUID] = None
+    client_order_id: Optional[str] = None
+    quantity_filled: Decimal = Decimal(0)
+    average_fill_price: Optional[Decimal] = None
+    limit_price: Optional[Decimal] = None
+    stop_price: Optional[Decimal] = None
+    commission: Optional[Decimal] = None
+    commission_asset: Optional[str] = None
+    timestamp_exchange: Optional[datetime] = None
+    error_message: Optional[str] = None
+
+
+@dataclass
+class ExecutionReportValidationParams:
+    """Parameters for validating an ExecutionReportEvent."""
+
+    order_status: str
+    order_type: str
+    side: str
+    quantity_ordered: Decimal
+    quantity_filled: Decimal
+    average_fill_price: Optional[Decimal]
+    limit_price: Optional[Decimal]
+    commission: Optional[Decimal]
+    commission_asset: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -553,61 +824,61 @@ class ExecutionReportEvent(Event):
     @classmethod
     def _validate_input(
         cls,
-        order_status: str,
-        order_type: str,
-        side: str,
-        quantity_ordered: Decimal,
-        quantity_filled: Decimal,
-        average_fill_price: Optional[Decimal],
-        limit_price: Optional[Decimal],
-        commission: Optional[Decimal],
-        commission_asset: Optional[str],
+        validation_params: ExecutionReportValidationParams
     ) -> None:
         """Validate execution report inputs."""
         # Validate order properties
-        cls._validate_order_properties(order_status, order_type, side)
+        cls._validate_order_properties(
+            validation_params.order_status,
+            validation_params.order_type,
+            validation_params.side
+        )
 
         # Validate quantities
-        cls._validate_quantities(quantity_ordered, quantity_filled)
+        cls._validate_quantities(
+            validation_params.quantity_ordered,
+            validation_params.quantity_filled
+        )
 
         # Validate prices
-        cls._validate_prices(order_type, order_status, limit_price, average_fill_price)
+        cls._validate_prices(
+            validation_params.order_type,
+            validation_params.order_status,
+            validation_params.limit_price,
+            validation_params.average_fill_price
+        )
 
         # Validate commission
-        cls._validate_commission(commission, commission_asset)
+        cls._validate_commission(
+            validation_params.commission,
+            validation_params.commission_asset
+        )
 
     @staticmethod
     def _validate_order_properties(order_status: str, order_type: str, side: str) -> None:
         """Validate order status, type, and side."""
         valid_statuses = ["NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED", "REJECTED", "EXPIRED"]
         if order_status not in valid_statuses:
-            raise ValueError(
-                f"Invalid order_status: {order_status}. Must be one of {valid_statuses}"
-            )
+            raise InvalidOrderStatusError(order_status, valid_statuses)
 
         valid_order_types = ["LIMIT", "MARKET", "STOP", "STOP_LIMIT"]
         if order_type not in valid_order_types:
-            raise ValueError(
-                f"Invalid order_type: {order_type}. Must be one of {valid_order_types}"
-            )
+            raise InvalidOrderTypeError(order_type, valid_order_types)
 
         if side not in ["BUY", "SELL"]:
-            raise ValueError(f"Invalid side: {side}. Must be 'BUY' or 'SELL'.")
+            raise InvalidSideError(side)
 
     @staticmethod
     def _validate_quantities(quantity_ordered: Decimal, quantity_filled: Decimal) -> None:
         """Validate order quantities."""
         if quantity_ordered <= Decimal(0):
-            raise ValueError(f"Quantity ordered must be positive: {quantity_ordered}")
+            raise NonPositiveQuantityOrderedError(quantity_ordered)
 
         if quantity_filled < Decimal(0):
-            raise ValueError(f"Quantity filled cannot be negative: {quantity_filled}")
+            raise NegativeQuantityFilledError(quantity_filled)
 
         if quantity_filled > quantity_ordered:
-            raise ValueError(
-                f"Quantity filled ({quantity_filled}) cannot exceed "
-                f"quantity ordered ({quantity_ordered})"
-            )
+            raise QuantityFilledExceedsOrderedError(quantity_filled, quantity_ordered)
 
     @staticmethod
     def _validate_prices(
@@ -618,19 +889,17 @@ class ExecutionReportEvent(Event):
     ) -> None:
         """Validate price values."""
         if order_type == "LIMIT" and limit_price is None:
-            raise ValueError("limit_price must be provided for LIMIT orders")
+            raise MissingLimitPriceError
 
         if limit_price is not None and limit_price <= Decimal(0):
-            raise ValueError(f"Limit price must be positive: {limit_price}")
+            raise NonPositiveLimitPriceError(limit_price)
 
         if average_fill_price is not None and average_fill_price <= Decimal(0):
-            raise ValueError(f"Average fill price must be positive: {average_fill_price}")
+            raise NonPositiveAverageFillPriceError(average_fill_price)
 
         filled_statuses = ["FILLED", "PARTIALLY_FILLED"]
         if order_status in filled_statuses and average_fill_price is None:
-            raise ValueError(
-                "average_fill_price must be provided for filled or partially filled orders"
-            )
+            raise MissingAverageFillPriceError
 
     @staticmethod
     def _validate_commission(
@@ -639,54 +908,17 @@ class ExecutionReportEvent(Event):
         """Validate commission details."""
         if commission is not None:
             if commission < Decimal(0):
-                raise ValueError(f"Commission cannot be negative: {commission}")
+                raise NegativeCommissionError(commission)
             if commission_asset is None:
-                raise ValueError("commission_asset must be provided when commission is specified")
+                raise CommissionAssetMissingError
 
     @classmethod
-    def create(
-        cls,
-        source_module: str,
-        exchange_order_id: str,
-        trading_pair: str,
-        exchange: str,
-        order_status: str,
-        order_type: str,
-        side: str,
-        quantity_ordered: Decimal,
-        signal_id: Optional[uuid.UUID] = None,
-        client_order_id: Optional[str] = None,
-        quantity_filled: Decimal = Decimal(0),
-        average_fill_price: Optional[Decimal] = None,
-        limit_price: Optional[Decimal] = None,
-        stop_price: Optional[Decimal] = None,
-        commission: Optional[Decimal] = None,
-        commission_asset: Optional[str] = None,
-        timestamp_exchange: Optional[datetime] = None,
-        error_message: Optional[str] = None,
-    ) -> "ExecutionReportEvent":
+    def create(cls, params: ExecutionReportParams) -> "ExecutionReportEvent":
         """Create a validated ExecutionReportEvent instance.
 
         Args
         ----
-            source_module: The module creating this event
-            exchange_order_id: Order ID assigned by the exchange
-            trading_pair: Symbol pair for the trade (e.g., "BTC/USDT")
-            exchange: Exchange where the order was executed
-            order_status: Current status of the order (e.g., "NEW", "FILLED")
-            order_type: Type of order (e.g., "LIMIT", "MARKET")
-            side: Order side, must be "BUY" or "SELL"
-            quantity_ordered: Total quantity ordered
-            signal_id: UUID of the original trade signal (if applicable)
-            client_order_id: Internal order ID (if used)
-            quantity_filled: Quantity that has been executed so far
-            average_fill_price: Average execution price for filled portion
-            limit_price: Limit price (for LIMIT orders)
-            stop_price: Stop price (for stop orders)
-            commission: Commission charged by exchange
-            commission_asset: Asset in which commission was charged
-            timestamp_exchange: Timestamp reported by exchange
-            error_message: Error message (if rejected/failed)
+            params: A dataclass containing all the parameters for creating an ExecutionReportEvent
 
         Returns
         -------
@@ -698,39 +930,41 @@ class ExecutionReportEvent(Event):
         """
         # Validate inputs
         cls._validate_input(
-            order_status=order_status,
-            order_type=order_type,
-            side=side,
-            quantity_ordered=quantity_ordered,
-            quantity_filled=quantity_filled,
-            average_fill_price=average_fill_price,
-            limit_price=limit_price,
-            commission=commission,
-            commission_asset=commission_asset,
+            ExecutionReportValidationParams(
+                order_status=params.order_status,
+                order_type=params.order_type,
+                side=params.side,
+                quantity_ordered=params.quantity_ordered,
+                quantity_filled=params.quantity_filled,
+                average_fill_price=params.average_fill_price,
+                limit_price=params.limit_price,
+                commission=params.commission,
+                commission_asset=params.commission_asset,
+            )
         )
 
         # Create and return instance
         return cls(
-            source_module=source_module,
+            source_module=params.source_module,
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(),
-            exchange_order_id=exchange_order_id,
-            trading_pair=trading_pair,
-            exchange=exchange,
-            order_status=order_status,
-            order_type=order_type,
-            side=side,
-            quantity_ordered=quantity_ordered,
-            signal_id=signal_id,
-            client_order_id=client_order_id,
-            quantity_filled=quantity_filled,
-            average_fill_price=average_fill_price,
-            limit_price=limit_price,
-            stop_price=stop_price,
-            commission=commission,
-            commission_asset=commission_asset,
-            timestamp_exchange=timestamp_exchange,
-            error_message=error_message,
+            exchange_order_id=params.exchange_order_id,
+            trading_pair=params.trading_pair,
+            exchange=params.exchange,
+            order_status=params.order_status,
+            order_type=params.order_type,
+            side=params.side,
+            quantity_ordered=params.quantity_ordered,
+            signal_id=params.signal_id,
+            client_order_id=params.client_order_id,
+            quantity_filled=params.quantity_filled,
+            average_fill_price=params.average_fill_price,
+            limit_price=params.limit_price,
+            stop_price=params.stop_price,
+            commission=params.commission,
+            commission_asset=params.commission_asset,
+            timestamp_exchange=params.timestamp_exchange,
+            error_message=params.error_message,
         )
 
 
@@ -740,7 +974,7 @@ class LogEvent(Event):
 
     level: str  # e.g., "INFO", "ERROR"
     message: str
-    context: Optional[Dict[str, Any]] = None
+    context: Optional[dict] = None
     event_type: EventType = field(default=EventType.LOG_ENTRY, init=False)
 
 
