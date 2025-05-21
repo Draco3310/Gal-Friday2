@@ -1,0 +1,41 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Force specific files to always be LF
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Force specific files to always be CRLF (if needed, typically for Windows-specific files)
+# *.bat text eol=crlf
+
+# Denote binary files to prevent Git from trying to normalize them
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.ipynb binary
+*.egg-info binary
+*.pyc binary
+*.pyd binary
+*.so binary
+*.dll binary
+*.exe binary
+*.whl binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.model binary
+*.h5 binary
+*.joblib binary
+*.data binary
+*.sqlite binary
+*.db binary
