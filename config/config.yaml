@@ -1,0 +1,173 @@
+# Gal-Friday Configuration File
+
+# Exchange API Settings (Credentials should ideally be environment variables or secrets)
+# kraken:
+#   api_key: YOUR_KRAKEN_API_KEY
+#   secret_key: YOUR_KRAKEN_SECRET_KEY
+
+exchange:
+  name: kraken
+  api_url: https://api.kraken.com
+  request_timeout_seconds: 10
+  # websocket_url: wss://ws.kraken.com/
+
+# Trading Parameters
+trading:
+  pairs: ["XRP/USD", "DOGE/USD"]
+  # strategy_threshold: 0.65 # Example strategy param
+
+# Portfolio Configuration
+portfolio:
+  valuation_currency: USD
+  initial_capital:
+    USD: 100000 # Example starting capital
+  # initial_positions: # Example if starting with existing positions
+  #   XRP/USD:
+  #     quantity: 5000
+  #     average_entry_price: 0.48
+
+# Risk Management Settings
+risk:
+  limits:
+    max_total_drawdown_pct: 15.0 # Overall stop loss %
+    max_daily_drawdown_pct: 2.0
+    max_weekly_drawdown_pct: 5.0
+    max_consecutive_losses: 5
+    risk_per_trade_pct: 0.5 # e.g., 0.5% of equity
+    max_position_size_pct_equity: 10.0 # Max % of equity in one asset
+    max_total_exposure_pct_equity: 25.0 # Max % of equity across all assets
+
+# Monitoring Service Settings
+monitoring:
+  check_interval_seconds: 60
+  halt_on_drawdown_breach: true
+  halt_on_consecutive_losses: true
+  halt_on_api_errors: true
+  halt_on_stale_data: true
+  # halt_action: "LIQUIDATE_POSITIONS" # Or "MAINTAIN_POSITIONS"
+
+# Logging Configuration
+logging:
+  level: INFO # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  date_format: '%Y-%m-%d %H:%M:%S,%f' # Added milliseconds
+
+  # Console Handler Settings
+  console:
+    enabled: true
+    format: '%(asctime)s.%(msecs)03d - %(name)-20s - %(levelname)-8s - [%(context)s] - %(message)s'
+
+  # JSON File Handler Settings
+  json_file:
+    enabled: true
+    filename: logs/gal_friday_app.log.json
+    max_bytes: 10485760 # 10MB
+    backup_count: 5
+    format: '%(asctime) %(name) %(levelname) %(message) %(context) %(exc_info)' # Fields for jsonlogger
+
+  # PostgreSQL Database Handler Settings
+  database:
+    enabled: true
+    # Recommended: Use environment variables for sensitive parts
+    # Example DSN: postgresql://<user>:<password>@<host>:<port>/<database>
+    connection_string: "postgresql://galfriday_user:YOUR_DB_PASSWORD@localhost:5432/galfriday_logs" # <-- IMPORTANT: CHANGE PASSWORD
+    table_name: "logs" # Must match the schema definition (e.g., 001_create_logs_table.sql)
+    min_pool_size: 1
+    max_pool_size: 5
+
+# Backtesting Engine Configuration
+backtest:
+  data_path: "data/historical_data.parquet" # Path to historical data file (parquet recommended)
+  start_date: "2023-01-01T00:00:00Z" # Backtest start datetime (ISO 8601 format, UTC recommended)
+  end_date: "2023-12-31T23:59:59Z" # Backtest end datetime (ISO 8601 format, UTC recommended)
+  initial_capital: 100000.0 # Initial capital for the backtest (matches portfolio.initial_capital for consistency)
+  output_path: "backtests/results" # Directory to save backtest results (equity curve, trade log, summary)
+  slippage_model: "volatility" # 'fixed', 'volatility', or 'none'
+  fixed_slippage_bps: 2 # Basis points for fixed slippage (e.g., 2 = 0.02%) - Used if model is 'fixed'
+  atr_period: 14 # Period for ATR calculation (used if model is 'volatility')
+
+# Feature Engine Settings
+feature_engine:
+  enabled_features: ["rsi", "macd", "bbands", "atr"] # Example features
+  rsi_period: 14
+  macd_fast_period: 12
+  macd_slow_period: 26
+  macd_signal_period: 9
+  bbands_period: 20
+  bbands_std_dev: 2
+  # atr_period: 14 # Can reuse from backtest section if desired, or define separately
+
+# Prediction Service Settings
+prediction_service:
+  # Defines how predictions from multiple models (for the same target) are combined.
+  # "none": Publish individual predictions for each model.
+  # "average": Simple average of prediction values.
+  # "weighted_average": Weighted average based on ensemble_weights.
+  ensemble_strategy: "none" # Default to individual predictions
+  ensemble_weights: {} # Example: {"xgb_v1_price_up": 0.7, "rf_v1_price_up": 0.3}
+
+  models:
+    - model_id: "xgb_v1_price_up"
+      predictor_type: "xgboost"  # Maps to XGBoostPredictor
+      model_path: "models/prod/xgb_v1_price_up.xgb"
+      scaler_path: "models/prod/xgb_v1_price_up_scaler.pkl" # Optional
+      model_feature_names: ["rsi_14", "macd_12_26_9_macdhist", "bbands_20_2.0_upperband_pct_dist"] # Example
+      prediction_target: "prob_price_up_5min" # What this model predicts
+      critical: true # If true, service won't start if this model fails to load
+
+    - model_id: "rf_v1_price_up"
+      predictor_type: "sklearn" # Maps to SKLearnPredictor
+      model_path: "models/prod/rf_v1_price_up.joblib"
+      scaler_path: "models/prod/rf_v1_price_up_scaler.pkl"
+      # model_feature_names: ["alt_feat1", "alt_feat2"] # SKLearn can often get from model
+      prediction_target: "prob_price_up_5min" # Same target, can be ensembled
+      critical: false
+
+    # Example LSTM model configuration
+    - model_id: "lstm_seq_v1_price_up"
+      predictor_type: "lstm"
+      framework: "tensorflow" # Specify "tensorflow" or "pytorch"
+      model_path: "models/prod/lstm_seq_v1_price_up.h5"
+      scaler_path: "models/prod/lstm_seq_v1_price_up_scaler.pkl"
+      model_feature_names: ["close_scaled", "volume_scaled", "rsi_14"] # Features per timestep
+      sequence_length: 20 # LSTM expects a sequence of 20 past timesteps
+      prediction_target: "prob_price_up_5min"
+      critical: false
+      # output_activation: "sigmoid" # Optional: hint for LSTMPredictor if needed for confidence calc
+
+    # Example of a model predicting a different target
+    # - model_id: "xgb_v2_volatility"
+    #   predictor_type: "xgboost"
+    #   model_path: "models/prod/xgb_v2_volatility.xgb"
+    #   scaler_path: "models/prod/xgb_v2_volatility_scaler.pkl"
+    #   model_feature_names: ["atr_14", "stdev_20"]
+    #   prediction_target: "predicted_volatility_1min"
+    #   critical: false
+
+# Model Training Script Settings
+training:
+  labeling:
+    target_horizon_minutes: 5 # How many minutes ahead to look for the label outcome
+    target_threshold_pct: 0.1 # % price change defining a positive label (e.g., 0.1 = 0.1%)
+  data:
+    # Define the range of data to use for training (optional, could use all available)
+    # start_date: "2022-01-01T00:00:00Z"
+    # end_date: "2023-12-31T23:59:59Z"
+    train_split_ratio: 0.8 # Proportion of data used for training (rest for testing)
+    feature_list: ["rsi_14", "macd_12_26_9_macdhist", "bbands_20_2.0_upperband_pct_dist", "atr_14"] # Example feature names to use
+  model:
+    type: "xgboost" # Specify model type for a default training run, actual models used are per prediction_service config
+    params: # Hyperparameters for XGBoost (example for a default training run)
+      objective: 'binary:logistic'
+      eval_metric: 'logloss'
+      eta: 0.1 # learning_rate
+      max_depth: 3
+      subsample: 0.8
+      colsample_bytree: 0.8
+# Feature Engine Settings (Example)
+# feature_engine:
+#   rsi_period: 14
+#   bbands_period: 20
+
+# Prediction Service Settings (Example)
+# prediction_service:
+#   model_path: "models/xgboost_v1.joblib"

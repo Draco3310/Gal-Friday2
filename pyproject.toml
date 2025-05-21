@@ -1,0 +1,230 @@
+[tool.black]
+line-length = 99
+preview = true
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
+line_length = 99
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+skip_glob = [".venv/*", "__pycache__/*"]
+
+[tool.mypy]
+python_version = "3.11"
+# Add or ensure these settings:
+files = ["gal_friday"]
+namespace_packages = true
+mypy_path = "gal_friday"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+warn_no_return = true
+warn_unreachable = false
+strict_optional = true
+
+# Module discovery
+ignore_missing_imports = false
+follow_imports = "normal"
+
+[[tool.mypy.overrides]]
+module = [
+    "sklearn.*",
+    "joblib.*",
+    "sortedcontainers.*",
+    "pandas_ta.*",
+    "pandas",
+    "asyncio.queues",
+    "numpy.*",
+    "talib.*",
+    "typer.*",
+    "rich.*",
+    "xgboost.*",
+    "asyncpg.*",
+    "scipy.*",
+    "watchdog.*",
+    "torch.*"
+]
+ignore_missing_imports = true
+
+# Less strict checking for test files
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+disallow_untyped_decorators = false
+
+# Even more relaxed for integration tests
+[[tool.mypy.overrides]]
+module = "tests.integration.*"
+disallow_any_generics = false
+disallow_any_explicit = false
+disallow_any_decorated = false
+disallow_any_unimported = false
+warn_return_any = false
+warn_no_return = false
+allow_untyped_calls = true
+allow_untyped_defs = true
+allow_incomplete_defs = true
+
+# Bandit configuration
+[tool.bandit]
+skips = ["B101", "B107", "B311", "B105"]
+# B101: Skip assert warnings (common in tests)
+# B107: Skip hardcoded password detection for default parameters
+# B311: Skip random number generator warning for non-crypto uses
+# B105: Skip hardcoded password string warnings
+
+exclude_dirs = ["tests/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+python_classes = "Test*"
+addopts = "--cov=src/gal_friday --cov-report=term-missing --cov-report=xml --cov-report=html -v --tb=short"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Tests that take a long time to run",
+    "network: Tests that require network access",
+    "exchange: Tests that interact with exchanges"
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:distutils.*:",
+    "ignore::DeprecationWarning:pkg_resources.*:",
+    "ignore::DeprecationWarning:pandas.*:",
+]
+xvs_num_processes = "auto"
+
+# Ruff configuration (new)
+[tool.ruff]
+# Same line length as Black
+line-length = 99
+indent-width = 4
+target-version = "py39"
+
+# Exclude a variety of commonly ignored directories
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+
+[tool.ruff.lint]
+# Configure rule selection
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "D",   # pydocstyle
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "ARG", # flake8-unused-arguments
+    "PTH", # flake8-use-pathlib
+    "ERA", # eradicate (commented out code)
+    "PL",  # pylint
+    "RUF", # ruff-specific rules
+    "A",   # flake8-builtins
+    "T10", # flake8-debugger
+    "ISC", # flake8-implicit-str-concat
+    "ICN", # flake8-import-conventions
+    "G",   # flake8-logging-format
+    "INP", # flake8-no-pep420
+    "PIE", # flake8-pie
+    "PT",  # flake8-pytest-style
+    "Q",   # flake8-quotes
+    "RSE", # flake8-raise
+    "RET", # flake8-return
+    "SLF", # flake8-self
+    "TRY", # flake8-try-except-raise
+    "ANN", # flake8-annotations (type hint related)
+]
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused imports in __init__.py files
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]
+"tests/**/*.py" = [
+    "D100", "D101", "D102", "D103", "D104",  # Missing docstrings in tests
+    "S101",  # Use of assert in tests is fine
+    "PLR2004",  # Magic numbers are fine in tests
+    "ANN",  # Type annotations not needed in tests
+]
+"**/test_*.py" = [
+    "D100", "D101", "D102", "D103", "D104",  # Missing docstrings in tests
+    "S101",  # Use of assert in tests is fine
+]
+
+# Configure flake8-quotes
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+inline-quotes = "double"
+multiline-quotes = "double"
+
+# Configure pydocstyle
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+# Configure isort
+[tool.ruff.lint.isort]
+case-sensitive = true
+force-single-line = false
+force-sort-within-sections = true
+combine-as-imports = false
+known-first-party = ["gal_friday"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+# Configure Pyupgrade
+[tool.ruff.lint.pyupgrade]
+# Preserve types, even if a file imports `from __future__ import annotations`.
+keep-runtime-typing = true
+
+# Configure flake8-tidy-imports
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+# Control line ending settings
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

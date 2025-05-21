@@ -1,0 +1,94 @@
+graph TD
+    %% Define External Systems
+    subgraph External Systems
+        KrakenWS[Kraken WebSocket API]
+        KrakenREST[Kraken REST API]
+        UserCLI[User (via CLI)]
+        PostgresDB[PostgreSQL DB]
+        InfluxDB[InfluxDB]
+    end
+
+    %% Define the Modular Monolith Boundary
+    subgraph Gal-Friday Application (Modular Monolith Process)
+        direction LR
+
+        %% Core Modules
+        DI(DataIngestor)
+        FE(FeatureEngine)
+        PS(PredictionService)
+        SA(StrategyArbitrator)
+        PM(PortfolioManager)
+        RM(RiskManager)
+        EH(ExecutionHandler)
+        LS(LoggerService)
+        MS(MonitoringService)
+        BE(BacktestingEngine)
+        CM(ConfigurationManager)
+        CLI(CLIService)
+        PPool{{Process Pool}}
+
+        %% Internal Data Flow
+        DI -- MarketDataEvent --> FE
+        FE -- FeatureEvent --> PS
+        PS -- PredictionEvent --> SA
+        SA -- TradeSignalProposedEvent --> RM
+        RM -- ApprovedTradeEvent --> EH
+        EH -- ExecutionReportEvent --> PM
+        EH -- ExecutionReportEvent --> LS
+        PS -.-> PPool
+        PPool -.-> PS
+
+        %% State and Control Access
+        RM -- Gets State (Sync Call) --> PM
+        MS -- Checks State/Errors --> PM
+        MS -- Checks State/Errors --> DI
+        MS -- Checks State/Errors --> EH
+        CLI -- User Command --> MS
+        CLI -- User Command --> CM
+
+        %% Logging & Configuration Access
+        DI -- Log Data --> LS
+        FE -- Log Data --> LS
+        PS -- Log Data --> LS
+        SA -- Log Data --> LS
+        PM -- Log Data --> LS
+        RM -- Log Data --> LS
+        EH -- Log Data --> LS
+        MS -- Log Data --> LS
+        CLI -- Log Data --> LS
+
+        %% Config Manager to Modules
+        CM -.-> FE
+        CM -.-> PS
+        CM -.-> SA
+        CM -.-> RM
+        CM -.-> EH
+        CM -.-> LS
+        CM -.-> MS
+
+    end
+
+    %% External Interactions
+    KrakenWS -- Real-time L2/OHLCV --> DI
+    EH -- Place/Cancel/Query Orders --> KrakenREST
+    PM -- Reconcile State --> KrakenREST
+    LS -- Persist Logs/Trades --> PostgresDB
+    LS -- Persist Time-Series Metrics --> InfluxDB
+    UserCLI -- Start/Stop/Status --> CLI
+
+    %% Style Definitions
+    classDef module fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef external fill:#ccf,stroke:#333,stroke-width:1px;
+    classDef db fill:lightgrey,stroke:#333,stroke-width:1px;
+    classDef process fill:#fdf,stroke:#333,stroke-width:1px;
+
+    class DI,FE,PS,SA,PM,RM,EH,LS,MS,BE,CM,CLI module;
+    class KrakenWS,KrakenREST,UserCLI external;
+    class PostgresDB,InfluxDB db;
+    class PPool process;
+
+**Note on Architecture:**
+While this diagram represents the flow of data between modules, it does not visualize the system's interface architecture. Key service interfaces (Abstract Base Classes) such as `ExecutionHandlerInterface`, `MarketPriceService`, `HistoricalDataService`, and `PredictorInterface` are now centralized in the `src/gal_friday/interfaces` directory. This centralization ensures consistent contracts between components and improves maintainability. The `PredictionService` has been enhanced to support multiple model types with preprocessing and ensemble capabilities, while retaining the same core interaction pattern shown in this diagram.
+
+**Version: 0.2**
+**Date: 2025-05-15**
