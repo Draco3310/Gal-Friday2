@@ -1,0 +1,99 @@
+name: Code Quality Report
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allows manual triggering
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly run on Sundays
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install ruff mypy bandit pytest pytest-cov memory_profiler
+        pip install -e .
+        
+    - name: Run Ruff
+      continue-on-error: true  # Prevents workflow failure
+      run: |
+        echo "::group::Ruff Report"
+        ruff check . --output-format=github
+        echo "::endgroup::"
+        
+    - name: Run Mypy
+      continue-on-error: true  # Prevents workflow failure
+      run: |
+        echo "::group::Mypy Report"
+        mypy gal_friday
+        echo "::endgroup::"
+        
+    - name: Run Bandit
+      continue-on-error: true  # Prevents workflow failure
+      run: |
+        echo "::group::Bandit Security Report"
+        bandit -r gal_friday -f json | tee bandit-report.json
+        echo "::endgroup::"
+        
+    - name: Run pytest with coverage
+      continue-on-error: true  # Prevents workflow failure
+      run: |
+        echo "::group::Pytest Report"
+        pytest --cov=gal_friday --cov-report=xml || true
+        echo "::endgroup::"
+        
+    - name: Check for memory leaks in critical modules
+      continue-on-error: true
+      run: |
+        echo "::group::Memory Profile Report"
+        # Target memory-sensitive modules
+        modules=("data_ingestor" "market_price_service" "execution_handler")
+        for module in "${modules[@]}"; do
+          echo "Memory profile for $module:"
+          python -m memory_profiler -o memory_profile_$module.log gal_friday/$module.py || true
+        done
+        echo "::endgroup::"
+        
+    - name: Check dependency security
+      continue-on-error: true
+      run: |
+        echo "::group::Dependency Security Check"
+        pip install pip-audit
+        pip-audit || true
+        echo "::endgroup::"
+        
+    - name: Generate comprehensive report
+      run: |
+        echo "# Code Quality Report" >> $GITHUB_STEP_SUMMARY
+        echo "## Ruff Issues" >> $GITHUB_STEP_SUMMARY
+        ruff check . --format=text | grep -c "^" || echo "0" >> $GITHUB_STEP_SUMMARY
+        echo "## Mypy Issues" >> $GITHUB_STEP_SUMMARY
+        mypy gal_friday 2>&1 | grep -c "^" || echo "0" >> $GITHUB_STEP_SUMMARY
+        echo "## Bandit Issues" >> $GITHUB_STEP_SUMMARY
+        grep -o '"issue_severity": "[^"]*"' bandit-report.json | sort | uniq -c || echo "0" >> $GITHUB_STEP_SUMMARY
+        echo "## Test Coverage" >> $GITHUB_STEP_SUMMARY
+        python -c "import xml.etree.ElementTree as ET; tree = ET.parse('coverage.xml'); root = tree.getroot(); print(f'Coverage: {root.attrib.get(\"line-rate\", 0)}')" || echo "No coverage data available" >> $GITHUB_STEP_SUMMARY
+        echo "## Memory Profile Summary" >> $GITHUB_STEP_SUMMARY
+        ls -la memory_profile_*.log 2>/dev/null || echo "No memory profiles available" >> $GITHUB_STEP_SUMMARY
+        
+    - name: Upload reports as artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: code-quality-reports
+        path: |
+          bandit-report.json
+          coverage.xml
+          memory_profile_*.log

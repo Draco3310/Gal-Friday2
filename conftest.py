@@ -10,10 +10,10 @@ import sys
 
 import pytest
 
-# Add src to the Python path to ensure imports work correctly
-src_path = str(Path(__file__).parent / "src")
-if src_path not in sys.path:
-    sys.path.insert(0, src_path)
+# Ensure the project root is in the Python path
+project_root = Path(__file__).parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 
 def pytest_configure(config: pytest.Config) -> None:

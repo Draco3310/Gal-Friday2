@@ -98,7 +98,31 @@ pytest
 To run only unit tests:
 
 ```bash
+pytest -m unit
+
+# Or by directory
 pytest tests/unit/
+```
+
+To run integration tests:
+
+```bash
+pytest -m integration
+```
+
+To run tests with coverage reporting:
+
+```bash
+pytest --cov=gal_friday --cov-report=term --cov-report=xml:coverage.xml
+```
+
+### Test Performance Monitoring
+
+For memory-sensitive components, use memory profiling:
+
+```bash
+python -m memory_profiler gal_friday/execution_handler.py
+```
 ```
 
 To run interface contract tests:

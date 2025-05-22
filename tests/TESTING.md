@@ -22,8 +22,18 @@ pre-commit run --all-files
 ### Current Tools
 
 1. **Ruff** - Fast, modern Python linter and formatter that replaces multiple tools (flake8, black, isort, pydocstyle, etc.)
-2. **mypy** - Static type checker
-3. **Bandit** - Security issue scanner
+   - Handles code formatting (formerly Black)
+   - Manages import sorting (formerly isort)
+   - Enforces style guidelines (formerly flake8)
+   - Checks docstrings (formerly pydocstyle)
+   - Detects commented-out code (ERA rules)
+   - Performs security scanning (S rules)
+   - Manages complexity (McCabe complexity)
+   - And many more code quality checks
+
+2. **mypy** - Static type checker with strict type enforcement
+
+3. **Bandit** - Dedicated security vulnerability scanner
 
 ## Testing
 
@@ -74,23 +84,21 @@ Tests are categorized using markers:
 
 ### Docstring Style
 
-We use NumPy style for docstrings. Example of a properly formatted docstring:
+We use Google style for docstrings. Example of a properly formatted docstring:
 
 ```python
-def my_function(param1, param2):
+def my_function(param1: str, param2: int) -> bool:
     """Do something with parameters.
-
-    Parameters
-    ----------
-    param1 : str
-        Description of param1
-    param2 : int
-        Description of param2
-
-    Returns
-    -------
-    bool
+    
+    Args:
+        param1: Description of param1
+        param2: Description of param2
+        
+    Returns:
         Description of return value
+        
+    Raises:
+        ValueError: When parameters are invalid
     """
     return True
 ```

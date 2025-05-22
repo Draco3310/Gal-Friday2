@@ -1,21 +1,5 @@
-[tool.black]
-line-length = 99
-preview = true
-target-version = ['py39']
-
-[tool.isort]
-profile = "black"
-line_length = 99
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-ensure_newline_before_comments = true
-skip_glob = [".venv/*", "__pycache__/*"]
-
 [tool.mypy]
 python_version = "3.11"
-# Add or ensure these settings:
 files = ["gal_friday"]
 namespace_packages = true
 mypy_path = "gal_friday"
@@ -31,6 +15,96 @@ warn_unused_ignores = false
 warn_no_return = true
 warn_unreachable = false
 strict_optional = true
+
+[tool.ruff]
+# Target Python version
+target-version = "py311"
+# Line length to 99 characters
+line-length = 99
+# Exclude directories
+exclude = [".venv", "__pycache__", ".git"]
+# Enable select rules
+select = [
+    "E",  # pycodestyle errors
+    "F",  # pyflakes
+    "I",  # isort
+    "W",  # pycodestyle warnings
+    "C90", # mccabe complexity
+    "N",  # pep8-naming
+    "D",  # pydocstyle
+    "UP", # pyupgrade
+    "B",  # flake8-bugbear
+    "ANN", # flake8-annotations
+    "S",  # flake8-bandit
+    "RUF", # Ruff-specific rules
+    "ERA", # eradicate (commented-out code)
+    "PL",  # Pylint
+    "PT",  # pytest style
+    "SIM", # simplify
+    "T20", # print statements
+    "NPY", # NumPy-specific rules
+    "RET", # return statements
+    "COM", # trailing commas
+    "ICN", # import conventions
+    "PIE", # misc. lints
+    "PYI", # type stub files
+    "Q",   # quotes
+    "RSE", # raise statements
+    "TCH", # type checking
+    "PTH", # pathlib
+]
+# Ignore specific rules
+ignore = [
+    "D203",  # one-blank-line-before-class
+    "D213",  # multi-line-summary-second-line
+    "ANN101", # Missing type annotation for `self` in method
+    "ANN102", # Missing type annotation for `cls` in classmethod
+    "PLR0913", # Too many arguments to function call
+    "ERA001", # Found commented-out code in codebase (use --fix to remove)
+]
+# Mccabe complexity limit
+[tool.ruff.mccabe]
+max-complexity = 15
+
+# Memory/Performance settings
+[tool.ruff.flake8-bugbear]
+argument-names-to-ignore = ["df", "dt", "e", "f", "k", "m", "q", "v"]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]  # Unused imports in __init__ files
+"tests/*" = ["S101", "ANN"]  # Allow assertions and missing annotations in tests
+
+[tool.ruff.pydocstyle]
+convention = "google"
+
+[tool.bandit]
+exclude_dirs = [".venv", "tests"]
+skips = ["B311"]  # Skip random number warnings
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "--strict-markers --cov=gal_friday --cov-report=term --cov-report=xml:coverage.xml"
+markers = [
+    "unit: unit tests",
+    "integration: integration tests",
+    "slow: slow running tests",
+]
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pip-compile]
+output-file = "requirements.txt"
+generate-hashes = true
+allow-unsafe = false
+upgrade = false
+annex = []
+strip-extras = true
 
 # Module discovery
 ignore_missing_imports = false

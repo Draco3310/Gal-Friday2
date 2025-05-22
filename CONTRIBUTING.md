@@ -24,7 +24,7 @@ Thank you for your interest in contributing to Gal-Friday2! This document provid
 
 3. Install development dependencies:
    ```bash
-   pip install pytest pytest-cov flake8 flake8-docstrings mypy black bandit pylint isort pydocstyle pre-commit
+   pip install pytest pytest-cov pytest-asyncio mypy ruff bandit pre-commit memory_profiler
    ```
 
 4. Set up pre-commit hooks:
@@ -39,13 +39,11 @@ We use several tools to ensure code quality and consistency:
 ### Configuration Files
 
 - **pyproject.toml**: Primary configuration file for:
-  - Black (code formatting)
-  - isort (import sorting)
+  - Ruff (linting, formatting, and import sorting)
   - mypy (static type checking)
   - pytest (testing)
-  - bandit (security linting)
-
-- **.flake8**: Configuration for flake8 (style guide enforcement)
+  - bandit (security scanning)
+  - pip-compile (dependency management)
 
 - **.pre-commit-config.yaml**: Configuration for pre-commit hooks
 
@@ -54,20 +52,23 @@ We use several tools to ensure code quality and consistency:
 You can run the following commands to check your code:
 
 ```bash
-# Code formatting
-black src tests
+# Linting and code formatting with Ruff
+ruff check --fix gal_friday tests
 
-# Import sorting
-isort src tests
+# Format code with Ruff
+ruff format gal_friday tests
 
 # Type checking
-mypy tests src
+mypy gal_friday tests
 
-# Style guide enforcement
-flake8 tests src
+# Security scanning
+bandit -r gal_friday
 
 # Run all pre-commit checks
 pre-commit run --all-files
+
+# Memory profiling for critical modules
+python -m memory_profiler gal_friday/execution_handler.py
 ```
 
 ## Pull Request Process
@@ -84,10 +85,18 @@ pre-commit run --all-files
 pytest
 
 # Run tests with coverage
-pytest --cov=src tests/
+pytest --cov=gal_friday --cov-report=term --cov-report=xml:coverage.xml
+
+# Run specific test categories
+pytest -m unit          # Only unit tests
+pytest -m integration   # Only integration tests
+pytest -m slow          # Only slow tests
 
 # Run specific test file
 pytest tests/path/to/test_file.py
+
+# Run tests in parallel
+pytest -xvs
 ```
 
 ## CI/CD Pipeline
@@ -106,12 +115,29 @@ Make sure your code passes all these checks before submitting a pull request.
 
 ```
 Gal-Friday2/
-├── src/
-│   └── gal_friday/  # Main package code
-├── tests/
-│   ├── unit/        # Unit tests
-│   └── integration/ # Integration tests
-├── docs/            # Documentation
-├── scripts/         # Utility scripts
-└── config/          # Configuration files
-``` 
+├── gal_friday/              # Main package code
+│   ├── core/                # Core components and abstractions
+│   ├── predictors/          # Prediction models (LSTM, ensemble, etc.)
+│   ├── execution/           # Exchange execution handlers
+│   └── strategies/          # Trading strategies
+├── tests/                   # Test suite
+│   ├── unit/                # Unit tests
+│   └── integration/         # Integration tests
+├── .github/                 # GitHub configuration
+│   └── workflows/           # GitHub Actions workflows
+├── config/                  # Configuration files
+└── data/                    # Data storage
+```
+
+## CI/CD and Code Quality
+
+The project uses GitHub Actions for continuous integration with detailed reporting on:
+
+- Code quality (Ruff linting/formatting)
+- Type checking (Mypy)
+- Security vulnerabilities (Bandit)
+- Test coverage
+- Memory profiling for performance-critical components
+- Dependency security checks
+
+These reports are available in the GitHub Actions workflow summaries.
