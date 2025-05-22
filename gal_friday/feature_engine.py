@@ -13,12 +13,12 @@ import uuid
 import pandas as pd
 import pandas_ta as ta
 
-from src.gal_friday.core.events import EventType
-from src.gal_friday.core.pubsub import PubSubManager
-from src.gal_friday.interfaces.historical_data_service_interface import (
+from gal_friday.core.events import EventType
+from gal_friday.core.pubsub import PubSubManager
+from gal_friday.interfaces.historical_data_service_interface import (
     HistoricalDataService,
 )
-from src.gal_friday.logger_service import LoggerService
+from gal_friday.logger_service import LoggerService
 
 
 class FeatureEngine:
@@ -304,7 +304,7 @@ class FeatureEngine:
                 context={"payload": l2_payload},
             )
 
-    def _handle_trade_event(self, event_dict: dict[str, Any]) -> None:
+    async def _handle_trade_event(self, event_dict: dict[str, Any]) -> None:
         """Handle incoming raw trade events and store them."""
         # This method will be called by pubsub, so it takes the full event_dict
         payload = event_dict.get("payload")
@@ -418,13 +418,13 @@ class FeatureEngine:
         """Start the feature engine and subscribe to relevant events."""
         try:
             # Subscribe process_market_data to handle both OHLCV and L2 updates
-            await self.pubsub_manager.subscribe(
+            self.pubsub_manager.subscribe(
                 EventType.MARKET_DATA_OHLCV, self.process_market_data
             )
-            await self.pubsub_manager.subscribe(
+            self.pubsub_manager.subscribe(
                 EventType.MARKET_DATA_L2, self.process_market_data
             )
-            await self.pubsub_manager.subscribe(
+            self.pubsub_manager.subscribe(
                 EventType.MARKET_DATA_TRADE, self._handle_trade_event # New subscription
             )
             self.logger.info(
@@ -442,13 +442,13 @@ class FeatureEngine:
     async def stop(self) -> None:
         """Stop the feature engine and clean up resources."""
         try:
-            await self.pubsub_manager.unsubscribe(
+            self.pubsub_manager.unsubscribe(
                 EventType.MARKET_DATA_OHLCV, self.process_market_data
             )
-            await self.pubsub_manager.unsubscribe(
+            self.pubsub_manager.unsubscribe(
                 EventType.MARKET_DATA_L2, self.process_market_data
             )
-            await self.pubsub_manager.unsubscribe(
+            self.pubsub_manager.unsubscribe(
                 EventType.MARKET_DATA_TRADE, self._handle_trade_event # New unsubscription
             )
             self.logger.info(
@@ -520,7 +520,7 @@ class FeatureEngine:
             # in this design, as features are aligned with OHLCV bar closures.
             # L2 data is stored and used when an OHLCV bar triggers calculation.
         elif event_type == "MARKET_DATA_TRADE":
-            self._handle_trade_event(market_data_event_dict)
+            await self._handle_trade_event(market_data_event_dict)
         else:
             self.logger.warning(
                 "Received unknown market data event type: %s for %s",
@@ -706,7 +706,8 @@ class FeatureEngine:
 
             if sum_vol == Decimal("0"): # Avoid division by zero
                 return None
-            return sum_tp_vol / sum_vol
+            result: Optional[Decimal] = sum_tp_vol / sum_vol
+            return result
         except Exception:
             self.logger.exception(
                 "Error calculating VWAP", source_module=self._source_module
@@ -864,7 +865,8 @@ class FeatureEngine:
             return None
         bid_depth = sum(vol for price, vol in l2_book["bids"][:levels] if isinstance(vol, Decimal))
         ask_depth = sum(vol for price, vol in l2_book["asks"][:levels] if isinstance(vol, Decimal))
-        return {"bid_depth": bid_depth, "ask_depth": ask_depth}
+        # Ensure both values are Decimal to fix type error
+        return {"bid_depth": Decimal(bid_depth), "ask_depth": Decimal(ask_depth)}
 
     def _calculate_true_volume_delta_from_trades(
         self,
@@ -898,7 +900,8 @@ class FeatureEngine:
         buy_volume = sum(trade["volume"] for trade in relevant_trades if trade["side"] == "buy")
         sell_volume = sum(trade["volume"] for trade in relevant_trades if trade["side"] == "sell")
 
-        return buy_volume - sell_volume
+        # Explicitly return Decimal type
+        return Decimal(buy_volume - sell_volume)
 
     def _calculate_vwap_from_trades(
         self, trades: deque, current_bar_start_time: datetime, bar_interval_seconds: int = 60
@@ -925,7 +928,8 @@ class FeatureEngine:
         if sum_volume == Decimal("0"):
             return None
 
-        return sum_price_volume / sum_volume
+        result: Optional[Decimal] = sum_price_volume / sum_volume
+        return result
 
     async def _calculate_and_publish_features(
         self, trading_pair: str, timestamp_features_for: str
@@ -1021,7 +1025,10 @@ class FeatureEngine:
         }
 
         try:
-            await self.pubsub_manager.publish(full_feature_event)
+            # Convert the dictionary to an Event object to match expected type
+            from typing import Any, cast
+            # Use Any for Event since we can't import the actual type
+            await self.pubsub_manager.publish(cast(Any, full_feature_event))
             self.logger.info(
                 "Published FEATURES_CALCULATED event for %s at %s",
                 trading_pair,

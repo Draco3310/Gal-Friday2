@@ -307,11 +307,16 @@ class ValuationService:
             hasattr(pos_data_any, "base_asset") and
             hasattr(pos_data_any, "quote_asset")
         ):
-            return pos_data_any.quantity, pos_data_any.base_asset, pos_data_any.quote_asset
+            obj_quantity = Decimal(str(pos_data_any.quantity))  # Ensure Decimal type
+            obj_base_asset = str(pos_data_any.base_asset)       # Ensure str type
+            obj_quote_asset = str(pos_data_any.quote_asset)     # Ensure str type
+            return obj_quantity, obj_base_asset, obj_quote_asset
         if isinstance(pos_data_any, dict):
-            quantity = Decimal(str(pos_data_any.get("quantity", 0)))
+            dict_quantity = Decimal(str(pos_data_any.get("quantity", 0)))
             if "base_asset" in pos_data_any and "quote_asset" in pos_data_any:
-                return quantity, pos_data_any["base_asset"], pos_data_any["quote_asset"]
+                dict_base_asset = str(pos_data_any["base_asset"])
+                dict_quote_asset = str(pos_data_any["quote_asset"])
+                return dict_quantity, dict_base_asset, dict_quote_asset
             self.logger.warning(
                 "Cannot determine base/quote for position %s from dict.", pair
             )
@@ -459,7 +464,8 @@ class ValuationService:
         """
         async with self._lock:
             current_time = datetime.now(timezone.utc)
-            self._total_equity = await self.calculate_position_value(positions)[0]
+            position_value_result = await self.calculate_position_value(positions)
+            self._total_equity = position_value_result[0]
             self._peak_equity = max(self._peak_equity, self._total_equity)
             self._total_drawdown_pct = (
                 (self._peak_equity - self._total_equity) / self._peak_equity
@@ -479,9 +485,10 @@ class ValuationService:
                 source_module=self._source_module
             )
 
+            position_values = await self.calculate_position_value(positions)
             return (
                 self._total_equity,
-                await self.calculate_position_value(positions)[2],
+                position_values[2],
                 exposure_pct
             )
 

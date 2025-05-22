@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import pandas as pd
 
@@ -149,6 +149,11 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     def _apply_config_values_from_manager(self) -> None:
         """Apply configuration values from the ConfigManager."""
+        if self.config is None:
+            # Use default values if config is not available
+            self._apply_default_config_values()
+            return
+
         sim_config = self.config.get("simulation", {})
         self._price_column = sim_config.get("price_column", "close")
 
@@ -1061,6 +1066,67 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             extra={"source_module": self._source_module},
         )
         return None
+
+    async def get_historical_ohlcv(
+        self,
+        trading_pair: str,
+        timeframe: str,  # noqa: ARG002 - Required for API compatibility
+        since: datetime,
+        limit: Optional[int] = None
+    ) -> Optional[list[dict[str, Any]]]:
+        """
+        Fetch historical OHLCV data for a trading pair from the stored historical data.
+
+        Args:
+            trading_pair: The trading pair symbol (e.g., "XRP/USD").
+            timeframe: The timeframe for the candles (e.g., "1m", "1h", "1d").
+            since: Python datetime object indicating the start time for fetching data (UTC).
+            limit: The maximum number of candles to return.
+
+        Returns
+        -------
+            A list of dictionaries, where each dictionary represents an OHLCV candle:
+            {'timestamp': datetime_obj, 'open': Decimal, 'high': Decimal,
+             'low': Decimal, 'close': Decimal, 'volume': Decimal},
+            or None if data is unavailable or an error occurs. Timestamps are UTC.
+        """
+        # Check if we have data for this trading pair
+        if trading_pair not in self.historical_data:
+            self.logger.warning(
+                "No historical data available for trading pair %s",
+                trading_pair,
+                extra={"source_module": self._source_module},
+            )
+            return None
+
+        df = self.historical_data[trading_pair]
+
+        # Filter data from the provided start time
+        if since is not None:
+            df = df[df.index >= since]
+
+        # Apply limit if specified
+        if limit is not None and limit > 0:
+            df = df.head(limit)
+
+        # If no data available after filtering
+        if df.empty:
+            return None
+
+        # Convert DataFrame to list of dictionaries
+        result = []
+        for timestamp, row in df.iterrows():
+            candle = {
+                "timestamp": timestamp,
+                "open": Decimal(str(row.get("open", 0))),
+                "high": Decimal(str(row.get("high", 0))),
+                "low": Decimal(str(row.get("low", 0))),
+                "close": Decimal(str(row.get("close", 0))),
+                "volume": Decimal(str(row.get("volume", 0)))
+            }
+            result.append(candle)
+
+        return result
 
 
 # Example Usage

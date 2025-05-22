@@ -173,6 +173,7 @@ class MonitoringService:
             None
         )
         self._execution_report_handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
+        self._api_error_handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
 
         # State for tracking additional monitoring metrics
         self._last_market_data_times: dict[str, datetime] = {}  # pair -> timestamp
@@ -279,6 +280,13 @@ class MonitoringService:
             "Subscribed to POTENTIAL_HALT_TRIGGER events.", source_module=self._source
         )
 
+        # Subscribe to API error events
+        self._api_error_handler = self._handle_api_error
+        self._pubsub.subscribe(EventType.SYSTEM_ERROR, self._api_error_handler)
+        self.logger.info(
+            "Subscribed to SYSTEM_ERROR events for API error tracking.", source_module=self._source
+        )
+
         # Subscribe to market data events to track freshness
         self._market_data_l2_handler = self._update_market_data_timestamp
         self._market_data_ohlcv_handler = self._update_market_data_timestamp
@@ -308,6 +316,14 @@ class MonitoringService:
                     "Unsubscribed from POTENTIAL_HALT_TRIGGER events.", source_module=self._source
                 )
                 self._potential_halt_handler = None
+
+            # API error events
+            if hasattr(self, "_api_error_handler") and self._api_error_handler:
+                self._pubsub.unsubscribe(EventType.SYSTEM_ERROR, self._api_error_handler)
+                self.logger.info(
+                    "Unsubscribed from SYSTEM_ERROR events.", source_module=self._source
+                )
+                self._api_error_handler = None
 
             # Market data events
             if self._market_data_l2_handler:
@@ -930,7 +946,7 @@ class MonitoringService:
                 "Error handling execution report", source_module=self._source
             )
 
-    async def _handle_api_error(self, _event: "APIErrorEvent") -> None:
+    async def _handle_api_error(self, event: "APIErrorEvent") -> None:
         """
         Count and evaluate API errors to detect excessive error rates.
 
@@ -949,7 +965,7 @@ class MonitoringService:
             errors_in_period = sum(1 for t in self._recent_api_errors if t > error_window)
 
             warning_msg = (
-                "API error received. "
+                f"API error received: {event.error_message}. "
                 f"{errors_in_period} errors in the last "
                 f"{self._api_error_threshold_period_s}s"
             )
@@ -980,40 +996,49 @@ class TestLoggerService(LoggerService[Any]):
     ) -> None:
         """Initialize the mock logger service."""
 
-    # Updated method signatures to match base LoggerService
     def info(
         self,
         message: str,
+        *args: object,  # More specific type than Any
         source_module: Optional[str] = None,
-        _context: Optional[dict[Any, Any]] = None,  # MODIFIED: Renamed context
+        context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log an info message."""
-        print(f"INFO [{source_module}]: {message}")
+        formatted_message = message % args if args else message
+        context_str = f" [context: {context}]" if context else ""
+        print(f"INFO [{source_module}]:{context_str} {formatted_message}")
 
     def debug(
         self,
         message: str,
+        *args: object,  # More specific type than Any
         source_module: Optional[str] = None,
-        _context: Optional[dict[Any, Any]] = None,  # MODIFIED: Renamed context
+        context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log a debug message."""
-        print(f"DEBUG [{source_module}]: {message}")
+        formatted_message = message % args if args else message
+        context_str = f" [context: {context}]" if context else ""
+        print(f"DEBUG [{source_module}]:{context_str} {formatted_message}")
 
     def warning(
         self,
         message: str,
+        *args: object,  # More specific type than Any
         source_module: Optional[str] = None,
-        _context: Optional[dict[Any, Any]] = None,  # MODIFIED: Renamed context
+        context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log a warning message."""
-        print(f"WARN [{source_module}]: {message}")
+        formatted_message = message % args if args else message
+        context_str = f" [context: {context}]" if context else ""
+        print(f"WARN [{source_module}]:{context_str} {formatted_message}")
 
     def error(
         self,
         message: str,
+        *args: object,  # More specific type than Any
         source_module: Optional[str] = None,
-        _context: Optional[dict[Any, Any]] = None,  # MODIFIED: Renamed context
-        _exc_info: Optional[
+        context: Optional[dict[Any, Any]] = None,
+        exc_info: Optional[
             Union[
                 bool,
                 tuple[type[BaseException], BaseException, Optional[TracebackType]],
@@ -1022,14 +1047,26 @@ class TestLoggerService(LoggerService[Any]):
         ] = None,
     ) -> None:
         """Log an error message."""
-        print(f"ERROR [{source_module}]: {message}")
+        formatted_message = message % args if args else message
+        context_str = f" [context: {context}]" if context else ""
+        exc_str = ""
+        if exc_info:
+            if isinstance(exc_info, bool) and exc_info:
+                exc_str = " [with current exception]"
+            elif isinstance(exc_info, BaseException):
+                exc_str = f" [exception: {type(exc_info).__name__}: {exc_info}]"
+            elif isinstance(exc_info, tuple):
+                exc_type, exc_value, _ = exc_info
+                exc_str = f" [exception: {exc_type.__name__}: {exc_value}]"
+        print(f"ERROR [{source_module}]:{context_str}{exc_str} {formatted_message}")
 
     def critical(
         self,
         message: str,
+        *args: object,  # More specific type than Any
         source_module: Optional[str] = None,
-        _context: Optional[dict[Any, Any]] = None,  # MODIFIED: Renamed context
-        _exc_info: Optional[  # MODIFIED: Renamed exc_info, formatted
+        context: Optional[dict[Any, Any]] = None,
+        exc_info: Optional[
             Union[
                 bool,
                 tuple[type[BaseException], BaseException, Optional[TracebackType]],
@@ -1038,7 +1075,18 @@ class TestLoggerService(LoggerService[Any]):
         ] = None,
     ) -> None:
         """Log a critical message."""
-        print(f"CRITICAL [{source_module}]: {message}")
+        formatted_message = message % args if args else message
+        context_str = f" [context: {context}]" if context else ""
+        exc_str = ""
+        if exc_info:
+            if isinstance(exc_info, bool) and exc_info:
+                exc_str = " [with current exception]"
+            elif isinstance(exc_info, BaseException):
+                exc_str = f" [exception: {type(exc_info).__name__}: {exc_info}]"
+            elif isinstance(exc_info, tuple):
+                exc_type, exc_value, _ = exc_info
+                exc_str = f" [exception: {exc_type.__name__}: {exc_value}]"
+        print(f"CRITICAL [{source_module}]:{context_str}{exc_str} {formatted_message}")
 
 
 # Create a mock config manager that inherits from ConfigManager

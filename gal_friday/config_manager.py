@@ -16,7 +16,7 @@ import logging
 import operator
 import os
 from pathlib import Path  # Added for PTH110 and PTH123
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Type, TypeVar
 
 import yaml
 
@@ -43,7 +43,18 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class ConfigChangeHandler(FileSystemEventHandler if FileSystemEventHandler else object):
+# Make sure the base class is valid regardless of whether watchdog is installed
+# Define a proper type alias for type checking
+T = TypeVar("T")
+
+# Conditionally select the base class to use
+if "FileSystemEventHandler" in globals():
+    BaseClassType: Type = FileSystemEventHandler
+else:
+    BaseClassType = object
+
+# Use the actual class directly as a base class
+class ConfigChangeHandler(BaseClassType):
     """Handles file system events for configuration file changes."""
 
     def __init__(self, config_manager: "ConfigManager", config_file_path: Path) -> None:
@@ -147,12 +158,13 @@ class ConfigManager:
         # Store the previous prediction_service config for comparison
         self._previous_prediction_service_config: Optional[dict[str, Any]] = None
 
-        if Observer and FileSystemEventHandler:
+        # Initialize event handler if watchdog is available
+        self._event_handler: Optional[ConfigChangeHandler] = None
+        if "Observer" in globals() and "FileSystemEventHandler" in globals():
             self._event_handler = ConfigChangeHandler(self, self._config_file_path)
-        else:
-            self._event_handler = None  # Watchdog not available
 
-        self._logger = logger_service or logging.getLogger(__name__)
+        # Ensure logger is always initialized
+        self._logger: logging.Logger = logger_service or logging.getLogger(__name__)
         self._logger.info(
             "Initializing ConfigManager with path: %s", self._config_file_path
         )
@@ -185,9 +197,9 @@ class ConfigManager:
             # Store current prediction_service config before reloading, if it exists and is valid
             # This assumes self._config is from the *previous* valid load.
             if self._config and isinstance(self._config.get("prediction_service"), dict):
-                self._previous_prediction_service_config = self._config.get(
-                    "prediction_service"
-                ).copy()
+                pred_service = self._config.get("prediction_service")
+                if pred_service is not None:
+                    self._previous_prediction_service_config = pred_service.copy()
             else:
                 self._previous_prediction_service_config = None
 

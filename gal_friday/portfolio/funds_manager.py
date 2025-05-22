@@ -246,7 +246,7 @@ class FundsManager:
 
             if current_balance < amount:
                 raise InsufficientFundsError(
-                    self.INSUFFICIENT_FUNDS % (currency_upper, amount, current_balance)
+                    self.INSUFFICIENT_BASE_FUNDS % (currency_upper, amount, current_balance)
                 )
 
             new_balance = current_balance - amount

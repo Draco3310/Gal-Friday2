@@ -94,7 +94,7 @@ class LoggerService:
         print(f"ERROR: {message}")
         if exc_info:
             print(f"Exception: {exc_info}")
-            
+
     def exception(
         self,
         message: str,

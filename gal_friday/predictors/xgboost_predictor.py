@@ -239,7 +239,7 @@ class XGBoostPredictor(PredictorInterface):
 
         try:
             # Try to get the transform method safely with getattr
-            transform_method = getattr(scaler, 'transform', None)
+            transform_method = getattr(scaler, "transform", None)
             if transform_method is None:
                 logger.warning(f"Scaler for model {model_id} doesn't have transform method")
                 return features_2d, {}
@@ -339,9 +339,9 @@ class XGBoostPredictor(PredictorInterface):
             # 3.1 Scale features if scaler is available
             if scaler is not None:
                 processed_features, error = XGBoostPredictor._prepare_features(
-                    feature_vector=feature_vector, 
-                    scaler=scaler, 
-                    model_id=model_id, 
+                    feature_vector=feature_vector,
+                    scaler=scaler,
+                    model_id=model_id,
                     logger=logger
                 )
                 if error:
@@ -356,12 +356,12 @@ class XGBoostPredictor(PredictorInterface):
             # Add type checking to ensure model is not None
             if model is None:
                 return {"error": "Model is None", "model_id": model_id}
-                
+
             return cls._make_prediction(
-                model=model, 
+                model=model,
                 features=processed_features,  # Renamed to match method definition
-                feature_names=model_feature_names, 
-                model_id=model_id, 
+                feature_names=model_feature_names,
+                model_id=model_id,
                 logger=logger
             )
 

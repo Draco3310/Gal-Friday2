@@ -22,9 +22,11 @@ from typing import (
 )
 
 from .exceptions import DataValidationError, InsufficientFundsError, PriceNotAvailableError
+from .interfaces.market_price_service_interface import MarketPriceService
 
 # Import new components
 from .portfolio import FundsManager, PositionInfo, PositionManager, ValuationService
+from .portfolio.funds_manager import TradeParams
 
 # Set Decimal precision
 getcontext().prec = 28
@@ -36,7 +38,6 @@ if TYPE_CHECKING:
     from .core.pubsub import PubSubManager
     from .execution_handler import ExecutionHandler
     from .logger_service import LoggerService
-    from .market_price_service import MarketPriceService
 else:
     # Placeholders if needed, although explicit imports are preferred
     from .core.placeholder_classes import (
@@ -360,21 +361,28 @@ class PortfolioManager:
             cost_or_proceeds = qty_filled * avg_price
 
             # 2. Update Funds (FundsManager)
-            await self.funds_manager.update_funds_for_trade(quote_asset, side, cost_or_proceeds)
+            await self.funds_manager.update_funds_for_trade(
+                TradeParams(
+                    base_asset=base_asset,
+                    quote_asset=quote_asset,
+                    side=side,
+                    quantity=qty_filled,
+                    price=avg_price,
+                    cost_or_proceeds=cost_or_proceeds
+                )
+            )
 
             # 3. Update Position (PositionManager)
             # Store and log the realized PNL from the position update
             pnl, _ = await self.position_manager.update_position_for_trade(
-                pair,
-                base_asset,
-                quote_asset,
-                side,
-                qty_filled,
-                avg_price,
-                cost_or_proceeds,
-                event.timestamp,
-                commission,
-                commission_asset,
+                trading_pair=pair,
+                side=side,
+                quantity=qty_filled,
+                price=avg_price,
+                timestamp=event.timestamp,
+                trade_id=event.exchange_order_id,
+                commission=commission,
+                commission_asset=commission_asset,
             )
 
             if pnl != Decimal(0):
@@ -468,6 +476,10 @@ class PortfolioManager:
         except (TypeError, ValueError, ArithmeticError) as e:
             raise ValueError from e
 
+        # This line should never be reached due to the exceptions above,
+        # but we add it to satisfy the type checker
+        raise ValueError
+
     async def _update_portfolio_value_and_cache(self) -> None:
         """
         Trigger valuation update and cache the results.
@@ -479,7 +491,7 @@ class PortfolioManager:
             current_positions = self.position_manager.positions  # Get current positions
 
             _, latest_prices, exposure_pct = await self.valuation_service.update_portfolio_value(
-                current_funds, current_positions
+                current_funds, cast(dict[str, Any], current_positions)
             )
 
             # Update local cache for get_current_state
@@ -1002,18 +1014,25 @@ class PortfolioManager:
 
         # Use PositionManager to apply the adjustment
         await self.position_manager.update_position_for_trade(
-            pair,
-            base_asset,
-            quote_asset,
-            side,
-            abs_qty,
-            price,
-            cost,
-            timestamp,
+            trading_pair=pair,
+            side=side,
+            quantity=abs_qty,
+            price=price,
+            timestamp=timestamp,
+            trade_id="reconciliation",
         )
 
         # Also update funds for the trade if needed
-        await self.funds_manager.update_funds_for_trade(quote_asset, side, cost)
+        await self.funds_manager.update_funds_for_trade(
+            TradeParams(
+                base_asset=base_asset,
+                quote_asset=quote_asset,
+                side=side,
+                quantity=abs_qty,
+                price=price,
+                cost_or_proceeds=cost
+            )
+        )
 
         # Update portfolio value
         await self._update_portfolio_value_and_cache()
@@ -1061,18 +1080,25 @@ class PortfolioManager:
 
         # Use PositionManager to create the position
         await self.position_manager.update_position_for_trade(
-            pair,
-            base_asset,
-            quote_asset,
-            side,
-            abs_qty,
-            price,
-            cost,
-            timestamp,
+            trading_pair=pair,
+            side=side,
+            quantity=abs_qty,
+            price=price,
+            timestamp=timestamp,
+            trade_id="reconciliation",
         )
 
         # Update funds to reflect the position
-        await self.funds_manager.update_funds_for_trade(quote_asset, side, cost)
+        await self.funds_manager.update_funds_for_trade(
+            TradeParams(
+                base_asset=base_asset,
+                quote_asset=quote_asset,
+                side=side,
+                quantity=abs_qty,
+                price=price,
+                cost_or_proceeds=cost
+            )
+        )
 
         # Update portfolio value
         await self._update_portfolio_value_and_cache()

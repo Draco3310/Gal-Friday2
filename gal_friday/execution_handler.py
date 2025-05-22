@@ -326,11 +326,8 @@ class ExecutionHandler:
                             jitter = random.uniform(0, delay * 0.1)
                             total_delay = delay + jitter
                             self.logger.warning(
-                                (
-                                    "Retryable API error for %s: %s. "
-                                    "Retrying in %.2fs "
-                                    "(Attempt %d/%d)"
-                                ),
+                                "Retryable API error for %s: %s. "
+                                "Retrying in %.2fs (Attempt %d/%d)",
                                 url, error_str, total_delay, attempt + 1, max_retries + 1,
                                 source_module=self.__class__.__name__,
                             )
@@ -338,7 +335,8 @@ class ExecutionHandler:
                             continue
 
                         self.logger.exception(
-                            "Error in public API response: %s", error_str,
+                            "Error in public API response: %s",
+                            error_str,
                             source_module=self.__class__.__name__,
                         )
                         return None
@@ -373,7 +371,8 @@ class ExecutionHandler:
                 return None
             except Exception:
                 self.logger.exception(
-                    "Unexpected error during public request to %s.", url,
+                    "Unexpected error during public request to %s. Error: %s",
+                    url,
                     source_module=self.__class__.__name__,
                 )
                 return None
@@ -384,7 +383,7 @@ class ExecutionHandler:
         self.logger.error(
             (
                 "Failed to make public request to %s "
-                "after %s attempts. "
+                "after %d attempts. "
                 "Last error: %s"
             ),
             url, max_retries + 1, last_error_message,
@@ -397,7 +396,8 @@ class ExecutionHandler:
         uri_path = "/0/public/AssetPairs"
         url = self.api_base_url + uri_path
         self.logger.info(
-            "Loading exchange asset pair info from %s...", url,
+            "Loading exchange asset pair info from %s...",
+            url,
             source_module=self.__class__.__name__,
         )
 
@@ -447,7 +447,9 @@ class ExecutionHandler:
 
         if not internal_pairs:
             self.logger.warning(
-                ("No trading pairs defined in config [trading.pairs]. Cannot map exchange info."),
+                (
+                    "No trading pairs defined in config [trading.pairs]. Cannot map exchange info."
+                ),
                 source_module=self.__class__.__name__,
             )
             return
@@ -497,7 +499,8 @@ class ExecutionHandler:
             "status": pair_data.get("status"),
         }
         self.logger.debug(
-            "Loaded info for %s", internal_pair_name,
+            "Loaded info for %s",
+            internal_pair_name,
             source_module=self.__class__.__name__,
         )
         return True
@@ -594,7 +597,8 @@ class ExecutionHandler:
 
         try:
             self.logger.debug(
-                "Sending private request to %s with data: %s", url, request_data,
+                "Sending private request to %s with data: %s",
+                url, request_data,
                 source_module=self.__class__.__name__,
             )
             async with self._session.post(
@@ -603,13 +607,15 @@ class ExecutionHandler:
                 response.raise_for_status()  # Raise exception for bad status codes (4xx, 5xx)
                 result: dict[str, Any] = await response.json()
                 self.logger.debug(
-                    "Received response from %s: %s", url, result,
+                    "Received response from %s: %s",
+                    url, result,
                     source_module=self.__class__.__name__,
                 )
                 # Check for API-level errors within the JSON response
                 if result.get("error"):
                     self.logger.error(
-                        "Kraken API error for %s: %s", uri_path, result["error"],
+                        "Kraken API error for %s: %s",
+                        uri_path, result["error"],
                         source_module=self.__class__.__name__,
                     )
                 response_data = result # Store result, whether success or API error
@@ -626,19 +632,22 @@ class ExecutionHandler:
             response_data = {"error": [f"EGeneral:HTTPError - {e.status}: {e.message}"]}
         except aiohttp.ClientConnectionError as e:
             self.logger.exception(
-                "Connection Error to %s", url,
+                "Connection Error to %s: %s",
+                url,
                 source_module=self.__class__.__name__
             )
             response_data = {"error": [f"EGeneral:ConnectionError - {e!s}"]}
         except asyncio.TimeoutError:
             self.logger.exception(
-                "Request Timeout for %s", url,
+                "Request Timeout for %s: %s",
+                url,
                 source_module=self.__class__.__name__,
             )
             response_data = {"error": ["EGeneral:Timeout"]}
         except Exception: # Catch-all for unexpected errors
             self.logger.exception(
-                "Unexpected error during private API request to %s", url,
+                "Unexpected error during private API request to %s: %s",
+                url,
                 source_module=self.__class__.__name__,
             )
             response_data = {"error": ["EGeneral:Unexpected - Unknown error during request"]}
@@ -692,10 +701,7 @@ class ExecutionHandler:
                     jitter = random.uniform(0, delay * 0.1)
                     total_delay = delay + jitter
                     self.logger.warning(
-                        (
-                            "Retryable API error for %s: %s. "
-                            "Retrying in %.2fs (Attempt %d/%d)"
-                        ),
+                        "Retryable API error for %s: %s. Retrying in %.2fs (Attempt %d/%d)",
                         uri_path, error_str, total_delay, attempt + 1, max_retries + 1,
                         source_module=self.__class__.__name__,
                     )
@@ -714,7 +720,7 @@ class ExecutionHandler:
             except Exception as e:
                 last_error_info_str = f"Exception: {type(e).__name__} - {e!s}"
                 self.logger.exception(
-                    "Exception during API request to %s (Attempt %d/%d)",
+                    "Exception during API request to %s (Attempt %d/%d): %s",
                     uri_path, attempt + 1, max_retries + 1,
                     source_module=self.__class__.__name__
                 )
@@ -727,10 +733,8 @@ class ExecutionHandler:
                     jitter = random.uniform(0, delay * 0.1)
                     total_delay = delay + jitter
                     self.logger.warning(
-                        (
-                            "Network error for %s (%s). Retrying in %.2fs (Attempt %d/%d)"
-                        ),
-                        uri_path, type(e).__name__, total_delay, attempt + 1, max_retries + 1,
+                        "Network error for %s (%s). Retrying in %.2fs (Attempt %d/%d): %s",
+                        uri_path, type(e).__name__, total_delay, attempt + 1, max_retries + 1, e,
                         source_module=self.__class__.__name__
                     )
                     await asyncio.sleep(total_delay)
@@ -738,7 +742,8 @@ class ExecutionHandler:
                 else:
                     # Non-retryable exception or max retries for this exception type
                     self.logger.exception(
-                        "Non-retryable exception or max retries for network error. URI: %s",
+                        "Non-retryable exception or max retries for network error. "
+                        "URI: %s. Error: %s",
                         uri_path,
                         source_module=self.__class__.__name__
                     )
@@ -777,7 +782,8 @@ class ExecutionHandler:
         Check HALT status, translate signal to API parameters, place order, and handle response.
         """
         self.logger.info(
-            "Received approved trade signal: %s", event.signal_id,
+            "Received approved trade signal: %s",
+            event.signal_id,
             source_module=self.__class__.__name__,
         )
 
@@ -809,7 +815,8 @@ class ExecutionHandler:
         # 3. Handle translation failure
         if not kraken_params:
             self.logger.error(
-                "Failed to translate signal %s. Order not placed.", event.signal_id,
+                "Failed to translate signal %s. Order not placed.",
+                event.signal_id,
                 source_module=self.__class__.__name__,
             )
             # Publish an error report to indicate failure before sending
@@ -831,7 +838,8 @@ class ExecutionHandler:
 
         # 5. Make the API request to place the order
         self.logger.info(
-            "Placing order for signal %s with cl_ord_id %s", event.signal_id, cl_ord_id,
+            "Placing order for signal %s with cl_ord_id %s",
+            event.signal_id, cl_ord_id,
             source_module=self.__class__.__name__,
         )
         uri_path = "/0/private/AddOrder"  # For single order placement
@@ -885,7 +893,8 @@ class ExecutionHandler:
         self._handle_sl_tp_warnings(event)
 
         self.logger.debug(
-            "Translated signal %s to Kraken params: %s", event.signal_id, params,
+            "Translated signal %s to Kraken params: %s",
+            event.signal_id, params,
             source_module=self.__class__.__name__,
         )
         return params
@@ -947,7 +956,8 @@ class ExecutionHandler:
         order_side = event.side.lower()
         if order_side not in ["buy", "sell"]:
             self.logger.error(
-                "Invalid order side '%s' in signal %s.", event.side, event.signal_id,
+                "Invalid order side '%s' in signal %s.",
+                event.side, event.signal_id,
                 source_module=self.__class__.__name__,
             )
             return False
@@ -983,7 +993,8 @@ class ExecutionHandler:
             params["volume"] = self._format_decimal(event.quantity, lot_decimals)
         except (TypeError, ValueError):
             self.logger.exception(
-                "Error processing volume/ordermin for pair %s", event.trading_pair,
+                "Error processing volume/ordermin for pair %s: %s",
+                event.trading_pair,
                 source_module=self.__class__.__name__,
             )
             return False
@@ -1002,7 +1013,8 @@ class ExecutionHandler:
 
         if pair_decimals is None:
             self.logger.error(
-                "Missing pair_decimals for pair %s. Cannot format price.", event.trading_pair,
+                "Missing pair_decimals for pair %s. Cannot format price.",
+                event.trading_pair,
                 source_module=self.__class__.__name__,
             )
             return False
@@ -1029,7 +1041,8 @@ class ExecutionHandler:
         params["ordertype"] = "limit"
         if event.limit_price is None:
             self.logger.error(
-                "Limit price is required for limit order. Signal %s.", event.signal_id,
+                "Limit price is required for limit order. Signal %s.",
+                event.signal_id,
                 source_module=self.__class__.__name__,
             )
             return False
@@ -1037,7 +1050,8 @@ class ExecutionHandler:
             params["price"] = self._format_decimal(event.limit_price, pair_decimals)
         except (TypeError, ValueError):
             self.logger.exception(
-                "Error processing limit price for pair %s", event.trading_pair,
+                "Error processing limit price for pair %s: %s",
+                event.trading_pair,
                 source_module=self.__class__.__name__,
             )
             return False
@@ -1136,7 +1150,8 @@ class ExecutionHandler:
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
                 self.logger.debug(
-                    "Published NEW ExecutionReport for %s / %s", cl_ord_id, kraken_order_id,
+                    "Published NEW ExecutionReport for %s / %s",
+                    cl_ord_id, kraken_order_id,
                     source_module=self.__class__.__name__,
                 )
 
@@ -1148,14 +1163,15 @@ class ExecutionHandler:
                 # format
                 error_msg = "AddOrder response missing or invalid 'txid' field."
                 self.logger.error(
-                    "%s cl_ord_id: %s. Response: %s", error_msg, cl_ord_id, result,
+                    "%s cl_ord_id: %s. Response: %s",
+                    error_msg, cl_ord_id, result,
                     source_module=self.__class__.__name__,
                 )
                 await self._publish_error_execution_report(originating_event, error_msg, cl_ord_id)
 
         except Exception:  # Catch potential errors during response parsing
             self.logger.exception(
-                "Error processing successful AddOrder response for signal %s (cl_ord_id: %s)",
+                "Error processing successful AddOrder response for signal %s (cl_ord_id: %s): %s",
                 originating_event.signal_id, cl_ord_id,
                 source_module=self.__class__.__name__,
             )
@@ -1182,7 +1198,8 @@ class ExecutionHandler:
     async def cancel_order(self, exchange_order_id: str) -> bool:
         """Cancel an open order on the exchange."""
         self.logger.info(
-            "Attempting to cancel order %s", exchange_order_id,
+            "Attempting to cancel order %s",
+            exchange_order_id,
             source_module=self.__class__.__name__,
         )
         uri_path = "/0/private/CancelOrder"
@@ -1191,13 +1208,13 @@ class ExecutionHandler:
         result = await self._make_private_request_with_retry(uri_path, params)
 
         if not result or result.get("error"):
-            # E501 addressed by assigning to temp variable
             error_val = "Unknown cancel error"
             if result:
                 error_val = result.get("error", "Unknown cancel error")
             error_detail = str(error_val)
             self.logger.error(
-                "Failed to cancel order %s: %s", exchange_order_id, error_detail,
+                "Failed to cancel order %s: %s",
+                exchange_order_id, error_detail,
                 source_module=self.__class__.__name__,
             )
             return False
@@ -1255,13 +1272,13 @@ class ExecutionHandler:
         query_result = await self._make_private_request_with_retry(uri_path, params)
 
         if not query_result or query_result.get("error"):
-            # E501 addressed by assigning to temp variable
             error_val = "Unknown query error"
             if query_result:
                 error_val = query_result.get("error", "Unknown query error")
             error_str = str(error_val)
             self.logger.error(
-                "Error querying order %s: %s", exchange_order_id, error_str,
+                "Error querying order %s: %s",
+                exchange_order_id, error_str,
                 source_module=self.__class__.__name__,
             )
             if "EOrder:Unknown order" in error_str:
@@ -1276,8 +1293,7 @@ class ExecutionHandler:
         if not isinstance(result_field, dict):
             self.logger.error(
                 "QueryOrders response for %s missing 'result' dict or is wrong type: %s",
-                exchange_order_id,
-                result_field,
+                exchange_order_id, result_field,
                 source_module=self.__class__.__name__,
             )
             return None
@@ -1293,7 +1309,8 @@ class ExecutionHandler:
 
         if not isinstance(order_data_any, dict):
             self.logger.error(
-                "Order data for %s is not a dict: %s", exchange_order_id, order_data_any,
+                "Order data for %s is not a dict: %s",
+                exchange_order_id, order_data_any,
                 source_module=self.__class__.__name__,
             )
             return None
@@ -1322,7 +1339,7 @@ class ExecutionHandler:
             commission = Decimal(fee_str) if fee_str else None
         except Exception:  # Catches potential Decimal conversion errors or others
             self.logger.exception(
-                "Error parsing numeric data for order %s. Data: %s",
+                "Error parsing numeric data for order %s. Data: %s. Error: %s",
                 exchange_order_id, order_data,
                 source_module=self.__class__.__name__,
             )
@@ -1384,7 +1401,7 @@ class ExecutionHandler:
                     await self._mark_sl_tp_as_placed(signal_id)
             except Exception:
                 self.logger.exception(
-                    "Error in SL/TP handling for %s",
+                    "Error in SL/TP handling for %s: %s",
                     exchange_order_id,
                     source_module=self.__class__.__name__,
                 )
@@ -1400,8 +1417,7 @@ class ExecutionHandler:
         self._source_module = self.__class__.__name__  # Ensure source_module is set
         self.logger.info(
             "Starting status monitoring for order %s (cl=%s)",
-            exchange_order_id,
-            client_order_id,
+            exchange_order_id, client_order_id,
             source_module=self._source_module,
         )
 
@@ -1456,17 +1472,14 @@ class ExecutionHandler:
             if current_status in ["closed", "canceled", "expired"]:
                 self.logger.info(
                     "Order %s reached terminal state '%s'. Stopping monitoring.",
-                    exchange_order_id,
-                    current_status,
+                    exchange_order_id, current_status,
                     source_module=self._source_module,
                 )
                 break
         else:  # Loop finished due to timeout
             self.logger.warning(
                 "Stopped monitoring order %s after timeout (%ss). Last status: %s",
-                exchange_order_id,
-                max_poll_duration,
-                last_known_status,
+                exchange_order_id, max_poll_duration, last_known_status,
                 source_module=self._source_module,
             )
 
@@ -1609,7 +1622,7 @@ class ExecutionHandler:
             )
         except Exception:
             self.logger.exception(
-                "Error publishing execution report for order %s (cl_ord_id: %s)",
+                "Error publishing execution report for order %s (cl_ord_id: %s): %s",
                 params.exchange_order_id, params.client_order_id,
                 source_module=self.__class__.__name__,
             )
@@ -1757,12 +1770,11 @@ class ExecutionHandler:
         query_result = await self._make_private_request_with_retry(uri_path, params)
 
         if not query_result or query_result.get("error"):
-            error_val = "Unknown query error"
-            if query_result:
-                error_val = query_result.get("error", "Unknown query error")
+            error_val = query_result.get("error", "Unknown query error")
             error_str = str(error_val)
             self.logger.error(
-                "Error querying order %s: %s", exchange_order_id, error_str,
+                "Error querying order %s: %s",
+                exchange_order_id, error_str,
                 source_module=self.__class__.__name__,
             )
             if "EOrder:Unknown order" in error_str:
@@ -1775,20 +1787,20 @@ class ExecutionHandler:
 
         order_data = query_result.get("result", {}).get(exchange_order_id)
         if not order_data:
+            log_msg = f"Order {exchange_order_id} not found during timeout check"
+            log_msg += " (already closed/canceled?)."
             self.logger.warning(
-                "Order %s not found during timeout check (already closed/canceled?).",
-                exchange_order_id,
+                log_msg,
                 source_module=self.__class__.__name__,
             )
             return  # Order likely already closed or canceled
 
         status = order_data.get("status")
         if status in ["open", "pending"]:
+            log_msg = f"Limit order {exchange_order_id} still '{status}'"
+            log_msg += f" after {timeout_seconds}s timeout. Attempting cancellation."
             self.logger.warning(
-                "Limit order %s still '%s' after %ss timeout. Attempting cancellation.",
-                exchange_order_id,
-                status,
-                timeout_seconds,
+                log_msg,
                 source_module=self.__class__.__name__,
             )
             # Call cancel_order method
@@ -1801,10 +1813,10 @@ class ExecutionHandler:
                 )
             # The cancel_order method should publish the CANCELED report
         else:
+            log_msg = f"Limit order {exchange_order_id} already in terminal state '{status}'"
+            log_msg += " during timeout check."
             self.logger.info(
-                "Limit order %s already in terminal state '%s' during timeout check.",
-                exchange_order_id,
-                status,
+                log_msg,
                 source_module=self.__class__.__name__,
             )
 
@@ -1820,10 +1832,10 @@ class ExecutionHandler:
         }
 
         if not request.pair_details:
+            log_msg = f"Missing pair_details for contingent order {request.log_marker}"
+            log_msg += f" (Signal: {request.originating_signal_id})"
             self.logger.error(
-                "Missing pair_details for contingent order %s (Signal: %s)",
-                request.log_marker,
-                request.originating_signal_id,
+                log_msg,
                 source_module=self.__class__.__name__,
             )
             return None
@@ -1831,10 +1843,10 @@ class ExecutionHandler:
         # Validate and format volume
         lot_decimals = request.pair_details.get("lot_decimals")
         if lot_decimals is None:  # Basic check
+            log_msg = f"Missing lot_decimals for contingent order {request.log_marker}"
+            log_msg += f" (Signal: {request.originating_signal_id})"
             self.logger.error(
-                "Missing lot_decimals for contingent order %s (Signal: %s)",
-                request.log_marker,
-                request.originating_signal_id,
+                log_msg,
                 source_module=self.__class__.__name__,
             )
             return None
@@ -1842,10 +1854,10 @@ class ExecutionHandler:
         try:
             params["volume"] = self._format_decimal(request.volume, lot_decimals)
         except Exception:
+            log_msg = f"Error formatting volume for contingent order {request.log_marker}"
+            log_msg += f" (Signal: {request.originating_signal_id})"
             self.logger.exception(
-                "Error formatting volume for contingent order %s (Signal: %s)",
-                request.log_marker,
-                request.originating_signal_id,
+                log_msg,
                 source_module=self.__class__.__name__,
             )
             return None
@@ -1853,10 +1865,10 @@ class ExecutionHandler:
         # Validate and format price(s)
         pair_decimals = request.pair_details.get("pair_decimals")
         if pair_decimals is None:
+            log_msg = f"Missing pair_decimals for contingent order {request.log_marker}"
+            log_msg += f" (Signal: {request.originating_signal_id})"
             self.logger.error(
-                "Missing pair_decimals for contingent order %s (Signal: %s)",
-                request.log_marker,
-                request.originating_signal_id,
+                log_msg,
                 source_module=self.__class__.__name__,
             )
             return None
@@ -1866,10 +1878,10 @@ class ExecutionHandler:
             if request.limit_price is not None:
                 params["price2"] = self._format_decimal(request.limit_price, pair_decimals)
         except Exception:
+            log_msg = f"Error formatting price for contingent order {request.log_marker}"
+            log_msg += f" (Signal: {request.originating_signal_id})"
             self.logger.exception(
-                "Error formatting price for contingent order %s (Signal: %s)",
-                request.log_marker,
-                request.originating_signal_id,
+                log_msg,
                 source_module=self.__class__.__name__,
             )
             return None

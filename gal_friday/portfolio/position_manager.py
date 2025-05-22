@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Callable, Optional, TypedDict, Unpack
+from typing import Any, Callable, Optional, TypedDict, Union, Unpack
 
 from ..exceptions import DataValidationError
 from ..logger_service import LoggerService
@@ -102,10 +102,9 @@ class PositionManager:
                         "Invalid trading pair format in initial_positions: %s", pair,
                         source_module=self._source_module,
                     )
-                except Exception as e:
+                except Exception:
                     self.logger.exception(
                         "Error loading initial position for %s", pair,
-                        exc_info=e,
                         source_module=self._source_module,
                     )
             self.logger.info(
@@ -120,41 +119,26 @@ class PositionManager:
 
         trading_pair: str
         side: str
-        quantity: Decimal
-        price: Decimal
+        quantity: Union[Decimal, float, str]
+        price: Union[Decimal, float, str]
         timestamp: datetime
         trade_id: str
-        fee: Decimal = field(default_factory=Decimal)
+        fee: Union[Decimal, float, str] = field(default_factory=Decimal)
         fee_currency: Optional[str] = None
-        commission: Decimal = field(default_factory=Decimal)
-        commission_asset: Optional[str] = None
-
-    @dataclass
-    class _UpdatePositionParams:
-        """Parameters for updating a position from a trade."""
-
-        trading_pair: str
-        side: str
-        quantity: Decimal
-        price: Decimal
-        timestamp: datetime
-        trade_id: str
-        fee: Decimal = field(default_factory=Decimal)
-        fee_currency: Optional[str] = None
-        commission: Decimal = field(default_factory=Decimal)
+        commission: Union[Decimal, float, str] = field(default_factory=Decimal)
         commission_asset: Optional[str] = None
 
         # This method is used by the dataclass for field initialization
         def __post_init__(self) -> None:
             """Validate the parameters after initialization."""
             if not isinstance(self.quantity, Decimal):
-                self.quantity = Decimal(self.quantity)
+                self.quantity = Decimal(str(self.quantity))
             if not isinstance(self.price, Decimal):
-                self.price = Decimal(self.price)
+                self.price = Decimal(str(self.price))
             if not isinstance(self.fee, Decimal):
-                self.fee = Decimal(self.fee)
+                self.fee = Decimal(str(self.fee))
             if not isinstance(self.commission, Decimal):
-                self.commission = Decimal(self.commission)
+                self.commission = Decimal(str(self.commission))
 
     @dataclass
     class _UpdatePositionKwargs(TypedDict, total=False):
@@ -215,18 +199,36 @@ class PositionManager:
                 params.quantity,
                 params.price
             )
-        except DataValidationError as e:
+
+            # Ensure params are Decimal for arithmetic operations
+            if not isinstance(params.quantity, Decimal):
+                params.quantity = Decimal(str(params.quantity))
+            if not isinstance(params.price, Decimal):
+                params.price = Decimal(str(params.price))
+        except DataValidationError:
             self.logger.exception(
                 "Trade validation failed for %s",
                 params.trading_pair,
-                exc_info=e,
                 source_module=self._source_module
             )
             return Decimal(0), None
 
         async with self._lock:
             position = await self._get_or_create_position(params.trading_pair)
-            trade_record = self._create_trade_record_from_params(params)
+            # Convert _UpdatePositionParams to _TradeRecordParams
+            trade_record_params = self._TradeRecordParams(
+                timestamp=params.timestamp,
+                trade_id=params.trade_id,
+                trading_pair=params.trading_pair,
+                side=params.side,
+                quantity=params.quantity,
+                price=params.price,
+                fee=params.fee,
+                fee_currency=params.fee_currency,
+                commission=params.commission,
+                commission_asset=params.commission_asset
+            )
+            trade_record = self._create_trade_record_from_params(trade_record_params)
             position.trade_history.append(trade_record)
 
             if params.side == "BUY":
@@ -283,8 +285,8 @@ class PositionManager:
         self,
         _trading_pair: str,  # Unused, keeping for backward compatibility
         side: str,
-        quantity: Decimal,
-        price: Decimal,
+        quantity: Union[Decimal, float, str],
+        price: Union[Decimal, float, str],
     ) -> None:
         """Validate trade parameters.
 
@@ -301,10 +303,14 @@ class PositionManager:
         if side not in ("BUY", "SELL"):
             raise DataValidationError(self._INVALID_TRADE_SIDE_MSG)
 
-        if quantity <= Decimal(0):
+        # Convert to Decimal before comparison if needed
+        quantity_decimal = quantity if isinstance(quantity, Decimal) else Decimal(str(quantity))
+        if quantity_decimal <= Decimal(0):
             raise DataValidationError(self._INVALID_QUANTITY_MSG)
 
-        if price <= Decimal(0):
+        # Convert to Decimal before comparison if needed
+        price_decimal = price if isinstance(price, Decimal) else Decimal(str(price))
+        if price_decimal <= Decimal(0):
             raise DataValidationError(self._INVALID_PRICE_MSG)
 
     # Constants for position validation
@@ -378,7 +384,7 @@ class PositionManager:
             if trading_pair:
                 pos = self._positions.get(trading_pair)
                 return pos.realized_pnl if pos else Decimal(0)
-            return sum(pos.realized_pnl for pos in self._positions.values())
+            return sum((pos.realized_pnl for pos in self._positions.values()), Decimal(0))
 
     @dataclass
     class _TradeRecordParams:
@@ -388,12 +394,23 @@ class PositionManager:
         trade_id: str
         trading_pair: str
         side: str
-        quantity: Decimal
-        price: Decimal
-        fee: Decimal = field(default_factory=Decimal)
+        quantity: Union[Decimal, float, str]
+        price: Union[Decimal, float, str]
+        fee: Union[Decimal, float, str] = field(default_factory=Decimal)
         fee_currency: Optional[str] = None
-        commission: Decimal = field(default_factory=Decimal)
+        commission: Union[Decimal, float, str] = field(default_factory=Decimal)
         commission_asset: Optional[str] = None
+
+        def __post_init__(self) -> None:
+            """Validate the parameters after initialization."""
+            if not isinstance(self.quantity, Decimal):
+                self.quantity = Decimal(str(self.quantity))
+            if not isinstance(self.price, Decimal):
+                self.price = Decimal(str(self.price))
+            if not isinstance(self.fee, Decimal):
+                self.fee = Decimal(str(self.fee))
+            if not isinstance(self.commission, Decimal):
+                self.commission = Decimal(str(self.commission))
 
     class _TradeRecordKwargs(TypedDict, total=False):
         """Type definition for _create_trade_record kwargs."""
@@ -438,15 +455,20 @@ class PositionManager:
         -------
             TradeInfo: A new TradeInfo object with the provided parameters
         """
+        # Ensure all numeric parameters are Decimal
+        quantity = params.quantity if isinstance(params.quantity, Decimal) else Decimal(str(params.quantity))
+        price = params.price if isinstance(params.price, Decimal) else Decimal(str(params.price))
+        fee = params.fee if isinstance(params.fee, Decimal) else Decimal(str(params.fee))
+        commission = params.commission if isinstance(params.commission, Decimal) else Decimal(str(params.commission))
+
         return TradeInfo(
             timestamp=params.timestamp,
             trade_id=params.trade_id,
-            trading_pair=params.trading_pair,
             side=params.side,
-            quantity=params.quantity,
-            price=params.price,
-            fee=params.fee,
+            quantity=quantity,
+            price=price,
+            fee=fee,
             fee_currency=params.fee_currency,
-            commission=params.commission,
-            commission_asset=params.commission_asset,
+            commission=commission,
+            commission_asset=params.commission_asset
         )

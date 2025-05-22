@@ -10,7 +10,7 @@ supports configurable threshold strategies with secondary confirmation rules.
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import operator  # Added for condition dispatch
-from typing import ClassVar, Optional
+from typing import Callable, ClassVar, Optional
 import uuid
 
 # Event imports
@@ -496,7 +496,7 @@ class StrategyArbitrator:
             )
             return None
 
-    _CONDITION_OPERATORS: ClassVar[dict[str, callable]] = {
+    _CONDITION_OPERATORS: ClassVar[dict[str, Callable]] = {
         "gt": operator.gt,
         "lt": operator.lt,
         "eq": operator.eq,
@@ -537,7 +537,7 @@ class StrategyArbitrator:
             feature_value = Decimal(str(features[feature_name]))
             threshold = Decimal(str(threshold_str))
 
-            op = self._CONDITION_OPERATORS.get(condition_key)
+            op = self._CONDITION_OPERATORS.get(str(condition_key))
 
             if op:
                 condition_met = op(feature_value, threshold)

@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional, TypedDict, Union, cast, overload
+from typing import Any, Dict, Optional, TypedDict, Union, cast, overload
 import uuid
 
 from gal_friday.config_manager import ConfigManager
@@ -106,19 +106,33 @@ class MarketDataEvent:
     @overload
     def __new__(
         cls,
+        trading_pair: None = None,
         *,
         bids: Optional[list[tuple[Any, Any]]] = None,
         asks: Optional[list[tuple[Any, Any]]] = None,
-        **kwargs: MarketDataEventKwargs,
+        **kwargs: Any,
     ) -> "MarketDataEvent": ...
 
     @overload
-    def __new__(cls, trading_pair: str, **kwargs: MarketDataEventKwargs) -> "MarketDataEvent": ...
+    def __new__(cls, trading_pair: str, **kwargs: Any) -> "MarketDataEvent": ...
 
-    def __new__(cls, **kwargs: MarketDataEventKwargs) -> Any:
+    def __new__(cls, trading_pair: Optional[str] = None, *, bids: Optional[list[tuple[Any, Any]]] = None, asks: Optional[list[tuple[Any, Any]]] = None, **kwargs: Any) -> Any:
         """Create a new MarketDataEvent instance with default values where needed."""
+        # Create a new kwargs dict for type safety
+        new_kwargs: Dict[str, Any] = dict(kwargs)
+
+        # Handle the case where trading_pair is provided as a positional argument
+        if trading_pair is not None:
+            new_kwargs["trading_pair"] = trading_pair
+
+        # Handle bids and asks if provided
+        if bids is not None:
+            new_kwargs["bids"] = bids
+        if asks is not None:
+            new_kwargs["asks"] = asks
+
         # Prepare kwargs with defaults and type conversions
-        prepared_kwargs = MarketDataEvent._prepare_kwargs(kwargs)
+        prepared_kwargs = MarketDataEvent._prepare_kwargs(new_kwargs)
 
         # Create the actual instance using the base class
         instance = MarketDataL2EventBase(**prepared_kwargs)
@@ -179,21 +193,29 @@ class FillEvent:
 
     @overload
     def __new__(
-        cls, *, exchange_order_id: str, trading_pair: str, **kwargs: FillEventKwargs
+        cls, *, exchange_order_id: str, trading_pair: str, **kwargs: Any
     ) -> "FillEvent": ...
 
     @overload
     def __new__(
-        cls,
-        *,
-        fill_price: Optional[Union[str, Decimal]],
-        **kwargs: FillEventKwargs
+        cls, *, fill_price: Optional[Union[str, Decimal]] = None, **kwargs: Any
     ) -> "FillEvent": ...
 
-    def __new__(cls, **kwargs: FillEventKwargs) -> Any:
+    def __new__(cls, *, exchange_order_id: Optional[str] = None, trading_pair: Optional[str] = None, fill_price: Optional[Union[str, Decimal]] = None, **kwargs: Any) -> Any:
         """Create a new FillEvent instance with default values where needed."""
+        # Create a new kwargs dict for type safety
+        new_kwargs: Dict[str, Any] = dict(kwargs)
+
+        # Handle specific parameters if provided
+        if exchange_order_id is not None:
+            new_kwargs["exchange_order_id"] = exchange_order_id
+        if trading_pair is not None:
+            new_kwargs["trading_pair"] = trading_pair
+        if fill_price is not None:
+            new_kwargs["fill_price"] = fill_price
+
         # Prepare kwargs with defaults and type conversions
-        prepared_kwargs = FillEvent._prepare_kwargs(kwargs)
+        prepared_kwargs = FillEvent._prepare_kwargs(new_kwargs)
 
         # Create the actual instance using the base class
         instance = ExecutionReportEventBase(**prepared_kwargs)
@@ -283,16 +305,29 @@ class OrderEvent:
 
     @overload
     def __new__(
-        cls, *, trading_pair: str, side: str, **kwargs: OrderEventKwargs
+        cls, *, trading_pair: str, side: str, **kwargs: Any
     ) -> "OrderEvent": ...
 
     @overload
-    def __new__(cls, *, signal_id: uuid.UUID, **kwargs: OrderEventKwargs) -> "OrderEvent": ...
+    def __new__(
+        cls, *, signal_id: uuid.UUID, **kwargs: Any
+    ) -> "OrderEvent": ...
 
-    def __new__(cls, **kwargs: OrderEventKwargs) -> Any:
+    def __new__(cls, *, trading_pair: Optional[str] = None, side: Optional[str] = None, signal_id: Optional[uuid.UUID] = None, **kwargs: Any) -> Any:
         """Create a new OrderEvent instance with default values where needed."""
+        # Create a new kwargs dict for type safety
+        new_kwargs: Dict[str, Any] = dict(kwargs)
+
+        # Handle specific parameters if provided
+        if trading_pair is not None:
+            new_kwargs["trading_pair"] = trading_pair
+        if side is not None:
+            new_kwargs["side"] = side
+        if signal_id is not None:
+            new_kwargs["signal_id"] = signal_id
+
         # Prepare kwargs with defaults and type conversions
-        prepared_kwargs = OrderEvent._prepare_kwargs(kwargs)
+        prepared_kwargs = OrderEvent._prepare_kwargs(new_kwargs)
 
         # Create the actual instance using the base class
         instance = TradeSignalApprovedEventBase(**prepared_kwargs)
@@ -363,16 +398,29 @@ class SignalEvent:
 
     @overload
     def __new__(
-        cls, *, trading_pair: str, side: str, **kwargs: SignalEventKwargs
+        cls, *, trading_pair: str, side: str, **kwargs: Any
     ) -> "SignalEvent": ...
 
     @overload
-    def __new__(cls, *, strategy_id: str, **kwargs: SignalEventKwargs) -> "SignalEvent": ...
+    def __new__(
+        cls, *, strategy_id: str, **kwargs: Any
+    ) -> "SignalEvent": ...
 
-    def __new__(cls, **kwargs: SignalEventKwargs) -> Any:
+    def __new__(cls, *, trading_pair: Optional[str] = None, side: Optional[str] = None, strategy_id: Optional[str] = None, **kwargs: Any) -> Any:
         """Create a new SignalEvent instance with default values where needed."""
+        # Create a new kwargs dict for type safety
+        new_kwargs: Dict[str, Any] = dict(kwargs)
+
+        # Handle specific parameters if provided
+        if trading_pair is not None:
+            new_kwargs["trading_pair"] = trading_pair
+        if side is not None:
+            new_kwargs["side"] = side
+        if strategy_id is not None:
+            new_kwargs["strategy_id"] = strategy_id
+
         # Prepare kwargs with defaults and type conversions
-        prepared_kwargs = SignalEvent._prepare_kwargs(kwargs)
+        prepared_kwargs = SignalEvent._prepare_kwargs(new_kwargs)
 
         # Create the actual instance using the base class
         instance = TradeSignalProposedEventBase(**prepared_kwargs)

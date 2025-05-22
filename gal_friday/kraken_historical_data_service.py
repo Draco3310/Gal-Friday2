@@ -5,7 +5,7 @@ from collections.abc import Coroutine
 from datetime import datetime, timedelta
 from decimal import Decimal
 import logging
-from typing import Any, Callable, Optional, ParamSpec, TypeVar, Union, cast
+from typing import Any, Callable, Optional, ParamSpec, TypeVar, Union
 
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -463,7 +463,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
             result = await self.circuit_breaker.execute(
                 self._fetch_ohlcv_data_from_api, trading_pair, start_time, end_time, interval
             )
-            return cast(Optional[pd.DataFrame], result)
+            return result
 
         except Exception:
             self.logger.exception(

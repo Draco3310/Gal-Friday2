@@ -443,8 +443,9 @@ class MockLoggerService(LoggerService):
     def info(
         self,
         message: str,
+        *args: Any,
         source_module: Optional[str] = None,
-        _context: Optional[dict[Any, Any]] = None,
+        context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log info message."""
         print(f"INFO [{source_module}]: {message}")
@@ -452,8 +453,9 @@ class MockLoggerService(LoggerService):
     def debug(
         self,
         message: str,
+        *args: Any,
         source_module: Optional[str] = None,
-        _context: Optional[dict[Any, Any]] = None,
+        context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log debug message."""
         print(f"DEBUG [{source_module}]: {message}")
@@ -461,8 +463,9 @@ class MockLoggerService(LoggerService):
     def warning(
         self,
         message: str,
+        *args: Any,
         source_module: Optional[str] = None,
-        _context: Optional[dict[Any, Any]] = None,
+        context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log warning message."""
         print(f"WARN [{source_module}]: {message}")
@@ -470,8 +473,9 @@ class MockLoggerService(LoggerService):
     def error(
         self,
         message: str,
+        *args: Any,
         source_module: Optional[str] = None,
-        _context: Optional[dict[Any, Any]] = None,
+        context: Optional[dict[Any, Any]] = None,
         exc_info: Optional[Union[
             bool, BaseException, tuple[type[BaseException], BaseException, Any]
         ]] = None,
@@ -484,17 +488,19 @@ class MockLoggerService(LoggerService):
     def exception(
         self,
         message: str,
+        *args: Any,
         source_module: Optional[str] = None,
         context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log exception message with traceback."""
-        self.error(message, source_module, context, exc_info=True)
+        self.error(message, *args, source_module=source_module, context=context, exc_info=True)
 
     def critical(
         self,
         message: str,
+        *args: Any,
         source_module: Optional[str] = None,
-        _context: Optional[dict[Any, Any]] = None,
+        context: Optional[dict[Any, Any]] = None,
         exc_info: Optional[Union[
             bool, BaseException, tuple[type[BaseException], BaseException, Any]
         ]] = None,

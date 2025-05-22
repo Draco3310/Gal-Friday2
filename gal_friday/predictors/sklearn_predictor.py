@@ -8,7 +8,7 @@ scikit-learn models.
 from dataclasses import dataclass
 import logging
 from pathlib import Path
-from typing import Any, NoReturn, Optional
+from typing import Any, Optional, Protocol, cast
 
 import joblib
 import numpy as np
@@ -26,6 +26,21 @@ class InferenceRequest:
     feature_vector: np.ndarray
     model_feature_names: list[str]
     predictor_specific_config: dict[str, Any]
+
+
+# Define protocol classes for type checking
+class ModelWithProba(Protocol):
+    def predict_proba(self, X: np.ndarray) -> np.ndarray: ...
+
+class ModelWithPredict(Protocol):
+    def predict(self, X: np.ndarray) -> np.ndarray: ...
+
+# Model is a combination of both protocols
+class Model(ModelWithPredict, Protocol):
+    def predict_proba(self, X: np.ndarray) -> np.ndarray: ...
+
+class Transformer(Protocol):
+    def transform(self, X: np.ndarray) -> np.ndarray: ...
 
 
 class SKLearnPredictor(PredictorInterface):
@@ -46,10 +61,10 @@ class SKLearnPredictor(PredictorInterface):
         super().__init__(model_path, model_id, config)
         self.model: Any = None
         self.scaler: Any = None
-        self.logger = logging.getLogger("%s:%s", self.__class__.__name__, model_id)
+        self.logger = logging.getLogger(f"{self.__class__.__name__}:{model_id}")
         self.logger.debug("SKLearnPredictor initialized for model: %s", model_id)
 
-    def _raise_error(self, error_type: type[Exception], message: str) -> NoReturn:
+    def _raise_error(self, error_type: type[Exception], message: str) -> None:
         """Abstracted error raising helper function.
 
         Args:
@@ -62,8 +77,8 @@ class SKLearnPredictor(PredictorInterface):
         """
         self.logger.error(message)
 
-        def _raise() -> NoReturn:
-            def __raise() -> NoReturn:
+        def _raise() -> None:
+            def __raise() -> None:
                 raise error_type(message)
             return __raise()
 
@@ -82,7 +97,7 @@ class SKLearnPredictor(PredictorInterface):
         self.logger.info("Loading assets for model: %s", self.model_id)
         # Load Model
         try:
-            def _raise_model_not_found() -> NoReturn:
+            def _raise_model_not_found() -> None:
                 error_msg = f"Model file not found: {self.model_path}"
                 return self._raise_error(FileNotFoundError, error_msg)
 
@@ -100,7 +115,7 @@ class SKLearnPredictor(PredictorInterface):
         # Load Scaler
         if self.scaler_path:
             try:
-                def _raise_scaler_not_found() -> NoReturn:
+                def _raise_scaler_not_found() -> None:
                     error_msg = f"Scaler file not found: {self.scaler_path}"
                     return self._raise_error(FileNotFoundError, error_msg)
 
@@ -165,7 +180,7 @@ class SKLearnPredictor(PredictorInterface):
         try:
             # For classifiers, prefer predict_proba and return probability of
             # positive class
-            def _raise_invalid_model() -> NoReturn:
+            def _raise_invalid_model() -> None:
                 error_msg = "Model lacks predict/predict_proba methods"
                 return self._raise_error(TypeError, error_msg)
 
@@ -229,7 +244,7 @@ class SKLearnPredictor(PredictorInterface):
 
     @classmethod
     def _load_scaler(
-        cls, scaler_path: str, model_id: str
+        cls, scaler_path: Optional[str], model_id: str
     ) -> tuple[Optional[Any], Optional[dict[str, Any]]]:
         """Load the scaler from disk.
 
@@ -259,11 +274,13 @@ class SKLearnPredictor(PredictorInterface):
             ).debug("Scaler loaded from %s", scaler_path)
             return scaler, None
 
+
+
     @classmethod
     def _prepare_features(
         cls,
         feature_vector: np.ndarray,
-        scaler: Optional[object],
+        scaler: Optional[Transformer],
         model_id: str,
     ) -> tuple[Optional[np.ndarray], Optional[dict[str, Any]]]:
         """Prepare and scale features.
@@ -299,10 +316,12 @@ class SKLearnPredictor(PredictorInterface):
         ).debug("No scaler used.")
         return features_2d, None
 
+
+
     @classmethod
     def _make_prediction(
         cls,
-        model: object,
+        model: Model,
         processed_features: np.ndarray,
         model_id: str,
     ) -> tuple[Optional[float], Optional[float], Optional[dict[str, Any]]]:
@@ -329,7 +348,7 @@ class SKLearnPredictor(PredictorInterface):
     @classmethod
     def _predict_with_proba(
         cls,
-        model: object,
+        model: ModelWithProba,
         processed_features: np.ndarray,
         model_id: str,
     ) -> tuple[Optional[float], Optional[float], Optional[dict[str, Any]]]:
@@ -352,7 +371,7 @@ class SKLearnPredictor(PredictorInterface):
     @classmethod
     def _predict_without_proba(
         cls,
-        model: object,
+        model: ModelWithPredict,
         processed_features: np.ndarray,
         model_id: str,
     ) -> tuple[Optional[float], Optional[float], Optional[dict[str, Any]]]:
@@ -434,8 +453,16 @@ class SKLearnPredictor(PredictorInterface):
                 cls._raise_with_result(result, cls._ERROR_MSG_FEATURE_PREP)
 
             # 4. Make prediction
+            # Ensure processed_features is not None before calling _make_prediction
+            if processed_features is None:
+                cls._raise_with_result(result, "Processed features are None")
+
+            # Ensure model is of correct type
+            if model is None:
+                cls._raise_with_result(result, "Model is None")
+
             prediction, confidence, error = cls._make_prediction(
-                model, processed_features, request.model_id
+                cast(Model, model), cast(np.ndarray, processed_features), request.model_id
             )
             if error:
                 result.update(error)
@@ -443,8 +470,8 @@ class SKLearnPredictor(PredictorInterface):
 
             # Update result with successful prediction
             result.update({
-                "prediction": prediction,
-                "confidence": confidence,
+                "prediction": str(prediction) if prediction is not None else "",
+                "confidence": str(confidence) if confidence is not None else "",
             })
             logger.debug(
                 "Prediction successful: %s, Confidence: %s",

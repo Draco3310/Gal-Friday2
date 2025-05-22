@@ -3,7 +3,7 @@
 import abc
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 
 class MarketPriceService(abc.ABC):
@@ -129,5 +129,33 @@ class MarketPriceService(abc.ABC):
         -------
             The converted amount as a Decimal, or None if conversion
             is not possible (e.g., unknown currency, no exchange rate).
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def get_historical_ohlcv(
+        self,
+        trading_pair: str,
+        timeframe: str, # e.g., "1d" for daily, "1h" for hourly (Kraken uses minutes)
+        since: datetime, # Start timestamp (UTC)
+        limit: Optional[int] = None # Number of data points
+    ) -> Optional[list[dict[str, Any]]]: # List of OHLCV candles
+        """
+        Fetch historical OHLCV data for a trading pair.
+
+        Args:
+            trading_pair: The trading pair symbol (e.g., "XRP/USD").
+            timeframe: The timeframe for the candles (e.g., "1m", "1h", "1d" - map to Kraken's minute values).
+            since: Python datetime object indicating the start time for fetching data (UTC).
+                   Kraken 'since' is exclusive start of time slice, returns data *after* this time.
+            limit: The maximum number of candles to return. Kraken's OHLC 'limit' is not directly supported,
+                   it returns up to 720 data points. We might need to handle this.
+
+        Returns
+        -------
+            A list of dictionaries, where each dictionary represents an OHLCV candle:
+            {'timestamp': datetime_obj, 'open': Decimal, 'high': Decimal, 
+             'low': Decimal, 'close': Decimal, 'volume': Decimal},
+            or None if data is unavailable or an error occurs. Timestamps are UTC.
         """
         raise NotImplementedError

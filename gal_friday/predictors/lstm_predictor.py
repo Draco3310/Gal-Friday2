@@ -53,7 +53,12 @@ class LSTMPredictor(PredictorInterface):
             **kwargs: Additional keyword arguments to pass to the logger
         """
         log_method = getattr(self.logger, log_level, self.logger.error)
-        log_method(message, **kwargs)
+        # Extract source_module and context from kwargs if present but don't pass them to logger
+        # as standard logging.Logger doesn't support these parameters
+        _ = kwargs.pop("source_module", None)
+        _ = kwargs.pop("context", None)
+        # Call log method with standard parameters
+        log_method(message)
         raise error_class(message)
 
     # Class constants
@@ -211,76 +216,66 @@ class LSTMPredictor(PredictorInterface):
                 f"Failed to load LSTM model from {self.model_path}: {e!s}"
             )
 
-    def predict(self, features: np.ndarray) -> np.ndarray:
+    def predict(self, features: np.ndarray) -> np.ndarray:  # type: ignore[return]
         """Generate predictions using the loaded LSTM model (instance method).
 
         This method now assumes `features` is the 2D sequence (timesteps, features_per_step).
         This method is primarily for consistency with PredictorInterface; actual inference
         for process pool is handled by `run_inference_in_process`.
         """
+        # Check if model is loaded
         if self.model is None:
-            error_msg = f"LSTM model {self.model_id} is not loaded"
-            self.logger.error("%s. Cannot predict.", error_msg)
-            raise TypeError(error_msg)
+            self.logger.error(f"LSTM model {self.model_id} is not loaded. Cannot predict.")
+            raise TypeError(f"LSTM model {self.model_id} is not loaded")
 
-        expected_dim = 2  # Expected number of dimensions for LSTM input
-        if features.ndim != expected_dim:  # Expecting (timesteps, features_per_step)
+        # Validate input dimensions
+        if features.ndim != 2:  # Expecting (timesteps, features_per_step)
             self.logger.error(
-                "Input features must be a 2D array (timesteps, features) "
-                "for LSTMPredictor.predict, got %sD.",
-                features.ndim,
+                f"Input features must be a 2D array for LSTMPredictor.predict, got {features.ndim}D."
             )
-            self._raise_error(InvalidDimensionsError, "Invalid input dimensions")
+            raise InvalidDimensionsError("Invalid input dimensions")
 
-        scaled_sequence = features
-        if self.scaler:
-            try:
-                scaled_sequence = self.scaler.transform(
-                    features
-                )  # Assumes scaler works on (timesteps, features)
-            except Exception:
-                self.logger.exception("Error applying scaler transform in LSTMPredictor.predict")
-                self._raise_error(ValueError, "Scaling failed")
+        # Apply scaling if available
+        try:
+            scaled_sequence = self.scaler.transform(features) if self.scaler else features
+        except Exception as e:
+            self.logger.exception("Error applying scaler transform in LSTMPredictor.predict")
+            raise ValueError(f"Scaling failed: {e}")
 
-        # Model input shape: (batch_size, timesteps, features_per_timestep)
-        model_input = scaled_sequence.reshape(
-            1, scaled_sequence.shape[0], scaled_sequence.shape[1]
-        )
+        # Reshape for model input: (batch_size, timesteps, features_per_timestep)
+        model_input = scaled_sequence.reshape(1, *scaled_sequence.shape)
 
+        # Validate framework
+        if self.framework not in ["tensorflow", "pytorch"]:
+            self.logger.error(f"Unsupported framework {self.framework} for prediction")
+            raise UnsupportedFrameworkError(f"Framework '{self.framework}' is not supported")
+
+        # Generate predictions based on framework
         try:
             if self.framework == "tensorflow":
                 raw_predictions = self.model.predict(model_input, verbose=0)
                 return np.asarray(raw_predictions, dtype=np.float32).flatten()
-            if self.framework == "pytorch":
-                import torch
+            # Must be pytorch
+            import torch
+            with torch.no_grad():
+                device = torch.device("cpu")
+                torch_input = torch.from_numpy(model_input).float().to(device)
+                raw_predictions = self.model(torch_input)
 
-                with torch.no_grad():
-                    # Ensure input tensor is on the same device as the model (loaded to CPU)
-                    device = torch.device("cpu")
-                    torch_input = torch.from_numpy(model_input).float().to(device)
-                    raw_predictions = self.model(torch_input)
-                model_output = raw_predictions.cpu().numpy().flatten().astype(np.float32)
-                if model_output.shape != (1,):
-                    error_msg = (
-                        f"Model output shape {model_output.shape} is not compatible with "
-                        f"expected dimensions for model {self.model_id}"
-                    )
-                    self._raise_error(InvalidDimensionsError,
-                                    "Model output dimensions do not match expected format")
-                return model_output
-            error_msg = (
-                f"Unsupported framework {self.framework} "
-                "for prediction in LSTMPredictor.predict"
-            )
-            self._raise_error(UnsupportedFrameworkError,
-                            f"Framework '{self.framework}' is not supported")
+            # Explicitly type the output to help mypy understand it's an ndarray
+            model_output: np.ndarray = raw_predictions.cpu().numpy().flatten().astype(np.float32)
+            if model_output.shape != (1,):
+                self.logger.error(
+                    f"Model output shape {model_output.shape} is not compatible with "
+                    f"expected dimensions for model {self.model_id}"
+                )
+                raise InvalidDimensionsError("Model output dimensions do not match expected format")
+            return model_output
         except Exception as e:
-            self.logger.exception(
-                "Error during prediction for model %s",
-                self.model_id,
-            )
-            error_msg = "Failed to generate prediction"
-            raise PredictionError(error_msg) from e
+            if isinstance(e, (InvalidDimensionsError, UnsupportedFrameworkError)):
+                raise
+            self.logger.exception(f"Error during prediction for model {self.model_id}")
+            raise PredictionError(f"Failed to generate prediction: {e}") from e
 
     @property
     def expected_feature_names(self) -> Optional[list[str]]:
@@ -371,7 +366,7 @@ class LSTMPredictor(PredictorInterface):
     def _process_features(
         cls,
         feature_sequence: np.ndarray,
-        scaler_asset: object,  # Type hint for scaler object
+        scaler_asset: Any,  # Type hint for scaler object
         model_id: str,
         logger: logging.Logger,
     ) -> Union[tuple[np.ndarray, str], dict[str, str]]:
@@ -387,12 +382,16 @@ class LSTMPredictor(PredictorInterface):
         processed_sequence = feature_sequence
         if scaler_asset is not None:
             try:
-                processed_sequence = scaler_asset.transform(feature_sequence)
-                logger.debug(
-                    "Feature sequence (shape: %s) scaled to (shape: %s).",
-                    feature_sequence.shape,
-                    processed_sequence.shape,
-                )
+                # Check if the scaler has transform method
+                if hasattr(scaler_asset, "transform"):
+                    processed_sequence = scaler_asset.transform(feature_sequence)
+                    logger.debug(
+                        "Feature sequence (shape: %s) scaled to (shape: %s).",
+                        feature_sequence.shape,
+                        processed_sequence.shape,
+                    )
+                else:
+                    logger.warning("Scaler does not have transform method, using raw features")
             except Exception as e_scale_apply:
                 error_msg = f"Error applying scaler: {e_scale_apply!s}"
                 logger.exception(error_msg)
@@ -405,7 +404,7 @@ class LSTMPredictor(PredictorInterface):
     @classmethod
     def _make_prediction(
         cls,
-        model_asset: object,  # Type hint for model object
+        model_asset: Any,  # Type hint for model object
         model_input: np.ndarray,
         model_framework: str,
         predictor_config: dict[str, Any],
@@ -414,13 +413,21 @@ class LSTMPredictor(PredictorInterface):
         is_binary_sigmoid = predictor_config.get("binary_sigmoid_output", False)
 
         if model_framework == "tf":
-            prediction_output = model_asset.predict(model_input, verbose=0)
+            # Check if model has predict method
+            if hasattr(model_asset, "predict"):
+                prediction_output = model_asset.predict(model_input, verbose=0)
+            else:
+                raise AttributeError("TensorFlow model does not have predict method")
         else:  # PyTorch
             import torch
 
             with torch.no_grad():
                 input_tensor = torch.FloatTensor(model_input)
-                prediction = model_asset(input_tensor)
+                # Check if model_asset is callable
+                if callable(model_asset):
+                    prediction = model_asset(input_tensor)
+                else:
+                    raise TypeError("PyTorch model is not callable")
                 prediction_output = (
                     prediction[0].numpy()
                     if isinstance(prediction, tuple)

@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional, Set, TypeVar, Union
+from typing import Any, Callable, TypeVar
+
 from typing_extensions import Protocol
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 class PubSubManager:
     """Manager for publish-subscribe pattern."""
-    
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+
+    def __init__(self, *args, **kwargs) -> None:
         """Initialize the pubsub manager."""
-        self._subscribers: Dict[str, Set[Callable[..., Any]]] = {}
-    
+        self._subscribers: dict[str, set[Callable[..., Any]]] = {}
+
     def subscribe(self, event_type: str, callback: Callable[..., Any]) -> None:
         """Subscribe to an event type.
-        
         Args:
             event_type: The event type to subscribe to
             callback: The callback function to call when the event is published
@@ -24,20 +24,18 @@ class PubSubManager:
         if event_type not in self._subscribers:
             self._subscribers[event_type] = set()
         self._subscribers[event_type].add(callback)
-    
+
     def unsubscribe(self, event_type: str, callback: Callable[..., Any]) -> None:
         """Unsubscribe from an event type.
-        
         Args:
             event_type: The event type to unsubscribe from
             callback: The callback function to remove
         """
         if event_type in self._subscribers:
             self._subscribers[event_type].discard(callback)
-    
-    def publish(self, event_type: str, *args: Any, **kwargs: Any) -> None:
+
+    def publish(self, event_type: str, *args, **kwargs) -> None:
         """Publish an event.
-        
         Args:
             event_type: The event type to publish
             *args: Positional arguments to pass to callbacks
@@ -49,15 +47,15 @@ class PubSubManager:
 
 class PubSubManagerProtocol(Protocol):
     """Protocol defining the required interface for pubsub managers."""
-    
+
     def subscribe(self, event_type: str, callback: Callable[..., Any]) -> None:
         """Subscribe to an event type."""
         ...
-    
+
     def unsubscribe(self, event_type: str, callback: Callable[..., Any]) -> None:
         """Unsubscribe from an event type."""
         ...
-    
-    def publish(self, event_type: str, *args: Any, **kwargs: Any) -> None:
+
+    def publish(self, event_type: str, *args, **kwargs) -> None:
         """Publish an event."""
         ...

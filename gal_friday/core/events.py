@@ -299,6 +299,7 @@ class EventType(Enum):
     LOG_ENTRY = auto()  # Log message event (for potential event-based logging)
     POTENTIAL_HALT_TRIGGER = auto()  # Potential Halt signal
     PREDICTION_CONFIG_UPDATED = auto()  # Prediction service specific configuration updated
+    SYSTEM_ERROR = auto()  # System error event (e.g. API errors)
 
     # Portfolio and Risk Events
     PORTFOLIO_UPDATE = auto()  # Portfolio state update
@@ -641,7 +642,7 @@ class TradeSignalApprovedEvent(Event):
             raise InvalidSideError(side)
 
         if order_type not in ["LIMIT", "MARKET"]:
-            raise InvalidOrderTypeError(order_type)
+            raise InvalidOrderTypeError(order_type, ["LIMIT", "MARKET"])
 
         if order_type == "LIMIT" and limit_price is None:
             raise MissingLimitPriceError
@@ -969,6 +970,81 @@ class LogEvent(Event):
     message: str
     context: Optional[dict] = None
     event_type: EventType = field(default=EventType.LOG_ENTRY, init=False)
+
+
+@dataclass(frozen=True)
+class APIErrorEvent(Event):
+    """Event indicating an API error occurred with the trading platform."""
+
+    error_message: str
+    http_status: Optional[int] = None
+    endpoint: Optional[str] = None
+    request_data: Optional[dict] = None
+    retry_attempted: bool = False
+    event_type: EventType = field(default=EventType.SYSTEM_ERROR, init=False)
+
+    @classmethod
+    def create(cls, source_module: str, error_message: str, **kwargs: Any) -> "APIErrorEvent":
+        """Create a new APIErrorEvent with a generated UUID and current timestamp.
+
+        Args
+        ----
+            source_module: The module that created this event
+            error_message: Description of the error that occurred
+            **kwargs: Additional fields like http_status, endpoint, etc.
+
+        Returns
+        -------
+            A new APIErrorEvent instance
+        """
+        return cls(
+            source_module=source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.utcnow(),
+            error_message=error_message,
+            **kwargs
+        )
+
+
+@dataclass(frozen=True)
+class ClosePositionCommand(Event):
+    """Command to close an open position, typically triggered during a system HALT."""
+
+    trading_pair: str
+    quantity: Decimal
+    side: str  # "BUY" or "SELL" (opposite of the position's side)
+    order_type: str = "MARKET"  # Default to market order for immediate execution
+    event_type: EventType = field(default=EventType.TRADE_SIGNAL_APPROVED, init=False)
+
+    @classmethod
+    def create(
+        cls,
+        source_module: str,
+        trading_pair: str,
+        quantity: Decimal,
+        side: str
+    ) -> "ClosePositionCommand":
+        """Create a new ClosePositionCommand with a generated UUID and current timestamp.
+
+        Args
+        ----
+            source_module: The module that created this command
+            trading_pair: The trading pair to close (e.g., "XBT/USD")
+            quantity: The absolute quantity to close
+            side: "BUY" or "SELL" (opposite of the position's side)
+
+        Returns
+        -------
+            A new ClosePositionCommand instance
+        """
+        return cls(
+            source_module=source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.utcnow(),
+            trading_pair=trading_pair,
+            quantity=quantity,
+            side=side
+        )
 
 
 @dataclass(frozen=True)

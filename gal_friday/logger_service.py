@@ -8,7 +8,7 @@ and context-rich logging capabilities.
 
 import asyncio
 from asyncio import QueueFull  # Import QueueFull from asyncio, not asyncio.exceptions
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 import contextlib  # Added for SIM105
 from contextlib import asynccontextmanager  # For AsyncpgPoolAdapter
 from datetime import datetime
@@ -196,7 +196,7 @@ class ContextFormatter(logging.Formatter):
 
         # Replace the placeholder [%(context)s] - handle case where it might be
         # missing
-        if "[%(context)s]" in self._fmt:
+        if self._fmt is not None and "[%(context)s]" in self._fmt:
             if context_str:
                 s = s.replace("[%(context)s]", f"[{context_str}]")
             else:
@@ -460,7 +460,7 @@ class LoggerService(Generic[PoolType]):
         )
 
         # Async DB Handler setup
-        self._db_config = self._config_manager.get("logging.database", {})
+        self._db_config: dict[str, Any] = self._config_manager.get("logging.database", {})
         self._db_enabled = bool(self._db_config.get("enabled", False))
         self._async_handler: Optional[AsyncPostgresHandler[PoolType]] = None
         self._db_pool: Optional[PoolType] = None
@@ -629,6 +629,7 @@ class LoggerService(Generic[PoolType]):
         self,
         level: int,
         message: str,
+        *args: Any,  # Add *args here
         source_module: Optional[str] = None,
         context: Optional[dict] = None,
         exc_info: ExcInfoType = None,
@@ -638,7 +639,8 @@ class LoggerService(Generic[PoolType]):
         Args
         ----
             level: The logging level (e.g., logging.INFO, logging.WARNING)
-            message: The primary log message string
+            message: The primary log message string (can be a format string)
+            *args: Arguments for the format string in 'message'
             source_module: Optional name of the module generating the log
             context: Optional dictionary of key-value pairs for extra context
             exc_info: Optional exception info (e.g., True or exception tuple)
@@ -654,7 +656,7 @@ class LoggerService(Generic[PoolType]):
         extra_data = {"context": filtered_context} if filtered_context else {}
 
         # Log the message using the standard logging interface
-        logger.log(level, message, exc_info=exc_info, extra=extra_data, stacklevel=2)
+        logger.log(level, message, *args, exc_info=exc_info, extra=extra_data, stacklevel=2)  # Pass *args
         # stacklevel=2 ensures filename/lineno are from the caller of this
         # method
 
@@ -663,6 +665,7 @@ class LoggerService(Generic[PoolType]):
     def debug(
         self,
         message: str,
+        *args: Any,  # Add *args
         source_module: Optional[str] = None,
         context: Optional[dict] = None,
     ) -> None:
@@ -671,14 +674,16 @@ class LoggerService(Generic[PoolType]):
         Args
         ----
             message: The message to log
+            *args: Arguments for the format string in 'message'
             source_module: Optional module name generating the log
             context: Optional context information
         """
-        self.log(logging.DEBUG, message, source_module, context)
+        self.log(logging.DEBUG, message, *args, source_module=source_module, context=context) # Pass *args
 
     def info(
         self,
         message: str,
+        *args: Any,  # Add *args
         source_module: Optional[str] = None,
         context: Optional[dict] = None,
     ) -> None:
@@ -687,14 +692,16 @@ class LoggerService(Generic[PoolType]):
         Args
         ----
             message: The message to log
+            *args: Arguments for the format string in 'message'
             source_module: Optional module name generating the log
             context: Optional context information
         """
-        self.log(logging.INFO, message, source_module, context)
+        self.log(logging.INFO, message, *args, source_module=source_module, context=context) # Pass *args
 
     def warning(
         self,
         message: str,
+        *args: Any,  # Add *args
         source_module: Optional[str] = None,
         context: Optional[dict] = None,
     ) -> None:
@@ -703,14 +710,16 @@ class LoggerService(Generic[PoolType]):
         Args
         ----
             message: The message to log
+            *args: Arguments for the format string in 'message'
             source_module: Optional module name generating the log
             context: Optional context information
         """
-        self.log(logging.WARNING, message, source_module, context)
+        self.log(logging.WARNING, message, *args, source_module=source_module, context=context) # Pass *args
 
     def error(
         self,
         message: str,
+        *args: Any,  # Add *args
         source_module: Optional[str] = None,
         context: Optional[dict] = None,
         exc_info: ExcInfoType = None,
@@ -720,15 +729,17 @@ class LoggerService(Generic[PoolType]):
         Args
         ----
             message: The message to log
+            *args: Arguments for the format string in 'message'
             source_module: Optional module name generating the log
             context: Optional context information
             exc_info: Optional exception info
         """
-        self.log(logging.ERROR, message, source_module, context, exc_info=exc_info)
-        
+        self.log(logging.ERROR, message, *args, source_module=source_module, context=context, exc_info=exc_info) # Pass *args
+
     def exception(
         self,
         message: str,
+        *args: Any,  # Add *args
         source_module: Optional[str] = None,
         context: Optional[dict] = None,
     ) -> None:
@@ -739,14 +750,16 @@ class LoggerService(Generic[PoolType]):
         Args
         ----
             message: The message to log
+            *args: Arguments for the format string in 'message'
             source_module: Optional module name generating the log
             context: Optional context information
         """
-        self.log(logging.ERROR, message, source_module, context, exc_info=True)
+        self.log(logging.ERROR, message, *args, source_module=source_module, context=context, exc_info=True) # Pass *args
 
     def critical(
         self,
         message: str,
+        *args: Any,  # Add *args
         source_module: Optional[str] = None,
         context: Optional[dict] = None,
         exc_info: ExcInfoType = None,
@@ -756,11 +769,12 @@ class LoggerService(Generic[PoolType]):
         Args
         ----
             message: The message to log
+            *args: Arguments for the format string in 'message'
             source_module: Optional module name generating the log
             context: Optional context information
             exc_info: Optional exception info
         """
-        self.log(logging.CRITICAL, message, source_module, context, exc_info=exc_info)
+        self.log(logging.CRITICAL, message, *args, source_module=source_module, context=context, exc_info=exc_info) # Pass *args
 
     # --- Placeholder for Time-Series Logging --- #
     async def _initialize_influxdb_client(self) -> bool:
@@ -773,9 +787,9 @@ class LoggerService(Generic[PoolType]):
         if self._influx_client is not None:  # Check instance variable
             return True  # Already initialized
 
-        url = self._config_manager.get("logging.influxdb.url")
-        token = self._config_manager.get("logging.influxdb.token")
-        org = self._config_manager.get("logging.influxdb.org")
+        url: str | None = self._config_manager.get("logging.influxdb.url")
+        token: str | None = self._config_manager.get("logging.influxdb.token")
+        org: str | None = self._config_manager.get("logging.influxdb.org")
         if not all([url, token, org]):
             self.warning(
                 "InfluxDB config incomplete (url/token/org). Cannot log timeseries.",
@@ -796,7 +810,8 @@ class LoggerService(Generic[PoolType]):
             return False
         except Exception as e:
             self.error(
-                f"Failed to initialize InfluxDB client: {e}",
+                "Failed to initialize InfluxDB client: %s",
+                e,
                 source_module="LoggerService",
                 exc_info=True,
             )
@@ -804,6 +819,8 @@ class LoggerService(Generic[PoolType]):
             self._influx_write_api = None  # Ensure write_api is also cleared
             return False
         else:
+            # Since we've already checked that all([url, token, org]) is True, we can safely assert these are strings
+            assert isinstance(token, str) and isinstance(org, str)
             self._influx_client = influxdb_client.InfluxDBClient(url=url, token=token, org=org)
             self._influx_write_api = self._influx_client.write_api(write_options=SYNCHRONOUS)
             self.info(
@@ -839,7 +856,8 @@ class LoggerService(Generic[PoolType]):
             return None
         except Exception as e:
             self.error(
-                f"Error preparing InfluxDB point: {e}",
+                "Error preparing InfluxDB point: %s",
+                e,
                 source_module="LoggerService",
                 exc_info=True,
             )
@@ -858,22 +876,26 @@ class LoggerService(Generic[PoolType]):
                     valid_fields[key] = float(value)
                 else:
                     self.warning(
-                        f"Unsupported type for InfluxDB field '{key}': {type(value)}. "
+                        "Unsupported type for InfluxDB field '%s': %s. "
                         "Converting to string.",
+                        key, type(value),
                         source_module="LoggerService",
                     )
                     valid_fields[key] = str(value)
 
             if not valid_fields:
                 self.warning(
-                    f"No valid fields for timeseries point in '{measurement}'. Skipping.",
+                    "No valid fields for timeseries point in '%s'. Skipping.",
+                    measurement,
                     source_module="LoggerService",
                 )
                 return None
 
             for key, value in valid_fields.items():
                 point = point.field(key, value)
-            return point
+            # Explicitly annotate the return type
+            from influxdb_client import Point
+            return point  # type: ignore[no-any-return]
 
     async def log_timeseries(
         self,
@@ -894,7 +916,8 @@ class LoggerService(Generic[PoolType]):
         log_time = timestamp if timestamp else datetime.utcnow()
 
         self.debug(
-            f"[TimeSeries] M={measurement}, T={tags}, F={fields}, TS={log_time.isoformat()}",
+            "[TimeSeries] M=%s, T=%s, F=%s, TS=%s",
+            measurement, tags, fields, log_time.isoformat(),
             source_module="LoggerService",
         )
 
@@ -912,7 +935,7 @@ class LoggerService(Generic[PoolType]):
             return
 
         try:
-            bucket = self._config_manager.get("logging.influxdb.bucket")
+            bucket: str | None = self._config_manager.get("logging.influxdb.bucket")
             if not bucket:
                 self.warning(
                     "InfluxDB bucket not configured. Cannot log timeseries.",
@@ -922,7 +945,8 @@ class LoggerService(Generic[PoolType]):
             self._influx_write_api.write(bucket=bucket, record=point)
         except Exception as e:
             self.error(
-                f"Failed to write time-series data to InfluxDB: {e}",
+                "Failed to write time-series data to InfluxDB: %s",
+                e,
                 source_module="LoggerService",
                 exc_info=True,
             )
@@ -942,7 +966,8 @@ class LoggerService(Generic[PoolType]):
             )
         except Exception as e:
             self.error(
-                f"Failed to subscribe to LOG_ENTRY events: {e}",
+                "Failed to subscribe to LOG_ENTRY events: %s",
+                e,
                 source_module="LoggerService",
                 exc_info=True,
             )
@@ -977,7 +1002,8 @@ class LoggerService(Generic[PoolType]):
             self.info("Unsubscribed from LOG_ENTRY events.", source_module="LoggerService")
         except Exception as e:
             self.error(
-                f"Error unsubscribing from LOG_ENTRY events: {e}",
+                "Error unsubscribing from LOG_ENTRY events: %s",
+                e,
                 source_module="LoggerService",
                 exc_info=True,
             )
@@ -1003,7 +1029,8 @@ class LoggerService(Generic[PoolType]):
                 )
             except Exception as e:
                 self.error(
-                    f"Error waiting for database log handler closure: {e}",
+                    "Error waiting for database log handler closure: %s",
+                    e,
                     source_module="LoggerService",
                     exc_info=True,
                 )
@@ -1039,8 +1066,9 @@ class LoggerService(Generic[PoolType]):
             min_size = int(self._config_manager.get("logging.database.min_pool_size", default=1))
             max_size = int(self._config_manager.get("logging.database.max_pool_size", default=5))
             self.info(
-                f"Initializing database connection pool "
-                f"(min: {min_size}, max: {max_size}) for logging...",
+                "Initializing database connection pool "
+                "(min: %s, max: %s) for logging...",
+                min_size, max_size,
                 source_module="LoggerService",
             )
             # Create the actual asyncpg pool
@@ -1065,7 +1093,8 @@ class LoggerService(Generic[PoolType]):
             Exception,  # Catching generic Exception last
         ) as e:
             self.critical(
-                f"Failed to initialize database connection pool: {e}",
+                "Failed to initialize database connection pool: %s",
+                e,
                 source_module="LoggerService",
                 exc_info=True,
             )
@@ -1083,7 +1112,8 @@ class LoggerService(Generic[PoolType]):
                 self.info("Database connection pool closed.", source_module="LoggerService")
             except Exception as e:
                 self.error(
-                    f"Error closing database connection pool: {e}",
+                    "Error closing database connection pool: %s",
+                    e,
                     source_module="LoggerService",
                     exc_info=True,
                 )
@@ -1101,7 +1131,8 @@ class LoggerService(Generic[PoolType]):
         """
         if not isinstance(event, LogEvent):
             self.warning(
-                f"Received non-LogEvent on LOG_ENTRY topic: {type(event)}",
+                "Received non-LogEvent on LOG_ENTRY topic: %s",
+                type(event),
                 source_module="LoggerService",
             )
             return
@@ -1114,6 +1145,8 @@ class LoggerService(Generic[PoolType]):
         self.log(
             level=level,
             message=event.message,
+            # source_module and context are already keyword arguments for self.log
+            # No *args needed here as event.message is expected to be a complete string
             source_module=event.source_module,  # Use source from event
             context=event.context if hasattr(event, "context") else None,
             exc_info=None,  # Or derive from context/level if needed
@@ -1138,13 +1171,13 @@ class AsyncpgConnectionAdapter(DBConnection):
     ) -> _RT: # Changed Any to _RT
         """Execute a query using the wrapped asyncpg.Connection."""
         if params is None:
-            return await self._conn.execute(query)
+            return await self._conn.execute(query)  # type: ignore[no-any-return]
         if isinstance(params, Sequence):
             # Ensure not passing a string as a sequence of characters for multiple params
             if isinstance(params, (str, bytes)):
                  # If a single string/byte is the *only* param, wrap it in a list for asyncpg
-                 return await self._conn.execute(query, params)
-            return await self._conn.execute(query, *params)
+                 return await self._conn.execute(query, params)  # type: ignore[no-any-return]
+            return await self._conn.execute(query, *params)  # type: ignore[no-any-return]
         if isinstance(params, Mapping):
             # asyncpg's basic execute(*args) doesn't directly support named params via **kwargs.
             # More complex logic or different asyncpg features would be needed.
@@ -1166,7 +1199,7 @@ class AsyncpgPoolAdapter(PoolProtocol):
         self._pool = actual_pool
 
     @asynccontextmanager
-    async def acquire(self) -> AsyncContextManager[DBConnection]: # type: ignore[override]
+    async def acquire(self) -> AsyncIterator[DBConnection]:  # type: ignore[override]
         """Acquires an adapted connection from the pool."""
         # The type: ignore[override] can be needed if type checker has trouble with
         # AsyncContextManager variance or our adapter vs DBConnection in this context.

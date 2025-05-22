@@ -5,7 +5,7 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import Enum
 import logging
 from types import TracebackType
-from typing import Callable, Generic, Optional, TypeVar
+from typing import Callable, Generic, Optional, TypeVar, cast
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ class BackgroundProcess(Generic[T]):
             raise
         else:
             self._status = ProcessStatus.COMPLETED
-            return result
+            return cast(T, result)
 
     async def aget_result(self, poll_interval: float = 0.1) -> T:
         """
@@ -158,7 +158,7 @@ class BackgroundProcess(Generic[T]):
                 MSG_PROCESS_FAILED_NO_SPECIFIC_EXCEPTION % self._target_name
             )
 
-        return self._future.result()
+        return cast(T, self._future.result())
 
     def cancel(self) -> bool:
         """

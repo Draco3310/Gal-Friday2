@@ -29,7 +29,7 @@ class ExceptionHandlerConfig(Generic[T]):
 def handle_exceptions(
     logger: logging.Logger,
     config: ExceptionHandlerConfig[T],
-) -> Callable[..., T]:
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """
     Handle exceptions in a standardized way.
 
@@ -75,10 +75,10 @@ def handle_exceptions(
     return decorator
 
 
-async def handle_exceptions_async(
+def handle_exceptions_async(
     logger: logging.Logger,
     config: ExceptionHandlerConfig[T],
-) -> Callable[..., Coroutine[Any, Any, T]]:
+) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
     """
     Handle exceptions in a standardized way for async functions.
 

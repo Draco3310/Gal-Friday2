@@ -7,7 +7,7 @@ trading strategies, enabling strategy-specific risk management.
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Union
 
 # Type aliases
 LoggerService = Any
@@ -28,8 +28,13 @@ class StrategyPositionTracker:
         """
         self.logger = logger_service
         self._source_module = self.__class__.__name__
-        self._strategy_positions = defaultdict(dict)
-        self._strategy_performance = defaultdict(lambda: {
+
+        # Add proper type annotations for class variables
+        self._strategy_positions: dict[str, dict[str, Any]] = defaultdict(dict)
+
+        # Define the type of performance metrics
+        self._strategy_performance: dict[str, dict[str, Union[Decimal, int, datetime]]] = \
+            defaultdict(lambda: {
             "peak_equity": Decimal("0"),
             "current_equity": Decimal("0"),
             "drawdown_pct": Decimal("0"),
@@ -125,15 +130,21 @@ class StrategyPositionTracker:
         metrics = self._strategy_performance[strategy_id]
 
         # Update current equity
-        current_equity = metrics["current_equity"] + pnl_amount
+        current_equity = Decimal(str(metrics["current_equity"])) + pnl_amount
         metrics["current_equity"] = current_equity
 
         # Update peak equity if new high
-        metrics["peak_equity"] = max(metrics["peak_equity"], current_equity)
+        peak_equity = metrics["peak_equity"]
+        if isinstance(peak_equity, Decimal):
+            metrics["peak_equity"] = max(peak_equity, current_equity)
+        else:
+            metrics["peak_equity"] = max(Decimal(str(peak_equity)), current_equity)
 
         # Calculate drawdown
-        if metrics["peak_equity"] > Decimal("0"):
-            drawdown = (metrics["peak_equity"] - current_equity) / metrics["peak_equity"] * 100
+        peak_equity = metrics["peak_equity"]
+        # Ensure peak_equity is a Decimal before comparison
+        if isinstance(peak_equity, Decimal) and peak_equity > Decimal("0"):
+            drawdown = (peak_equity - current_equity) / peak_equity * 100
             metrics["drawdown_pct"] = drawdown
 
         metrics["last_updated"] = datetime.utcnow()
@@ -142,7 +153,12 @@ class StrategyPositionTracker:
             strategy_id,
             pnl_amount,
             current_equity,
-            float(metrics["drawdown_pct"]),
+            float(
+                metrics["drawdown_pct"] if isinstance(metrics["drawdown_pct"], Decimal)
+                else Decimal(str(
+                    metrics["drawdown_pct"] if metrics["drawdown_pct"] is not None else 0
+                ))
+            ),
             source_module=self._source_module,
         )
 

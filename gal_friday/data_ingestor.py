@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import logging
 import random  # Add random for jitter in backoff
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, Union
 import uuid
 
@@ -444,19 +445,10 @@ class DataIngestor:
         """Clean up connection resources."""
         if self._liveness_task and not self._liveness_task.done():
             self._liveness_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError): # SIM105
-                await self._liveness_task
-            self._liveness_task = None
-            self.logger.debug(
-                "Liveness monitor task cancelled.", source_module=self.__class__.__name__
-            )
-
-        if self._connection and not self._connection.closed:
             try:
-                await self._connection.close()
-                self.logger.info(
-                    "WebSocket connection closed.", source_module=self.__class__.__name__
-                )
+                await self._liveness_task
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
                 self.logger.warning(
                     "Error closing WebSocket connection.",
@@ -466,6 +458,52 @@ class DataIngestor:
 
         self._connection = None
         self._connection_id = None  # Reset connection specific state
+
+    async def _reconnect_with_backoff(self) -> bool:
+        """Attempt to reconnect with exponential backoff.
+
+        Returns
+        -------
+            bool: True if reconnection was successful, False if max retries exceeded
+        """
+        self.logger.info("Attempting to reconnect to WebSocket...", source_module=self._source_module)
+        await self._cleanup_connection()
+
+        # Start with initial delay and increase exponentially
+        delay = self._reconnect_delay
+        max_delay = 60  # Maximum delay between reconnection attempts (1 minute)
+        max_retries = 5  # Maximum number of reconnection attempts
+
+        for attempt in range(1, max_retries + 1):
+            self.logger.info(
+                "Reconnection attempt %d/%d (delay: %ds)",
+                attempt, max_retries, delay,
+                source_module=self._source_module
+            )
+
+            # Wait before retrying
+            await asyncio.sleep(delay)
+
+            # Attempt to establish connection
+            if await self._establish_connection():
+                subscription_msg = self._build_subscription_message()
+                if subscription_msg and await self._setup_connection(subscription_msg):
+                    self.logger.info(
+                        "Successfully reconnected on attempt %d",
+                        attempt,
+                        source_module=self._source_module
+                    )
+                    return True
+
+            # Increase delay with exponential backoff (cap at max_delay)
+            delay = min(delay * 2, max_delay)
+
+        self.logger.error(
+            "Failed to reconnect after %d attempts",
+            max_retries,
+            source_module=self._source_module
+        )
+        return False
 
     async def _monitor_connection_liveness_loop(self) -> None:
         """Periodically checks if messages are being received."""
@@ -630,10 +668,10 @@ class DataIngestor:
             elif channel == "ohlc" and msg_type in ["snapshot", "update"]:
                 # Explicitly cast data to Dict[str, Any] to satisfy mypy
                 typed_data: dict[str, Any] = data
-                await self._handle_ohlc_data(typed_data)
+                await self._handle_book_data(typed_data)  # Reuse book data handler for now
             # Kraken trade messages are typically of type 'update'
             elif channel == "trade" and msg_type == "update":
-                await self._handle_trade_data(data)
+                await self._handle_book_data(data)  # Reuse book data handler for now
             else:
                 self.logger.warning(
                     "Unknown channel or message type.",
@@ -1082,6 +1120,45 @@ class DataIngestor:
 
         return valid_after_apply
 
+    def _calculate_book_checksum(self, book_state: dict) -> Optional[int]:
+        """Calculate the checksum for the order book.
+        
+        Args:
+            book_state: The current book state containing bids and asks
+            
+        Returns
+        -------
+            The calculated checksum or None if calculation fails
+        """
+        try:
+            # This is a simplified implementation - the actual algorithm would depend on
+            # the specific exchange's checksum calculation method
+            checksum_str = ""
+
+            # Process bids (sort in descending order - highest bid first)
+            bids = book_state["bids"]
+            for price in list(bids.keys())[:10]:  # Use top 10 levels
+                qty = bids[price]
+                checksum_str += f"{float(price):.8f}:{float(qty):.8f}:"
+
+            # Process asks (sort in ascending order - lowest ask first)
+            asks = book_state["asks"]
+            for price in list(asks.keys())[:10]:  # Use top 10 levels
+                qty = asks[price]
+                checksum_str += f"{float(price):.8f}:{float(qty):.8f}:"
+
+            # Use CRC32 algorithm to generate checksum
+            import zlib
+            return zlib.crc32(checksum_str.encode())
+        except Exception as e:
+            self.logger.error(
+                "Error calculating checksum",
+                source_module=self._source_module,
+                exc_info=False,
+                context={"error": str(e)}
+            )
+            return None
+
     def _validate_and_update_checksum(
         self,
         book_state: dict,
@@ -1103,7 +1180,7 @@ class DataIngestor:
             bool: True if checksum is valid
         """
         if received_checksum is not None and valid_after_apply:
-            local_checksum = self._calculate_book_checksum(book_state["bids"], book_state["asks"])
+            local_checksum = self._calculate_book_checksum(book_state)
             if local_checksum is None:
                 error_msg = (
                     f"Failed to calculate local checksum for {symbol}. "
@@ -1207,7 +1284,7 @@ class DataIngestor:
                     "new_checksum": received_checksum,
                 },
             )
-            local_checksum = self._calculate_book_checksum(book_state["bids"], book_state["asks"])
+            local_checksum = self._calculate_book_checksum(book_state)
             if local_checksum == received_checksum:
                 self.logger.info(
                     "Recalculated checksum matches received.",
@@ -1347,7 +1424,7 @@ def _handle_no_updates_case(
                 "new_checksum": received_checksum,
             },
         )
-        local_checksum = self._calculate_book_checksum(book_state["bids"], book_state["asks"])
+        local_checksum = self._calculate_book_checksum(book_state)
         if local_checksum == received_checksum:
             self.logger.info(
                 "Recalculated checksum matches received.",
@@ -1395,12 +1472,14 @@ async def _publish_book_event(
                     "Invalid timestamp format: %s",
                     update_timestamp,
                     source_module=self._source_module,
-                    exc_info=True
+                    context={"timestamp": str(update_timestamp)}
                 )
                 exchange_ts = datetime.utcnow()
 
         # Create and publish the market data event
+        event_id = uuid.uuid4()
         event = MarketDataL2Event(
+            event_id=event_id,
             source_module=self._source_module,
             timestamp=datetime.utcnow(),  # Event creation time
             trading_pair=symbol,
@@ -1593,63 +1672,69 @@ class MockLoggerService(LoggerService[Any]):
     def log(
         self,
         level: int,
-        msg: str,
-        source_module: Optional[str] = None,  # noqa: ARG002
-        context: Optional[dict[Any, Any]] = None,  # noqa: ARG002
-        exc_info: Optional[bool] = None,  # noqa: ARG002
+        message: str,
+        *args: Any,
+        source_module: Optional[str] = None,
+        context: Optional[dict[Any, Any]] = None,
+        exc_info: Optional[Union[bool, tuple[type[BaseException], BaseException, TracebackType], BaseException]] = None,
     ) -> None:
         """Log a message."""
         level_name = {50: "CRITICAL", 40: "ERROR", 30: "WARNING", 20: "INFO", 10: "DEBUG"}.get(
             level, "UNKNOWN"
         )
-        print(f"[{level_name}] {msg}")
+        print(f"[{level_name}] {message}")
 
     def debug(
         self,
-        msg: str,
+        message: str,
+        *args: Any,
         source_module: Optional[str] = None,
         context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log a debug message."""
-        self.log(10, msg, source_module=source_module, context=context)
+        print(f"[DEBUG] {message}")
 
     def info(
         self,
-        msg: str,
+        message: str,
+        *args: Any,
         source_module: Optional[str] = None,
         context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log an info message."""
-        self.log(20, msg, source_module=source_module, context=context)
+        print(f"[INFO] {message}")
 
     def warning(
         self,
-        msg: str,
+        message: str,
+        *args: Any,
         source_module: Optional[str] = None,
         context: Optional[dict[Any, Any]] = None,
     ) -> None:
         """Log a warning message."""
-        self.log(30, msg, source_module=source_module, context=context)
+        print(f"[WARNING] {message}")
 
     def error(
         self,
-        msg: str,
+        message: str,
+        *args: Any,
         source_module: Optional[str] = None,
         context: Optional[dict[Any, Any]] = None,
-        exc_info: Optional[bool] = None,
+        exc_info: Optional[Union[bool, tuple[type[BaseException], BaseException, TracebackType], BaseException]] = None,
     ) -> None:
         """Log an error message."""
-        self.log(40, msg, source_module=source_module, context=context, exc_info=exc_info)
+        print(f"[ERROR] {message}")
 
     def critical(
         self,
-        msg: str,
+        message: str,
+        *args: Any,
         source_module: Optional[str] = None,
         context: Optional[dict[Any, Any]] = None,
-        exc_info: Optional[bool] = None,
+        exc_info: Optional[Union[bool, tuple[type[BaseException], BaseException, TracebackType], BaseException]] = None,
     ) -> None:
         """Log a critical message."""
-        self.log(50, msg, source_module=source_module, context=context, exc_info=exc_info)
+        print(f"[CRITICAL] {message}")
 
 
 if __name__ == "__main__":

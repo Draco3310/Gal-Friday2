@@ -15,7 +15,7 @@ from typing import (
     Any,
     Optional,
 )
-import uuid  # Add missing uuid import
+import uuid  # Used for generating unique identifiers
 
 import pandas as pd  # Used in type hints for pd.Series
 
@@ -293,16 +293,22 @@ class SimulatedExecutionHandler:
                     )
 
                 # Publish the execution report
+                # Create a SimulatedReportParams instance with the fill details
+                report_params = SimulatedReportParams(
+                    status=fill_result["status"],
+                    qty_filled=fill_result["quantity"],
+                    avg_price=fill_result["fill_price"],
+                    commission=fill_result["commission"],
+                    commission_asset=fill_result["commission_asset"],
+                    error_msg=fill_result.get("error_msg"),
+                    fill_timestamp=fill_result["timestamp"],
+                    liquidity_type=fill_result.get("liquidity_type")
+                )
+
                 await self._publish_simulated_report(
-                    event,
-                    fill_result["status"],
-                    fill_result["quantity"],
-                    fill_result["fill_price"],
-                    fill_result["commission"],
-                    fill_result["commission_asset"],
-                    fill_result.get("error_msg"),
-                    fill_result["timestamp"],
-                    liquidity_type=fill_result.get("liquidity_type"),  # Add liquidity type
+                    originating_event=event,
+                    params=report_params,
+                    overrides=None
                 )
             # If fill_result is None, it implies a limit order was added to _active_limit_orders
             # and will be processed by check_active_limit_orders in subsequent calls.
@@ -318,14 +324,21 @@ class SimulatedExecutionHandler:
                 source_module=self.__class__.__name__,
                 # exc_info provided automatically by exception method
             )
+            # Create a SimulatedReportParams instance for the error report
+            error_params = SimulatedReportParams(
+                status="ERROR",
+                qty_filled=Decimal(0),
+                avg_price=None,
+                commission=Decimal(0),
+                commission_asset=None,
+                error_msg="Simulation error",
+                fill_timestamp=None
+            )
+
             await self._publish_simulated_report(
-                event,
-                "ERROR",
-                Decimal(0),
-                None,
-                Decimal(0),
-                None,
-                "Simulation error",  # Simpler message for report
+                originating_event=event,
+                params=error_params,
+                overrides=None
             )
 
     async def _validate_order_parameters(self, event: "TradeSignalApprovedEvent") -> bool:
@@ -462,9 +475,23 @@ class SimulatedExecutionHandler:
             # (event.timestamp + 1 bar interval).
             # If there's a processing_delay_bars, it means we use the bar that is
             # (1 + processing_delay_bars) from the signal bar.
+            # We can't use lookahead_bars parameter as it's not in the interface
+            # Instead, we'll need to call get_next_bar multiple times if needed
             next_bar = self.data_service.get_next_bar(
-                event.trading_pair, event.timestamp, lookahead_bars=1 + self.processing_delay_bars
+                event.trading_pair, event.timestamp
             )
+
+            # If we need to look ahead more bars due to processing delay
+            current_timestamp = event.timestamp
+            for _ in range(self.processing_delay_bars):
+                if next_bar is None:
+                    break
+                # Get timestamp from bar name or keep current one
+                current_timestamp = next_bar.name if hasattr(next_bar, "name") else \
+                    current_timestamp
+                next_bar = self.data_service.get_next_bar(
+                    event.trading_pair, current_timestamp
+                )
 
             if next_bar is None:
                 error_msg = (
@@ -805,7 +832,9 @@ class SimulatedExecutionHandler:
                 event_for_active = event
                 if simulated_fill_qty_immediate > Decimal(0):  # If it was a partial fill
                     # Create a new event for the remaining quantity
-                    remaining_payload = event.model_dump()
+                    # Convert dataclass to dict instead of using model_dump which is for Pydantic
+                    import dataclasses
+                    remaining_payload = dataclasses.asdict(event)
                     remaining_payload["quantity"] = remaining_qty_for_active_order
                     # Ensure the new signal_id for the remainder is unique if needed,
                     # but _add_to_active_limit_orders uses its own internal_sim_order_id.
@@ -1024,17 +1053,20 @@ class SimulatedExecutionHandler:
                 # likely MAKER.
                 if fill_price > bar_open and fill_price <= bar_high:  # Touched from below
                     return "MAKER"
-                return "TAKER"
+                return "TAKER"  # Default case for SELL orders
         except (TypeError, ValueError, decimal.InvalidOperation):
             self.logger.warning(
                 "Could not determine maker/taker for limit order, "
                 "defaulting to TAKER. Fill: %s, Bar: %s",
                 fill_price,
                 bar.to_dict(),  # E501: This can be long, but acceptable for a warning.
-                source_module=self.__class__.__name__,
-                exc_info=True,  # Retained as it's a warning
+                source_module=self.__class__.__name__
             )
-            return "TAKER"
+            # Removed exc_info parameter as it's not supported by the LoggerService interface
+            return "TAKER"  # Default to TAKER in case of exceptions
+
+        # Default return for any other case (invalid side)
+        return "TAKER"  # Default to TAKER for unknown side values
 
     def _calculate_slippage(
         self,
@@ -1173,7 +1205,8 @@ class SimulatedExecutionHandler:
                     else datetime.now(timezone.utc)  # Access via params
                 ),  # DTZ003
                 error_message=params.error_msg,  # Access via params
-                liquidity=params.liquidity_type,  # Access via params
+                # Note: liquidity_type is stored in context for logging but not passed to
+                # ExecutionReportEvent
             )
             await self.pubsub.publish(report)
             self.logger.debug(
@@ -1184,10 +1217,105 @@ class SimulatedExecutionHandler:
             )
         except Exception:  # Keep generic Exception for unknown errors in publishing
             self.logger.exception(  # G201/TRY400: Changed to .exception()
-                ("Failed to publish simulated execution report for signal %s: %s"),  # G004 fix
+                ("Failed to publish simulated execution report for signal %s"),  # G004 fix
                 originating_event.signal_id,
                 source_module=self.__class__.__name__,
             )
+
+    def _is_valid_bar_for_sl_tp(self, bar: pd.Series, bar_timestamp: datetime) -> bool:
+        """Validate that the bar is suitable for SL/TP checking.
+
+        Args:
+            bar: The OHLCV data for the current simulation time
+            bar_timestamp: The timestamp of the current_bar
+
+        Returns
+        -------
+            bool: True if the bar is valid for SL/TP checks, False otherwise
+        """
+        if bar is None or bar_timestamp is None:
+            self.logger.warning(
+                "Invalid bar or timestamp provided for SL/TP check",
+                source_module=self.__class__.__name__,
+            )
+            return False
+
+        # Check if bar has required OHLC data
+        required_columns = ["high", "low"]
+        for col in required_columns:
+            if col not in bar:
+                self.logger.warning(
+                    "Bar missing required column %s for SL/TP check",
+                    col,
+                    source_module=self.__class__.__name__,
+                )
+                return False
+
+        return True
+
+    def _check_sl_tp_trigger(self, sl_tp_data: dict, bar_high: Decimal, bar_low: Decimal,
+                          bar_timestamp: datetime) -> Optional[dict]:  # noqa: ARG002
+        """Check if the current bar triggers any SL/TP conditions.
+
+        Args:
+            sl_tp_data: Dictionary containing SL/TP details
+            bar_high: High price of the current bar
+            bar_low: Low price of the current bar
+            bar_timestamp: Timestamp of the current bar
+
+        Returns
+        -------
+            Optional[dict]: Dictionary with exit details if triggered, None otherwise
+        """
+        sl_price = sl_tp_data.get("sl")
+        tp_price = sl_tp_data.get("tp")
+        original_side = sl_tp_data.get("side")
+
+        exit_price: Optional[Decimal] = None
+        exit_reason: Optional[str] = None
+        exit_order_type = "MARKET"  # Default for SL
+        is_sl_trigger = False
+
+        # Check Stop Loss (SL)
+        if sl_price is not None and original_side is not None:
+            side_upper = original_side.upper()
+            if side_upper == "BUY" and bar_low <= sl_price:
+                # SL price is the trigger, fill on next bar market conditions
+                exit_price = sl_price
+                exit_reason = f"Stop Loss triggered at {sl_price} (Bar Low: {bar_low})"
+                exit_order_type = "MARKET"  # Explicitly market for SL
+                is_sl_trigger = True
+            elif side_upper == "SELL" and bar_high >= sl_price:
+                exit_price = sl_price  # SL price is the trigger
+                exit_reason = f"Stop Loss triggered at {sl_price} (Bar High: {bar_high})"
+                exit_order_type = "MARKET"  # Explicitly market for SL
+                is_sl_trigger = True
+
+        # Check Take Profit (TP) - only if SL not already triggered
+        if not is_sl_trigger and tp_price is not None and original_side is not None:
+            side_upper = original_side.upper()
+            if side_upper == "BUY" and bar_high >= tp_price:
+                exit_price = tp_price
+                exit_reason = f"Take Profit triggered at {tp_price} (Bar High: {bar_high})"
+                exit_order_type = "LIMIT"  # TP is a limit order
+            elif side_upper == "SELL" and bar_low <= tp_price:
+                exit_price = tp_price
+                exit_reason = f"Take Profit triggered at {tp_price} (Bar Low: {bar_low})"
+                exit_order_type = "LIMIT"  # TP is a limit order
+
+        if exit_price is not None and exit_reason is not None:
+            return {
+                "trigger_price": exit_price,  # This is the SL or TP price level
+                "exit_reason": exit_reason,
+                "exit_order_type": exit_order_type,
+                "original_side": original_side,
+                "entry_qty": sl_tp_data.get("entry_qty"),
+                "trading_pair": sl_tp_data.get("pair"),
+                "originating_event": sl_tp_data.get("entry_event"),
+                "is_sl_trigger": is_sl_trigger,  # Pass this info
+            }
+
+        return None
 
     async def check_active_sl_tp(self, current_bar: pd.Series, bar_timestamp: datetime) -> None:
         """Check SL/TP triggers for active positions with each new bar.
@@ -1253,81 +1381,7 @@ class SimulatedExecutionHandler:
                     source_module=self.__class__.__name__,
                 )
 
-    def _is_valid_bar_for_sl_tp(self, current_bar: pd.Series, bar_timestamp: datetime) -> bool:
-        """Check if the current bar is valid for SL/TP processing."""
-        if (
-            not hasattr(current_bar, "high")
-            or not hasattr(current_bar, "low")
-            or current_bar.get("high") is None
-            or current_bar.get("low") is None
-        ):
-            self.logger.warning(
-                (
-                    "Current bar for SL/TP check at %s missing high/low data or "
-                    "data is None. Bar: %s"
-                ),  # G004 fix
-                bar_timestamp,
-                current_bar.to_dict(),  # E501: This might still be long
-                source_module=self.__class__.__name__,
-            )
-            return False
-        return True
-
-    def _check_sl_tp_trigger(
-        self,
-        sl_tp_data: dict,
-        bar_high: Decimal,
-        bar_low: Decimal,
-        _bar_timestamp: datetime,  # ARG002: Prefixed unused bar_timestamp
-    ) -> Optional[dict[str, Any]]:  # UP006: Dict -> dict
-        """Check if SL or TP conditions are met for a position."""
-        sl_price = sl_tp_data["sl"]
-        tp_price = sl_tp_data["tp"]
-        original_side = sl_tp_data["side"]
-
-        exit_price: Optional[Decimal] = None
-        exit_reason: Optional[str] = None
-        exit_order_type = "MARKET"  # Default for SL
-        is_sl_trigger = False
-
-        # Check Stop Loss (SL)
-        if sl_price is not None:
-            if original_side.upper() == "BUY" and bar_low <= sl_price:
-                exit_price = (
-                    sl_price  # SL price is the trigger, fill on next bar market conditions
-                )
-                exit_reason = f"Stop Loss triggered at {sl_price} (Bar Low: {bar_low})"
-                exit_order_type = "MARKET"  # Explicitly market for SL
-                is_sl_trigger = True
-            elif original_side.upper() == "SELL" and bar_high >= sl_price:
-                exit_price = sl_price  # SL price is the trigger
-                exit_reason = f"Stop Loss triggered at {sl_price} (Bar High: {bar_high})"
-                exit_order_type = "MARKET"  # Explicitly market for SL
-                is_sl_trigger = True
-
-        # Check Take Profit (TP) - only if SL not already triggered
-        if not is_sl_trigger and tp_price is not None:  # Corrected: was exit_price is None
-            if original_side.upper() == "BUY" and bar_high >= tp_price:
-                exit_price = tp_price
-                exit_reason = f"Take Profit triggered at {tp_price} (Bar High: {bar_high})"
-                exit_order_type = "LIMIT"  # TP is a limit order
-            elif original_side.upper() == "SELL" and bar_low <= tp_price:
-                exit_price = tp_price
-                exit_reason = f"Take Profit triggered at {tp_price} (Bar Low: {bar_low})"
-                exit_order_type = "LIMIT"  # TP is a limit order
-
-        if exit_price is not None and exit_reason is not None:
-            return {
-                "trigger_price": exit_price,  # This is the SL or TP price level
-                "exit_reason": exit_reason,
-                "exit_order_type": exit_order_type,
-                "original_side": original_side,
-                "entry_qty": sl_tp_data["entry_qty"],
-                "trading_pair": sl_tp_data["pair"],
-                "originating_event": sl_tp_data["entry_event"],
-                "is_sl_trigger": is_sl_trigger,  # Pass this info
-            }
-        return None
+    # Commented out code and duplicate method implementations have been removed
 
     async def _process_tp_exit(
         self,
@@ -1486,7 +1540,8 @@ class SimulatedExecutionHandler:
 
             except Exception:
                 self.logger.warning(
-                    "SL fill timestamp conversion error. Using current UTC.", exc_info=True
+                    "SL fill timestamp conversion error. Using current UTC.",
+                    source_module=self.__class__.__name__
                 )
                 sl_fill_timestamp = datetime.now(timezone.utc)
 
@@ -1684,27 +1739,27 @@ class SimulatedExecutionHandler:
         )
 
         sl_market_exit_signal_id = f"sl_exit_{params.originating_event.signal_id}_{uuid.uuid4()}"
-        dummy_event_payload = {
-            "signal_id": sl_market_exit_signal_id,
-            "timestamp": params.trigger_timestamp,
-            # Use param
-            "trading_pair": params.trading_pair,
-            "side": params.side,
-            "quantity": params.quantity,
-            # Use params
-            "order_type": "MARKET",
-            "exchange": params.exchange,
-            "sl_price": None,  # Use params
-            "tp_price": None,
-            "limit_price": None,
-            "event_id": uuid.uuid4(),
-            "source_module": self.__class__.__name__,
-            "risk_parameters": {
+        # Create SL market exit signal ID for the event
+        # (removed unused dummy_event_payload dictionary)
+        # Create a proper TradeSignalApprovedEvent instead of using **kwargs directly
+        sl_exit_event_for_sim = ConcreteEvent(
+            signal_id=params.originating_event.signal_id,  # Use the original event's signal_id
+            timestamp=params.trigger_timestamp,
+            trading_pair=params.trading_pair,
+            exchange=params.exchange,
+            side=params.side,
+            order_type="MARKET",  # Always market for SL
+            quantity=params.quantity,
+            sl_price=Decimal("0"),  # Required field, set to 0 for SL exit event
+            tp_price=Decimal("0"),  # Required field, set to 0 for SL exit event
+            risk_parameters={
                 "reason": "SL_EXIT_INTERNAL_SIM",
-                "original_signal_id": str(params.originating_event.signal_id),  # Use param
+                "original_signal_id": str(params.originating_event.signal_id)
             },
-        }
-        sl_exit_event_for_sim = ConcreteEvent(**dummy_event_payload)
+            limit_price=None,  # Market order has no limit price
+            source_module=self.__class__.__name__,  # Add missing required parameter
+            event_id=uuid.uuid4()  # Add missing required parameter with a new UUID
+        )
 
         next_bar_for_sl_fill = await self._get_next_bar_data(sl_exit_event_for_sim)
 
@@ -1721,7 +1776,7 @@ class SimulatedExecutionHandler:
                     self.logger.warning(
                         "SL fill timestamp conversion error for %s. Using current UTC.",
                         actual_fill_timestamp,
-                        exc_info=True,
+                        source_module=self.__class__.__name__
                     )
                     actual_fill_timestamp = datetime.now(timezone.utc)
 
@@ -2183,83 +2238,6 @@ class SimulatedExecutionHandler:
                 if internal_sim_order_id in self._active_limit_orders:
                     del self._active_limit_orders[internal_sim_order_id]
 
-    def _is_valid_bar_for_sl_tp(self, current_bar: pd.Series, bar_timestamp: datetime) -> bool:
-        """Check if the current bar is valid for SL/TP processing."""
-        if (
-            not hasattr(current_bar, "high")
-            or not hasattr(current_bar, "low")
-            or current_bar.get("high") is None
-            or current_bar.get("low") is None
-        ):
-            self.logger.warning(
-                (
-                    "Current bar for SL/TP check at %s missing high/low data or "
-                    "data is None. Bar: %s"
-                ),  # G004 fix
-                bar_timestamp,
-                current_bar.to_dict(),  # E501: This might still be long
-                source_module=self.__class__.__name__,
-            )
-            return False
-        return True
-
-    def _check_sl_tp_trigger(
-        self,
-        sl_tp_data: dict,
-        bar_high: Decimal,
-        bar_low: Decimal,
-        _bar_timestamp: datetime,  # ARG002: Prefixed unused bar_timestamp
-    ) -> Optional[dict[str, Any]]:  # UP006: Dict -> dict
-        """Check if SL or TP conditions are met for a position."""
-        sl_price = sl_tp_data["sl"]
-        tp_price = sl_tp_data["tp"]
-        original_side = sl_tp_data["side"]
-
-        exit_price: Optional[Decimal] = None
-        exit_reason: Optional[str] = None
-        exit_order_type = "MARKET"  # Default for SL
-        is_sl_trigger = False
-
-        # Check Stop Loss (SL)
-        if sl_price is not None:
-            if original_side.upper() == "BUY" and bar_low <= sl_price:
-                exit_price = (
-                    sl_price  # SL price is the trigger, fill on next bar market conditions
-                )
-                exit_reason = f"Stop Loss triggered at {sl_price} (Bar Low: {bar_low})"
-                exit_order_type = "MARKET"  # Explicitly market for SL
-                is_sl_trigger = True
-            elif original_side.upper() == "SELL" and bar_high >= sl_price:
-                exit_price = sl_price  # SL price is the trigger
-                exit_reason = f"Stop Loss triggered at {sl_price} (Bar High: {bar_high})"
-                exit_order_type = "MARKET"  # Explicitly market for SL
-                is_sl_trigger = True
-
-        # Check Take Profit (TP) - only if SL not already triggered
-        if not is_sl_trigger and tp_price is not None:  # Corrected: was exit_price is None
-            if original_side.upper() == "BUY" and bar_high >= tp_price:
-                exit_price = tp_price
-                exit_reason = f"Take Profit triggered at {tp_price} (Bar High: {bar_high})"
-                exit_order_type = "LIMIT"  # TP is a limit order
-            elif original_side.upper() == "SELL" and bar_low <= tp_price:
-                exit_price = tp_price
-                exit_reason = f"Take Profit triggered at {tp_price} (Bar Low: {bar_low})"
-                exit_order_type = "LIMIT"  # TP is a limit order
-
-        if exit_price is not None and exit_reason is not None:
-            return {
-                "trigger_price": exit_price,  # This is the SL or TP price level
-                "exit_reason": exit_reason,
-                "exit_order_type": exit_order_type,
-                "original_side": original_side,
-                "entry_qty": sl_tp_data["entry_qty"],
-                "trading_pair": sl_tp_data["pair"],
-                "originating_event": sl_tp_data["entry_event"],
-                "is_sl_trigger": is_sl_trigger,  # Pass this info
-            }
-        return None
-
-
 def _check_bar_for_trigger(
     original_side: str,
     trigger_type: str,  # "SL" or "TP"
@@ -2344,12 +2322,20 @@ async def _find_and_test_single_trigger(
 
     trigger_bar_data = None
     trigger_bar_ts = None
-    # Assuming sim_exec.data_service is an instance of MockHistoricalDataService or similar
-    # and has the necessary methods.
-    mock_data_len = sim_exec.data_service.get_mock_data_length(test_trading_pair)
+    # Since we don't have direct access to the data length, we'll use a reasonable
+    # number of bars to check (e.g., 100 bars) and rely on None returns to stop
+    max_bars_to_check = 100  # A reasonable number to check
 
-    for i in range(mock_data_len):
-        potential_bar = sim_exec.data_service.get_mock_data_bar_by_index(test_trading_pair, i)
+    # Use a date-based approach rather than index-based approach
+    current_time = entry_ts
+    for _ in range(max_bars_to_check):
+        # Get the next bar after the current time
+        potential_bar = sim_exec.data_service.get_next_bar(test_trading_pair, current_time)
+        if potential_bar is None:
+            break  # No more data available
+
+        # Update current_time for the next iteration
+        current_time = potential_bar.name if hasattr(potential_bar, "name") else current_time
         if (
             potential_bar is None
             or not hasattr(potential_bar, "name")
