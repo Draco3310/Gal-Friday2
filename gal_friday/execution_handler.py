@@ -15,7 +15,9 @@ import random  # Add import for random (needed for jitter)
 import time
 
 # Added Callable, Coroutine
-from typing import Any, Callable, Optional, cast
+from typing import Any, Optional, cast
+
+from collections.abc import Callable
 import urllib.parse
 from uuid import UUID
 
@@ -50,10 +52,10 @@ class ContingentOrderParamsRequest:
     contingent_order_type: str  # e.g., "stop-loss", "take-profit"
     trigger_price: Decimal  # The price at which the order triggers
     volume: Decimal
-    pair_details: Optional[dict]  # Exchange-provided info for the pair
+    pair_details: dict | None  # Exchange-provided info for the pair
     originating_signal_id: UUID
     log_marker: str  # "SL" or "TP" for logging
-    limit_price: Optional[Decimal] = None  # For stop-loss-limit / take-profit-limit
+    limit_price: Decimal | None = None  # For stop-loss-limit / take-profit-limit
 
 
 @dataclass
@@ -62,12 +64,12 @@ class OrderStatusReportParameters:
 
     exchange_order_id: str
     client_order_id: str
-    signal_id: Optional[UUID]
+    signal_id: UUID | None
     order_data: dict[str, Any]
     current_status: str
     current_filled_qty: Decimal
-    avg_fill_price: Optional[Decimal]
-    commission: Optional[Decimal]
+    avg_fill_price: Decimal | None
+    commission: Decimal | None
 
 
 class RateLimitTracker:
@@ -183,7 +185,7 @@ class ExecutionHandler:
                 source_module=self.__class__.__name__,
             )
 
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
         # TODO: Add state for managing WebSocket connection if used
         # TODO: Add mapping for internal IDs to exchange IDs (cl_ord_id ->
         # txid)
@@ -191,9 +193,9 @@ class ExecutionHandler:
         # Internal pair -> Kraken details
         self._pair_info: dict[str, dict[str, Any]] = {}
         # Add type hint for the handler attribute
-        self._trade_signal_handler: Optional[
+        self._trade_signal_handler: None | (
             Callable[[TradeSignalApprovedEvent], Coroutine[Any, Any, None]]
-        ] = None
+        ) = None
 
         # Store active monitoring tasks
         self._order_monitoring_tasks: dict[str, asyncio.Task] = {}  # txid -> Task
@@ -296,7 +298,7 @@ class ExecutionHandler:
 
     async def _make_public_request_with_retry(
         self, url: str, max_retries: int = 3
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Make a public request with retry logic for transient errors."""
         base_delay = self.config.get_float("exchange.retry_base_delay_s", 1.0)
 
@@ -343,11 +345,7 @@ class ExecutionHandler:
 
                     return data
 
-            except (
-                aiohttp.ClientResponseError,
-                aiohttp.ClientConnectionError,
-                asyncio.TimeoutError,
-            ) as e:
+            except (aiohttp.ClientResponseError, aiohttp.ClientConnectionError, TimeoutError) as e:
                 if attempt < max_retries:
                     delay = min(base_delay * (2**attempt), 30.0)
                     jitter = random.uniform(0, delay * 0.1)
@@ -637,7 +635,7 @@ class ExecutionHandler:
                 source_module=self.__class__.__name__
             )
             response_data = {"error": [f"EGeneral:ConnectionError - {e!s}"]}
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.logger.exception(
                 "Request Timeout for %s: %s",
                 url,
@@ -674,7 +672,7 @@ class ExecutionHandler:
     ) -> dict[str, Any]:
         """Make a private request with retry logic for transient errors."""
         base_delay = self.config.get_float("exchange.retry_base_delay_s", 1.0)
-        final_result: Optional[dict[str, Any]] = None
+        final_result: dict[str, Any] | None = None
         last_error_info_str: str = "No specific error was recorded."
 
         for attempt in range(max_retries + 1):
@@ -855,7 +853,7 @@ class ExecutionHandler:
     def _translate_signal_to_kraken_params(
         self,
         event: TradeSignalApprovedEvent,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Translate internal signal format to Kraken API parameters.
 
@@ -903,7 +901,7 @@ class ExecutionHandler:
         self,
         internal_pair: str,
         signal_id: UUID,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get and validate trading pair information."""
         # Convert UUID to string for logging
         signal_id_str = str(signal_id)
@@ -932,7 +930,7 @@ class ExecutionHandler:
         internal_pair: str,
         pair_info: dict[str, Any],
         signal_id: UUID,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Get and validate the Kraken pair name."""
         # Convert UUID to string for logging
         signal_id_str = str(signal_id)
@@ -1265,7 +1263,7 @@ class ExecutionHandler:
                 self._background_tasks.add(limit_order_timeout_task)
                 limit_order_timeout_task.add_done_callback(self._background_tasks.discard)
 
-    async def _query_order_details(self, exchange_order_id: str) -> Optional[dict[str, Any]]:
+    async def _query_order_details(self, exchange_order_id: str) -> dict[str, Any] | None:
         """Query the exchange for order details with retry logic."""
         uri_path = "/0/private/QueryOrders"
         params = {"txid": exchange_order_id, "trades": "true"}  # Include trade info
@@ -1319,7 +1317,7 @@ class ExecutionHandler:
 
     async def _parse_order_data(
         self, order_data: dict[str, Any], exchange_order_id: str
-    ) -> Optional[tuple[str, Decimal, Optional[Decimal], Optional[Decimal]]]:
+    ) -> tuple[str, Decimal, Decimal | None, Decimal | None] | None:
         """Parse relevant fields from the raw order data from the exchange."""
         try:
             current_status = order_data.get("status")
@@ -1363,7 +1361,7 @@ class ExecutionHandler:
         self,
         exchange_order_id: str,
         client_order_id: str,
-        signal_id: Optional[UUID],
+        signal_id: UUID | None,
         current_filled_qty: Decimal,
     ) -> None:
         """Handle SL/TP order placement if an entry order is fully filled."""
@@ -1407,7 +1405,7 @@ class ExecutionHandler:
                 )
 
     async def _monitor_order_status(
-        self, exchange_order_id: str, client_order_id: str, signal_id: Optional[UUID]
+        self, exchange_order_id: str, client_order_id: str, signal_id: UUID | None
     ) -> None:
         """
         Monitor the status of a specific order via polling.
@@ -1426,7 +1424,7 @@ class ExecutionHandler:
             "order.max_poll_duration_s", 3600.0
         )  # 1 hour default
         start_time = time.time()
-        last_known_status: Optional[str] = "NEW"
+        last_known_status: str | None = "NEW"
         last_known_filled_qty: Decimal = Decimal(0)
 
         while time.time() - start_time < max_poll_duration:
@@ -1486,8 +1484,8 @@ class ExecutionHandler:
         self._order_monitoring_tasks.pop(exchange_order_id, None)
 
     async def _get_originating_signal_event(
-        self, signal_id: Optional[UUID]
-    ) -> Optional[TradeSignalApprovedEvent]:
+        self, signal_id: UUID | None
+    ) -> TradeSignalApprovedEvent | None:
         """
         Retrieve the original signal event that led to an order.
 
@@ -1508,8 +1506,8 @@ class ExecutionHandler:
         self,
         event: TradeSignalApprovedEvent,
         error_message: str,
-        cl_ord_id: Optional[str],
-        exchange_order_id: Optional[str] = None,
+        cl_ord_id: str | None,
+        exchange_order_id: str | None = None,
     ) -> None:
         """Publish an ExecutionReportEvent for a failed/rejected order."""
         effective_exchange_order_id = (
@@ -1627,7 +1625,7 @@ class ExecutionHandler:
                 source_module=self.__class__.__name__,
             )
 
-    def _map_kraken_pair_to_internal(self, kraken_pair: str) -> Optional[str]:
+    def _map_kraken_pair_to_internal(self, kraken_pair: str) -> str | None:
         """Map Kraken pair name (e.g., XXBTZUSD) back to internal name (e.g., BTC/USD)."""
         for internal_name, info in self._pair_info.items():
             if (
@@ -1644,18 +1642,18 @@ class ExecutionHandler:
         )
         return None
 
-    def _get_quote_currency(self, internal_pair: str) -> Optional[str]:
+    def _get_quote_currency(self, internal_pair: str) -> str | None:
         """Get the quote currency for an internal pair name."""
         info = self._pair_info.get(internal_pair)
         return cast(Optional[str], info.get("quote")) if info else None  # Added cast
 
-    async def _has_sl_tp_been_placed(self, signal_id: Optional[UUID]) -> bool:
+    async def _has_sl_tp_been_placed(self, signal_id: UUID | None) -> bool:
         """Check if SL/TP orders have already been placed for a signal."""
         if signal_id is None:
             return False
         return signal_id in self._placed_sl_tp_signals
 
-    async def _mark_sl_tp_as_placed(self, signal_id: Optional[UUID]) -> None:
+    async def _mark_sl_tp_as_placed(self, signal_id: UUID | None) -> None:
         """Mark that SL/TP orders have been placed for a signal."""
         if signal_id is not None:
             self._placed_sl_tp_signals.add(signal_id)
@@ -1823,7 +1821,7 @@ class ExecutionHandler:
     def _prepare_contingent_order_params(
         self,
         request: ContingentOrderParamsRequest,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Prepare parameters for SL/TP orders, including validation."""
         params = {
             "pair": request.pair_name,
@@ -1889,7 +1887,7 @@ class ExecutionHandler:
         # Add other necessary parameters (e.g., timeinforce if needed)
         return params
 
-    def _get_kraken_pair_name(self, internal_pair: str) -> Optional[str]:
+    def _get_kraken_pair_name(self, internal_pair: str) -> str | None:
         """Get the Kraken pair name from stored info."""
         info = self._pair_info.get(internal_pair)
         name = info.get("altname") if info else None

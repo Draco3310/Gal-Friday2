@@ -22,7 +22,7 @@ class InferenceRequest:
 
     model_id: str
     model_path: str
-    scaler_path: Optional[str]
+    scaler_path: str | None
     feature_vector: np.ndarray
     model_feature_names: list[str]
     predictor_specific_config: dict[str, Any]
@@ -47,7 +47,7 @@ class SKLearnPredictor(PredictorInterface):
     """Scikit-learn model predictor implementation."""
 
     def __init__(
-        self, model_path: str, model_id: str, config: Optional[dict[str, Any]] = None
+        self, model_path: str, model_id: str, config: dict[str, Any] | None = None
     ) -> None:
         """Initialize the SKLearn predictor.
 
@@ -205,7 +205,7 @@ class SKLearnPredictor(PredictorInterface):
             raise ValueError(error_msg) from e
 
     @property
-    def expected_feature_names(self) -> Optional[list[str]]:
+    def expected_feature_names(self) -> list[str] | None:
         """Return the list of feature names the model expects.
 
         Tries to get it from model.feature_names_in_ first, then from config.
@@ -217,7 +217,7 @@ class SKLearnPredictor(PredictorInterface):
     @classmethod
     def _load_model(
         cls, model_path: str, model_id: str
-    ) -> tuple[Optional[Any], Optional[dict[str, Any]]]:
+    ) -> tuple[Any | None, dict[str, Any] | None]:
         """Load the model from disk.
 
         Returns
@@ -244,8 +244,8 @@ class SKLearnPredictor(PredictorInterface):
 
     @classmethod
     def _load_scaler(
-        cls, scaler_path: Optional[str], model_id: str
-    ) -> tuple[Optional[Any], Optional[dict[str, Any]]]:
+        cls, scaler_path: str | None, model_id: str
+    ) -> tuple[Any | None, dict[str, Any] | None]:
         """Load the scaler from disk.
 
         Returns
@@ -280,9 +280,9 @@ class SKLearnPredictor(PredictorInterface):
     def _prepare_features(
         cls,
         feature_vector: np.ndarray,
-        scaler: Optional[Transformer],
+        scaler: Transformer | None,
         model_id: str,
-    ) -> tuple[Optional[np.ndarray], Optional[dict[str, Any]]]:
+    ) -> tuple[np.ndarray | None, dict[str, Any] | None]:
         """Prepare and scale features.
 
         Returns
@@ -324,7 +324,7 @@ class SKLearnPredictor(PredictorInterface):
         model: Model,
         processed_features: np.ndarray,
         model_id: str,
-    ) -> tuple[Optional[float], Optional[float], Optional[dict[str, Any]]]:
+    ) -> tuple[float | None, float | None, dict[str, Any] | None]:
         """Make prediction using the model.
 
         Returns
@@ -351,7 +351,7 @@ class SKLearnPredictor(PredictorInterface):
         model: ModelWithProba,
         processed_features: np.ndarray,
         model_id: str,
-    ) -> tuple[Optional[float], Optional[float], Optional[dict[str, Any]]]:
+    ) -> tuple[float | None, float | None, dict[str, Any] | None]:
         """Make prediction for models with predict_proba method."""
         all_class_probabilities = model.predict_proba(processed_features)
         min_classes_for_binary = 2
@@ -374,7 +374,7 @@ class SKLearnPredictor(PredictorInterface):
         model: ModelWithPredict,
         processed_features: np.ndarray,
         model_id: str,
-    ) -> tuple[Optional[float], Optional[float], Optional[dict[str, Any]]]:
+    ) -> tuple[float | None, float | None, dict[str, Any] | None]:
         """Make prediction for models without predict_proba method."""
         prediction_output = model.predict(processed_features)
         if isinstance(prediction_output, np.ndarray) and prediction_output.size == 1:

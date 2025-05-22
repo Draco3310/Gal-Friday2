@@ -113,8 +113,9 @@ ignore = [
 # Mccabe complexity setting
 mccabe = { max-complexity = 15 }
 
-# Bugbear settings for identifying potential bugs and design problems
-bugbear = { extend-immutable-calls = ["df", "dt", "e", "f", "k", "m", "q", "v"] }
+# Bugbear settings
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["df", "dt", "e", "f", "k", "m", "q", "v"]
 
 # Per-file ignore settings
 [tool.ruff.lint.per-file-ignores]

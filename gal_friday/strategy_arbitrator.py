@@ -10,7 +10,9 @@ supports configurable threshold strategies with secondary confirmation rules.
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import operator  # Added for condition dispatch
-from typing import Callable, ClassVar, Optional
+from typing import ClassVar, Optional
+
+from collections.abc import Callable
 import uuid
 
 # Event imports
@@ -281,11 +283,11 @@ class StrategyArbitrator:
         side: str,
         current_price: Decimal,
         # Optionally, tp_price can be provided to derive SL if sl_pct is not set
-        tp_price_for_rr_calc: Optional[Decimal] = None,
-    ) -> tuple[Optional[Decimal], Optional[Decimal]]:  # Returns (sl_price, risk_amount_per_unit)
+        tp_price_for_rr_calc: Decimal | None = None,
+    ) -> tuple[Decimal | None, Decimal | None]:  # Returns (sl_price, risk_amount_per_unit)
         """Calculate stop-loss price and risk amount per unit."""
-        sl_price: Optional[Decimal] = None
-        risk_amount_per_unit: Optional[Decimal] = None
+        sl_price: Decimal | None = None
+        risk_amount_per_unit: Decimal | None = None
 
         if self._sl_pct is not None and self._sl_pct > 0:
             if side == "BUY":
@@ -316,11 +318,11 @@ class StrategyArbitrator:
         side: str,
         current_price: Decimal,
         # Optionally, sl_price and risk can be provided to derive TP
-        sl_price_for_rr_calc: Optional[Decimal] = None,
-        risk_amount_for_rr_calc: Optional[Decimal] = None,
-    ) -> Optional[Decimal]:
+        sl_price_for_rr_calc: Decimal | None = None,
+        risk_amount_for_rr_calc: Decimal | None = None,
+    ) -> Decimal | None:
         """Calculate take-profit price."""
-        tp_price: Optional[Decimal] = None
+        tp_price: Decimal | None = None
 
         if self._tp_pct is not None and self._tp_pct > 0:
             if side == "BUY":
@@ -343,7 +345,7 @@ class StrategyArbitrator:
 
     async def _calculate_sl_tp_prices(
         self, side: str, current_price: Decimal, trading_pair: str
-    ) -> tuple[Optional[Decimal], Optional[Decimal]]:
+    ) -> tuple[Decimal | None, Decimal | None]:
         """Calculate SL/TP prices based on configuration and current price."""
         if current_price <= 0:
             self.logger.error(
@@ -354,9 +356,9 @@ class StrategyArbitrator:
             )
             return None, None
 
-        sl_price: Optional[Decimal] = None
-        tp_price: Optional[Decimal] = None
-        risk_amount_per_unit: Optional[Decimal] = None
+        sl_price: Decimal | None = None
+        tp_price: Decimal | None = None
+        risk_amount_per_unit: Decimal | None = None
 
         # Attempt 1: Calculate SL directly, then TP
         sl_price, risk_amount_per_unit = self._calculate_stop_loss_price_and_risk(
@@ -435,7 +437,7 @@ class StrategyArbitrator:
 
     async def _determine_entry_price(
         self, side: str, current_price: Decimal, trading_pair: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Determine the proposed entry price based on order type."""
         if self._entry_type == "MARKET":
             return None  # No specific price for market orders
@@ -608,7 +610,7 @@ class StrategyArbitrator:
         )
         return True
 
-    def _get_side_from_prob_up(self, prob_up: Decimal) -> Optional[str]:
+    def _get_side_from_prob_up(self, prob_up: Decimal) -> str | None:
         """Determine signal side based on probability of price increase."""
         if prob_up >= self._buy_threshold:
             return "BUY"
@@ -616,15 +618,15 @@ class StrategyArbitrator:
             return "SELL"
         return None
 
-    def _get_side_from_prob_down(self, prob_down: Decimal, trading_pair: str) -> Optional[str]:
+    def _get_side_from_prob_down(self, prob_down: Decimal, trading_pair: str) -> str | None:
         """Determine signal side based on probability of price decrease."""
-        buy_signal: Optional[str] = None
+        buy_signal: str | None = None
         # BUY condition based on effective P(up)
         effective_prob_up = Decimal(1) - prob_down
         if effective_prob_up >= self._buy_threshold:
             buy_signal = "BUY"
 
-        sell_signal: Optional[str] = None
+        sell_signal: str | None = None
         # SELL condition based on P(down) vs buy_threshold (Whiteboard rule)
         if prob_down >= self._buy_threshold:
             sell_signal = "SELL"
@@ -643,7 +645,7 @@ class StrategyArbitrator:
 
         return buy_signal or sell_signal
 
-    def _get_side_from_price_change_pct(self, price_change_pct: Decimal) -> Optional[str]:
+    def _get_side_from_price_change_pct(self, price_change_pct: Decimal) -> str | None:
         """Determine signal side based on predicted price change percentage."""
         if price_change_pct >= self._price_change_buy_threshold_pct:
             return "BUY"
@@ -651,7 +653,7 @@ class StrategyArbitrator:
             return "SELL"
         return None
 
-    def _calculate_signal_side(self, prediction_event: PredictionEvent) -> Optional[str]:
+    def _calculate_signal_side(self, prediction_event: PredictionEvent) -> str | None:
         """Interpret prediction and determine the primary signal side."""
         trading_pair = prediction_event.trading_pair
         try:
@@ -685,13 +687,13 @@ class StrategyArbitrator:
 
     async def _evaluate_strategy(
         self, prediction_event: PredictionEvent
-    ) -> Optional[TradeSignalProposedEvent]:
+    ) -> TradeSignalProposedEvent | None:
         """Evaluate trading strategy based on prediction probabilities.
 
         Returns TradeSignalProposedEvent if strategy triggers, None otherwise.
         """
         # Init to None. Return value if any step fails or exception.
-        generated_event: Optional[TradeSignalProposedEvent] = None
+        generated_event: TradeSignalProposedEvent | None = None
 
         try:
             trading_pair = prediction_event.trading_pair

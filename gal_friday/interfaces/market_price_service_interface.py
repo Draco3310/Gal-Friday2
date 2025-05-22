@@ -42,7 +42,7 @@ class MarketPriceService(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def get_latest_price(self, trading_pair: str) -> Optional[Decimal]:
+    async def get_latest_price(self, trading_pair: str) -> Decimal | None:
         """
         Get the latest known market price for a trading pair.
 
@@ -61,7 +61,7 @@ class MarketPriceService(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def get_bid_ask_spread(self, trading_pair: str) -> Optional[tuple[Decimal, Decimal]]:
+    async def get_bid_ask_spread(self, trading_pair: str) -> tuple[Decimal, Decimal] | None:
         """
         Get the current best bid and ask prices from the data source.
 
@@ -78,7 +78,7 @@ class MarketPriceService(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def get_price_timestamp(self, trading_pair: str) -> Optional[datetime]:
+    async def get_price_timestamp(self, trading_pair: str) -> datetime | None:
         """
         Get the timestamp (UTC) associated with the latest price data.
 
@@ -115,7 +115,7 @@ class MarketPriceService(abc.ABC):
     @abc.abstractmethod
     async def convert_amount(
         self, from_amount: Decimal, from_currency: str, to_currency: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """
         Convert an amount from one currency to another.
 
@@ -138,8 +138,8 @@ class MarketPriceService(abc.ABC):
         trading_pair: str,
         timeframe: str, # e.g., "1d" for daily, "1h" for hourly (Kraken uses minutes)
         since: datetime, # Start timestamp (UTC)
-        limit: Optional[int] = None # Number of data points
-    ) -> Optional[list[dict[str, Any]]]: # List of OHLCV candles
+        limit: int | None = None # Number of data points
+    ) -> list[dict[str, Any]] | None: # List of OHLCV candles
         """
         Fetch historical OHLCV data for a trading pair.
 
@@ -154,7 +154,7 @@ class MarketPriceService(abc.ABC):
         Returns
         -------
             A list of dictionaries, where each dictionary represents an OHLCV candle:
-            {'timestamp': datetime_obj, 'open': Decimal, 'high': Decimal, 
+            {'timestamp': datetime_obj, 'open': Decimal, 'high': Decimal,
              'low': Decimal, 'close': Decimal, 'volume': Decimal},
             or None if data is unavailable or an error occurs. Timestamps are UTC.
         """

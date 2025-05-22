@@ -26,7 +26,6 @@ import types  # Added for exc_info typing
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     ClassVar,
     Generic,
     Optional,
@@ -35,11 +34,13 @@ from typing import (
     Union,
 )
 
+from collections.abc import Callable
+
 import asyncpg
 
 # Import JSON Formatter
 from pythonjsonlogger import jsonlogger
-from typing_extensions import AsyncContextManager
+from typing import AsyncContextManager
 
 from .core.events import EventType, LogEvent
 from .core.pubsub import PubSubManager
@@ -61,7 +62,7 @@ class ConfigManagerProtocol(Protocol):
     configuration values from various sources.
     """
 
-    def get(self, key: str, default: Optional[_T] = None) -> _T:
+    def get(self, key: str, default: _T | None = None) -> _T:
         """Get a configuration value by key.
 
         Args
@@ -102,7 +103,7 @@ class DBConnection(Protocol):
     async def execute(
         self,
         query: str,
-        params: Optional[Union[Sequence[Any], Mapping[str, Any]]] = None
+        params: Sequence[Any] | Mapping[str, Any] | None = None
     ) -> _RT:
         """Execute a database query.
 
@@ -234,8 +235,8 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
         self._table_name = table_name
         self._pool = pool
         self._loop = loop
-        self._queue: asyncio.Queue[Optional[dict[str, Any]]] = asyncio.Queue()
-        self._task: Optional[asyncio.Task[None]] = None
+        self._queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        self._task: asyncio.Task[None] | None = None
         self._closed = False
         self._task = asyncio.create_task(self._process_queue())
 
@@ -462,8 +463,8 @@ class LoggerService(Generic[PoolType]):
         # Async DB Handler setup
         self._db_config: dict[str, Any] = self._config_manager.get("logging.database", {})
         self._db_enabled = bool(self._db_config.get("enabled", False))
-        self._async_handler: Optional[AsyncPostgresHandler[PoolType]] = None
-        self._db_pool: Optional[PoolType] = None
+        self._async_handler: AsyncPostgresHandler[PoolType] | None = None
+        self._db_pool: PoolType | None = None
 
         # Queue and thread for handling synchronous logging calls from async
         # context
@@ -570,8 +571,8 @@ class LoggerService(Generic[PoolType]):
                 )
 
     def _filter_sensitive_data(
-        self, context: Optional[dict[str, Any]]
-    ) -> Optional[dict[str, Any]]:
+        self, context: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         """Recursively filter sensitive data from log context."""
         if (
             not context
@@ -630,8 +631,8 @@ class LoggerService(Generic[PoolType]):
         level: int,
         message: str,
         *args: Any,  # Add *args here
-        source_module: Optional[str] = None,
-        context: Optional[dict] = None,
+        source_module: str | None = None,
+        context: dict | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message to the configured handlers.
@@ -666,8 +667,8 @@ class LoggerService(Generic[PoolType]):
         self,
         message: str,
         *args: Any,  # Add *args
-        source_module: Optional[str] = None,
-        context: Optional[dict] = None,
+        source_module: str | None = None,
+        context: dict | None = None,
     ) -> None:
         """Log a message with DEBUG level.
 
@@ -684,8 +685,8 @@ class LoggerService(Generic[PoolType]):
         self,
         message: str,
         *args: Any,  # Add *args
-        source_module: Optional[str] = None,
-        context: Optional[dict] = None,
+        source_module: str | None = None,
+        context: dict | None = None,
     ) -> None:
         """Log a message with INFO level.
 
@@ -702,8 +703,8 @@ class LoggerService(Generic[PoolType]):
         self,
         message: str,
         *args: Any,  # Add *args
-        source_module: Optional[str] = None,
-        context: Optional[dict] = None,
+        source_module: str | None = None,
+        context: dict | None = None,
     ) -> None:
         """Log a message with WARNING level.
 
@@ -720,8 +721,8 @@ class LoggerService(Generic[PoolType]):
         self,
         message: str,
         *args: Any,  # Add *args
-        source_module: Optional[str] = None,
-        context: Optional[dict] = None,
+        source_module: str | None = None,
+        context: dict | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message with ERROR level.
@@ -740,11 +741,11 @@ class LoggerService(Generic[PoolType]):
         self,
         message: str,
         *args: Any,  # Add *args
-        source_module: Optional[str] = None,
-        context: Optional[dict] = None,
+        source_module: str | None = None,
+        context: dict | None = None,
     ) -> None:
         """Log a message with ERROR level and include exception information.
-        
+
         This method should only be called from an exception handler.
 
         Args
@@ -760,8 +761,8 @@ class LoggerService(Generic[PoolType]):
         self,
         message: str,
         *args: Any,  # Add *args
-        source_module: Optional[str] = None,
-        context: Optional[dict] = None,
+        source_module: str | None = None,
+        context: dict | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message with CRITICAL level.
@@ -831,7 +832,7 @@ class LoggerService(Generic[PoolType]):
 
     def _prepare_influxdb_point(
         self, measurement: str, tags: dict[str, str], fields: dict[str, Any], timestamp: datetime
-    ) -> Optional[InfluxDBPoint]:  # Returns InfluxDB Point or None
+    ) -> InfluxDBPoint | None:  # Returns InfluxDB Point or None
         """Prepare a data point for InfluxDB.
 
         Args
@@ -902,7 +903,7 @@ class LoggerService(Generic[PoolType]):
         measurement: str,
         tags: dict[str, str],
         fields: dict[str, Any],
-        timestamp: Optional[datetime] = None,
+        timestamp: datetime | None = None,
     ) -> None:
         """Log time-series data to InfluxDB.
 
@@ -1022,7 +1023,7 @@ class LoggerService(Generic[PoolType]):
                     self.info(
                         "Database log handler closed gracefully.", source_module="LoggerService"
                     )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self.warning(
                     "Timeout waiting for database log handler queue to empty.",
                     source_module="LoggerService",
@@ -1167,7 +1168,7 @@ class AsyncpgConnectionAdapter(DBConnection):
     async def execute(
         self,
         query: str,
-        params: Optional[Union[Sequence[Any], Mapping[str, Any]]] = None
+        params: Sequence[Any] | Mapping[str, Any] | None = None
     ) -> _RT: # Changed Any to _RT
         """Execute a query using the wrapped asyncpg.Connection."""
         if params is None:

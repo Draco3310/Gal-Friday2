@@ -4,7 +4,8 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Callable, Optional, TypedDict, Union, Unpack
+from typing import Any, Optional, TypedDict, Union, Unpack
+from collections.abc import Callable
 
 from ..exceptions import DataValidationError
 from ..logger_service import LoggerService
@@ -20,9 +21,9 @@ class TradeInfo:
     quantity: Decimal
     price: Decimal
     fee: Decimal = Decimal(0)
-    fee_currency: Optional[str] = None
+    fee_currency: str | None = None
     commission: Decimal = Decimal(0)
-    commission_asset: Optional[str] = None
+    commission_asset: str | None = None
 
 
 @dataclass
@@ -36,7 +37,7 @@ class PositionInfo:
     average_entry_price: Decimal = Decimal(0)
     realized_pnl: Decimal = Decimal(0)
     trade_history: list[TradeInfo] = field(default_factory=list)
-    last_updated: Optional[datetime] = None
+    last_updated: datetime | None = None
 
 
 class PositionManager:
@@ -64,7 +65,7 @@ class PositionManager:
         """Return a list of open positions (non-zero quantity)."""
         return [pos for pos in self._positions.values() if pos.quantity != 0]
 
-    def get_position(self, trading_pair: str) -> Optional[PositionInfo]:
+    def get_position(self, trading_pair: str) -> PositionInfo | None:
         """Get a specific position by trading pair."""
         return self._positions.get(trading_pair)
 
@@ -119,14 +120,14 @@ class PositionManager:
 
         trading_pair: str
         side: str
-        quantity: Union[Decimal, float, str]
-        price: Union[Decimal, float, str]
+        quantity: Decimal | float | str
+        price: Decimal | float | str
         timestamp: datetime
         trade_id: str
-        fee: Union[Decimal, float, str] = field(default_factory=Decimal)
-        fee_currency: Optional[str] = None
-        commission: Union[Decimal, float, str] = field(default_factory=Decimal)
-        commission_asset: Optional[str] = None
+        fee: Decimal | float | str = field(default_factory=Decimal)
+        fee_currency: str | None = None
+        commission: Decimal | float | str = field(default_factory=Decimal)
+        commission_asset: str | None = None
 
         # This method is used by the dataclass for field initialization
         def __post_init__(self) -> None:
@@ -151,14 +152,14 @@ class PositionManager:
         timestamp: datetime
         trade_id: str
         fee: Decimal | float | str
-        fee_currency: Optional[str]
+        fee_currency: str | None
         commission: Decimal | float | str
-        commission_asset: Optional[str]
+        commission_asset: str | None
 
     async def update_position_for_trade(
         self,
         **kwargs: Unpack[_UpdatePositionKwargs],
-    ) -> tuple[Decimal, Optional[PositionInfo]]:
+    ) -> tuple[Decimal, PositionInfo | None]:
         """Update position based on a new trade.
 
         This is a convenience wrapper around _update_position_for_trade_impl
@@ -180,7 +181,7 @@ class PositionManager:
     async def _update_position_for_trade_impl(
         self,
         params: _UpdatePositionParams,
-    ) -> tuple[Decimal, Optional[PositionInfo]]:
+    ) -> tuple[Decimal, PositionInfo | None]:
         """Update position based on trade execution.
 
         Args:
@@ -285,8 +286,8 @@ class PositionManager:
         self,
         _trading_pair: str,  # Unused, keeping for backward compatibility
         side: str,
-        quantity: Union[Decimal, float, str],
-        price: Union[Decimal, float, str],
+        quantity: Decimal | float | str,
+        price: Decimal | float | str,
     ) -> None:
         """Validate trade parameters.
 
@@ -378,7 +379,7 @@ class PositionManager:
 
         return self._positions[trading_pair]
 
-    async def get_total_realized_pnl(self, trading_pair: Optional[str] = None) -> Decimal:
+    async def get_total_realized_pnl(self, trading_pair: str | None = None) -> Decimal:
         """Get total realized PnL for a specific pair or all pairs."""
         async with self._lock:
             if trading_pair:
@@ -394,12 +395,12 @@ class PositionManager:
         trade_id: str
         trading_pair: str
         side: str
-        quantity: Union[Decimal, float, str]
-        price: Union[Decimal, float, str]
-        fee: Union[Decimal, float, str] = field(default_factory=Decimal)
-        fee_currency: Optional[str] = None
-        commission: Union[Decimal, float, str] = field(default_factory=Decimal)
-        commission_asset: Optional[str] = None
+        quantity: Decimal | float | str
+        price: Decimal | float | str
+        fee: Decimal | float | str = field(default_factory=Decimal)
+        fee_currency: str | None = None
+        commission: Decimal | float | str = field(default_factory=Decimal)
+        commission_asset: str | None = None
 
         def __post_init__(self) -> None:
             """Validate the parameters after initialization."""
@@ -422,9 +423,9 @@ class PositionManager:
         quantity: Decimal | float | str
         price: Decimal | float | str
         fee: Decimal | float | str
-        fee_currency: Optional[str]
+        fee_currency: str | None
         commission: Decimal | float | str
-        commission_asset: Optional[str]
+        commission_asset: str | None
 
     def _create_trade_record(self, **kwargs: Unpack[_TradeRecordKwargs]) -> TradeInfo:
         """Create a trade record (legacy interface).

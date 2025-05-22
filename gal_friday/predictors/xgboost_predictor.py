@@ -25,7 +25,7 @@ class XGBoostPredictor(PredictorInterface):
     """Implementation of PredictorInterface for XGBoost models."""
 
     def __init__(
-        self, model_path: str, model_id: str, config: Optional[dict[str, Any]] = None
+        self, model_path: str, model_id: str, config: dict[str, Any] | None = None
     ) -> None:
         """
         Initialize the XGBoost predictor.
@@ -177,14 +177,14 @@ class XGBoostPredictor(PredictorInterface):
             raise
 
     @property
-    def expected_feature_names(self) -> Optional[list[str]]:
+    def expected_feature_names(self) -> list[str] | None:
         """Return the list of feature names the model expects from config."""
         return self.config.get("model_feature_names")
 
     @classmethod
     def _load_model(
         cls, model_path: str, model_id: str, logger: logging.Logger
-    ) -> tuple[Union[xgb.Booster, None], dict[str, Any]]:
+    ) -> tuple[xgb.Booster | None, dict[str, Any]]:
         """Load XGBoost model from file."""
         if not Path(model_path).exists():
             return None, {"error": f"Model file not found: {model_path}", "model_id": model_id}
@@ -222,10 +222,10 @@ class XGBoostPredictor(PredictorInterface):
     @staticmethod
     def _prepare_features(
         feature_vector: np.ndarray,
-        scaler: Optional[object],  # Could be StandardScaler, MinMaxScaler, etc.
+        scaler: object | None,  # Could be StandardScaler, MinMaxScaler, etc.
         model_id: str,
         logger: logging.Logger
-    ) -> tuple[Optional[np.ndarray], dict[str, Any]]:
+    ) -> tuple[np.ndarray | None, dict[str, Any]]:
         """Prepare and scale features for prediction."""
         if feature_vector.ndim != 1:
             error_msg = "Feature vector must be 1D for processing."
@@ -300,7 +300,7 @@ class XGBoostPredictor(PredictorInterface):
         cls,
         model_id: str,
         model_path: str,
-        scaler_path: Optional[str],
+        scaler_path: str | None,
         feature_vector: np.ndarray,  # Expects 1D raw feature vector
         model_feature_names: list[str],  # From model config
         _predictor_specific_config: dict[str, Any] | None = None,

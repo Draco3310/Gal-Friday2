@@ -4,7 +4,9 @@ This file provides minimal stub implementations for typer functions.
 For actual functionality, the real typer package should be installed.
 """
 
-from typing import Callable, Optional, TypeVar
+from typing import Optional, TypeVar
+
+from collections.abc import Callable
 
 # Type variable for function arguments
 T = TypeVar("T")
@@ -16,7 +18,7 @@ class Typer:
     def __init__(
         self,
         name: str = "",
-        help_text: Optional[str] = None,
+        help_text: str | None = None,
         no_args_is_help: bool = False,
         add_completion: bool = True,
     ) -> None:
@@ -36,7 +38,7 @@ class Typer:
         self.commands: list[Callable] = []
 
     def command(
-        self, _name: Optional[str] = None, _help_text: Optional[str] = None, **_kwargs: object
+        self, _name: str | None = None, _help_text: str | None = None, **_kwargs: object
     ) -> Callable[[Callable[..., object]], Callable[..., object]]:
         """Create a new command.
 
@@ -80,7 +82,7 @@ def run(function: Callable[..., object], **_kwargs: object) -> None:
 def argument(
     default: object = None,
     *,
-    _help_text: Optional[str] = None,
+    _help_text: str | None = None,
     _show_default: bool = True,
     **_kwargs: object,
 ) -> object:
@@ -103,7 +105,7 @@ def argument(
 def option(
     default: object = None,
     *,
-    _help_text: Optional[str] = None,
+    _help_text: str | None = None,
     _show_default: bool = True,
     _is_flag: bool = False,
     **_kwargs: object,

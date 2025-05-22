@@ -20,7 +20,7 @@ class PositionLike(Protocol):
 
     quantity: Decimal
     base_asset: str
-    quote_asset: Optional[str]  # Made optional as it's not always used by all consumers
+    quote_asset: str | None  # Made optional as it's not always used by all consumers
 
 PositionInput = Union[PositionLike, dict[str, Any]]
 
@@ -63,8 +63,8 @@ class ValuationService:
         self._weekly_peak_equity: Decimal = Decimal(0)
         self._daily_drawdown_pct: Decimal = Decimal(0)
         self._weekly_drawdown_pct: Decimal = Decimal(0)
-        self._last_daily_reset_time: Optional[datetime] = None
-        self._last_weekly_reset_time: Optional[datetime] = None
+        self._last_daily_reset_time: datetime | None = None
+        self._last_weekly_reset_time: datetime | None = None
 
         # Configuration for drawdown reset times
         self._daily_reset_hour_utc: int = 0
@@ -138,7 +138,7 @@ class ValuationService:
 
     async def _try_direct_conversion(
         self, from_currency: str, to_currency: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """
         Try to directly convert between currencies using market price.
 
@@ -170,7 +170,7 @@ class ValuationService:
 
     async def _try_inverse_conversion(
         self, from_currency: str, to_currency: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """
         Try to convert between currencies using inverse market price.
 
@@ -203,7 +203,7 @@ class ValuationService:
             )
         return None
 
-    async def _try_usd_conversion(self, from_currency: str, to_currency: str) -> Optional[Decimal]:
+    async def _try_usd_conversion(self, from_currency: str, to_currency: str) -> Decimal | None:
         """
         Try to convert between currencies using USD as an intermediate.
 
@@ -247,7 +247,7 @@ class ValuationService:
 
     async def get_currency_conversion_rate(
         self, from_currency: str, to_currency: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """
         Get the conversion rate between two currencies.
 
@@ -300,7 +300,7 @@ class ValuationService:
 
     def _extract_position_details(
         self, pair: str, pos_data_any: PositionInput
-    ) -> Optional[tuple[Decimal, str, str]]:
+    ) -> tuple[Decimal, str, str] | None:
         """Extract quantity, base_asset, and quote_asset from position data."""
         if (
             hasattr(pos_data_any, "quantity") and
@@ -325,7 +325,7 @@ class ValuationService:
         return None
 
     async def calculate_position_value(
-        self, positions: dict[str, PositionInput], valuation_currency: Optional[str] = None
+        self, positions: dict[str, PositionInput], valuation_currency: str | None = None
     ) -> tuple[Decimal, bool, dict[str, Decimal]]:
         """
         Calculate total value of all positions in the valuation currency.
@@ -404,7 +404,7 @@ class ValuationService:
         return total_value, has_missing_prices, position_values
 
     async def calculate_cash_value(
-        self, funds: dict[str, Decimal], valuation_currency: Optional[str] = None
+        self, funds: dict[str, Decimal], valuation_currency: str | None = None
     ) -> tuple[Decimal, bool]:
         """
         Calculate the value of cash balances in valuation currency.
@@ -492,13 +492,13 @@ class ValuationService:
                 exposure_pct
             )
 
-    async def _get_rate_direct_to_valuation_currency(self, base_asset: str) -> Optional[Decimal]:
+    async def _get_rate_direct_to_valuation_currency(self, base_asset: str) -> Decimal | None:
         """Try to get conversion rate directly from base_asset to valuation_currency."""
         return await self.get_currency_conversion_rate(base_asset, self.valuation_currency)
 
     async def _get_rate_via_pair_quote_asset(
         self, base_asset: str, pair_str: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Try to get rate via the pair's quote asset as an intermediary."""
         split_pair = pair_str.split("/")
         if len(split_pair) != PAIR_SPLIT_EXPECTED_PARTS:
@@ -539,7 +539,7 @@ class ValuationService:
 
     async def _get_position_base_asset_value_in_valuation_currency(
         self, pair: str, pos_data_any: PositionInput # pair is used for the indirect strategy
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Get the value of a position's base asset in the valuation currency."""
         quantity: Decimal
         base_asset: str
@@ -570,7 +570,7 @@ class ValuationService:
             return Decimal(0)
 
         # 2. Attempt valuation strategies
-        rate_in_valuation_currency: Optional[Decimal] = None
+        rate_in_valuation_currency: Decimal | None = None
 
         # Strategy 1: Direct to valuation currency
         rate_in_valuation_currency = await self._get_rate_direct_to_valuation_currency(base_asset)

@@ -14,12 +14,13 @@ from decimal import Decimal, getcontext
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Optional,
     Protocol,
     cast,
     runtime_checkable,
 )
+
+from collections.abc import Callable
 
 from .exceptions import DataValidationError, InsufficientFundsError, PriceNotAvailableError
 from .interfaces.market_price_service_interface import MarketPriceService
@@ -130,14 +131,14 @@ class PortfolioManager:
 
         # --- Internal State & Cache ---
         self._lock = asyncio.Lock()  # Lock for managing cached state updates
-        self._reconciliation_task: Optional[asyncio.Task] = None
-        self._execution_report_handler: Optional[
+        self._reconciliation_task: asyncio.Task | None = None
+        self._execution_report_handler: None | (
             Callable[[ExecutionReportEvent], Coroutine[Any, Any, Any]]
-        ] = None
+        ) = None
 
         # Cache for the latest state snapshot (used by get_current_state)
         self._last_known_prices: dict[str, Decimal] = {}
-        self._last_state_update_time: Optional[datetime] = None
+        self._last_state_update_time: datetime | None = None
         self._last_total_exposure_pct: Decimal = Decimal(0)
 
         self.logger.info("PortfolioManager initialized.", source_module=self._source_module)
@@ -439,7 +440,7 @@ class PortfolioManager:
 
     def _parse_execution_values(
         self, event: "ExecutionReportEvent"
-    ) -> tuple[str, str, Decimal, Decimal, Decimal, Optional[str]]:
+    ) -> tuple[str, str, Decimal, Decimal, Decimal, str | None]:
         """
         Parse and validate numeric values from the execution report.
 
@@ -1171,5 +1172,3 @@ class PortfolioManager:
                 }
 
         return discrepancies
-
-

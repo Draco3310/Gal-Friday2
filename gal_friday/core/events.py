@@ -338,7 +338,7 @@ class SystemStateEvent(Event):
 
     new_state: str
     reason: str
-    halt_action: Optional[str] = None  # e.g., "LIQUIDATE_POSITIONS"
+    halt_action: str | None = None  # e.g., "LIQUIDATE_POSITIONS"
     event_type: EventType = field(default=EventType.SYSTEM_STATE_CHANGE, init=False)
 
 
@@ -362,7 +362,7 @@ class MarketDataL2Event(Event):
     bids: Sequence[tuple[str, str]]  # [[price_str, volume_str], ...]
     asks: Sequence[tuple[str, str]]  # [[price_str, volume_str], ...]
     is_snapshot: bool
-    timestamp_exchange: Optional[datetime] = None
+    timestamp_exchange: datetime | None = None
     event_type: EventType = field(default=EventType.MARKET_DATA_L2, init=False)
 
 
@@ -392,7 +392,7 @@ class MarketDataTradeEvent(Event):
     price: Decimal
     volume: Decimal
     side: str  # Aggressor side: "buy" or "sell"
-    trade_id: Optional[str] = None  # Optional: Exchange-specific trade ID
+    trade_id: str | None = None  # Optional: Exchange-specific trade ID
     event_type: EventType = field(default=EventType.MARKET_DATA_TRADE, init=False)
 
     # Error messages
@@ -433,8 +433,8 @@ class PredictionEvent(Event):
     prediction_target: str  # e.g., "prob_price_up_0.1pct_5min"
     # Use float or Decimal for probability/value
     prediction_value: float
-    confidence: Optional[float] = None
-    associated_features: Optional[dict] = None
+    confidence: float | None = None
+    associated_features: dict | None = None
     event_type: EventType = field(default=EventType.PREDICTION_GENERATED, init=False)
 
 
@@ -450,9 +450,9 @@ class TradeSignalProposedParams:
     proposed_sl_price: Decimal
     proposed_tp_price: Decimal
     strategy_id: str
-    proposed_entry_price: Optional[Decimal] = None
-    triggering_prediction_event_id: Optional[uuid.UUID] = None
-    triggering_prediction: Optional[dict] = None
+    proposed_entry_price: Decimal | None = None
+    triggering_prediction_event_id: uuid.UUID | None = None
+    triggering_prediction: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -468,9 +468,9 @@ class TradeSignalProposedEvent(Event):
     proposed_sl_price: Decimal
     proposed_tp_price: Decimal
     strategy_id: str
-    proposed_entry_price: Optional[Decimal] = None
-    triggering_prediction_event_id: Optional[uuid.UUID] = None
-    triggering_prediction: Optional[dict] = None  # Added full prediction data
+    proposed_entry_price: Decimal | None = None
+    triggering_prediction_event_id: uuid.UUID | None = None
+    triggering_prediction: dict | None = None  # Added full prediction data
     event_type: EventType = field(default=EventType.TRADE_SIGNAL_PROPOSED, init=False)
 
     @classmethod
@@ -480,7 +480,7 @@ class TradeSignalProposedEvent(Event):
         entry_type: str,
         proposed_sl_price: Decimal,
         proposed_tp_price: Decimal,
-        proposed_entry_price: Optional[Decimal] = None,
+        proposed_entry_price: Decimal | None = None,
     ) -> None:
         """Validate inputs for trade signal proposal."""
         # Validate basic parameters
@@ -497,7 +497,7 @@ class TradeSignalProposedEvent(Event):
 
     @staticmethod
     def _validate_basic_params(
-        side: str, entry_type: str, proposed_entry_price: Optional[Decimal]
+        side: str, entry_type: str, proposed_entry_price: Decimal | None
     ) -> None:
         """Validate basic parameters for trade signal."""
         if side not in ["BUY", "SELL"]:
@@ -511,7 +511,7 @@ class TradeSignalProposedEvent(Event):
 
     @staticmethod
     def _validate_price_values(
-        sl_price: Decimal, tp_price: Decimal, entry_price: Optional[Decimal]
+        sl_price: Decimal, tp_price: Decimal, entry_price: Decimal | None
     ) -> None:
         """Validate that price values are positive."""
         if sl_price <= Decimal(0):
@@ -586,7 +586,7 @@ class TradeSignalApprovedParams:
     sl_price: Decimal
     tp_price: Decimal
     risk_parameters: dict
-    limit_price: Optional[Decimal] = None
+    limit_price: Decimal | None = None
 
 
 @dataclass
@@ -598,7 +598,7 @@ class TradeSignalApprovedValidationParams:
     quantity: Decimal
     sl_price: Decimal
     tp_price: Decimal
-    limit_price: Optional[Decimal] = None
+    limit_price: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -615,7 +615,7 @@ class TradeSignalApprovedEvent(Event):
     sl_price: Decimal
     tp_price: Decimal
     risk_parameters: dict  # Parameters used by RiskManager for approval
-    limit_price: Optional[Decimal] = None
+    limit_price: Decimal | None = None
     event_type: EventType = field(default=EventType.TRADE_SIGNAL_APPROVED, init=False)
 
     @classmethod
@@ -636,7 +636,7 @@ class TradeSignalApprovedEvent(Event):
             )
 
     @staticmethod
-    def _validate_basic_params(side: str, order_type: str, limit_price: Optional[Decimal]) -> None:
+    def _validate_basic_params(side: str, order_type: str, limit_price: Decimal | None) -> None:
         """Validate basic parameters for trade signal."""
         if side not in ["BUY", "SELL"]:
             raise InvalidSideError(side)
@@ -649,7 +649,7 @@ class TradeSignalApprovedEvent(Event):
 
     @staticmethod
     def _validate_prices_and_quantity(
-        quantity: Decimal, sl_price: Decimal, tp_price: Decimal, limit_price: Optional[Decimal]
+        quantity: Decimal, sl_price: Decimal, tp_price: Decimal, limit_price: Decimal | None
     ) -> None:
         """Validate that prices and quantity are positive."""
         if quantity <= Decimal(0):
@@ -773,16 +773,16 @@ class ExecutionReportParams:
     order_type: str
     side: str
     quantity_ordered: Decimal
-    signal_id: Optional[uuid.UUID] = None
-    client_order_id: Optional[str] = None
+    signal_id: uuid.UUID | None = None
+    client_order_id: str | None = None
     quantity_filled: Decimal = Decimal(0)
-    average_fill_price: Optional[Decimal] = None
-    limit_price: Optional[Decimal] = None
-    stop_price: Optional[Decimal] = None
-    commission: Optional[Decimal] = None
-    commission_asset: Optional[str] = None
-    timestamp_exchange: Optional[datetime] = None
-    error_message: Optional[str] = None
+    average_fill_price: Decimal | None = None
+    limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
+    commission: Decimal | None = None
+    commission_asset: str | None = None
+    timestamp_exchange: datetime | None = None
+    error_message: str | None = None
 
 
 @dataclass
@@ -794,10 +794,10 @@ class ExecutionReportValidationParams:
     side: str
     quantity_ordered: Decimal
     quantity_filled: Decimal
-    average_fill_price: Optional[Decimal]
-    limit_price: Optional[Decimal]
-    commission: Optional[Decimal]
-    commission_asset: Optional[str]
+    average_fill_price: Decimal | None
+    limit_price: Decimal | None
+    commission: Decimal | None
+    commission_asset: str | None
 
 
 @dataclass(frozen=True)
@@ -812,16 +812,16 @@ class ExecutionReportEvent(Event):
     side: str
     # Use Decimal for quantity/prices/commission
     quantity_ordered: Decimal
-    signal_id: Optional[uuid.UUID] = None  # Originating signal ID
-    client_order_id: Optional[str] = None  # Internal ID if used
+    signal_id: uuid.UUID | None = None  # Originating signal ID
+    client_order_id: str | None = None  # Internal ID if used
     quantity_filled: Decimal = Decimal(0)
-    average_fill_price: Optional[Decimal] = None
-    limit_price: Optional[Decimal] = None
-    stop_price: Optional[Decimal] = None
-    commission: Optional[Decimal] = None
-    commission_asset: Optional[str] = None
-    timestamp_exchange: Optional[datetime] = None
-    error_message: Optional[str] = None
+    average_fill_price: Decimal | None = None
+    limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
+    commission: Decimal | None = None
+    commission_asset: str | None = None
+    timestamp_exchange: datetime | None = None
+    error_message: str | None = None
     event_type: EventType = field(default=EventType.EXECUTION_REPORT, init=False)
 
     @classmethod
@@ -878,8 +878,8 @@ class ExecutionReportEvent(Event):
     def _validate_prices(
         order_type: str,
         order_status: str,
-        limit_price: Optional[Decimal],
-        average_fill_price: Optional[Decimal],
+        limit_price: Decimal | None,
+        average_fill_price: Decimal | None,
     ) -> None:
         """Validate price values."""
         if order_type == "LIMIT" and limit_price is None:
@@ -897,7 +897,7 @@ class ExecutionReportEvent(Event):
 
     @staticmethod
     def _validate_commission(
-        commission: Optional[Decimal], commission_asset: Optional[str]
+        commission: Decimal | None, commission_asset: str | None
     ) -> None:
         """Validate commission details."""
         if commission is not None:
@@ -968,7 +968,7 @@ class LogEvent(Event):
 
     level: str  # e.g., "INFO", "ERROR"
     message: str
-    context: Optional[dict] = None
+    context: dict | None = None
     event_type: EventType = field(default=EventType.LOG_ENTRY, init=False)
 
 
@@ -977,9 +977,9 @@ class APIErrorEvent(Event):
     """Event indicating an API error occurred with the trading platform."""
 
     error_message: str
-    http_status: Optional[int] = None
-    endpoint: Optional[str] = None
-    request_data: Optional[dict] = None
+    http_status: int | None = None
+    endpoint: str | None = None
+    request_data: dict | None = None
     retry_attempted: bool = False
     event_type: EventType = field(default=EventType.SYSTEM_ERROR, init=False)
 

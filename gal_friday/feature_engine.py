@@ -7,7 +7,9 @@ indicators and other features used in prediction models.
 from collections import defaultdict, deque
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Callable, Optional, Union
+from typing import Any, Optional, Union
+
+from collections.abc import Callable
 import uuid
 
 import pandas as pd
@@ -36,7 +38,7 @@ class FeatureEngine:
         config: dict[str, Any],
         pubsub_manager: PubSubManager,
         logger_service: LoggerService,
-        historical_data_service: Optional[HistoricalDataService] = None,
+        historical_data_service: HistoricalDataService | None = None,
     ) -> None:
         """Initialize the FeatureEngine with configuration and required services.
 
@@ -59,7 +61,7 @@ class FeatureEngine:
 
         # Initialize feature handlers dispatcher
         self._feature_handlers: dict[
-            str, Callable[[dict[str, Any], dict[str, Any]], Optional[dict[str, str]]]
+            str, Callable[[dict[str, Any], dict[str, Any]], dict[str, str] | None]
         ] = {
             "rsi": self._process_rsi_feature,
             "macd": self._process_macd_feature,
@@ -530,7 +532,7 @@ class FeatureEngine:
             )
 
     # --- Stubs for individual feature calculation methods ---
-    def _calculate_rsi(self, close_series_decimal: pd.Series, period: int) -> Optional[Decimal]:
+    def _calculate_rsi(self, close_series_decimal: pd.Series, period: int) -> Decimal | None:
         self.logger.debug(
             "Calculating RSI with period %s using pandas-TA",
             period,
@@ -559,7 +561,7 @@ class FeatureEngine:
 
     def _calculate_macd(
         self, close_series_decimal: pd.Series, fast: int, slow: int, signal: int
-    ) -> Optional[dict[str, Decimal]]:
+    ) -> dict[str, Decimal] | None:
         self.logger.debug(
             "Calculating MACD with fast=%s, slow=%s, signal=%s using pandas-TA",
             fast, slow, signal,
@@ -617,7 +619,7 @@ class FeatureEngine:
 
     def _calculate_bollinger_bands(
         self, close_series_decimal: pd.Series, length: int, std_dev: float
-    ) -> Optional[dict[str, Decimal]]:
+    ) -> dict[str, Decimal] | None:
         self.logger.debug(
             "Calculating Bollinger Bands with length=%s, std_dev=%s using pandas-TA",
             length,
@@ -679,7 +681,7 @@ class FeatureEngine:
             )
             return None
 
-    def _calculate_vwap(self, ohlcv_df_decimal: pd.DataFrame, length: int) -> Optional[Decimal]:
+    def _calculate_vwap(self, ohlcv_df_decimal: pd.DataFrame, length: int) -> Decimal | None:
         # VWAP is often calculated per session or needs specific anchoring.
         # pandas-ta has vwap, but we'll do a rolling one here for simplicity as per previous stub.
         # If a specific library version of VWAP is desired, that can be used.
@@ -706,7 +708,7 @@ class FeatureEngine:
 
             if sum_vol == Decimal("0"): # Avoid division by zero
                 return None
-            result: Optional[Decimal] = sum_tp_vol / sum_vol
+            result: Decimal | None = sum_tp_vol / sum_vol
             return result
         except Exception:
             self.logger.exception(
@@ -714,7 +716,7 @@ class FeatureEngine:
             )
             return None
 
-    def _calculate_roc(self, close_series_decimal: pd.Series, period: int) -> Optional[Decimal]:
+    def _calculate_roc(self, close_series_decimal: pd.Series, period: int) -> Decimal | None:
         self.logger.debug(
             "Calculating ROC with period %s using pandas-TA",
             period,
@@ -740,7 +742,7 @@ class FeatureEngine:
             )
             return None
 
-    def _calculate_atr(self, ohlcv_df_decimal: pd.DataFrame, length: int) -> Optional[Decimal]:
+    def _calculate_atr(self, ohlcv_df_decimal: pd.DataFrame, length: int) -> Decimal | None:
         self.logger.debug(
             "Calculating ATR with length=%s using pandas-TA",
             length,
@@ -771,7 +773,7 @@ class FeatureEngine:
             )
             return None
 
-    def _calculate_stdev(self, close_series_decimal: pd.Series, length: int) -> Optional[Decimal]:
+    def _calculate_stdev(self, close_series_decimal: pd.Series, length: int) -> Decimal | None:
         self.logger.debug(
             "Calculating StDev with length=%s using pandas-TA (via .std())",
             length,
@@ -799,7 +801,7 @@ class FeatureEngine:
             )
             return None
 
-    def _calculate_bid_ask_spread(self, l2_book: dict[str, Any]) -> Optional[dict[str, Decimal]]:
+    def _calculate_bid_ask_spread(self, l2_book: dict[str, Any]) -> dict[str, Decimal] | None:
         self.logger.debug("Calculating Bid-Ask Spread", source_module=self._source_module)
         if not l2_book or not l2_book.get("bids") or not l2_book.get("asks"):
             return None
@@ -813,7 +815,7 @@ class FeatureEngine:
 
     def _calculate_order_book_imbalance(
         self, l2_book: dict[str, Any], levels: int = 5
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         self.logger.debug(
             "Calculating Order Book Imbalance for %s levels",
             levels,
@@ -832,7 +834,7 @@ class FeatureEngine:
             return Decimal(str(imbalance))
         return Decimal("0.0") # Or None if preferred for no volume
 
-    def _calculate_wap(self, l2_book: dict[str, Any], levels: int = 1) -> Optional[Decimal]:
+    def _calculate_wap(self, l2_book: dict[str, Any], levels: int = 1) -> Decimal | None:
         self.logger.debug(
             "Calculating WAP for %s levels", levels, source_module=self._source_module
         )
@@ -856,7 +858,7 @@ class FeatureEngine:
 
     def _calculate_depth(
         self, l2_book: dict[str, Any], levels: int = 5
-    ) -> Optional[dict[str, Decimal]]:
+    ) -> dict[str, Decimal] | None:
         self.logger.debug(
             "Calculating Depth for %s levels", levels,
             source_module=self._source_module
@@ -873,7 +875,7 @@ class FeatureEngine:
         trades: deque,
         current_bar_start_time: datetime,
         bar_interval_seconds: int = 60
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Calculate true Volume Delta from a deque of recent trades.
 
         Relevant to the current OHLCV bar.
@@ -905,7 +907,7 @@ class FeatureEngine:
 
     def _calculate_vwap_from_trades(
         self, trades: deque, current_bar_start_time: datetime, bar_interval_seconds: int = 60
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Calculate VWAP from a deque of recent trades relevant to the current OHLCV bar."""
         self.logger.debug("Calculating VWAP from trades.", source_module=self._source_module)
         if not trades:
@@ -928,7 +930,7 @@ class FeatureEngine:
         if sum_volume == Decimal("0"):
             return None
 
-        result: Optional[Decimal] = sum_price_volume / sum_volume
+        result: Decimal | None = sum_price_volume / sum_volume
         return result
 
     async def _calculate_and_publish_features(
@@ -1046,7 +1048,7 @@ class FeatureEngine:
                 source_module=self._source_module,
             )
 
-    def _format_feature_value(self, value: Union[Decimal, float, object]) -> str:
+    def _format_feature_value(self, value: Decimal | float | object) -> str:
         """Format a feature value to string. Decimal/float to 8 decimal places."""
         if isinstance(value, (Decimal, float)):
             return f"{value:.8f}"
@@ -1055,7 +1057,7 @@ class FeatureEngine:
     # --- Placeholder Feature Processing Methods ---
     def _process_rsi_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         close_series_decimal = data_sources.get("close")
         if close_series_decimal is None:
             self.logger.warning(
@@ -1076,7 +1078,7 @@ class FeatureEngine:
 
     def _process_macd_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         close_series_decimal = data_sources.get("close")
         if close_series_decimal is None:
             self.logger.warning(
@@ -1105,7 +1107,7 @@ class FeatureEngine:
 
     def _process_bbands_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         close_series_decimal = data_sources.get("close")
         if close_series_decimal is None:
             self.logger.warning(
@@ -1131,10 +1133,10 @@ class FeatureEngine:
 
     def _process_vwap_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         source = params.get("source", "ohlcv")
-        result_val: Optional[Decimal] = None
-        feature_name: Optional[str] = None
+        result_val: Decimal | None = None
+        feature_name: str | None = None
 
         if source == "ohlcv":
             ohlcv_df_decimal = data_sources.get("ohlcv")
@@ -1179,7 +1181,7 @@ class FeatureEngine:
 
     def _process_roc_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         close_series_decimal = data_sources.get("close")
         if close_series_decimal is None:
             self.logger.warning(
@@ -1199,7 +1201,7 @@ class FeatureEngine:
 
     def _process_atr_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         ohlcv_df_decimal = data_sources.get("ohlcv")
         if ohlcv_df_decimal is None:
             self.logger.warning(
@@ -1219,7 +1221,7 @@ class FeatureEngine:
 
     def _process_stdev_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         close_series_decimal = data_sources.get("close")
         if close_series_decimal is None:
             self.logger.warning(
@@ -1239,7 +1241,7 @@ class FeatureEngine:
 
     def _process_l2_spread_feature(
         self, _params: dict[str, Any], data_sources: dict[str, Any] # params marked as unused
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         l2_book = data_sources.get("l2")
         if not l2_book or not l2_book.get("bids") or not l2_book.get("asks"):
             self.logger.debug(
@@ -1263,7 +1265,7 @@ class FeatureEngine:
 
     def _process_l2_imbalance_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         l2_book = data_sources.get("l2")
         if not l2_book or not l2_book.get("bids") or not l2_book.get("asks"):
             self.logger.debug(
@@ -1283,7 +1285,7 @@ class FeatureEngine:
 
     def _process_l2_wap_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         l2_book = data_sources.get("l2")
         if not l2_book or not l2_book.get("bids") or not l2_book.get("asks"):
             self.logger.debug(
@@ -1303,7 +1305,7 @@ class FeatureEngine:
 
     def _process_l2_depth_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         l2_book = data_sources.get("l2")
         if not l2_book or not l2_book.get("bids") or not l2_book.get("asks"):
             self.logger.debug(
@@ -1328,7 +1330,7 @@ class FeatureEngine:
 
     def _process_volume_delta_feature(
         self, params: dict[str, Any], data_sources: dict[str, Any]
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         trades = data_sources.get("trades")
         bar_start_time = data_sources.get("bar_start")
 

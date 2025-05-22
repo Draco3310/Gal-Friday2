@@ -65,7 +65,7 @@ class LSTMPredictor(PredictorInterface):
     BINARY_OUTPUTS = 2  # Number of outputs for binary classification
 
     def __init__(
-        self, model_path: str, model_id: str, config: Optional[dict[str, Any]] = None
+        self, model_path: str, model_id: str, config: dict[str, Any] | None = None
     ) -> None:
         """
         Initialize the LSTMPredictor.
@@ -278,14 +278,14 @@ class LSTMPredictor(PredictorInterface):
             raise PredictionError(f"Failed to generate prediction: {e}") from e
 
     @property
-    def expected_feature_names(self) -> Optional[list[str]]:
+    def expected_feature_names(self) -> list[str] | None:
         """Return the list of feature names (per timestep) the model expects from config."""
         return self.config.get("model_feature_names")
 
     @classmethod
     def _load_tf_model(
         cls, model_path: str, model_id: str, logger: logging.Logger
-    ) -> Union[tuple[Any, str], dict[str, str]]:
+    ) -> tuple[Any, str] | dict[str, str]:
         """Load a TensorFlow model from the given path."""
         import tensorflow as tf
 
@@ -306,7 +306,7 @@ class LSTMPredictor(PredictorInterface):
         model_id: str,
         predictor_config: dict[str, Any],
         logger: logging.Logger,
-    ) -> Union[tuple[Any, str], dict[str, str]]:
+    ) -> tuple[Any, str] | dict[str, str]:
         """Load a PyTorch model from the given path."""
         import importlib
 
@@ -369,7 +369,7 @@ class LSTMPredictor(PredictorInterface):
         scaler_asset: Any,  # Type hint for scaler object
         model_id: str,
         logger: logging.Logger,
-    ) -> Union[tuple[np.ndarray, str], dict[str, str]]:
+    ) -> tuple[np.ndarray, str] | dict[str, str]:
         """Process and scale the input features."""
         # Constants for feature dimensions
         expected_feature_dim = 2  # Expected number of dimensions for LSTM input
@@ -408,7 +408,7 @@ class LSTMPredictor(PredictorInterface):
         model_input: np.ndarray,
         model_framework: str,
         predictor_config: dict[str, Any],
-    ) -> tuple[float, Optional[float]]:
+    ) -> tuple[float, float | None]:
         """Make prediction using the loaded model."""
         is_binary_sigmoid = predictor_config.get("binary_sigmoid_output", False)
 
@@ -461,7 +461,7 @@ class LSTMPredictor(PredictorInterface):
         cls,
         model_id: str,
         model_path: str,
-        scaler_path: Optional[str],
+        scaler_path: str | None,
         feature_sequence: np.ndarray,
         predictor_specific_config: dict[str, Any],
     ) -> dict[str, Any]:

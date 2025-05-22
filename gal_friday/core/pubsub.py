@@ -4,7 +4,9 @@ import asyncio
 from collections import defaultdict
 from collections.abc import Coroutine
 import logging
-from typing import Any, Callable, Optional, Protocol, TypeVar
+from typing import Any, Optional, Protocol, TypeVar
+
+from collections.abc import Callable
 
 # Fix import path for ConfigManager
 from ..config_manager import ConfigManager
@@ -72,9 +74,9 @@ class PubSubManager:
         self._metrics_log_interval_s = self._config.get_float(
             "pubsub.metrics_log_interval_s", 60.0
         )
-        self._metrics_task: Optional[asyncio.Task] = None
+        self._metrics_task: asyncio.Task | None = None
 
-        self._consumer_task: Optional[asyncio.Task] = None
+        self._consumer_task: asyncio.Task | None = None
         self._background_tasks: set[asyncio.Task] = set()
 
     async def publish(self, event: Event) -> None:
@@ -152,7 +154,7 @@ class PubSubManager:
             ):
                 self._handler_failure_counts[handler] = 0
                 self._logger.debug("Reset failure count for handler %s", handler_name)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._logger.exception(
                 "Handler %s timed out (> %ss) processing event %s (%s).",
                 handler_name, self._handler_timeout_s, event_type_name, event_id

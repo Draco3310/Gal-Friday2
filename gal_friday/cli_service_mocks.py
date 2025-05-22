@@ -21,13 +21,13 @@ class Table:
 
     MIN_ARGS_FOR_ROW_PRINT = 2
 
-    def __init__(self, title: Optional[str] = None) -> None:
+    def __init__(self, title: str | None = None) -> None:
         """Initialize a mock table."""
         self.title = title
         if title:
             print(f"TABLE: {title}")
 
-    def add_column(self, title: str, style: Optional[str] = None) -> None:
+    def add_column(self, title: str, style: str | None = None) -> None:
         """Add a column to the table."""
 
     def add_row(self, *args: str) -> None:
@@ -88,7 +88,7 @@ class LoggerService:
     def error(
         self,
         message: str,
-        exc_info: Optional[BaseException] = None,
+        exc_info: BaseException | None = None,
     ) -> None:
         """Log error message."""
         print(f"ERROR: {message}")
@@ -98,8 +98,8 @@ class LoggerService:
     def exception(
         self,
         message: str,
-        source_module: Optional[str] = None,
-        context: Optional[dict] = None,
+        source_module: str | None = None,
+        context: dict | None = None,
     ) -> None:
         """Log error message with exception info."""
         print(f"EXCEPTION: {message}")
@@ -120,7 +120,7 @@ class LoggerService:
     def critical(
         self,
         message: str,
-        exc_info: Optional[BaseException] = None,
+        exc_info: BaseException | None = None,
     ) -> None:
         """Log critical message."""
         print(f"CRITICAL: {message}")

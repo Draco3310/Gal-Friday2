@@ -161,7 +161,7 @@ class FundsManager:
     async def handle_commission(
         self,
         commission: Decimal,
-        commission_asset: Optional[str],
+        commission_asset: str | None,
     ) -> None:
         """
         Update funds to account for trading commission.

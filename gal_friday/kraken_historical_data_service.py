@@ -5,7 +5,9 @@ from collections.abc import Coroutine
 from datetime import datetime, timedelta
 from decimal import Decimal
 import logging
-from typing import Any, Callable, Optional, ParamSpec, TypeVar, Union
+from typing import Any, Optional, ParamSpec, TypeVar, Union
+
+from collections.abc import Callable
 
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -23,7 +25,7 @@ class CircuitBreakerError(Exception):
 class RateLimitTracker:
     """Tracks and manages API rate limits."""
 
-    def __init__(self, tier: str = "default", logger: Optional[LoggerService] = None) -> None:
+    def __init__(self, tier: str = "default", logger: LoggerService | None = None) -> None:
         """Initialize rate limit tracker with specified tier settings.
 
         Args
@@ -70,7 +72,7 @@ class CircuitBreaker:
         self,
         failure_threshold: int = 3,
         reset_timeout: int = 60,
-        logger: Optional[LoggerService] = None,
+        logger: LoggerService | None = None,
     ) -> None:
         """Initialize circuit breaker with specified thresholds.
 
@@ -84,7 +86,7 @@ class CircuitBreaker:
         self.failure_threshold = failure_threshold
         self.reset_timeout = reset_timeout  # seconds
         self.state = "CLOSED"  # CLOSED, OPEN, HALF-OPEN
-        self.last_failure_time: Optional[datetime] = None
+        self.last_failure_time: datetime | None = None
         self.logger = logger or logging.getLogger(__name__)
 
     async def execute(
@@ -184,7 +186,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
         start_time: datetime,
         end_time: datetime,
         interval: str,  # e.g., "1m", "5m", "1h"
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Get historical OHLCV data for a given pair, time range, and interval.
 
         This method first checks InfluxDB for stored data, then fetches any missing
@@ -296,7 +298,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
         trading_pair: str,
         start_time: datetime,
         end_time: datetime,
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Get historical trade data for a given pair and time range."""
         self.logger.info(
             "Getting historical trades for %s from %s to %s",
@@ -334,7 +336,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
         )
         return df
 
-    def get_next_bar(self, trading_pair: str, timestamp: datetime) -> Optional[pd.Series]:
+    def get_next_bar(self, trading_pair: str, timestamp: datetime) -> pd.Series | None:
         """Get the next available OHLCV bar after the given timestamp."""
         # Convert to synchronous query for this method
         query = f"""
@@ -386,7 +388,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
     def get_atr(
         self, trading_pair: str, timestamp: datetime, period: int = 14
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Get the Average True Range indicator value at the given timestamp."""
         # Need to get enough bars before the timestamp for ATR calculation
         query = f"""
@@ -452,7 +454,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
     async def _fetch_ohlcv_data(
         self, trading_pair: str, start_time: datetime, end_time: datetime, interval: str
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Fetch OHLCV data from Kraken API."""
         try:
             # Wait for rate limit if needed
@@ -473,7 +475,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
     async def _fetch_ohlcv_data_from_api(
         self, _trading_pair: str, start_time: datetime, end_time: datetime, interval: str
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Actual implementation of API call to Kraken."""
         # TODO: Implement actual API call using aiohttp or ccxt
         # This is a placeholder for the actual implementation
@@ -641,7 +643,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
     async def _query_ohlcv_data_from_influxdb(
         self, trading_pair: str, start_time: datetime, end_time: datetime, interval: str
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Query OHLCV data from InfluxDB."""
         try:
             bucket = self.config.get("influxdb", {}).get("bucket", "gal_friday")
@@ -698,7 +700,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
     async def _query_trades_data_from_influxdb(
         self, trading_pair: str, start_time: datetime, end_time: datetime
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Query trade data from InfluxDB."""
         try:
             bucket = self.config.get("influxdb", {}).get("bucket", "gal_friday")
@@ -751,7 +753,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
             return df
 
     def _get_missing_ranges(
-        self, df: Optional[pd.DataFrame], start_time: datetime, end_time: datetime
+        self, df: pd.DataFrame | None, start_time: datetime, end_time: datetime
     ) -> list[tuple[datetime, datetime]]:
         """Determine what date ranges are missing from the data."""
         if df is None or df.empty:
@@ -775,7 +777,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
     async def _get_latest_timestamp_from_influxdb(
         self, trading_pair: str, interval: str
-    ) -> Optional[datetime]:
+    ) -> datetime | None:
         """Get the latest timestamp for a trading pair/interval in InfluxDB."""
         try:
             bucket = self.config.get("influxdb", {}).get("bucket", "gal_friday")

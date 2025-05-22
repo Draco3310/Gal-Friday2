@@ -14,7 +14,7 @@ class SetupError(GalFridayError):
 class DependencyMissingError(SetupError):
     """Errors when a required dependency or component is unavailable for a setup step."""
 
-    def __init__(self, component: str, dependency: str, message: Optional[str] = None) -> None:
+    def __init__(self, component: str, dependency: str, message: str | None = None) -> None:
         self.component = component
         self.dependency = dependency
         if message is None:
@@ -30,8 +30,8 @@ class ComponentInitializationError(SetupError):
     def __init__(
         self,
         component_name: str,
-        details: Optional[str] = None,
-        message: Optional[str] = None
+        details: str | None = None,
+        message: str | None = None
     ) -> None:
         self.component_name = component_name
         self.details = details
@@ -54,8 +54,8 @@ class UnsupportedModeError(OperationalError, ValueError):
     def __init__(
         self,
         mode: str,
-        supported_modes: Optional[list[str]] = None,
-        message: Optional[str] = None
+        supported_modes: list[str] | None = None,
+        message: str | None = None
     ) -> None:
         self.mode = mode
         self.supported_modes = supported_modes
@@ -95,8 +95,8 @@ class APIError(GalFridayError):
         self,
         message: str,
         service_name: str,
-        status_code: Optional[int] = None,
-        details: Optional[dict[str, Any]] = None,
+        status_code: int | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         """Initialize an APIError.
 
@@ -180,14 +180,14 @@ class CriticalExit(SystemExit):
 class ServiceInstantiationFailedExit(CriticalExit):
     """SystemExit raised when service instantiation fails broadly."""
 
-    def __init__(self, _original_exception: Optional[Exception] = None) -> None:
+    def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__("Service instantiation failed. Application exiting.")
 
 
 class PubSubManagerStartFailedExit(CriticalExit):
     """SystemExit raised when the PubSubManager fails to start."""
 
-    def __init__(self, _original_exception: Optional[Exception] = None) -> None:
+    def __init__(self, _original_exception: Exception | None = None) -> None:
         # The original exception cause is handled by 'from e' at the raise site
         super().__init__("PubSubManager failed to start. Application exiting.")
 
@@ -195,7 +195,7 @@ class PubSubManagerStartFailedExit(CriticalExit):
 class ExecutionHandlerInstantiationFailedExit(CriticalExit):
     """SystemExit raised when the ExecutionHandler fails to instantiate for a given mode."""
 
-    def __init__(self, mode: str, _original_exception: Optional[Exception] = None) -> None:
+    def __init__(self, mode: str, _original_exception: Exception | None = None) -> None:
         message = (
             f"Execution Handler failed to instantiate for mode: '{mode}'. "
             "Application exiting."
@@ -209,7 +209,7 @@ class RiskManagerInstantiationFailedExit(CriticalExit):
     def __init__(
         self,
         component_name: str = "RiskManager",
-        _original_exception: Optional[Exception] = None
+        _original_exception: Exception | None = None
     ) -> None:
         message = f"{component_name} instantiation failed. Application exiting."
         super().__init__(message)
@@ -221,8 +221,8 @@ class MarketPriceServiceUnsupportedModeError(UnsupportedModeError):
     def __init__(
         self,
         mode: str,
-        supported_modes: Optional[list[str]] = None,
-        message: Optional[str] = None
+        supported_modes: list[str] | None = None,
+        message: str | None = None
     ) -> None:
         if message is None:
             message = (
@@ -235,7 +235,7 @@ class MarketPriceServiceUnsupportedModeError(UnsupportedModeError):
 class MarketPriceServiceCriticalFailureExit(CriticalExit):
     """SystemExit raised when MarketPriceService instantiation fails critically."""
 
-    def __init__(self, _original_exception: Optional[Exception] = None) -> None:
+    def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__(
             "MarketPriceService instantiation failed critically. "
             "Application exiting."
@@ -245,7 +245,7 @@ class MarketPriceServiceCriticalFailureExit(CriticalExit):
 class PortfolioManagerInstantiationFailedExit(CriticalExit):
     """SystemExit raised when PortfolioManager instantiation fails."""
 
-    def __init__(self, _original_exception: Optional[Exception] = None) -> None:
+    def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__(
             "PortfolioManager instantiation failed. Application exiting."
         )
@@ -254,7 +254,7 @@ class PortfolioManagerInstantiationFailedExit(CriticalExit):
 class LoggerServiceInstantiationFailedExit(CriticalExit):
     """SystemExit raised when LoggerService instantiation fails."""
 
-    def __init__(self, _original_exception: Optional[Exception] = None) -> None:
+    def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__(
             "LoggerService instantiation failed. Application exiting."
         )
@@ -263,7 +263,7 @@ class LoggerServiceInstantiationFailedExit(CriticalExit):
 class PubSubManagerInstantiationFailedExit(CriticalExit):
     """SystemExit raised when PubSubManager instantiation (not start) fails."""
 
-    def __init__(self, _original_exception: Optional[Exception] = None) -> None:
+    def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__(
             "PubSubManager core instantiation failed. Application exiting."
         )
@@ -272,7 +272,7 @@ class PubSubManagerInstantiationFailedExit(CriticalExit):
 class ConfigurationLoadingFailedExit(CriticalExit):
     """SystemExit raised when loading the main application configuration fails."""
 
-    def __init__(self, _original_exception: Optional[Exception] = None) -> None:
+    def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__(
             "Configuration loading failed. Application exiting."
         )

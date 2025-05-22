@@ -16,10 +16,11 @@ from types import TracebackType  # Added for exc_info typing
 from typing import (  # Added Type for exc_info typing
     TYPE_CHECKING,
     Any,
-    Callable,
     Optional,
     Union,
 )
+
+from collections.abc import Callable
 import uuid
 
 import psutil  # Added for system resource monitoring
@@ -74,7 +75,7 @@ else:
         pass # Simple placeholder
 
     class _ClosePositionCommand(_Event):  # Added placeholder for ClosePositionCommand
-        def __init__(self, data: Optional[dict[str, Any]] = None) -> None:
+        def __init__(self, data: dict[str, Any] | None = None) -> None:
             if data is not None:
                 self.__dict__.update(data)
             # The actual attributes (timestamp, event_id, etc.) are expected
@@ -85,10 +86,10 @@ else:
         def get(
             self,
             key: str,
-            default: Optional[
-                Union[str, int, float, Decimal, bool]
-            ] = None,
-        ) -> Optional[Union[int, Decimal]]:
+            default: None | (
+                str | int | float | Decimal | bool
+            ) = None,
+        ) -> int | Decimal | None:
             # Provide default values for testing/running without real config
             if key == "monitoring.check_interval_seconds":
                 return 60
@@ -164,16 +165,16 @@ class MonitoringService:
         self._source = self.__class__.__name__
 
         self._is_halted: bool = False
-        self._periodic_check_task: Optional[asyncio.Task] = None
+        self._periodic_check_task: asyncio.Task | None = None
 
         # Handler storage for unsubscribing
-        self._potential_halt_handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
-        self._market_data_l2_handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
-        self._market_data_ohlcv_handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = (
+        self._potential_halt_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = None
+        self._market_data_l2_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = None
+        self._market_data_ohlcv_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = (
             None
         )
-        self._execution_report_handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
-        self._api_error_handler: Optional[Callable[[Any], Coroutine[Any, Any, None]]] = None
+        self._execution_report_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = None
+        self._api_error_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = None
 
         # State for tracking additional monitoring metrics
         self._last_market_data_times: dict[str, datetime] = {}  # pair -> timestamp
@@ -1000,8 +1001,8 @@ class TestLoggerService(LoggerService[Any]):
         self,
         message: str,
         *args: object,  # More specific type than Any
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
     ) -> None:
         """Log an info message."""
         formatted_message = message % args if args else message
@@ -1012,8 +1013,8 @@ class TestLoggerService(LoggerService[Any]):
         self,
         message: str,
         *args: object,  # More specific type than Any
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
     ) -> None:
         """Log a debug message."""
         formatted_message = message % args if args else message
@@ -1024,8 +1025,8 @@ class TestLoggerService(LoggerService[Any]):
         self,
         message: str,
         *args: object,  # More specific type than Any
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
     ) -> None:
         """Log a warning message."""
         formatted_message = message % args if args else message
@@ -1036,15 +1037,13 @@ class TestLoggerService(LoggerService[Any]):
         self,
         message: str,
         *args: object,  # More specific type than Any
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
-        exc_info: Optional[
-            Union[
-                bool,
-                tuple[type[BaseException], BaseException, Optional[TracebackType]],
-                BaseException,
-            ]
-        ] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
+        exc_info: None | (
+                bool |
+                tuple[type[BaseException], BaseException, TracebackType | None] |
+                BaseException
+        ) = None,
     ) -> None:
         """Log an error message."""
         formatted_message = message % args if args else message
@@ -1064,15 +1063,13 @@ class TestLoggerService(LoggerService[Any]):
         self,
         message: str,
         *args: object,  # More specific type than Any
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
-        exc_info: Optional[
-            Union[
-                bool,
-                tuple[type[BaseException], BaseException, Optional[TracebackType]],
-                BaseException,
-            ]
-        ] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
+        exc_info: None | (
+                bool |
+                tuple[type[BaseException], BaseException, TracebackType | None] |
+                BaseException
+        ) = None,
     ) -> None:
         """Log a critical message."""
         formatted_message = message % args if args else message
@@ -1099,8 +1096,8 @@ class MockConfigManager(ConfigManager):
     def get(
         self,
         key: str,
-        default: Optional[Union[str, int, float, Decimal]] = None,
-    ) -> Optional[Union[str, int, float, Decimal]]:  # MODIFIED: Formatted
+        default: str | int | float | Decimal | None = None,
+    ) -> str | int | float | Decimal | None:  # MODIFIED: Formatted
         """Get a configuration value."""
         # Return some sensible defaults
         if key == "monitoring.check_interval_seconds":

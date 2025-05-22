@@ -17,7 +17,7 @@ Thank you for your interest in contributing to Gal-Friday2! This document provid
    .venv\Scripts\activate
    # On Unix/MacOS
    source .venv/bin/activate
-   
+
    pip install -r requirements.txt
    pip install -e .
    ```

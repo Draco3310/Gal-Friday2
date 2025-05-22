@@ -46,14 +46,14 @@ class MarketDataL2Payload:
     trading_pair: str
     exchange: str
     # Timestamp from the book update message
-    timestamp_exchange: Optional[str] = None
+    timestamp_exchange: str | None = None
     # [(price_str, volume_str), ...] sorted desc
     bids: list[tuple[str, str]] = field(default_factory=list)
     # [(price_str, volume_str), ...] sorted asc
     asks: list[tuple[str, str]] = field(default_factory=list)
     is_snapshot: bool = False
     # Add checksum to event for potential downstream validation
-    checksum: Optional[int] = None
+    checksum: int | None = None
 
 
 @dataclass
@@ -76,7 +76,7 @@ class SystemStatusPayload:
     """Payload for system status updates."""
 
     system_status: str  # e.g., "online", "cancel_only"
-    connection_id: Optional[int] = None
+    connection_id: int | None = None
 
 
 # --- DataIngestor Class ---
@@ -137,21 +137,21 @@ class DataIngestor:
         self._max_heartbeat_interval = config.get("max_heartbeat_interval_s", 60)
 
         # Initialize state
-        self._connection: Optional[Any] = None
+        self._connection: Any | None = None
         self._is_running: bool = False
         self._is_stopping: bool = False
-        self._last_message_received_time: Optional[datetime] = None
-        self._last_heartbeat_received_time: Optional[datetime] = None  # For heartbeat tracking
-        self._connection_established_time: Optional[datetime] = (
+        self._last_message_received_time: datetime | None = None
+        self._last_heartbeat_received_time: datetime | None = None  # For heartbeat tracking
+        self._connection_established_time: datetime | None = (
             None  # For initial connection tracking
         )
-        self._liveness_task: Optional[asyncio.Task] = None
+        self._liveness_task: asyncio.Task | None = None
         self._subscriptions: dict[str, dict[str, Any]] = {}
-        self._connection_id: Optional[int] = None
-        self._system_status: Optional[str] = None
+        self._connection_id: int | None = None
+        self._system_status: str | None = None
 
         # Initialize book state
-        self._l2_books: dict[str, dict[str, Union[SortedDict, Optional[int]]]] = defaultdict(
+        self._l2_books: dict[str, dict[str, SortedDict | int | None]] = defaultdict(
             lambda: {"bids": SortedDict(), "asks": SortedDict(), "checksum": None}
         )
 
@@ -184,7 +184,7 @@ class DataIngestor:
             )
         self._ohlc_intervals = valid_intervals
 
-    def _build_subscription_message(self) -> Optional[str]:
+    def _build_subscription_message(self) -> str | None:
         """Build the Kraken WebSocket v2 subscription message.
 
         Returns
@@ -596,7 +596,7 @@ class DataIngestor:
             "Connection liveness monitor stopped.", source_module=self.__class__.__name__
         )
 
-    async def _process_message(self, message: Union[str, bytes]) -> None:
+    async def _process_message(self, message: str | bytes) -> None:
         """Parse and route incoming WebSocket messages."""
         if isinstance(message, bytes):
             message = message.decode("utf-8")
@@ -922,7 +922,7 @@ class DataIngestor:
         book_state: dict,
         book_item: dict,
         symbol: str,
-        received_checksum: Optional[int],
+        received_checksum: int | None,
         is_snapshot: bool,
     ) -> bool:
         """Process a validated book item.
@@ -965,7 +965,7 @@ class DataIngestor:
             return False
 
     def _apply_book_snapshot(
-        self, book_state: dict, book_item: dict, symbol: str, received_checksum: Optional[int]
+        self, book_state: dict, book_item: dict, symbol: str, received_checksum: int | None
     ) -> bool:
         """Apply a book snapshot to the book state.
 
@@ -1120,12 +1120,12 @@ class DataIngestor:
 
         return valid_after_apply
 
-    def _calculate_book_checksum(self, book_state: dict) -> Optional[int]:
+    def _calculate_book_checksum(self, book_state: dict) -> int | None:
         """Calculate the checksum for the order book.
-        
+
         Args:
             book_state: The current book state containing bids and asks
-            
+
         Returns
         -------
             The calculated checksum or None if calculation fails
@@ -1163,7 +1163,7 @@ class DataIngestor:
         self,
         book_state: dict,
         symbol: str,
-        received_checksum: Optional[int],
+        received_checksum: int | None,
         valid_after_apply: bool,
     ) -> bool:
         """Validate and update book checksum.
@@ -1252,7 +1252,7 @@ class DataIngestor:
         book_state["checksum"] = None
 
     def _handle_no_updates_case(
-        self: "DataIngestor", book_state: dict, symbol: str, received_checksum: Optional[int]
+        self: "DataIngestor", book_state: dict, symbol: str, received_checksum: int | None
     ) -> bool:
         """Handle case where no updates were applied.
 
@@ -1312,7 +1312,7 @@ class DataIngestor:
         symbol: str,
         book_state: dict,
         is_snapshot: bool,
-        update_timestamp: Optional[str],  # Timestamp from message if available
+        update_timestamp: str | None,  # Timestamp from message if available
     ) -> None:
         """Create and publish a MarketDataL2Event."""
         try:
@@ -1392,7 +1392,7 @@ def _handle_no_updates_case(
     self: "DataIngestor",
     book_state: dict,
     symbol: str,
-    received_checksum: Optional[int],
+    received_checksum: int | None,
 ) -> bool:
     """Handle case where no updates were applied.
 
@@ -1452,7 +1452,7 @@ async def _publish_book_event(
     symbol: str,
     book_state: dict,
     is_snapshot: bool,
-    update_timestamp: Optional[str],  # Timestamp from message if available
+    update_timestamp: str | None,  # Timestamp from message if available
 ) -> None:
     """Create and publish a MarketDataL2Event."""
     try:
@@ -1674,9 +1674,9 @@ class MockLoggerService(LoggerService[Any]):
         level: int,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
-        exc_info: Optional[Union[bool, tuple[type[BaseException], BaseException, TracebackType], BaseException]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
+        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType] | BaseException | None = None,
     ) -> None:
         """Log a message."""
         level_name = {50: "CRITICAL", 40: "ERROR", 30: "WARNING", 20: "INFO", 10: "DEBUG"}.get(
@@ -1688,8 +1688,8 @@ class MockLoggerService(LoggerService[Any]):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
     ) -> None:
         """Log a debug message."""
         print(f"[DEBUG] {message}")
@@ -1698,8 +1698,8 @@ class MockLoggerService(LoggerService[Any]):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
     ) -> None:
         """Log an info message."""
         print(f"[INFO] {message}")
@@ -1708,8 +1708,8 @@ class MockLoggerService(LoggerService[Any]):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
     ) -> None:
         """Log a warning message."""
         print(f"[WARNING] {message}")
@@ -1718,9 +1718,9 @@ class MockLoggerService(LoggerService[Any]):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
-        exc_info: Optional[Union[bool, tuple[type[BaseException], BaseException, TracebackType], BaseException]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
+        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType] | BaseException | None = None,
     ) -> None:
         """Log an error message."""
         print(f"[ERROR] {message}")
@@ -1729,9 +1729,9 @@ class MockLoggerService(LoggerService[Any]):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
-        exc_info: Optional[Union[bool, tuple[type[BaseException], BaseException, TracebackType], BaseException]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
+        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType] | BaseException | None = None,
     ) -> None:
         """Log a critical message."""
         print(f"[CRITICAL] {message}")

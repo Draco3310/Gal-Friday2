@@ -3,7 +3,8 @@
 from collections.abc import Coroutine
 from dataclasses import dataclass, field
 import logging
-from typing import Any, Callable, Generic, Optional, TypeVar
+from typing import Any, Generic, Optional, TypeVar
+from collections.abc import Callable
 
 T = TypeVar("T")
 
@@ -12,11 +13,11 @@ T = TypeVar("T")
 class ExceptionHandlerConfig(Generic[T]):
     """Configuration for the exception handlers."""
 
-    specific_exceptions: Optional[tuple[type[Exception], ...]] = None
-    default_return: Optional[T] = None
+    specific_exceptions: tuple[type[Exception], ...] | None = None
+    default_return: T | None = None
     message: str = "An error occurred: {error}"
     include_traceback: bool = True
-    source_module: Optional[str] = None
+    source_module: str | None = None
     re_raise: bool = False
     # Ensure specific_exceptions is initialized as a tuple for the 'except' clause logic later
     # We'll handle the default (Exception,)

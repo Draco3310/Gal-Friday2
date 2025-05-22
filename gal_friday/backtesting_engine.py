@@ -84,11 +84,11 @@ else:
     from typing import (
         TYPE_CHECKING,
         Any,
-        Callable,
         Generic,
         Optional,
         TypeVar,
     )
+    from collections.abc import Callable
 
 # Third-party imports
 
@@ -371,7 +371,7 @@ class BacktestHistoricalDataProviderImpl:
                 msg = f"Missing required columns {missing} for pair {pair}"
                 raise ValueError(msg)
 
-    def get_next_bar(self, trading_pair: str, timestamp: datetime) -> Optional[pd.Series]:
+    def get_next_bar(self, trading_pair: str, timestamp: datetime) -> pd.Series | None:
         """Get the next bar after the given timestamp for the trading pair.
 
         Args:
@@ -398,7 +398,7 @@ class BacktestHistoricalDataProviderImpl:
             )
             return None
 
-    def get_atr(self, trading_pair: str, timestamp: datetime, period: int = 14) -> Optional[float]:
+    def get_atr(self, trading_pair: str, timestamp: datetime, period: int = 14) -> float | None:
         """Get the ATR (Average True Range) value for the given timestamp.
 
         Args:
@@ -457,7 +457,7 @@ class BacktestHistoricalDataProviderImpl:
         start_time: datetime,
         end_time: datetime,
         interval: str = "1d",
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Retrieve historical OHLCV data for a given pair and time range.
 
         Args:
@@ -534,7 +534,7 @@ class BacktestHistoricalDataProviderImpl:
         _trading_pair: str,  # Unused, kept for interface compatibility
         _start_time: datetime,  # Unused, kept for interface compatibility
         _end_time: datetime,  # Unused, kept for interface compatibility
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Retrieve historical trade data for a given pair and time range.
 
         Note:
@@ -553,7 +553,7 @@ class BacktestHistoricalDataProviderImpl:
 
 def _calculate_basic_returns_and_equity(
     equity_curve: pd.Series, initial_capital: Decimal, results: dict
-) -> Optional[float]:
+) -> float | None:
     """Calculate basic returns and equity metrics."""
     final_equity_value = equity_curve.iloc[-1]
     final_equity = Decimal(str(final_equity_value))
@@ -562,7 +562,7 @@ def _calculate_basic_returns_and_equity(
 
     initial_capital_float = float(initial_capital)
     final_equity_float = float(final_equity)
-    total_return_pct: Optional[float] = None
+    total_return_pct: float | None = None
     if initial_capital_float > 0:
         total_return_pct = ((final_equity_float / initial_capital_float) - 1.0) * 100.0
         results["total_return_pct"] = total_return_pct
@@ -572,7 +572,7 @@ def _calculate_basic_returns_and_equity(
     return total_return_pct
 
 def _calculate_annualized_return(
-    equity_curve: pd.Series, total_return_pct: Optional[float], results: dict
+    equity_curve: pd.Series, total_return_pct: float | None, results: dict
 ) -> None:
     """Calculate annualized return."""
     if total_return_pct is None:
@@ -861,27 +861,27 @@ class BacktestingEngine:
         # Initialize data storage
         self._data: dict[str, pd.DataFrame] = {}
         self._current_step = 0
-        self._current_time: Optional[datetime] = None
-        self._start_time: Optional[datetime] = None
-        self._end_time: Optional[datetime] = None
+        self._current_time: datetime | None = None
+        self._start_time: datetime | None = None
+        self._end_time: datetime | None = None
 
         # Initialize services with proper type annotations
-        self.pubsub_manager: Optional[_PubSubManager] = None
-        self.logger_service: Optional[_LoggerService] = None
-        self.historical_data_provider: Optional[_BacktestHistoricalDataProvider] = None
-        self.market_price_service: Optional[_MarketPriceService] = None
-        self.portfolio_manager: Optional[_PortfolioManager] = None
-        self.execution_handler: Optional[_ExecutionHandler] = None
-        self.feature_engine: Optional[_FeatureEngine] = None
-        self.prediction_service: Optional[_PredictionService] = None
-        self.risk_manager: Optional[_RiskManager] = None
-        self.strategy_arbitrator: Optional[_StrategyArbitrator] = None
-        self.exchange_info_service: Optional[_ExchangeInfoService] = None
+        self.pubsub_manager: _PubSubManager | None = None
+        self.logger_service: _LoggerService | None = None
+        self.historical_data_provider: _BacktestHistoricalDataProvider | None = None
+        self.market_price_service: _MarketPriceService | None = None
+        self.portfolio_manager: _PortfolioManager | None = None
+        self.execution_handler: _ExecutionHandler | None = None
+        self.feature_engine: _FeatureEngine | None = None
+        self.prediction_service: _PredictionService | None = None
+        self.risk_manager: _RiskManager | None = None
+        self.strategy_arbitrator: _StrategyArbitrator | None = None
+        self.exchange_info_service: _ExchangeInfoService | None = None
 
         # Attribute to store the execution report handler for unsubscribing
-        self._backtest_exec_report_handler: Optional[
+        self._backtest_exec_report_handler: None | (
             Callable[..., Coroutine[Any, Any, None]]
-        ] = None
+        ) = None
 
         log.info("BacktestingEngine initialized.")
 
@@ -902,7 +902,7 @@ class BacktestingEngine:
             return False
         return True
 
-    def _load_raw_data(self, data_path: str) -> Optional[dict[str, pd.DataFrame]]:
+    def _load_raw_data(self, data_path: str) -> dict[str, pd.DataFrame] | None:
         """Load raw data from the specified path."""
         try:
             path = Path(data_path)
@@ -927,7 +927,7 @@ class BacktestingEngine:
         data: dict[str, pd.DataFrame],
         start_date: str,
         end_date: str
-    ) -> Optional[dict[str, pd.DataFrame]]:
+    ) -> dict[str, pd.DataFrame] | None:
         """Clean and validate the loaded data."""
         try:
             start_dt = pd.to_datetime(start_date)
@@ -1144,5 +1144,3 @@ class BacktestingEngine:
                             log.exception("Error shutting down process pool")
 
             log.info("All services shut down")
-
-

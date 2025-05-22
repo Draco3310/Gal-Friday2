@@ -94,7 +94,7 @@ class CLIService:
         self.portfolio_manager = portfolio_manager
         self._running = False
         self._stop_event = asyncio.Event()
-        self._input_thread: Optional[threading.Thread] = None
+        self._input_thread: threading.Thread | None = None
         self._background_tasks: set[asyncio.Task] = set()
         self.logger.info("CLIService initialized.", source_module=self.__class__.__name__)
 
@@ -307,7 +307,7 @@ class GlobalCLIInstance:
 
     def __init__(self) -> None:
         """Initialize the GlobalCLIInstance with an empty reference."""
-        self._instance: Optional[CLIService] = None
+        self._instance: CLIService | None = None
 
     def set_instance(self, instance: CLIService) -> None:
         """Set the global CLI service instance.
@@ -318,7 +318,7 @@ class GlobalCLIInstance:
         """
         self._instance = instance
 
-    def get_instance(self) -> Optional[CLIService]:
+    def get_instance(self) -> CLIService | None:
         """Retrieve the global CLI service instance.
 
         Returns
@@ -444,8 +444,8 @@ class MockLoggerService(LoggerService):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
     ) -> None:
         """Log info message."""
         print(f"INFO [{source_module}]: {message}")
@@ -454,8 +454,8 @@ class MockLoggerService(LoggerService):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
     ) -> None:
         """Log debug message."""
         print(f"DEBUG [{source_module}]: {message}")
@@ -464,8 +464,8 @@ class MockLoggerService(LoggerService):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
     ) -> None:
         """Log warning message."""
         print(f"WARN [{source_module}]: {message}")
@@ -474,11 +474,11 @@ class MockLoggerService(LoggerService):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
-        exc_info: Optional[Union[
-            bool, BaseException, tuple[type[BaseException], BaseException, Any]
-        ]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
+        exc_info: None | (
+            bool | BaseException | tuple[type[BaseException], BaseException, Any]
+        ) = None,
     ) -> None:
         """Log error message."""
         print(f"ERROR [{source_module}]: {message}")
@@ -489,8 +489,8 @@ class MockLoggerService(LoggerService):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
     ) -> None:
         """Log exception message with traceback."""
         self.error(message, *args, source_module=source_module, context=context, exc_info=True)
@@ -499,11 +499,11 @@ class MockLoggerService(LoggerService):
         self,
         message: str,
         *args: Any,
-        source_module: Optional[str] = None,
-        context: Optional[dict[Any, Any]] = None,
-        exc_info: Optional[Union[
-            bool, BaseException, tuple[type[BaseException], BaseException, Any]
-        ]] = None,
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
+        exc_info: None | (
+            bool | BaseException | tuple[type[BaseException], BaseException, Any]
+        ) = None,
     ) -> None:
         """Log critical message."""
         print(f"CRITICAL [{source_module}]: {message}")
@@ -527,7 +527,7 @@ class MockConfigManager(ConfigManager):
     def __init__(self) -> None:
         """Initialize the mock config manager."""
 
-    def get(self, _key: str, default: Optional[object] = None) -> object:
+    def get(self, _key: str, default: object | None = None) -> object:
         """Get a configuration value."""
         return default
 
@@ -585,7 +585,7 @@ class MockMainAppController:
 
 def _create_mock_logger(
     config_manager: ConfigManager,
-    pubsub_manager: Optional[MockPubSubManager] = None
+    pubsub_manager: MockPubSubManager | None = None
 ) -> MockLoggerService:
     """Create a mock logger for testing."""
     return MockLoggerService(config_manager, pubsub_manager)

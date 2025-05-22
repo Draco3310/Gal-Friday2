@@ -33,7 +33,7 @@ class StrategyPositionTracker:
         self._strategy_positions: dict[str, dict[str, Any]] = defaultdict(dict)
 
         # Define the type of performance metrics
-        self._strategy_performance: dict[str, dict[str, Union[Decimal, int, datetime]]] = \
+        self._strategy_performance: dict[str, dict[str, Decimal | int | datetime]] = \
             defaultdict(lambda: {
             "peak_equity": Decimal("0"),
             "current_equity": Decimal("0"),

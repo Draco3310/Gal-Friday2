@@ -12,7 +12,8 @@ from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
+from collections.abc import Callable
 import uuid
 
 import numpy as np
@@ -63,7 +64,7 @@ class PredictorImportError(PredictionServiceError):
 class ModelConfigError(PredictionServiceError):
     """Raised when there's an error in model configuration."""
 
-    def __init__(self, message: str, context: Optional[dict] = None) -> None:
+    def __init__(self, message: str, context: dict | None = None) -> None:
         self.message = message
         self.context = context
         super().__init__(self.message)
@@ -634,7 +635,7 @@ class PredictionService:
                 continue
 
             predictor_type = model_config.get("predictor_type")
-            feature_input_for_model: Optional[np.ndarray] = None
+            feature_input_for_model: np.ndarray | None = None
 
             if predictor_type == "lstm" and model_id in self._lstm_feature_buffers:
                 buffer = self._lstm_feature_buffers[model_id]
@@ -1091,7 +1092,7 @@ class PredictionService:
 
     def _prepare_features_for_model(
         self, event_features: dict[str, str], expected_model_features: list[str]
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Convert feature dictionary to a 1D numpy array."""
         ordered_feature_values: list[float] = []
         missing_features_log: list[str] = []

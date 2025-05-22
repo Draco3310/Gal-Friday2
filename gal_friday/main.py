@@ -267,7 +267,7 @@ class LoggerServiceError(ServiceInitializationError):
 class GlobalState:
     """Global application state to avoid using global variables."""
 
-    main_event_loop: Optional[asyncio.AbstractEventLoop] = None
+    main_event_loop: asyncio.AbstractEventLoop | None = None
 
 # Global state instance
 global_state = GlobalState()
@@ -275,7 +275,7 @@ global_state = GlobalState()
 # --- Logging Setup Function --- #
 # Use string literal for the type hint
 def setup_logging(
-    config: Optional["ConfigManagerType"], log_level_override: Optional[str] = None
+    config: Optional["ConfigManagerType"], log_level_override: str | None = None
 ) -> None:
     """Configure logging based on the application configuration."""
     # Runtime check still needed
@@ -376,32 +376,32 @@ class GalFridayApp:
         """Initialize application state attributes."""
         log.info("Initializing GalFridayApp...")
         # Use Optional['ClassName'] string literals for type hints
-        self.config: Optional[ConfigManagerType] = None
-        self.pubsub: Optional[PubSubManagerType] = None
-        self.executor: Optional[concurrent.futures.ProcessPoolExecutor] = None
+        self.config: ConfigManagerType | None = None
+        self.pubsub: PubSubManagerType | None = None
+        self.executor: concurrent.futures.ProcessPoolExecutor | None = None
         self.services: list[Any] = []  # UP006: List -> list; Use Any for now, can refine later
         self.running_tasks: list[asyncio.Task] = []  # UP006: List -> list
-        self.args: Optional[argparse.Namespace] = None
+        self.args: argparse.Namespace | None = None
 
         # Store references to specific services after instantiation for DI
-        self.logger_service: Optional[LoggerServiceType] = None
+        self.logger_service: LoggerServiceType | None = None
         # Added
-        self.market_price_service: Optional[MarketPriceServiceType] = None
+        self.market_price_service: MarketPriceServiceType | None = None
         # Added
-        self.historical_data_service: Optional[HistoricalDataServiceType] = None
-        self.portfolio_manager: Optional[PortfolioManagerType] = None
+        self.historical_data_service: HistoricalDataServiceType | None = None
+        self.portfolio_manager: PortfolioManagerType | None = None
         # Use the type alias defined in TYPE_CHECKING
-        self.execution_handler: Optional[_ExecutionHandlerType] = None
-        self.monitoring_service: Optional[MonitoringServiceType] = None
-        self.cli_service: Optional[CLIServiceType] = None
-        self.risk_manager: Optional[RiskManagerType] = None
-        self.data_ingestor: Optional[DataIngestorType] = None
-        self.feature_engine: Optional[FeatureEngineType] = None
-        self.prediction_service: Optional[PredictionServiceType] = None
-        self.strategy_arbitrator: Optional[StrategyArbitratorType] = None
+        self.execution_handler: _ExecutionHandlerType | None = None
+        self.monitoring_service: MonitoringServiceType | None = None
+        self.cli_service: CLIServiceType | None = None
+        self.risk_manager: RiskManagerType | None = None
+        self.data_ingestor: DataIngestorType | None = None
+        self.feature_engine: FeatureEngineType | None = None
+        self.prediction_service: PredictionServiceType | None = None
+        self.strategy_arbitrator: StrategyArbitratorType | None = None
 
         # Keep a direct reference to config_manager if needed by other methods
-        self._config_manager_instance: Optional[ConfigManagerType] = None
+        self._config_manager_instance: ConfigManagerType | None = None
 
     def _load_configuration(self, config_path: str) -> None:  # Accept config_path parameter
         """Load the application configuration."""
@@ -551,7 +551,7 @@ class GalFridayApp:
 
     def _ensure_class_available(
         self,
-        class_obj: Optional[type],
+        class_obj: type | None,
         class_name_str: str,
         required_by_component: str = "GalFridayApp",
     ) -> None:
@@ -787,7 +787,7 @@ class GalFridayApp:
                 log.exception("FATAL: Failed to start PubSubManager")
                 raise PubSubManagerStartFailedExit from e
 
-    async def _create_and_run_service_start_tasks(self) -> list[Union[Any, BaseException]]:
+    async def _create_and_run_service_start_tasks(self) -> list[Any | BaseException]:
         # Changed return type
         """Create and run start tasks for all registered services."""
         log.info("Starting %s services...", len(self.services))
@@ -828,7 +828,7 @@ class GalFridayApp:
 
     def _handle_service_startup_results(
         self,
-        results: list[Union[Any, BaseException]],  # Changed parameter type
+        results: list[Any | BaseException],  # Changed parameter type
     ) -> None:
         """Handle the results of service startup tasks."""
         failed_services = []
@@ -889,7 +889,7 @@ class GalFridayApp:
 
         log.info("Application startup sequence complete.")
 
-    async def _initiate_service_shutdown(self) -> list[Union[Exception, Any]]:
+    async def _initiate_service_shutdown(self) -> list[Exception | Any]:
         """Gathers and executes stop coroutines for services and PubSubManager."""
         log.info("Stopping %s services...", len(self.services))
         stop_coroutines = []

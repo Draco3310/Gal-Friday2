@@ -20,15 +20,15 @@ class BacktestHistoricalDataProvider:
         start_time: datetime,
         end_time: datetime,
         interval: str = "1d"
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Get historical data for the given symbol and time range.
-        
+
         Args:
             symbol: The trading symbol to get data for
             start_time: Start of the time range
             end_time: End of the time range
             interval: Data interval (e.g., '1d', '1h', '1m')
-            
+
         Returns
         -------
             DataFrame with historical data or None if not available

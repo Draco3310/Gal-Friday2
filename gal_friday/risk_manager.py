@@ -82,14 +82,14 @@ else:
             This allows the RiskManager to be imported and used without the actual service.
             """
 
-            async def get_latest_price(self, trading_pair: str) -> Optional[Decimal]:
+            async def get_latest_price(self, trading_pair: str) -> Decimal | None:
                 """Return None as placeholder for latest price."""
                 _ = trading_pair  # Unused parameter
                 return None
 
             async def get_volatility(
                 self, trading_pair: str, lookback_hours: int = 24
-            ) -> Optional[float]:
+            ) -> float | None:
                 """Return None as placeholder for volatility calculation.
 
                 Args:
@@ -105,7 +105,7 @@ else:
 
             async def convert_amount(
                 self, from_amount: Decimal, from_currency: str, to_currency: str
-            ) -> Optional[Decimal]:
+            ) -> Decimal | None:
                 """Return None as placeholder for currency conversion.
 
                 Args:
@@ -125,8 +125,8 @@ else:
                 trading_pair: str,
                 timeframe: str,
                 since: datetime,
-                limit: Optional[int] = None
-            ) -> Optional[list[dict[str, Any]]]:
+                limit: int | None = None
+            ) -> list[dict[str, Any]] | None:
                 """Define a placeholder docstring for get_historical_ohlcv."""
                 _ = (trading_pair, timeframe, since, limit)
                 return None
@@ -138,7 +138,7 @@ else:
         class ExchangeInfoService:  # type: ignore
             """Placeholder for ExchangeInfoService."""
 
-            def get_symbol_info(self, trading_pair: str) -> Optional[dict[str, Any]]:
+            def get_symbol_info(self, trading_pair: str) -> dict[str, Any] | None:
                 """Get information for a specific symbol.
 
                 Args:
@@ -151,7 +151,7 @@ else:
                 _ = trading_pair # Unused
                 return None
 
-            def get_tick_size(self, trading_pair: str) -> Optional[Decimal]:
+            def get_tick_size(self, trading_pair: str) -> Decimal | None:
                 """Get the minimum price movement for a trading pair.
 
                 Args:
@@ -164,7 +164,7 @@ else:
                 _ = trading_pair  # Unused parameter
                 return None
 
-            def get_step_size(self, trading_pair: str) -> Optional[Decimal]:
+            def get_step_size(self, trading_pair: str) -> Decimal | None:
                 """Get the minimum trade size for a trading pair.
 
                 Args:
@@ -195,11 +195,11 @@ class TradeSignalProposedPayload:
     exchange: str
     side: str
     entry_type: str
-    proposed_entry_price: Optional[str] = None
-    proposed_sl_price: Optional[str] = None
-    proposed_tp_price: Optional[str] = None
+    proposed_entry_price: str | None = None
+    proposed_sl_price: str | None = None
+    proposed_tp_price: str | None = None
     strategy_id: str = "default"
-    triggering_prediction_event_id: Optional[uuid.UUID] = None
+    triggering_prediction_event_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -207,18 +207,18 @@ class Stage1Context:
     """Context for Stage 1: Initial Validation & Price Rounding."""
 
     event: TradeSignalProposedEvent
-    proposed_entry_price_decimal: Optional[Decimal]
-    proposed_sl_price_decimal: Optional[Decimal]
-    proposed_tp_price_decimal: Optional[Decimal]
+    proposed_entry_price_decimal: Decimal | None
+    proposed_sl_price_decimal: Decimal | None
+    proposed_tp_price_decimal: Decimal | None
 
 @dataclass
 class Stage2Context:
     """Context for Stage 2: Fat Finger & Stop-Loss Distance."""
 
     event: TradeSignalProposedEvent
-    rounded_entry_price: Optional[Decimal] # From Stage 1
+    rounded_entry_price: Decimal | None # From Stage 1
     rounded_sl_price: Decimal # From Stage 1, guaranteed non-None
-    current_market_price_for_validation: Optional[Decimal]
+    current_market_price_for_validation: Decimal | None
 
 @dataclass
 class Stage3Context:
@@ -246,9 +246,9 @@ class FinalValidationDataContext:
     portfolio_state: dict[str, Any]
     state_values: dict[str, Decimal]
     initial_rounded_calculated_qty: Decimal
-    rounded_entry_price: Optional[Decimal]
+    rounded_entry_price: Decimal | None
     rounded_sl_price: Decimal
-    rounded_tp_price: Optional[Decimal]
+    rounded_tp_price: Decimal | None
     effective_entry_price: Decimal # Guaranteed non-None if this stage is reached
     ref_entry_for_calculation: Decimal # Guaranteed non-None if this stage is reached
 
@@ -260,10 +260,10 @@ class PriceValidationContext:
     event: TradeSignalProposedEvent
     entry_type: str
     side: str
-    rounded_entry_price: Optional[Decimal]
+    rounded_entry_price: Decimal | None
     rounded_sl_price: Decimal # Must be non-None if this stage is reached
-    effective_entry_price_for_non_limit: Optional[Decimal]
-    current_market_price: Optional[Decimal]
+    effective_entry_price_for_non_limit: Decimal | None
+    current_market_price: Decimal | None
 
 
 @dataclass
@@ -285,9 +285,9 @@ class PriceRoundingContext:
     entry_type: str
     side: str
     trading_pair: str
-    effective_entry_price: Optional[Decimal]
-    sl_price: Optional[Decimal] # Initial SL before rounding, can be None if not proposed
-    tp_price: Optional[Decimal]
+    effective_entry_price: Decimal | None
+    sl_price: Decimal | None # Initial SL before rounding, can be None if not proposed
+    tp_price: Decimal | None
 
 
 @dataclass
@@ -332,10 +332,10 @@ class RiskManager:
         self._exchange_info_service = exchange_info_service
         self.logger = logger_service
         self._is_running = False
-        self._main_task: Optional[asyncio.Task] = None
-        self._periodic_check_task: Optional[asyncio.Task] = None
-        self._dynamic_risk_adjustment_task: Optional[asyncio.Task] = None
-        self._risk_metrics_task: Optional[asyncio.Task] = None
+        self._main_task: asyncio.Task | None = None
+        self._periodic_check_task: asyncio.Task | None = None
+        self._dynamic_risk_adjustment_task: asyncio.Task | None = None
+        self._risk_metrics_task: asyncio.Task | None = None
         self._source_module = self.__class__.__name__
 
         # Store handler for unsubscribing
@@ -495,8 +495,8 @@ class RiskManager:
         error_condition: bool,
         failure_reason: str, # Concise reason for SignalValidationStageError
         stage_name: str,
-        log_message: Optional[str] = None, # Optional detailed message for logging
-        log_context: Optional[dict[str, Any]] = None
+        log_message: str | None = None, # Optional detailed message for logging
+        log_context: dict[str, Any] | None = None
     ) -> None:
         """Log (optional) and raise SignalValidationStageError if a condition is met."""
         if error_condition:
@@ -513,7 +513,7 @@ class RiskManager:
 
     async def _stage1_initial_validation_and_price_rounding(
         self, ctx: Stage1Context
-    ) -> tuple[Optional[Decimal], Decimal, Optional[Decimal]]:
+    ) -> tuple[Decimal | None, Decimal, Decimal | None]:
         """Perform Stage 1: Initial Validation & Price Rounding.
 
         Returns tuple: (rounded_entry_price, rounded_sl_price, rounded_tp_price)
@@ -560,7 +560,7 @@ class RiskManager:
 
     async def _stage2_market_price_dependent_checks(
         self, ctx: Stage2Context
-    ) -> tuple[Optional[Decimal], Decimal, Decimal]:
+    ) -> tuple[Decimal | None, Decimal, Decimal]:
         """Perform Stage 2: Fat Finger & Stop-Loss Distance.
 
         Returns tuple: (effective_entry_price_for_non_limit,
@@ -569,7 +569,7 @@ class RiskManager:
         Raises SignalValidationStageError on failure.
         """
         stage_name = "Stage2: Market Price Dependent Checks"
-        effective_entry_price_for_non_limit: Optional[Decimal] = None
+        effective_entry_price_for_non_limit: Decimal | None = None
         final_rounded_entry_price = ctx.rounded_entry_price
 
         if ctx.event.entry_type.upper() != "LIMIT":
@@ -889,7 +889,7 @@ class RiskManager:
 
     async def _perform_final_pre_trade_validations(
         self, ctx: FinalValidationDataContext
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """Perform final overall portfolio and risk checks before approval."""
         # Check 1: Max Exposure per Asset
         # This requires knowing the value of existing position in this asset + new trade value.
@@ -1012,13 +1012,13 @@ class RiskManager:
     def _check_single_drawdown_limit(
         self,
         current_equity: Decimal,
-        period_initial_equity: Optional[Decimal],
+        period_initial_equity: Decimal | None,
         max_period_drawdown_pct: Decimal,
-        pm_provided_drawdown_pct_str: Optional[str],
+        pm_provided_drawdown_pct_str: str | None,
         period_name: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Check a single drawdown limit (e.g., total, daily, weekly)."""
-        breached_reason: Optional[str] = None
+        breached_reason: str | None = None
 
         # Use PortfolioManager's drawdown if available and valid
         if pm_provided_drawdown_pct_str is not None:
@@ -1082,7 +1082,7 @@ class RiskManager:
             )
             return True
 
-        breached_limit_reason: Optional[str] = None
+        breached_limit_reason: str | None = None
 
         # Check Total Drawdown
         breached_limit_reason = self._check_single_drawdown_limit(
@@ -1401,7 +1401,7 @@ class RiskManager:
 
     def _calculate_lot_size_with_fallback(
         self, trading_pair: str, base_amount: Decimal
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         self.logger.debug(
             "_calculate_lot_size_with_fallback called, not implemented",
             context={"trading_pair": trading_pair, "base_amount": base_amount}
@@ -1412,10 +1412,10 @@ class RiskManager:
         self, ctx: PriceRoundingContext
     ) -> tuple[
         bool,
-        Optional[str],
-        Optional[Decimal],
-        Optional[Decimal],
-        Optional[Decimal]
+        str | None,
+        Decimal | None,
+        Decimal | None,
+        Decimal | None
     ]:
         self.logger.debug(
             "_calculate_and_validate_prices called, not implemented",
@@ -1440,7 +1440,7 @@ class RiskManager:
         )
         # Actual event publishing logic would go here
 
-    async def _get_current_market_price(self, trading_pair: str) -> Optional[Decimal]:
+    async def _get_current_market_price(self, trading_pair: str) -> Decimal | None:
         self.logger.debug(
             "_get_current_market_price called, not implemented",
             context={"trading_pair": trading_pair}
@@ -1449,8 +1449,8 @@ class RiskManager:
         return await self._market_price_service.get_latest_price(trading_pair)
 
     def _round_price_to_tick_size(
-        self, price: Optional[Decimal], trading_pair: str
-    ) -> Optional[Decimal]:
+        self, price: Decimal | None, trading_pair: str
+    ) -> Decimal | None:
         self.logger.debug(
             "_round_price_to_tick_size called, not implemented",
             context={"price": price, "trading_pair": trading_pair}
@@ -1459,7 +1459,7 @@ class RiskManager:
 
     def _validate_prices_fat_finger_and_sl_distance(
         self, ctx: PriceValidationContext
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         self.logger.debug(
             "_validate_prices_fat_finger_and_sl_distance called, not implemented",
             context={"ctx": ctx}
@@ -1472,8 +1472,8 @@ class RiskManager:
         """Placeholder for position sizing results."""
 
         is_valid: bool
-        quantity: Optional[Decimal] = None
-        rejection_reason: Optional[str] = None
+        quantity: Decimal | None = None
+        rejection_reason: str | None = None
 
     def _calculate_and_validate_position_size(
         self,
@@ -1497,7 +1497,7 @@ class RiskManager:
 
     def _check_position_scaling(
         self, ctx: PositionScalingContext
-    ) -> tuple[bool, Optional[str], Optional[str], Optional[Decimal]]:
+    ) -> tuple[bool, str | None, str | None, Decimal | None]:
         self.logger.debug(
             "_check_position_scaling called, not implemented", context={"ctx": ctx}
         )

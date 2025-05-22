@@ -37,7 +37,7 @@ else:
         class _DummyConfigManager:
             """Minimal placeholder for ConfigManager."""
 
-            def get(self, _key: str, default: Optional[object] = None) -> Optional[object]:
+            def get(self, _key: str, default: object | None = None) -> object | None:
                 """Get a value from config."""
                 return default
 
@@ -88,8 +88,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     def __init__(
         self,
         historical_data: dict[str, pd.DataFrame],
-        config_manager: Optional[ConfigManager] = None,
-        logger: Optional[logging.Logger] = None,
+        config_manager: ConfigManager | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         """Initialize the service with historical market data.
 
@@ -102,7 +102,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             logger: An instance of logging.Logger. If None, a default logger is used.
         """
         self.historical_data = historical_data
-        self._current_timestamp: Optional[datetime] = None
+        self._current_timestamp: datetime | None = None
 
         # self.logger and self.config are set by the
         # MarketPriceService ABC if it has a base __init__
@@ -297,7 +297,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     def _get_atr_dataframe_slice(
         self, trading_pair: str, pair_data_full: pd.DataFrame
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Get the relevant slice of data for ATR calculation."""
         if not isinstance(self._current_timestamp, datetime):
             self.logger.error(
@@ -336,7 +336,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     def _calculate_atr_from_slice(
         self, df_slice: pd.DataFrame, trading_pair: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Calculate ATR from a given data slice."""
         required_atr_cols = {self._atr_high_col, self._atr_low_col, self._atr_close_col}
         missing_cols = required_atr_cols - set(df_slice.columns)
@@ -395,9 +395,9 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             )
             return None
 
-    def _get_raw_atr_for_pair(self, trading_pair: str) -> Optional[Decimal]:
+    def _get_raw_atr_for_pair(self, trading_pair: str) -> Decimal | None:
         """Calculate the raw ATR for a given trading pair at the current time."""
-        atr_to_return: Optional[Decimal] = None
+        atr_to_return: Decimal | None = None
 
         if not self._volatility_enabled or ta is None:
             self.logger.debug(
@@ -465,7 +465,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
         return atr_to_return
 
-    def _calculate_normalized_atr(self, trading_pair: str) -> Optional[Decimal]:
+    def _calculate_normalized_atr(self, trading_pair: str) -> Decimal | None:
         """Calculate ATR and normalize it by the current close price."""
         raw_atr = self._get_raw_atr_for_pair(trading_pair)
 
@@ -510,7 +510,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         df: pd.DataFrame,
         trading_pair: str,  # Needed for updating self.historical_data if sorted
         timestamp_to_lookup: datetime,
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Extract price from a DataFrame using asof, handling column checks and sorting."""
         price_col = self._price_column
         if price_col not in df.columns:
@@ -547,7 +547,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
         return Decimal(str(price_at_timestamp))
 
-    def _get_latest_price_at_current_time(self, trading_pair: str) -> Optional[Decimal]:
+    def _get_latest_price_at_current_time(self, trading_pair: str) -> Decimal | None:
         """Get the latest known price for a trading pair at the current simulation time."""
         current_ts = self._current_timestamp
 
@@ -607,7 +607,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     async def get_latest_price(
         self, trading_pair: str
-    ) -> Optional[Decimal]:  # Changed return type
+    ) -> Decimal | None:  # Changed return type
         """Get the latest known price at the current simulation time.
 
         Returns the price as a Decimal or None.
@@ -616,7 +616,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     async def get_bid_ask_spread(
         self, trading_pair: str
-    ) -> Optional[tuple[Decimal, Decimal]]:  # Changed return type
+    ) -> tuple[Decimal, Decimal] | None:  # Changed return type
         """Get the simulated bid and ask prices at the current simulation time.
 
         Returns a tuple (bid, ask) or None.
@@ -687,7 +687,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             )
             return None
 
-    async def get_price_timestamp(self, trading_pair: str) -> Optional[datetime]:
+    async def get_price_timestamp(self, trading_pair: str) -> datetime | None:
         """Get the simulation timestamp for which the current price is valid."""
         price = self._get_latest_price_at_current_time(trading_pair)
         if price is not None and self._current_timestamp is not None:
@@ -703,7 +703,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             return self._current_timestamp
         return None
 
-    async def get_raw_atr(self, trading_pair: str) -> Optional[Decimal]:
+    async def get_raw_atr(self, trading_pair: str) -> Decimal | None:
         """Get the latest calculated raw Average True Range (ATR) for the trading pair.
 
         This value can be used by other services (e.g., SimulatedExecutionHandler)
@@ -730,7 +730,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         close_price: Decimal,
         final_spread_pct: Decimal,
         trading_pair: str,
-    ) -> Optional[tuple[Decimal, Decimal]]:
+    ) -> tuple[Decimal, Decimal] | None:
         """Calculate bid/ask tuple from close price and final spread percentage."""
         half_spread_amount = close_price * (final_spread_pct / Decimal(200))
         bid = close_price - half_spread_amount
@@ -766,10 +766,10 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         current_volume_for_level: Decimal,
         level_index: int,
         context: BookLevelConstructionContext,
-    ) -> tuple[Optional[list[str]], Optional[list[str]], bool]:  # (bid_entry, ask_entry, stop_gen)
+    ) -> tuple[list[str] | None, list[str] | None, bool]:  # (bid_entry, ask_entry, stop_gen)
         """Create bid/ask entries for a single order book level and check for termination."""
-        bid_entry: Optional[list[str]] = None
-        ask_entry: Optional[list[str]] = None
+        bid_entry: list[str] | None = None
+        ask_entry: list[str] | None = None
         stop_generation = False
 
         if level_index == 0:  # BBO level
@@ -827,7 +827,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     async def get_order_book_snapshot(
         self, trading_pair: str
-    ) -> Optional[dict[str, list[list[str]]]]:
+    ) -> dict[str, list[list[str]]] | None:
         """Generate a simulated order book snapshot with market depth.
 
         Args
@@ -953,7 +953,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     async def _get_direct_or_reverse_price(
         self, from_currency: str, to_currency: str
-    ) -> Optional[tuple[Decimal, bool]]:  # Returns (price, is_direct_rate)
+    ) -> tuple[Decimal, bool] | None:  # Returns (price, is_direct_rate)
         """Get direct or reverse conversion rate."""
         # Direct conversion: from_currency/to_currency
         pair1 = f"{from_currency}/{to_currency}"
@@ -970,7 +970,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     async def _get_cross_conversion_price(
         self, from_amount: Decimal, from_currency: str, to_currency: str, intermediary: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Get cross-conversion via an intermediary currency."""
         # Path: from_currency -> intermediary -> to_currency
         from_to_intermediary_rate_info = await self._get_direct_or_reverse_price(
@@ -993,7 +993,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     async def convert_amount(
         self, from_amount: Decimal, from_currency: str, to_currency: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Convert an amount from one currency to another using available market data."""
         # 1. Ensure from_amount is Decimal
         if not isinstance(from_amount, Decimal):
@@ -1072,8 +1072,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         trading_pair: str,
         timeframe: str,  # noqa: ARG002 - Required for API compatibility
         since: datetime,
-        limit: Optional[int] = None
-    ) -> Optional[list[dict[str, Any]]]:
+        limit: int | None = None
+    ) -> list[dict[str, Any]] | None:
         """
         Fetch historical OHLCV data for a trading pair from the stored historical data.
 

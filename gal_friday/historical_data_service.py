@@ -18,7 +18,7 @@ class HistoricalDataService(abc.ABC):
         start_time: datetime,
         end_time: datetime,
         interval: str,  # e.g., "1m", "5m", "1h"
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Get historical OHLCV data for a given pair, time range, and interval.
 
         DataFrame should have columns like
@@ -33,14 +33,14 @@ class HistoricalDataService(abc.ABC):
         trading_pair: str,
         start_time: datetime,
         end_time: datetime,
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Get historical trade data for a given pair and time range."""
         # DataFrame should have columns like ['timestamp', 'price', 'volume',
         # 'side']
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_next_bar(self, trading_pair: str, timestamp: datetime) -> Optional[pd.Series]:
+    def get_next_bar(self, trading_pair: str, timestamp: datetime) -> pd.Series | None:
         """Get the next available OHLCV bar after the given timestamp.
 
         Args
@@ -58,7 +58,7 @@ class HistoricalDataService(abc.ABC):
     @abc.abstractmethod
     def get_atr(
         self, trading_pair: str, timestamp: datetime, period: int = 14
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """Get the Average True Range indicator value at the given timestamp.
 
         Args

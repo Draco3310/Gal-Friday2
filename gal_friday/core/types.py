@@ -41,8 +41,8 @@ class LoggerService(Protocol):
 class MarketPriceService(Protocol):
     """Protocol for market price service."""
 
-    def get_price(self, symbol: str) -> Optional[Decimal]: ...
-    def get_prices(self, symbols: List[str]) -> Dict[str, Optional[Decimal]]: ...
+    def get_price(self, symbol: str) -> Decimal | None: ...
+    def get_prices(self, symbols: list[str]) -> dict[str, Decimal | None]: ...
 
 # Protocol for portfolio management
 class PortfolioManager(Protocol):
@@ -50,7 +50,7 @@ class PortfolioManager(Protocol):
 
     def get_balance(self, currency: str = "USD") -> Decimal: ...
     def get_position(self, symbol: str) -> Decimal: ...
-    def get_positions(self) -> Dict[str, Decimal]: ...
+    def get_positions(self) -> dict[str, Decimal]: ...
 
 # Protocol for feature engineering
 class FeatureEngine(Protocol):
@@ -68,25 +68,25 @@ class PredictionService(Protocol):
 class RiskManager(Protocol):
     """Protocol for risk management."""
 
-    def check_risk(self, order: Dict[str, Any]) -> bool: ...
+    def check_risk(self, order: dict[str, Any]) -> bool: ...
 
 # Protocol for strategy arbitration
 class StrategyArbitrator(Protocol):
     """Protocol for strategy arbitration."""
 
-    def decide_action(self, signals: Dict[str, Any]) -> Dict[str, Any]: ...
+    def decide_action(self, signals: dict[str, Any]) -> dict[str, Any]: ...
 
 # Protocol for exchange information
 class ExchangeInfoService(Protocol):
     """Protocol for exchange information service."""
 
-    def get_symbol_info(self, symbol: str) -> Dict[str, Any]: ...
+    def get_symbol_info(self, symbol: str) -> dict[str, Any]: ...
 
 # Protocol for execution handling
 class ExecutionHandler(Protocol):
     """Protocol for order execution."""
 
-    async def execute_order(self, order: Dict[str, Any]) -> Dict[str, Any]: ...
+    async def execute_order(self, order: dict[str, Any]) -> dict[str, Any]: ...
 
 # Protocol for pub/sub management
 class PubSubManager(Protocol):
@@ -105,14 +105,14 @@ class BacktestHistoricalDataProvider(Protocol):
         start_time: datetime,
         end_time: datetime,
         interval: str = "1d"
-    ) -> Optional[pd.DataFrame]: ...
+    ) -> pd.DataFrame | None: ...
 
     def get_historical_trades(
         self,
         trading_pair: str,
         start_time: datetime,
         end_time: datetime
-    ) -> Optional[pd.DataFrame]: ...
+    ) -> pd.DataFrame | None: ...
 
 # Type aliases for better readability
 LoggerServiceType = LoggerService

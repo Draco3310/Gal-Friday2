@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Callable, Optional, Union
+from typing import Optional, Union
+
+from collections.abc import Callable
 
 
 # --- Event System ---
@@ -36,7 +38,7 @@ class Event:
         self,
         source_module: str = "",
         event_id: object = None,
-        timestamp: Optional[datetime] = None,
+        timestamp: datetime | None = None,
     ) -> None:
         """Initialize a base Event.
 
@@ -55,7 +57,7 @@ class Event:
 class ExecutionReportDetails:
     """Details specific to an execution report."""
 
-    signal_id: Optional[object] = None
+    signal_id: object | None = None
     exchange_order_id: str = ""
     client_order_id: str = ""
     trading_pair: str = ""
@@ -65,13 +67,13 @@ class ExecutionReportDetails:
     side: str = ""
     quantity_ordered: Decimal = Decimal(0)
     quantity_filled: Decimal = Decimal(0)
-    average_fill_price: Optional[Decimal] = None
-    limit_price: Optional[Decimal] = None
-    stop_price: Optional[Decimal] = None
-    commission: Optional[Decimal] = None
-    commission_asset: Optional[str] = None
-    timestamp_exchange: Optional[datetime] = None
-    error_message: Optional[str] = None
+    average_fill_price: Decimal | None = None
+    limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
+    commission: Decimal | None = None
+    commission_asset: str | None = None
+    timestamp_exchange: datetime | None = None
+    error_message: str | None = None
 
 
 class ExecutionReportEvent(Event):
@@ -82,7 +84,7 @@ class ExecutionReportEvent(Event):
         *,
         source_module: str = "",
         event_id: object = None,
-        timestamp: Optional[datetime] = None,
+        timestamp: datetime | None = None,
         details: ExecutionReportDetails,
     ) -> None:
         """Initialize an execution report event.
@@ -130,7 +132,7 @@ class ConfigManager:
         """Get boolean config value by key path."""
         return default
 
-    def get_decimal(self, _key: str, default: Union[Decimal, str, int, float] = 0) -> Decimal:
+    def get_decimal(self, _key: str, default: Decimal | str | int | float = 0) -> Decimal:
         """Get Decimal config value by key path."""
         if isinstance(default, Decimal):
             return default
@@ -175,11 +177,11 @@ class PubSubManager:
 class MarketPriceService:
     """Placeholder for MarketPriceService to avoid circular imports."""
 
-    async def get_latest_price(self, _trading_pair: str) -> Optional[Decimal]:
+    async def get_latest_price(self, _trading_pair: str) -> Decimal | None:
         """Get latest price for a trading pair."""
         return None
 
-    async def get_bid_ask_spread(self, _trading_pair: str) -> Optional[tuple[Decimal, Decimal]]:
+    async def get_bid_ask_spread(self, _trading_pair: str) -> tuple[Decimal, Decimal] | None:
         """Get bid-ask spread for a trading pair."""
         return None
 

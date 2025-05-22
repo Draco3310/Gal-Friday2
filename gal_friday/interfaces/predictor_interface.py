@@ -14,7 +14,7 @@ class PredictorInterface(ABC):
         self,
         model_path: str,
         model_id: str,
-        config: Optional[dict[str, Any]] = None
+        config: dict[str, Any] | None = None
     ) -> None:
         """
         Initialize the predictor.
@@ -29,7 +29,7 @@ class PredictorInterface(ABC):
         self.model_path = model_path
         self.model_id = model_id
         self.config = config or {}
-        self.scaler_path: Optional[str] = self.config.get("scaler_path")
+        self.scaler_path: str | None = self.config.get("scaler_path")
         self.model: Any = None
         self.scaler: Any = None
         self.logger = logging.getLogger(f"{self.__class__.__name__}:{self.model_id}")
@@ -69,5 +69,5 @@ class PredictorInterface(ABC):
 
     @property
     @abstractmethod
-    def expected_feature_names(self) -> Optional[list[str]]:
+    def expected_feature_names(self) -> list[str] | None:
         """Return the list of feature names the model expects, if applicable."""

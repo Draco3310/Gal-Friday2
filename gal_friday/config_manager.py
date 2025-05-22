@@ -49,7 +49,7 @@ T = TypeVar("T")
 
 # Conditionally select the base class to use
 if "FileSystemEventHandler" in globals():
-    BaseClassType: Type = FileSystemEventHandler
+    BaseClassType: type = FileSystemEventHandler
 else:
     BaseClassType = object
 
@@ -124,9 +124,9 @@ class ConfigManager:
     def __init__(
         self,
         config_path: str = "config/config.yaml",
-        logger_service: Optional[logging.Logger] = None,
+        logger_service: logging.Logger | None = None,
         pubsub_manager: Optional["PubSubManager"] = None,  # Added PubSubManager
-        loop: Optional[asyncio.AbstractEventLoop] = None,  # Optional asyncio loop
+        loop: asyncio.AbstractEventLoop | None = None,  # Optional asyncio loop
     ) -> None:
         """
         Initialize the ConfigManager, load config, and validate it.
@@ -139,7 +139,7 @@ class ConfigManager:
         """
         self._config_path_str = config_path
         self._config_file_path = Path(self._config_path_str).resolve()
-        self._config: Optional[dict] = None
+        self._config: dict | None = None
         self.validation_errors: list[str] = []
         self._pubsub_manager = pubsub_manager
         # Ensure _loop is captured correctly, preferably from the running application context
@@ -153,13 +153,13 @@ class ConfigManager:
                 asyncio.set_event_loop(self._loop)
                 self._logger.info("No running event loop, created a new one for ConfigManager.")
 
-        self._observer: Optional[Observer] = None
+        self._observer: Observer | None = None
         self._config_reload_lock = asyncio.Lock()  # Lock for reloading
         # Store the previous prediction_service config for comparison
-        self._previous_prediction_service_config: Optional[dict[str, Any]] = None
+        self._previous_prediction_service_config: dict[str, Any] | None = None
 
         # Initialize event handler if watchdog is available
-        self._event_handler: Optional[ConfigChangeHandler] = None
+        self._event_handler: ConfigChangeHandler | None = None
         if "Observer" in globals() and "FileSystemEventHandler" in globals():
             self._event_handler = ConfigChangeHandler(self, self._config_file_path)
 
@@ -267,7 +267,7 @@ class ConfigManager:
                     "Config reloaded but PubSubManager not available to publish update event."
                 )
 
-    def _has_prediction_config_changed(self, new_config_section: Optional[dict[str, Any]]) -> bool:
+    def _has_prediction_config_changed(self, new_config_section: dict[str, Any] | None) -> bool:
         """Compare the new prediction_service config section with the previous one.
 
         Returns
@@ -393,7 +393,7 @@ class ConfigManager:
             )
             self._config = {}
 
-    def get(self, key: str, default: Optional[Any] = None) -> Any:  # noqa: ANN401
+    def get(self, key: str, default: Any | None = None) -> Any:  # noqa: ANN401
         """
         Retrieve a configuration value using a dot-separated key.
 
@@ -521,7 +521,7 @@ class ConfigManager:
         )
         return default
 
-    def get_list(self, key: str, default: Optional[list[Any]] = None) -> list[Any]:
+    def get_list(self, key: str, default: list[Any] | None = None) -> list[Any]:
         """Retrieve a config value expected to be a list."""
         if default is None:
             default = []  # Default to empty list if None specified
@@ -538,7 +538,7 @@ class ConfigManager:
         # Ensure the default is returned if the fetched value wasn't a list
         return default if isinstance(default, list) else []
 
-    def get_dict(self, key: str, default: Optional[dict] = None) -> dict:
+    def get_dict(self, key: str, default: dict | None = None) -> dict:
         """Retrieve a config value expected to be a dictionary."""
         if default is None:
             default = {}  # Default to empty dict if None specified
@@ -709,7 +709,7 @@ class ConfigManager:
         # Validation happens in validate_configuration
         return self.get_dict(f"strategies.{strategy_id}", {})
 
-    def get_api_keys(self, service_name: str) -> dict[str, Optional[str]]:
+    def get_api_keys(self, service_name: str) -> dict[str, str | None]:
         """
         Retrieve API key/secret pair securely for a given service.
 
@@ -757,7 +757,7 @@ class ConfigManager:
         # Check if config was loaded (is not None) and if there are no validation errors.
         return self._config is not None and not self.validation_errors
 
-    def get_secure_value(self, key: str, default: Optional[str] = None) -> Optional[str]:
+    def get_secure_value(self, key: str, default: str | None = None) -> str | None:
         """
         Retrieve sensitive configuration values, prioritizing environment variables.
 
@@ -801,12 +801,12 @@ class ConfigManager:
         self._logger.debug("Converting non-string config value for '%s' to string.", key)
         return str(config_value)
 
-    def get_secure_api_key(self, service_name: str) -> Optional[str]:
+    def get_secure_api_key(self, service_name: str) -> str | None:
         """Retrieve a specific API key securely for a given service."""
         full_key = f"api.{service_name}.key"
         return self.get_secure_value(full_key)
 
-    def get_secure_api_secret(self, service_name: str) -> Optional[str]:
+    def get_secure_api_secret(self, service_name: str) -> str | None:
         """Retrieve a specific API secret securely for a given service."""
         full_key = f"api.{service_name}.secret"
         return self.get_secure_value(full_key)

@@ -36,7 +36,7 @@ class KrakenMarketPriceService(MarketPriceService):
         self.config = config_manager
         self.logger = logger_service
         self._api_url = self.config.get("kraken.api_url", "https://api.kraken.com")
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
         self._source_module = self.__class__.__name__
         self._price_timestamps: dict[str, datetime] = {}
         self.logger.info(
@@ -59,7 +59,7 @@ class KrakenMarketPriceService(MarketPriceService):
                 source_module=self._source_module,
             )
 
-    async def get_latest_price(self, trading_pair: str) -> Optional[Decimal]:
+    async def get_latest_price(self, trading_pair: str) -> Decimal | None:
         """
         Get latest price using Kraken public Ticker endpoint.
 
@@ -71,7 +71,7 @@ class KrakenMarketPriceService(MarketPriceService):
         -------
             The latest price as a Decimal or None if it couldn't be retrieved.
         """
-        price_to_return: Optional[Decimal] = None
+        price_to_return: Decimal | None = None
 
         if not self._session:
             self.logger.warning(
@@ -129,7 +129,7 @@ class KrakenMarketPriceService(MarketPriceService):
 
         return price_to_return
 
-    async def get_bid_ask_spread(self, trading_pair: str) -> Optional[tuple[Decimal, Decimal]]:
+    async def get_bid_ask_spread(self, trading_pair: str) -> tuple[Decimal, Decimal] | None:
         """
         Get best bid/ask using Kraken public Ticker endpoint.
 
@@ -141,7 +141,7 @@ class KrakenMarketPriceService(MarketPriceService):
         -------
             A tuple of (bid_price, ask_price) as Decimals, or None if not retrieved.
         """
-        spread_to_return: Optional[tuple[Decimal, Decimal]] = None
+        spread_to_return: tuple[Decimal, Decimal] | None = None
 
         if not self._session:
             self.logger.warning(
@@ -200,7 +200,7 @@ class KrakenMarketPriceService(MarketPriceService):
 
         return spread_to_return
 
-    def _map_internal_to_kraken_pair(self, internal_pair: str) -> Optional[str]:
+    def _map_internal_to_kraken_pair(self, internal_pair: str) -> str | None:
         """
         Map internal trading pair format to Kraken's format.
 
@@ -235,7 +235,7 @@ class KrakenMarketPriceService(MarketPriceService):
 
         return base + quote
 
-    async def get_price_timestamp(self, trading_pair: str) -> Optional[datetime]:
+    async def get_price_timestamp(self, trading_pair: str) -> datetime | None:
         """Get the timestamp (UTC) associated with the latest price data."""
         kraken_pair = self._map_internal_to_kraken_pair(trading_pair)
         if not kraken_pair:
@@ -262,7 +262,7 @@ class KrakenMarketPriceService(MarketPriceService):
             )
         return is_fresh
 
-    async def _get_safe_price(self, pair: str) -> Optional[Decimal]:
+    async def _get_safe_price(self, pair: str) -> Decimal | None:
         """Get price, return None if price is 0 or None to avoid division by zero."""
         price_decimal = await self.get_latest_price(pair)
         if price_decimal is not None and price_decimal > 0:
@@ -274,7 +274,7 @@ class KrakenMarketPriceService(MarketPriceService):
 
     async def _try_conversion_step(
         self, amount: Decimal, from_currency: str, to_currency: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """
         Attempt a single conversion from_currency to to_currency.
 
@@ -306,7 +306,7 @@ class KrakenMarketPriceService(MarketPriceService):
 
     async def convert_amount(
         self, from_amount: Decimal, from_currency: str, to_currency: str
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         """
         Convert an amount from one currency to another using Kraken.
 
@@ -402,8 +402,8 @@ class KrakenMarketPriceService(MarketPriceService):
         trading_pair: str,
         timeframe: str,
         since: datetime,
-        limit: Optional[int] = None
-    ) -> Optional[list[dict[str, Any]]]:
+        limit: int | None = None
+    ) -> list[dict[str, Any]] | None:
         """
         Fetch historical OHLCV data for a trading pair from Kraken.
         """

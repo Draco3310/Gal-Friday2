@@ -89,14 +89,14 @@ We use Google style for docstrings. Example of a properly formatted docstring:
 ```python
 def my_function(param1: str, param2: int) -> bool:
     """Do something with parameters.
-    
+
     Args:
         param1: Description of param1
         param2: Description of param2
-        
+
     Returns:
         Description of return value
-        
+
     Raises:
         ValueError: When parameters are invalid
     """

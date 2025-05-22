@@ -46,10 +46,10 @@ else:
 class CustomReportOverrides:
     """Helper dataclass to group custom override parameters for execution reports."""
 
-    exchange_order_id: Optional[str] = None
-    client_order_id: Optional[str] = None
-    order_type: Optional[str] = None
-    side: Optional[str] = None
+    exchange_order_id: str | None = None
+    client_order_id: str | None = None
+    order_type: str | None = None
+    side: str | None = None
 
 
 @dataclass
@@ -58,12 +58,12 @@ class SimulatedReportParams:
 
     status: str
     qty_filled: Decimal
-    avg_price: Optional[Decimal]
+    avg_price: Decimal | None
     commission: Decimal
-    commission_asset: Optional[str]
-    error_msg: Optional[str] = None
-    fill_timestamp: Optional[datetime] = None
-    liquidity_type: Optional[str] = None
+    commission_asset: str | None
+    error_msg: str | None = None
+    fill_timestamp: datetime | None = None
+    liquidity_type: str | None = None
 
 
 @dataclass
@@ -427,7 +427,7 @@ class SimulatedExecutionHandler:
     async def _get_next_bar_data(
         self,
         event: "TradeSignalApprovedEvent",
-    ) -> Optional[pd.Series]:
+    ) -> pd.Series | None:
         """Get and validate the next bar data for simulation."""
         try:
             # Adjust timestamp for processing_delay_bars
@@ -716,7 +716,7 @@ class SimulatedExecutionHandler:
         event: "TradeSignalApprovedEvent",
         next_bar: pd.Series,
         fill_timestamp: datetime,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Handle the initial placement of a limit order.
 
         It checks for immediate fill potential on the next_bar.
@@ -933,7 +933,7 @@ class SimulatedExecutionHandler:
         side: str,
         limit_price: Decimal,
         bar: pd.Series,
-    ) -> tuple[Optional[Decimal], bool]:
+    ) -> tuple[Decimal | None, bool]:
         """Check if a limit order fills on a given bar.
 
         Returns the fill price (or better) and a boolean indicating if filled.
@@ -982,7 +982,7 @@ class SimulatedExecutionHandler:
         )
         return None, False
 
-    def _extract_bar_prices(self, bar: pd.Series) -> Optional[tuple[Decimal, Decimal, Decimal]]:
+    def _extract_bar_prices(self, bar: pd.Series) -> tuple[Decimal, Decimal, Decimal] | None:
         """Extract and convert open, low, high prices from a bar.
 
         Args:
@@ -1074,8 +1074,8 @@ class SimulatedExecutionHandler:
         _side: str,  # ARG002: Prefixed unused 'side'
         base_price: Decimal,
         signal_timestamp: datetime,  # Timestamp of the original signal event
-        order_quantity: Optional[Decimal] = None,  # Original order quantity
-        bar_volume: Optional[Decimal] = None,  # Volume of the bar against which fill is attempted
+        order_quantity: Decimal | None = None,  # Original order quantity
+        bar_volume: Decimal | None = None,  # Volume of the bar against which fill is attempted
     ) -> Decimal:
         """Calculate slippage based on configured model."""
         slippage = Decimal(0)
@@ -1154,7 +1154,7 @@ class SimulatedExecutionHandler:
         self,
         originating_event: "TradeSignalApprovedEvent",
         params: SimulatedReportParams,  # Use the new dataclass
-        overrides: Optional[CustomReportOverrides] = None,
+        overrides: CustomReportOverrides | None = None,
     ) -> None:
         """Create and publish a simulated ExecutionReportEvent."""
         try:
@@ -1254,7 +1254,7 @@ class SimulatedExecutionHandler:
         return True
 
     def _check_sl_tp_trigger(self, sl_tp_data: dict, bar_high: Decimal, bar_low: Decimal,
-                          bar_timestamp: datetime) -> Optional[dict]:  # noqa: ARG002
+                          bar_timestamp: datetime) -> dict | None:  # noqa: ARG002
         """Check if the current bar triggers any SL/TP conditions.
 
         Args:
@@ -1271,8 +1271,8 @@ class SimulatedExecutionHandler:
         tp_price = sl_tp_data.get("tp")
         original_side = sl_tp_data.get("side")
 
-        exit_price: Optional[Decimal] = None
-        exit_reason: Optional[str] = None
+        exit_price: Decimal | None = None
+        exit_reason: str | None = None
         exit_order_type = "MARKET"  # Default for SL
         is_sl_trigger = False
 
@@ -1870,7 +1870,7 @@ class SimulatedExecutionHandler:
         """Check if SL/TP is active for a given position ID. For test inspection."""
         return position_id in self._active_sl_tp
 
-    def get_active_sl_tp_entry_details(self, position_id: str) -> Optional[dict]:
+    def get_active_sl_tp_entry_details(self, position_id: str) -> dict | None:
         """Get active SL/TP entry details for a given position ID. For test inspection."""
         if position_id in self._active_sl_tp:
             # Return a copy to prevent external modification of internal state

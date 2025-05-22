@@ -5,7 +5,9 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import Enum
 import logging
 from types import TracebackType
-from typing import Callable, Generic, Optional, TypeVar, cast
+from typing import Generic, Optional, TypeVar, cast
+
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +87,7 @@ class BackgroundProcess(Generic[T]):
                     self._status = ProcessStatus.COMPLETED
         return self._status
 
-    def get_result(self, timeout: Optional[float] = None) -> T:
+    def get_result(self, timeout: float | None = None) -> T:
         """
         Get the result of the background process.
 
@@ -201,8 +203,8 @@ class BackgroundProcessManager:
     """
 
     _instance: Optional["BackgroundProcessManager"] = None
-    _executor: Optional[ProcessPoolExecutor] = None
-    _max_workers_at_init: Optional[int] = None # Class attribute to store initial max_workers
+    _executor: ProcessPoolExecutor | None = None
+    _max_workers_at_init: int | None = None # Class attribute to store initial max_workers
 
     def __new__(cls) -> "BackgroundProcessManager":
         """Ensure a single instance of BackgroundProcessManager."""
@@ -210,7 +212,7 @@ class BackgroundProcessManager:
             cls._instance = super().__new__(cls) # Use super() directly
         return cls._instance
 
-    def __init__(self, max_workers: Optional[int] = None) -> None:
+    def __init__(self, max_workers: int | None = None) -> None:
         """Initialize the BackgroundProcessManager and its executor if not already done."""
         if not hasattr(self, "_initialized"): # Ensure __init__ logic runs once per instance
             if BackgroundProcessManager._executor is None:
@@ -236,7 +238,7 @@ class BackgroundProcessManager:
             self._initialized = True
 
     @classmethod
-    def get_instance(cls, max_workers: Optional[int] = None) -> "BackgroundProcessManager":
+    def get_instance(cls, max_workers: int | None = None) -> "BackgroundProcessManager":
         """Get the singleton instance of the BackgroundProcessManager, initializing if needed."""
         if cls._instance is None:
             cls._instance = cls(max_workers=max_workers)
@@ -333,9 +335,9 @@ class BackgroundProcessManager:
 
     def __exit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType]
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None
     ) -> None:
         """Exit the runtime context, shutting down the pool."""
         self.shutdown(wait=True)
