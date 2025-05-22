@@ -49,6 +49,5 @@ repos:
         pass_filenames: false
         always_run: true
         verbose: true
-        stages: [commit]
         # Don't block commit if tests fail, just report
         fail_fast: false
