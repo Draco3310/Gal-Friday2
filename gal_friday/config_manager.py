@@ -10,13 +10,13 @@ update events.
 # Configuration Manager Module
 
 import asyncio  # For event publishing
-from decimal import Decimal
-from functools import reduce
 import logging
 import operator
 import os
+from decimal import Decimal
+from functools import reduce
 from pathlib import Path  # Added for PTH110 and PTH123
-from typing import TYPE_CHECKING, Any, Optional, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
 
 import yaml
 
@@ -33,7 +33,7 @@ except ImportError:
     FileSystemEventHandler = None
     logging.getLogger(__name__).warning(
         "'watchdog' library not found. Dynamic config reloading will be disabled. "
-        "Please install it: pip install watchdog"
+        "Please install it: pip install watchdog",
     )
 
 # Conditional import for PubSubManager and Event types
@@ -52,6 +52,7 @@ if "FileSystemEventHandler" in globals():
     BaseClassType: type = FileSystemEventHandler
 else:
     BaseClassType = object
+
 
 # Use the actual class directly as a base class
 class ConfigChangeHandler(BaseClassType):
@@ -77,20 +78,21 @@ class ConfigChangeHandler(BaseClassType):
             if (current_time - self._last_triggered_time) < self._debounce_period:
                 self.logger.debug(
                     "Debouncing config file modification event for %s",
-                    event.src_path
+                    event.src_path,
                 )
                 return
             self._last_triggered_time = current_time
 
             self.logger.info(
                 "Configuration file %s modified. Scheduling reload.",
-                event.src_path
+                event.src_path,
             )
             # Use the loop provided to ConfigManager to schedule the task
             loop = getattr(self.config_manager, "_loop", None)
             if loop and loop.is_running():
                 asyncio.run_coroutine_threadsafe(
-                    self.config_manager.handle_config_file_change(), loop
+                    self.config_manager.handle_config_file_change(),
+                    loop,
                 )
             else:
                 # Fallback if loop isn't available for threadsafe scheduling.
@@ -105,14 +107,14 @@ class ConfigChangeHandler(BaseClassType):
                 try:
                     # Store task reference to prevent garbage collection
                     task = asyncio.create_task(
-                        self.config_manager.handle_config_file_change()
+                        self.config_manager.handle_config_file_change(),
                     )
                     # Store task reference if needed later
                     self._pending_tasks.add(task)
                     task.add_done_callback(self._pending_tasks.discard)
                 except RuntimeError:
                     self.logger.exception(
-                        "RuntimeError creating task for config reload (likely wrong thread)"
+                        "RuntimeError creating task for config reload (likely wrong thread)",
                     )
 
 
@@ -128,8 +130,7 @@ class ConfigManager:
         pubsub_manager: Optional["PubSubManager"] = None,  # Added PubSubManager
         loop: asyncio.AbstractEventLoop | None = None,  # Optional asyncio loop
     ) -> None:
-        """
-        Initialize the ConfigManager, load config, and validate it.
+        """Initialize the ConfigManager, load config, and validate it.
 
         Args:
             config_path: Path to the YAML configuration file.
@@ -166,7 +167,8 @@ class ConfigManager:
         # Ensure logger is always initialized
         self._logger: logging.Logger = logger_service or logging.getLogger(__name__)
         self._logger.info(
-            "Initializing ConfigManager with path: %s", self._config_file_path
+            "Initializing ConfigManager with path: %s",
+            self._config_file_path,
         )
 
         self.load_config()
@@ -175,9 +177,8 @@ class ConfigManager:
             self._logger.error("Initial configuration is invalid. Please check errors above.")
             # Potentially raise an error here if initial valid config is mandatory
 
-    async def handle_config_file_change(self) -> None:  # noqa: PLR0912
-        """
-        Handle configuration file changes.
+    async def handle_config_file_change(self) -> None:
+        """Handle configuration file changes.
 
         This method is called by the Watchdog handler when the configuration file
         changes. It reloads the configuration and publishes an update event if
@@ -185,13 +186,14 @@ class ConfigManager:
         """
         if self._config_reload_lock.locked():
             self._logger.info(
-                "Configuration reload already in progress. Skipping duplicate trigger."
+                "Configuration reload already in progress. Skipping duplicate trigger.",
             )
             return
 
         async with self._config_reload_lock:
             self._logger.info(
-                "Handling detected change for %s", self._config_file_path
+                "Handling detected change for %s",
+                self._config_file_path,
             )
 
             # Store current prediction_service config before reloading, if it exists and is valid
@@ -211,12 +213,12 @@ class ConfigManager:
 
                 if not self.is_valid():
                     self._logger.error(
-                        "Reloaded configuration is invalid. Not publishing update event."
+                        "Reloaded configuration is invalid. Not publishing update event.",
                     )
                     reloaded_successfully = False
                 else:
                     self._logger.info(
-                        "Configuration reloaded and validated successfully after file change."
+                        "Configuration reloaded and validated successfully after file change.",
                     )
 
             except Exception:
@@ -231,11 +233,12 @@ class ConfigManager:
                 # Check for meaningful changes before publishing
                 if self._has_prediction_config_changed(current_prediction_service_config):
                     if current_prediction_service_config is not None and isinstance(
-                        current_prediction_service_config, dict
+                        current_prediction_service_config,
+                        dict,
                     ):
                         self._logger.info(
                             "Meaningful changes detected in 'prediction_service' config. "
-                            "Publishing PREDICTION_CONFIG_UPDATED event."
+                            "Publishing PREDICTION_CONFIG_UPDATED event.",
                         )
                         try:
                             event = PredictionConfigUpdatedEvent.create(
@@ -255,22 +258,22 @@ class ConfigManager:
                     else:
                         self._logger.error(
                             "'prediction_service' section not found or not a dict in "
-                            "reloaded config after change detection. Cannot publish update."
+                            "reloaded config after change detection. Cannot publish update.",
                         )
                 else:
                     self._logger.info(
                         "No meaningful changes detected in 'prediction_service' "
-                        "config. Update event not published."
+                        "config. Update event not published.",
                     )
             elif reloaded_successfully and self._pubsub_manager is None:
                 self._logger.warning(
-                    "Config reloaded but PubSubManager not available to publish update event."
+                    "Config reloaded but PubSubManager not available to publish update event.",
                 )
 
     def _has_prediction_config_changed(self, new_config_section: dict[str, Any] | None) -> bool:
         """Compare the new prediction_service config section with the previous one.
 
-        Returns
+        Returns:
         -------
             bool: True if the config has changed, False otherwise.
         """
@@ -290,11 +293,9 @@ class ConfigManager:
         new_strategy = new_config_section.get("ensemble_strategy")
         # Add other critical keys like ensemble_weights if they should trigger reload on change.
 
-
         # Check if models or strategy have changed
         return bool(
-            prev_models != new_models
-            or prev_strategy != new_strategy
+            prev_models != new_models or prev_strategy != new_strategy,
             # Add more conditions here if needed
         )
 
@@ -309,7 +310,9 @@ class ConfigManager:
                 # problematic on some OS.
                 watch_path = str(self._config_file_path.parent)
                 self._observer.schedule(
-                    self._event_handler, watch_path, recursive=False
+                    self._event_handler,
+                    watch_path,
+                    recursive=False,
                 )
                 self._observer.start()
                 self._logger.info(
@@ -328,7 +331,7 @@ class ConfigManager:
             self._logger.info("Configuration file observer already running.")
         else:
             self._logger.warning(
-                "Watchdog library not available. Cannot start config file watching."
+                "Watchdog library not available. Cannot start config file watching.",
             )
 
     def stop_watching(self) -> None:
@@ -339,7 +342,8 @@ class ConfigManager:
                     self._observer.stop()
                     self._observer.join(timeout=5)  # Wait for observer thread to finish
                 self._logger.info(
-                    "Stopped watching configuration file: %s", self._config_file_path
+                    "Stopped watching configuration file: %s",
+                    self._config_file_path,
                 )
             except Exception as e:
                 self._logger.exception("Error stopping configuration file observer.", exc_info=e)
@@ -351,12 +355,14 @@ class ConfigManager:
     def load_config(self) -> None:
         """Load or reload the configuration from the specified YAML file."""
         self._logger.info(
-            "Attempting to load configuration from: %s", self._config_file_path
+            "Attempting to load configuration from: %s",
+            self._config_file_path,
         )
         try:
             if not self._config_file_path.exists():
                 self._logger.error(
-                    "Configuration file not found at: %s", self._config_file_path
+                    "Configuration file not found at: %s",
+                    self._config_file_path,
                 )
                 self._config = {}  # Set to empty dict if file not found
                 return
@@ -364,16 +370,21 @@ class ConfigManager:
             with self._config_file_path.open("r") as f:
                 self._config = yaml.safe_load(f)
             self._logger.info(
-                "Successfully loaded configuration from %s", self._config_file_path
+                "Successfully loaded configuration from %s",
+                self._config_file_path,
             )
         except yaml.YAMLError as e:
             self._logger.exception(
-                "Error parsing YAML configuration file: %s", self._config_file_path, exc_info=e
+                "Error parsing YAML configuration file: %s",
+                self._config_file_path,
+                exc_info=e,
             )
             self._config = {}
         except OSError as e:
             self._logger.exception(
-                "Error reading configuration file: %s", self._config_file_path, exc_info=e
+                "Error reading configuration file: %s",
+                self._config_file_path,
+                exc_info=e,
             )
             self._config = {}
         except Exception as e:
@@ -394,24 +405,23 @@ class ConfigManager:
             self._config = {}
 
     def get(self, key: str, default: Any | None = None) -> Any:  # noqa: ANN401
-        """
-        Retrieve a configuration value using a dot-separated key.
+        """Retrieve a configuration value using a dot-separated key.
 
         Example:
             config.get('database.postgres.host', 'localhost')
 
-        Args
+        Args:
         ----
             key: The dot-separated key string.
             default: The value to return if the key is not found.
 
-        Returns
+        Returns:
         -------
             The configuration value or the default.
         """
         if self._config is None:
             self._logger.warning(
-                "Configuration accessed before it was loaded or after a loading error."
+                "Configuration accessed before it was loaded or after a loading error.",
             )
             return default
 
@@ -421,12 +431,16 @@ class ConfigManager:
             # KeyError if a key in the path doesn't exist
             # TypeError if trying to index into a non-dictionary
             self._logger.debug(
-                "Key '%s' not found in configuration. Returning default: %s", key, default
+                "Key '%s' not found in configuration. Returning default: %s",
+                key,
+                default,
             )
             return default
         except Exception as e:
             self._logger.exception(
-                "Unexpected error retrieving key '%s' from configuration.", key, exc_info=e
+                "Unexpected error retrieving key '%s' from configuration.",
+                key,
+                exc_info=e,
             )
             return default
         else:
@@ -473,7 +487,8 @@ class ConfigManager:
                 default = Decimal(str(default))
             except Exception:
                 self._logger.warning(
-                    "Invalid default value '%s' for get_decimal, using 0.0", default
+                    "Invalid default value '%s' for get_decimal, using 0.0",
+                    default,
                 )
                 default = Decimal("0.0")
 
@@ -556,8 +571,7 @@ class ConfigManager:
         return default if isinstance(default, dict) else {}
 
     def validate_configuration(self) -> list[str]:
-        """
-        Validate the loaded configuration against predefined rules.
+        """Validate the loaded configuration against predefined rules.
 
         Returns a list of validation error messages. An empty list indicates success.
         """
@@ -628,7 +642,7 @@ class ConfigManager:
                 if not self._is_valid_trading_pair(pair):
                     errors.append(
                         f"Invalid trading pair format at index {i}: '{pair}'. "
-                        f"Expected 'BASE/QUOTE' (e.g., 'BTC/USD')."
+                        f"Expected 'BASE/QUOTE' (e.g., 'BTC/USD').",
                     )
         # Validate exchange
         exchange = self.get("trading.exchange")
@@ -671,7 +685,7 @@ class ConfigManager:
         # Check if at least one service (e.g., kraken, binance) is configured
         if not self.get_dict("api"):  # Check if the api dict itself is empty
             errors.append(
-                "'api' section cannot be empty. Configure at least one service (e.g., 'kraken')."
+                "'api' section cannot be empty. Configure at least one service (e.g., 'kraken').",
             )
             return
         # Validate specific services if needed (e.g., ensure kraken has key/secret)
@@ -683,13 +697,13 @@ class ConfigManager:
                 errors.append(
                     f"Missing API key for service '{service_name}'. Check "
                     f"'api.{service_name}.key' in config or the "
-                    f"'{service_name.upper()}_KEY' env var."
+                    f"'{service_name.upper()}_KEY' env var.",
                 )
             if api_secret is None:
                 errors.append(
                     f"Missing API secret for service '{service_name}'. Check "
                     f"'api.{service_name}.secret' in config or the "
-                    f"'{service_name.upper()}_SECRET' env var."
+                    f"'{service_name.upper()}_SECRET' env var.",
                 )
 
     # --- Optional specific getters (can be added as needed) ---
@@ -710,8 +724,7 @@ class ConfigManager:
         return self.get_dict(f"strategies.{strategy_id}", {})
 
     def get_api_keys(self, service_name: str) -> dict[str, str | None]:
-        """
-        Retrieve API key/secret pair securely for a given service.
+        """Retrieve API key/secret pair securely for a given service.
 
         Assumes standard key names 'key' and 'secret'.
         Returns a dict with 'key' and 'secret' containing Optional[str].
@@ -730,12 +743,13 @@ class ConfigManager:
         This method is for explicit reload calls. Automated reloading is handled by watchdog.
         Updates `self.validation_errors` with the results of the new validation.
 
-        Returns
+        Returns:
         -------
             List of validation errors encountered during the reload and validation process.
         """
         self._logger.info(
-            "Manual reload_config called for: %s", self._config_file_path
+            "Manual reload_config called for: %s",
+            self._config_file_path,
         )
         # Simply call load and validate. Event publishing is handled by
         # handle_config_file_change if this manual reload was triggered by an
@@ -748,7 +762,7 @@ class ConfigManager:
             self._logger.info("Configuration reloaded and validated successfully (manual call).")
         else:
             self._logger.warning(
-                "Configuration reload (manual call) completed, but validation failed."
+                "Configuration reload (manual call) completed, but validation failed.",
             )
         return self.validation_errors
 
@@ -758,8 +772,7 @@ class ConfigManager:
         return self._config is not None and not self.validation_errors
 
     def get_secure_value(self, key: str, default: str | None = None) -> str | None:
-        """
-        Retrieve sensitive configuration values, prioritizing environment variables.
+        """Retrieve sensitive configuration values, prioritizing environment variables.
 
         Converts dot notation key to uppercase underscore notation for env var lookup.
         Example: 'api.kraken.key' becomes 'API_KRAKEN_KEY'.

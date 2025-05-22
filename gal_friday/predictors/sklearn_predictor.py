@@ -5,10 +5,10 @@ with the prediction service to generate trade signals based on
 scikit-learn models.
 """
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Protocol, cast
+from typing import Any, Protocol, cast
 
 import joblib
 import numpy as np
@@ -30,24 +30,34 @@ class InferenceRequest:
 
 # Define protocol classes for type checking
 class ModelWithProba(Protocol):
-    def predict_proba(self, X: np.ndarray) -> np.ndarray: ...
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        ...
+
 
 class ModelWithPredict(Protocol):
-    def predict(self, X: np.ndarray) -> np.ndarray: ...
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        ...
+
 
 # Model is a combination of both protocols
 class Model(ModelWithPredict, Protocol):
-    def predict_proba(self, X: np.ndarray) -> np.ndarray: ...
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        ...
+
 
 class Transformer(Protocol):
-    def transform(self, X: np.ndarray) -> np.ndarray: ...
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        ...
 
 
 class SKLearnPredictor(PredictorInterface):
     """Scikit-learn model predictor implementation."""
 
     def __init__(
-        self, model_path: str, model_id: str, config: dict[str, Any] | None = None
+        self,
+        model_path: str,
+        model_id: str,
+        config: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the SKLearn predictor.
 
@@ -71,7 +81,7 @@ class SKLearnPredictor(PredictorInterface):
             error_type: The exception class to raise
             message: Error message to log and include in the exception
 
-        Raises
+        Raises:
         ------
             Exception: The specified error type with the given message
         """
@@ -80,6 +90,7 @@ class SKLearnPredictor(PredictorInterface):
         def _raise() -> None:
             def __raise() -> None:
                 raise error_type(message)
+
             return __raise()
 
         return _raise()
@@ -89,7 +100,7 @@ class SKLearnPredictor(PredictorInterface):
 
         Sets self.model and self.scaler.
 
-        Raises
+        Raises:
         ------
             FileNotFoundError: If the model or scaler file does not exist.
             Exception: If the model or scaler cannot be loaded.
@@ -97,6 +108,7 @@ class SKLearnPredictor(PredictorInterface):
         self.logger.info("Loading assets for model: %s", self.model_id)
         # Load Model
         try:
+
             def _raise_model_not_found() -> None:
                 error_msg = f"Model file not found: {self.model_path}"
                 return self._raise_error(FileNotFoundError, error_msg)
@@ -115,6 +127,7 @@ class SKLearnPredictor(PredictorInterface):
         # Load Scaler
         if self.scaler_path:
             try:
+
                 def _raise_scaler_not_found() -> None:
                     error_msg = f"Scaler file not found: {self.scaler_path}"
                     return self._raise_error(FileNotFoundError, error_msg)
@@ -136,18 +149,18 @@ class SKLearnPredictor(PredictorInterface):
     def predict(self, features: np.ndarray) -> np.ndarray:
         """Generate predictions using the scikit-learn model.
 
-        Args
+        Args:
         ----
             features: A 1D numpy array of raw, ordered feature values.
 
-        Returns
+        Returns:
         -------
             Prediction results as a numpy array.
             For classifiers with predict_proba, returns class probabilities
             (typically of the positive class). For regressors or
             classifiers without predict_proba, returns predicted values.
 
-        Raises
+        Raises:
         ------
             ValueError: If features have wrong shape or contain invalid values.
             TypeError: If model is not properly loaded or is of an unexpected type.
@@ -216,39 +229,43 @@ class SKLearnPredictor(PredictorInterface):
 
     @classmethod
     def _load_model(
-        cls, model_path: str, model_id: str
+        cls,
+        model_path: str,
+        model_id: str,
     ) -> tuple[Any | None, dict[str, Any] | None]:
         """Load the model from disk.
 
-        Returns
+        Returns:
         -------
             tuple: (model, error_dict) where error_dict is None if successful
         """
         if not Path(model_path).exists():
             return None, {
                 "error": f"Model file not found: {model_path}",
-                "model_id": model_id
+                "model_id": model_id,
             }
         try:
             model = joblib.load(model_path)
         except Exception as e:
             return None, {
                 "error": f"Error loading model: {e!s}",
-                "model_id": model_id
+                "model_id": model_id,
             }
         else:
             logging.getLogger(
-                f"{cls.__name__}:{model_id}"
+                f"{cls.__name__}:{model_id}",
             ).debug("Model loaded from %s", model_path)
             return model, None
 
     @classmethod
     def _load_scaler(
-        cls, scaler_path: str | None, model_id: str
+        cls,
+        scaler_path: str | None,
+        model_id: str,
     ) -> tuple[Any | None, dict[str, Any] | None]:
         """Load the scaler from disk.
 
-        Returns
+        Returns:
         -------
             tuple: (scaler, error_dict) where error_dict is None if successful
         """
@@ -258,7 +275,7 @@ class SKLearnPredictor(PredictorInterface):
         if not Path(scaler_path).exists():
             return None, {
                 "error": f"Scaler file not found: {scaler_path}",
-                "model_id": model_id
+                "model_id": model_id,
             }
 
         try:
@@ -266,15 +283,13 @@ class SKLearnPredictor(PredictorInterface):
         except Exception as e:
             return None, {
                 "error": f"Error loading scaler: {e!s}",
-                "model_id": model_id
+                "model_id": model_id,
             }
         else:
             logging.getLogger(
-                f"{cls.__name__}:{model_id}"
+                f"{cls.__name__}:{model_id}",
             ).debug("Scaler loaded from %s", scaler_path)
             return scaler, None
-
-
 
     @classmethod
     def _prepare_features(
@@ -285,14 +300,14 @@ class SKLearnPredictor(PredictorInterface):
     ) -> tuple[np.ndarray | None, dict[str, Any] | None]:
         """Prepare and scale features.
 
-        Returns
+        Returns:
         -------
             tuple: (processed_features, error_dict) where error_dict is None if successful
         """
         if feature_vector.ndim != 1:
             return None, {
                 "error": "Feature vector must be 1D for processing.",
-                "model_id": model_id
+                "model_id": model_id,
             }
 
         features_2d = feature_vector.reshape(1, -1)
@@ -303,20 +318,18 @@ class SKLearnPredictor(PredictorInterface):
             except Exception as e:
                 return None, {
                     "error": f"Scaler error: {e!s}",
-                    "model_id": model_id
+                    "model_id": model_id,
                 }
             else:
                 logging.getLogger(
-                    f"{cls.__name__}:{model_id}"
+                    f"{cls.__name__}:{model_id}",
                 ).debug("Features scaled.")
                 return processed_features, None
 
         logging.getLogger(
-            f"{cls.__name__}:{model_id}"
+            f"{cls.__name__}:{model_id}",
         ).debug("No scaler used.")
         return features_2d, None
-
-
 
     @classmethod
     def _make_prediction(
@@ -327,7 +340,7 @@ class SKLearnPredictor(PredictorInterface):
     ) -> tuple[float | None, float | None, dict[str, Any] | None]:
         """Make prediction using the model.
 
-        Returns
+        Returns:
         -------
             tuple: (prediction, confidence, error_dict) where error_dict is None if successful
         """
@@ -335,16 +348,25 @@ class SKLearnPredictor(PredictorInterface):
             if hasattr(model, "predict_proba"):
                 return cls._predict_with_proba(model, processed_features, model_id)
             if not hasattr(model, "predict"):
-                return None, None, {
-                    "error": "Model has no predict or predict_proba method.",
-                    "model_id": model_id,
-                }
+                return (
+                    None,
+                    None,
+                    {
+                        "error": "Model has no predict or predict_proba method.",
+                        "model_id": model_id,
+                    },
+                )
             return cls._predict_without_proba(model, processed_features, model_id)
         except Exception as e:
-            return None, None, {
-                "error": f"Prediction failed: {e!s}",
-                "model_id": model_id
-            }
+            return (
+                None,
+                None,
+                {
+                    "error": f"Prediction failed: {e!s}",
+                    "model_id": model_id,
+                },
+            )
+
     @classmethod
     def _predict_with_proba(
         cls,
@@ -363,10 +385,14 @@ class SKLearnPredictor(PredictorInterface):
             prediction = float(all_class_probabilities[0, 0])
             return prediction, prediction, None
 
-        return None, None, {
-            "error": "predict_proba returned no class probabilities.",
-            "model_id": model_id,
-        }
+        return (
+            None,
+            None,
+            {
+                "error": "predict_proba returned no class probabilities.",
+                "model_id": model_id,
+            },
+        )
 
     @classmethod
     def _predict_without_proba(
@@ -382,10 +408,14 @@ class SKLearnPredictor(PredictorInterface):
         if isinstance(prediction_output, (float, int, np.floating, np.integer)):
             return float(prediction_output), None, None
 
-        return None, None, {
-            "error": f"Unsupported prediction output type: {type(prediction_output)}",
-            "model_id": model_id,
-        }
+        return (
+            None,
+            None,
+            {
+                "error": f"Unsupported prediction output type: {type(prediction_output)}",
+                "model_id": model_id,
+            },
+        )
 
     # Error messages as module-level constants
     _ERROR_MSG_MODEL_LOADING = "Model loading failed"
@@ -401,7 +431,7 @@ class SKLearnPredictor(PredictorInterface):
             result: The result dictionary to update with error information.
             error_type: The type of error that occurred.
 
-        Raises
+        Raises:
         ------
             ValueError: Always raises with the given error type.
         """
@@ -420,7 +450,7 @@ class SKLearnPredictor(PredictorInterface):
         Args:
             request: An InferenceRequest instance containing all necessary parameters.
 
-        Returns
+        Returns:
         -------
             Dictionary containing prediction results or error information.
         """
@@ -446,7 +476,9 @@ class SKLearnPredictor(PredictorInterface):
 
             # 3. Prepare features
             processed_features, error = cls._prepare_features(
-                request.feature_vector, scaler, request.model_id
+                request.feature_vector,
+                scaler,
+                request.model_id,
             )
             if error:
                 result.update(error)
@@ -462,17 +494,21 @@ class SKLearnPredictor(PredictorInterface):
                 cls._raise_with_result(result, "Model is None")
 
             prediction, confidence, error = cls._make_prediction(
-                cast(Model, model), cast(np.ndarray, processed_features), request.model_id
+                cast(Model, model),
+                cast(np.ndarray, processed_features),
+                request.model_id,
             )
             if error:
                 result.update(error)
                 cls._raise_with_result(result, cls._ERROR_MSG_PREDICTION)
 
             # Update result with successful prediction
-            result.update({
-                "prediction": str(prediction) if prediction is not None else "",
-                "confidence": str(confidence) if confidence is not None else "",
-            })
+            result.update(
+                {
+                    "prediction": str(prediction) if prediction is not None else "",
+                    "confidence": str(confidence) if confidence is not None else "",
+                }
+            )
             logger.debug(
                 "Prediction successful: %s, Confidence: %s",
                 prediction,

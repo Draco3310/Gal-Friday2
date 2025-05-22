@@ -68,22 +68,22 @@ This project plan follows a Waterfall methodology, proceeding sequentially throu
 | **Phase 3: Implementation (MVP Focus)** | | | | | | | | |
 | 3 | 3.1 | Setup Development Environment | Configure local/cloud dev environment (Python, libs, IDE). | 1 day | AI | Dev Environment | Completed | 2.9 |
 | 3 | 3.2 | Setup Cloud Infrastructure (MVP) | Provision VM, install PostgreSQL/InfluxDB, configure network. | 2 days | AI | Cloud Infra Ready | Completed | 2.9 |
-| 3 | 3.3 | Implement Data Ingestor Module | Code WebSocket connection, data parsing, L2 book mgmt (FR-1xx MVP). | 4 days | AI | Data Ingestor Module Code | Inital version completed... pending review| 3.1, 3.2 |
-| 3 | 3.4 | Implement Feature Engine Module | Code indicator/feature calculations (FR-2xx MVP). | 3 days | AI | Feature Engine Module Code | Initial Version completed... Pending review | 3.3 |
-| 3 | 3.5 | Implement Predictive Modeling Module | Code model loading, preprocessing, prediction (XGBoost - FR-3xx MVP). | 3 days | AI | Prediction Module Code | Initial Version completed... Pending review | 3.4 |
-| 3 | 3.6 | Implement Strategy/Signal Module | Code signal generation logic (FR-4xx MVP). | 2 days | AI | Strategy Module Code | Initial Version completed... Pending review | 3.5 |
-| 3 | 3.7 | Implement Risk Management Module | Code pre-trade checks, sizing (FR-5xx MVP). | 3 days | AI | Risk Module Code | Initial Version completed... Pending review | 3.8 |
-| 3 | 3.8 | Implement Portfolio Management Module | Code position/balance tracking (FR-7xx MVP). | 2 days | AI | Portfolio Module Code | Initial Version completed... Pending review | 3.1, 3.2 |
-| 3 | 3.9 | Implement Execution Handler Module | Code Kraken Sandbox API interaction (FR-6xx MVP). | 4 days | AI | Execution Module Code | Initial Version completed... Pending review | 3.7 |
-| 3 | 3.10 | Implement Logging Module | Code logging to files/Postgres (FR-8xx MVP). | 2 days | AI | Logging Module Code | Initial Version completed... Pending review | 3.1, 3.2 |
-| 3 | 3.10a | Create DB Schema for Logging | Define and create the PostgreSQL table schema required by LoggerService. | 0.5 days | AI | DB Schema Script/Definition | Initial Version completed... Pending review | 3.2 |
-| 3 | 3.11 | Implement Monitoring/HALT Module | Code basic health checks, HALT triggers (FR-9xx MVP). | 2 days | AI | Monitoring Module Code | Initial Version completed... Pending review | 3.7, 3.8, 3.10a |
-| 3 | 3.12 | Implement Basic CLI | Code command-line interface for basic control (NFR-201 MVP). | 1 day | AI | CLI Code | Initial Version completed... Pending review | 3.11 |
-| 3 | 3.13 | Implement Configuration Handling | Code loading/parsing of config files (NFR-804 MVP), including logging DB settings. | 1 day | AI | Config Handling Code | Initial Version completed... Pending review | 3.1 |
-| 3 | 3.14 | Implement Basic Backtesting Engine | Code historical data simulation core (FR-10xx). | 4 days | AI | Backtester Code | Initial Version completed... Pending review  | 3.4, 3.5, 3.6, 3.7, 3.8 |
-| 3 | 3.15 | Implement Model Training/Loading Script | Script to train initial MVP model and load it (FR-3xx MVP). | 2 days | AI | Training/Loading Script | Initial Version completed... Pending review | 3.5 |
-| 3 | 3.16 | Create Main Application Entry Point | Code main script (`main.py`) to initialize modules, executor, event buses, and manage lifecycle. | 1 day | AI | Main App Entry | Initial Version completed... Pending review | 3.3 - 3.15 |
-| 3 | 3.17 | Integrate LoggerService | Pass LoggerService instance to other modules and replace print/basic logging calls. | 1 day | AI | Integrated Logging | Initial Version completed... Pending review | 3.10a, 3.3 - 3.9, 3.11-3.16 |
+| 3 | 3.3 | Implement Data Ingestor Module | Code WebSocket connection, data parsing, L2 book mgmt (FR-1xx MVP). | 4 days | AI | Data Ingestor Module Code | Completed | 3.1, 3.2 |
+| 3 | 3.4 | Implement Feature Engine Module | Code indicator/feature calculations (FR-2xx MVP). | 3 days | AI | Feature Engine Module Code | Completed | 3.3 |
+| 3 | 3.5 | Implement Predictive Modeling Module | Code model loading, preprocessing, prediction (XGBoost - FR-3xx MVP). | 3 days | AI | Prediction Module Code | Completed | 3.4 |
+| 3 | 3.6 | Implement Strategy/Signal Module | Code signal generation logic (FR-4xx MVP). | 2 days | AI | Strategy Module Code | Completed | 3.5 |
+| 3 | 3.7 | Implement Risk Management Module | Code pre-trade checks, sizing (FR-5xx MVP). | 3 days | AI | Risk Module Code | Completed | 3.8 |
+| 3 | 3.8 | Implement Portfolio Management Module | Code position/balance tracking (FR-7xx MVP). | 2 days | AI | Portfolio Module Code | Completed | 3.1, 3.2 |
+| 3 | 3.9 | Implement Execution Handler Module | Code Kraken Sandbox API interaction (FR-6xx MVP). | 4 days | AI | Execution Module Code | Completed | 3.7 |
+| 3 | 3.10 | Implement Logging Module | Code logging to files/Postgres (FR-8xx MVP). | 2 days | AI | Logging Module Code | Completed | 3.1, 3.2 |
+| 3 | 3.10a | Create DB Schema for Logging | Define and create the PostgreSQL table schema required by LoggerService. | 0.5 days | AI | DB Schema Script/Definition | Completed | 3.2 |
+| 3 | 3.11 | Implement Monitoring/HALT Module | Code basic health checks, HALT triggers (FR-9xx MVP). | 2 days | AI | Monitoring Module Code | Completed | 3.7, 3.8, 3.10a |
+| 3 | 3.12 | Implement Basic CLI | Code command-line interface for basic control (NFR-201 MVP). | 1 day | AI | CLI Code | Completed | 3.11 |
+| 3 | 3.13 | Implement Configuration Handling | Code loading/parsing of config files (NFR-804 MVP), including logging DB settings. | 1 day | AI | Config Handling Code | Completed | 3.1 |
+| 3 | 3.14 | Implement Basic Backtesting Engine | Code historical data simulation core (FR-10xx). | 4 days | AI | Backtester Code | Completed | 3.4, 3.5, 3.6, 3.7, 3.8 |
+| 3 | 3.15 | Implement Model Training/Loading Script | Script to train initial MVP model and load it (FR-3xx MVP). | 2 days | AI | Training/Loading Script | Completed | 3.5 |
+| 3 | 3.16 | Create Main Application Entry Point | Code main script (`main.py`) to initialize modules, executor, event buses, and manage lifecycle. | 1 day | AI | Main App Entry | Completed | 3.3 - 3.15 |
+| 3 | 3.17 | Integrate LoggerService | Pass LoggerService instance to other modules and replace print/basic logging calls. | 1 day | AI | Integrated Logging | Completed | 3.10a, 3.3 - 3.9, 3.11-3.16 |
 | 3 | 3.18 | Code Review & Refinement | Internal review and cleanup of implemented code. | 3 days | AI | Internally Reviewed Codebase | In-progress | 3.17 |
 
 | **Phase 4: Testing (MVP Focus)** | | | | | | | | |

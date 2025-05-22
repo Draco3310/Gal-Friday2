@@ -1,11 +1,11 @@
 """Position management functionality for the portfolio system."""
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional, TypedDict, Union, Unpack
-from collections.abc import Callable
+from typing import Any, TypedDict, Unpack
 
 from ..exceptions import DataValidationError
 from ..logger_service import LoggerService
@@ -44,10 +44,9 @@ class PositionManager:
     """Manages trading positions, including updates from trades and PnL calculations."""
 
     def __init__(self, logger_service: LoggerService) -> None:
-        """
-        Initialize the position manager.
+        """Initialize the position manager.
 
-        Args
+        Args:
         ----
             logger_service: Service for logging.
         """
@@ -74,10 +73,9 @@ class PositionManager:
         initial_positions: dict[str, dict[str, Any]],
         split_symbol_func: Callable[[str], tuple[str, str]],
     ) -> None:
-        """
-        Initialize positions from a dictionary (e.g., from config or database).
+        """Initialize positions from a dictionary (e.g., from config or database).
 
-        Args
+        Args:
         ----
             initial_positions: Dict where keys are trading_pair and values are dicts
                                of position attributes (quantity, average_entry_price, etc.).
@@ -95,23 +93,25 @@ class PositionManager:
                         quantity=Decimal(str(pos_data.get("quantity", 0))),
                         average_entry_price=Decimal(str(pos_data.get("average_entry_price", 0))),
                         realized_pnl=Decimal(str(pos_data.get("realized_pnl", 0))),
-                        last_updated=datetime.now().astimezone()
+                        last_updated=datetime.now().astimezone(),
                     )
                     self._positions[pair] = position
                 except ValueError:
                     self.logger.exception(
-                        "Invalid trading pair format in initial_positions: %s", pair,
+                        "Invalid trading pair format in initial_positions: %s",
+                        pair,
                         source_module=self._source_module,
                     )
                 except Exception:
                     self.logger.exception(
-                        "Error loading initial position for %s", pair,
+                        "Error loading initial position for %s",
+                        pair,
                         source_module=self._source_module,
                     )
             self.logger.info(
                 "Initialized %d positions.",
                 len(self._positions),
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
     @dataclass
@@ -168,14 +168,14 @@ class PositionManager:
         Args:
             **kwargs: Parameters for the trade update. See _UpdatePositionKwargs for details.
 
-        Returns
+        Returns:
         -------
             A tuple containing:
                 - realized_pnl: The realized PnL from this trade
                 - position: The updated position, or None if there was an error
         """
         return await self._update_position_for_trade_impl(
-            self._UpdatePositionParams(**kwargs)
+            self._UpdatePositionParams(**kwargs),
         )
 
     async def _update_position_for_trade_impl(
@@ -187,7 +187,7 @@ class PositionManager:
         Args:
             params: _UpdatePositionParams containing all trade parameters
 
-        Returns
+        Returns:
         -------
             A tuple containing:
                 - realized_pnl: The realized PnL from this trade
@@ -198,7 +198,7 @@ class PositionManager:
                 params.trading_pair,
                 params.side,
                 params.quantity,
-                params.price
+                params.price,
             )
 
             # Ensure params are Decimal for arithmetic operations
@@ -210,7 +210,7 @@ class PositionManager:
             self.logger.exception(
                 "Trade validation failed for %s",
                 params.trading_pair,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return Decimal(0), None
 
@@ -227,15 +227,15 @@ class PositionManager:
                 fee=params.fee,
                 fee_currency=params.fee_currency,
                 commission=params.commission,
-                commission_asset=params.commission_asset
+                commission_asset=params.commission_asset,
             )
             trade_record = self._create_trade_record_from_params(trade_record_params)
             position.trade_history.append(trade_record)
 
             if params.side == "BUY":
-                new_total_cost = (
-                    position.average_entry_price * position.quantity
-                ) + (params.price * params.quantity)
+                new_total_cost = (position.average_entry_price * position.quantity) + (
+                    params.price * params.quantity
+                )
                 position.quantity += params.quantity
                 if position.quantity != 0:
                     position.average_entry_price = new_total_cost / position.quantity
@@ -250,12 +250,12 @@ class PositionManager:
                         params.quantity,
                         params.trading_pair,
                         position.quantity,
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
 
                 realized_pnl_trade = (
-                    (params.price - position.average_entry_price) * params.quantity
-                )
+                    params.price - position.average_entry_price
+                ) * params.quantity
                 position.realized_pnl += realized_pnl_trade
                 position.quantity -= params.quantity
                 if position.quantity == 0:
@@ -273,7 +273,7 @@ class PositionManager:
                 position.quantity,
                 position.average_entry_price,
                 realized_pnl_trade,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return realized_pnl_trade, position
 
@@ -297,7 +297,7 @@ class PositionManager:
             quantity: Trade quantity (must be > 0)
             price: Trade price (must be > 0)
 
-        Raises
+        Raises:
         ------
             DataValidationError: If any parameter is invalid
         """
@@ -330,11 +330,11 @@ class PositionManager:
         Args:
             trading_pair: Trading pair in format 'BASE/QUOTE'
 
-        Returns
+        Returns:
         -------
             PositionInfo: The existing or newly created position
 
-        Raises
+        Raises:
         ------
             DataValidationError: If trading pair format is invalid
         """
@@ -358,12 +358,12 @@ class PositionManager:
             self._positions[trading_pair] = PositionInfo(
                 trading_pair=trading_pair,
                 base_asset=base_asset,
-                quote_asset=quote_asset
+                quote_asset=quote_asset,
             )
             self.logger.info(
                 self._POSITION_CREATED_MSG,
                 trading_pair,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
         except ValueError as e:
@@ -371,10 +371,10 @@ class PositionManager:
                 "%s: %s",
                 self._PARSE_PAIR_ERROR_MSG,
                 trading_pair,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             raise DataValidationError(
-                self._PAIR_CREATION_ERROR_MSG.format(trading_pair)
+                self._PAIR_CREATION_ERROR_MSG.format(trading_pair),
             ) from e
 
         return self._positions[trading_pair]
@@ -436,7 +436,7 @@ class PositionManager:
         Args:
             **kwargs: Parameters for the trade record. See _TradeRecordParams for details.
 
-        Returns
+        Returns:
         -------
             TradeInfo: The created trade record
         """
@@ -452,15 +452,23 @@ class PositionManager:
         Args:
             params: TradeRecordParams containing all trade parameters
 
-        Returns
+        Returns:
         -------
             TradeInfo: A new TradeInfo object with the provided parameters
         """
         # Ensure all numeric parameters are Decimal
-        quantity = params.quantity if isinstance(params.quantity, Decimal) else Decimal(str(params.quantity))
+        quantity = (
+            params.quantity
+            if isinstance(params.quantity, Decimal)
+            else Decimal(str(params.quantity))
+        )
         price = params.price if isinstance(params.price, Decimal) else Decimal(str(params.price))
         fee = params.fee if isinstance(params.fee, Decimal) else Decimal(str(params.fee))
-        commission = params.commission if isinstance(params.commission, Decimal) else Decimal(str(params.commission))
+        commission = (
+            params.commission
+            if isinstance(params.commission, Decimal)
+            else Decimal(str(params.commission))
+        )
 
         return TradeInfo(
             timestamp=params.timestamp,
@@ -471,5 +479,5 @@ class PositionManager:
             fee=fee,
             fee_currency=params.fee_currency,
             commission=commission,
-            commission_asset=params.commission_asset
+            commission_asset=params.commission_asset,
         )

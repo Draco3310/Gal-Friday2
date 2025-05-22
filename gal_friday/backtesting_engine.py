@@ -9,18 +9,17 @@ executing the simulation, and calculating performance metrics.
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from collections.abc import Awaitable, Callable, Coroutine
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-import json
-import logging
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     Generic,
-    Optional,
     Protocol,
     TypeVar,
 )
@@ -34,6 +33,7 @@ _T = TypeVar("_T")
 _T_co = TypeVar("_T_co", covariant=True)
 ConfigValue = str | int | float | bool | dict | list | None  # Type alias for config values
 
+
 def decimal_to_float(obj: Any) -> float:  # noqa: ANN401
     """Convert Decimal to float for JSON serialization."""
     if isinstance(obj, Decimal):
@@ -41,12 +41,12 @@ def decimal_to_float(obj: Any) -> float:  # noqa: ANN401
     msg = f"Object of type {type(obj)} is not JSON serializable"
     raise TypeError(msg)
 
+
 # Initialize logger
 log = logging.getLogger(__name__)
 
 # Type checking imports
 if TYPE_CHECKING:
-
     # Import core types
 
     # Import implementation types
@@ -71,24 +71,25 @@ if TYPE_CHECKING:
 
     # Use Protocol from typing_extensions for better compatibility
     from typing_extensions import Protocol as ProtocolType
+
     Protocol = ProtocolType  # type: ignore
 else:
     try:
         from typing import Protocol as TypingProtocol  # type: ignore
+
         ProtocolType = TypingProtocol
     except ImportError:
         from typing_extensions import Protocol as TypingProtocol  # type: ignore
+
         ProtocolType = TypingProtocol
 
-    from collections.abc import Awaitable, Coroutine
+    from collections.abc import Awaitable, Callable, Coroutine
     from typing import (
         TYPE_CHECKING,
         Any,
         Generic,
-        Optional,
         TypeVar,
     )
-    from collections.abc import Callable
 
 # Third-party imports
 
@@ -97,7 +98,6 @@ AsyncFunction = TypeVar("AsyncFunction", bound=Callable[..., Coroutine[Any, Any,
 
 # Type aliases
 if TYPE_CHECKING:
-
     from .core.events import Event, EventType
     from .core.events import MarketDataOHLCVEvent as MarketDataEvent
 
@@ -172,6 +172,7 @@ else:
 
 # Define SignalEvent if not available
 if not TYPE_CHECKING:
+
     class SignalEvent(Event):
         """Signal event for trading signals."""
 
@@ -188,14 +189,11 @@ if not TYPE_CHECKING:
     class Event:
         """Base class for all events in the backtesting engine."""
 
-
     class MarketDataEvent:
         """Event representing market data updates in the backtesting engine."""
 
-
     class BacktestHistoricalDataProvider:
         """Placeholder for BacktestHistoricalDataProvider if not defined."""
-
 
     # SignalEvent is defined later in the file
 
@@ -204,6 +202,7 @@ if not TYPE_CHECKING:
 
         MARKET_DATA = "market_data"
         SIGNAL = "signal"
+
 
 if TYPE_CHECKING:
     from typing import Protocol as TypingProtocol
@@ -263,13 +262,13 @@ ErrorHandler = Callable[[Exception], Awaitable[None]]
 # Type for progress callback
 ProgressCallback = Callable[[float, str], None]
 
+
 class LoggerAdapterType(logging.LoggerAdapter, Generic[T]):
     """A generic logger adapter that adds type information to log messages.
 
     This adapter extends logging.LoggerAdapter to work with generic types,
     allowing for type-safe logging with additional context.
     """
-
 
 
 # Import TA-Lib for technical indicators
@@ -292,6 +291,7 @@ except ImportError:
 
     ta = TaLib()
 
+
 # Define stubs for optional dependencies
 class PubSubManagerBase:  # type: ignore
     """Base stub for PubSubManager when not available."""
@@ -310,6 +310,7 @@ if "RiskManager" not in globals():
 
 try:
     from gal_friday.pubsub import PubSubManager as _PubSubManager  # type: ignore
+
     if "PubSubManager" in globals() and globals()["PubSubManager"] is not Any:  # type: ignore
         PubSubManager = _PubSubManager  # type: ignore
 except ImportError:
@@ -317,11 +318,11 @@ except ImportError:
 
 try:
     from gal_friday.risk_manager import RiskManager as _RiskManager  # type: ignore
+
     if "RiskManager" in globals() and globals()["RiskManager"] is not Any:  # type: ignore
         RiskManager = _RiskManager  # type: ignore
 except ImportError:
     pass
-
 
 
 # Configure logging
@@ -329,6 +330,7 @@ log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .core.events import Event
+
     class ExchangeInfoServiceImpl:  # type: ignore
         """Stub implementation of ExchangeInfoService for type checking."""
 
@@ -346,11 +348,14 @@ class SignalEvent(Event):
         """
         super().__init__(*args, **kwargs)
 
+
 class BacktestHistoricalDataProviderImpl:
     """Provides historical data access for backtesting components."""
 
     def __init__(
-        self, all_historical_data: dict[str, pd.DataFrame], logger: logging.Logger
+        self,
+        all_historical_data: dict[str, pd.DataFrame],
+        logger: logging.Logger,
     ) -> None:
         self._data: dict[str, pd.DataFrame] = all_historical_data
         self.logger = logger
@@ -378,7 +383,7 @@ class BacktestHistoricalDataProviderImpl:
             trading_pair: The trading pair to get the next bar for
             timestamp: The reference timestamp
 
-        Returns
+        Returns:
         -------
             The next bar as a pandas Series, or None if no more bars
         """
@@ -394,7 +399,8 @@ class BacktestHistoricalDataProviderImpl:
         except Exception:
             self.logger.exception(
                 "Error getting next bar for %s at %s",
-                trading_pair, timestamp
+                trading_pair,
+                timestamp,
             )
             return None
 
@@ -406,7 +412,7 @@ class BacktestHistoricalDataProviderImpl:
             timestamp: The timestamp to get ATR at
             period: The ATR period (default: 14)
 
-        Returns
+        Returns:
         -------
             The ATR value as a float, or None if not available
         """
@@ -447,7 +453,8 @@ class BacktestHistoricalDataProviderImpl:
         except Exception:
             self.logger.exception(
                 "Error calculating ATR for %s at %s",
-                trading_pair, timestamp
+                trading_pair,
+                timestamp,
             )
             return None
 
@@ -466,14 +473,14 @@ class BacktestHistoricalDataProviderImpl:
             end_time: End of the time range
             interval: Data interval (e.g., '1d', '1h', '1m')
 
-        Returns
+        Returns:
         -------
             DataFrame with OHLCV data or None if no data available.
         """
         try:
             self.logger.debug(
                 "BacktestHistoricalDataProvider.get_historical_ohlcv called for %s.",
-                trading_pair
+                trading_pair,
             )
 
             if trading_pair not in self._data:
@@ -501,26 +508,33 @@ class BacktestHistoricalDataProviderImpl:
             result = None
             if interval != "1d":  # Assuming 1d is the base interval
                 try:
-                    resampled = filtered.resample(interval).agg({
-                        "open": "first",
-                        "high": "max",
-                        "low": "min",
-                        "close": "last",
-                        "volume": "sum"
-                    }).dropna()
+                    resampled = (
+                        filtered.resample(interval)
+                        .agg(
+                            {
+                                "open": "first",
+                                "high": "max",
+                                "low": "min",
+                                "close": "last",
+                                "volume": "sum",
+                            }
+                        )
+                        .dropna()
+                    )
                     if not resampled.empty:
                         result = resampled
                 except Exception as resample_error:
                     self.logger.warning(
                         "Error resampling data to %s interval: %s",
-                        interval, str(resample_error)
+                        interval,
+                        str(resample_error),
                     )
                     # If resampling fails, fall through to return filtered data if not empty
 
         except Exception:
             self.logger.exception(
                 "Error getting historical OHLCV for %s",
-                trading_pair
+                trading_pair,
             )
             return None
 
@@ -540,19 +554,23 @@ class BacktestHistoricalDataProviderImpl:
         Note:
             This is a placeholder method as the backtest provider doesn't have trade data.
 
-        Returns
+        Returns:
         -------
             Always returns None as trade data is not available in backtest mode.
         """
         self.logger.warning("Historical trade data not available in backtest mode")
         return None
 
+
 # --- Helper Function for Reporting --- #
 
 # Helper functions for calculate_performance_metrics
 
+
 def _calculate_basic_returns_and_equity(
-    equity_curve: pd.Series, initial_capital: Decimal, results: dict
+    equity_curve: pd.Series,
+    initial_capital: Decimal,
+    results: dict,
 ) -> float | None:
     """Calculate basic returns and equity metrics."""
     final_equity_value = equity_curve.iloc[-1]
@@ -568,11 +586,14 @@ def _calculate_basic_returns_and_equity(
         results["total_return_pct"] = total_return_pct
     else:
         results["total_return_pct"] = 0.0
-        total_return_pct = 0.0 # Ensure it's assigned for return type
+        total_return_pct = 0.0  # Ensure it's assigned for return type
     return total_return_pct
 
+
 def _calculate_annualized_return(
-    equity_curve: pd.Series, total_return_pct: float | None, results: dict
+    equity_curve: pd.Series,
+    total_return_pct: float | None,
+    results: dict,
 ) -> None:
     """Calculate annualized return."""
     if total_return_pct is None:
@@ -583,8 +604,9 @@ def _calculate_annualized_return(
         if len(equity_curve) >= min_points_for_duration:
             first_date = equity_curve.index[0]
             last_date = equity_curve.index[-1]
-            if isinstance(first_date, (pd.Timestamp, datetime)) and \
-               isinstance(last_date, (pd.Timestamp, datetime)):
+            if isinstance(first_date, (pd.Timestamp, datetime)) and isinstance(
+                last_date, (pd.Timestamp, datetime)
+            ):
                 duration_days = (last_date - first_date).total_seconds() / (60 * 60 * 24)
                 if duration_days > 0:
                     total_return_factor = 1.0 + (total_return_pct / 100.0)
@@ -610,12 +632,14 @@ def _calculate_annualized_return(
         log.exception("Error calculating annualized return")
         results["annualized_return_pct"] = None
 
+
 def _calculate_drawdown_metrics(equity_curve: pd.Series, results: dict) -> None:
     """Calculate drawdown metrics."""
     peak = equity_curve.cummax()
     drawdown = (equity_curve - peak) / peak
     max_drawdown = drawdown.min() if not drawdown.empty else 0.0
     results["max_drawdown_pct"] = abs(max_drawdown * 100.0)
+
 
 def _calculate_risk_adjusted_metrics(returns: pd.Series, results: dict) -> None:
     """Calculate Sharpe and Sortino ratios."""
@@ -636,6 +660,7 @@ def _calculate_risk_adjusted_metrics(returns: pd.Series, results: dict) -> None:
             results["sortino_ratio_annualized_approx"] = np.inf
     else:
         results["sortino_ratio_annualized_approx"] = np.inf
+
 
 def _calculate_trade_statistics(trade_log: list[dict[str, Any]], results: dict) -> None:
     """Calculate various trade statistics."""
@@ -663,12 +688,10 @@ def _calculate_trade_statistics(trade_log: list[dict[str, Any]], results: dict) 
             results["profit_factor"] = float("inf")
         results["average_trade_pnl"] = float(str(sum(pnl_list) / num_trades))
         results["average_win"] = (
-            float(str(sum(winning_trades) / num_wins))
-            if num_wins > 0 else 0.0
+            float(str(sum(winning_trades) / num_wins)) if num_wins > 0 else 0.0
         )
         results["average_loss"] = (
-            float(str(sum(losing_trades) / num_losses))
-            if num_losses > 0 else 0.0
+            float(str(sum(losing_trades) / num_losses)) if num_losses > 0 else 0.0
         )
         avg_win = results["average_win"]
         avg_loss = results["average_loss"]
@@ -679,18 +702,26 @@ def _calculate_trade_statistics(trade_log: list[dict[str, Any]], results: dict) 
     else:
         # Default values if no trades occurred
         default_trade_stats = {
-            "total_pnl": 0.0, "winning_trades": 0, "losing_trades": 0,
-            "win_rate_pct": 0.0, "gross_profit": 0.0, "gross_loss": 0.0,
-            "profit_factor": 0.0, "average_trade_pnl": 0.0, "average_win": 0.0,
-            "average_loss": 0.0, "avg_win_loss_ratio": 0.0
+            "total_pnl": 0.0,
+            "winning_trades": 0,
+            "losing_trades": 0,
+            "win_rate_pct": 0.0,
+            "gross_profit": 0.0,
+            "gross_loss": 0.0,
+            "profit_factor": 0.0,
+            "average_trade_pnl": 0.0,
+            "average_win": 0.0,
+            "average_loss": 0.0,
+            "avg_win_loss_ratio": 0.0,
         }
         results.update(default_trade_stats)
+
 
 def _calculate_average_holding_period(trade_log: list[dict[str, Any]], results: dict) -> None:
     """Calculate average holding period of trades."""
     results["average_holding_period_hours"] = None
     results["average_holding_period_days"] = None
-    if not trade_log: # No trades, no holding period
+    if not trade_log:  # No trades, no holding period
         return
     try:
         holding_periods = []
@@ -714,8 +745,11 @@ def _calculate_average_holding_period(trade_log: list[dict[str, Any]], results: 
     except Exception:
         log.exception("Error calculating average holding period")
 
+
 def calculate_performance_metrics(
-    equity_curve: pd.Series, trade_log: list[dict[str,Any]], initial_capital: Decimal
+    equity_curve: pd.Series,
+    trade_log: list[dict[str, Any]],
+    initial_capital: Decimal,
 ) -> dict[str, Any]:
     """Calculate standard backtesting performance metrics by orchestrating helper functions."""
     if equity_curve.empty:
@@ -735,7 +769,7 @@ def calculate_performance_metrics(
     _calculate_annualized_return(equity_curve, total_return_pct, results)
     _calculate_drawdown_metrics(equity_curve, results)
     _calculate_risk_adjusted_metrics(returns, results)
-    _calculate_trade_statistics(trade_log, results) # This helper handles the num_trades > 0 logic
+    _calculate_trade_statistics(trade_log, results)  # This helper handles the num_trades > 0 logic
     _calculate_average_holding_period(trade_log, results)
 
     return results
@@ -751,7 +785,7 @@ class ConfigManagerProtocol(Protocol):
             key: The configuration key to retrieve.
             default: Default value to return if key is not found.
 
-        Returns
+        Returns:
         -------
             The configuration value or default if key not found.
         """
@@ -762,7 +796,7 @@ class ConfigManagerProtocol(Protocol):
         Args:
             key: The configuration key to retrieve.
 
-        Returns
+        Returns:
         -------
             The configuration value.
         """
@@ -773,7 +807,7 @@ class ConfigManagerProtocol(Protocol):
         Args:
             key: The configuration key to check.
 
-        Returns
+        Returns:
         -------
             True if the key exists, False otherwise.
         """
@@ -781,7 +815,7 @@ class ConfigManagerProtocol(Protocol):
     def get_all(self) -> dict[str, ConfigValue]:
         """Get all configuration values.
 
-        Returns
+        Returns:
         -------
             A dictionary containing all configuration values.
         """
@@ -793,6 +827,7 @@ class ConfigManagerProtocol(Protocol):
             key: The configuration key to set.
             value: The value to set.
         """
+
 
 # Type aliases for service classes
 if TYPE_CHECKING:
@@ -814,18 +849,42 @@ if TYPE_CHECKING:
     from gal_friday.strategy_arbitrator import StrategyArbitrator as _StrategyArbitrator
 else:
     # Define dummy types for runtime
-    class _LoggerService: ...
-    class _MarketPriceService: ...
-    class _SimulatedMarketPriceService: ...
-    class _PortfolioManager: ...
-    class _FeatureEngine: ...
-    class _PredictionService: ...
-    class _RiskManager: ...
-    class _StrategyArbitrator: ...
-    class _BacktestHistoricalDataProvider: ...
-    class _ExchangeInfoService: ...
-    class _PubSubManager: ...
-    class _ExecutionHandler: ...
+    class _LoggerService:
+        ...
+
+    class _MarketPriceService:
+        ...
+
+    class _SimulatedMarketPriceService:
+        ...
+
+    class _PortfolioManager:
+        ...
+
+    class _FeatureEngine:
+        ...
+
+    class _PredictionService:
+        ...
+
+    class _RiskManager:
+        ...
+
+    class _StrategyArbitrator:
+        ...
+
+    class _BacktestHistoricalDataProvider:
+        ...
+
+    class _ExchangeInfoService:
+        ...
+
+    class _PubSubManager:
+        ...
+
+    class _ExecutionHandler:
+        ...
+
 
 class BacktestingEngine:
     """Orchestrates backtesting simulations using historical data."""
@@ -835,7 +894,7 @@ class BacktestingEngine:
         config: ConfigManagerProtocol,
         data_dir: str = "data",
         results_dir: str = "results",
-        max_workers: int = 4
+        max_workers: int = 4,
     ) -> None:
         """Initialize the BacktestingEngine.
 
@@ -926,7 +985,7 @@ class BacktestingEngine:
         self,
         data: dict[str, pd.DataFrame],
         start_date: str,
-        end_date: str
+        end_date: str,
     ) -> dict[str, pd.DataFrame] | None:
         """Clean and validate the loaded data."""
         try:
@@ -956,7 +1015,7 @@ class BacktestingEngine:
 
     def _get_result_or_none(
         self,
-        value: dict[str, pd.DataFrame] | None
+        value: dict[str, pd.DataFrame] | None,
     ) -> dict[str, pd.DataFrame] | None:
         """Return the value if truthy, otherwise None.
 
@@ -966,7 +1025,7 @@ class BacktestingEngine:
         Args:
             value: The value to check and return if truthy.
 
-        Returns
+        Returns:
         -------
             The original value if truthy, otherwise None.
         """
@@ -974,7 +1033,7 @@ class BacktestingEngine:
 
     def _process_pairs_data(
         self,
-        data: dict[str, pd.DataFrame]
+        data: dict[str, pd.DataFrame],
     ) -> dict[str, pd.DataFrame] | None:
         """Process data for each trading pair.
 
@@ -982,7 +1041,7 @@ class BacktestingEngine:
             data: Dictionary mapping trading pairs to their DataFrames
             config: Configuration dictionary for processing
 
-        Returns
+        Returns:
         -------
             Dictionary of processed DataFrames or None if processing fails
         """
@@ -1024,7 +1083,7 @@ class BacktestingEngine:
             services: Dictionary of initialized services
             run_config: Configuration for the backtest run
 
-        Returns
+        Returns:
         -------
             Dictionary containing the results of the backtest
         """
@@ -1050,7 +1109,7 @@ class BacktestingEngine:
                 metrics = calculate_performance_metrics(
                     equity_curve=equity_curve,
                     trade_log=results.get("trade_history", []),
-                    initial_capital=initial_capital
+                    initial_capital=initial_capital,
                 )
                 results["metrics"] = metrics
 
@@ -1077,7 +1136,7 @@ class BacktestingEngine:
     async def _execute_simulation(  # noqa: PLR0912
         self,
         services: dict[str, Any],
-        run_config: dict[str, Any],  # noqa: ARG002
+        run_config: dict[str, Any],
     ) -> None:
         """Execute the backtest simulation.
 

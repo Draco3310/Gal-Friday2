@@ -7,7 +7,7 @@ trading strategies, enabling strategy-specific risk management.
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Union
+from typing import Any
 
 # Type aliases
 LoggerService = Any
@@ -33,16 +33,17 @@ class StrategyPositionTracker:
         self._strategy_positions: dict[str, dict[str, Any]] = defaultdict(dict)
 
         # Define the type of performance metrics
-        self._strategy_performance: dict[str, dict[str, Decimal | int | datetime]] = \
-            defaultdict(lambda: {
-            "peak_equity": Decimal("0"),
-            "current_equity": Decimal("0"),
-            "drawdown_pct": Decimal("0"),
-            "total_exposure_value": Decimal("0"),
-            "exposure_pct": Decimal("0"),
-            "position_count": 0,
-            "last_updated": datetime.utcnow(),
-        })
+        self._strategy_performance: dict[str, dict[str, Decimal | int | datetime]] = defaultdict(
+            lambda: {
+                "peak_equity": Decimal("0"),
+                "current_equity": Decimal("0"),
+                "drawdown_pct": Decimal("0"),
+                "total_exposure_value": Decimal("0"),
+                "exposure_pct": Decimal("0"),
+                "position_count": 0,
+                "last_updated": datetime.utcnow(),
+            }
+        )
         self._portfolio_equity = Decimal("0")  # Total portfolio equity for reference
 
     def add_position(
@@ -88,7 +89,7 @@ class StrategyPositionTracker:
         Args:
             strategy_id: Identifier for the strategy
 
-        Returns
+        Returns:
         -------
             Dictionary of trading pairs to their position data
         """
@@ -100,7 +101,7 @@ class StrategyPositionTracker:
         Args:
             strategy_id: Identifier for the strategy
 
-        Returns
+        Returns:
         -------
             Dictionary of performance metrics
         """
@@ -154,10 +155,13 @@ class StrategyPositionTracker:
             pnl_amount,
             current_equity,
             float(
-                metrics["drawdown_pct"] if isinstance(metrics["drawdown_pct"], Decimal)
-                else Decimal(str(
-                    metrics["drawdown_pct"] if metrics["drawdown_pct"] is not None else 0
-                ))
+                metrics["drawdown_pct"]
+                if isinstance(metrics["drawdown_pct"], Decimal)
+                else Decimal(
+                    str(
+                        metrics["drawdown_pct"] if metrics["drawdown_pct"] is not None else 0,
+                    )
+                ),
             ),
             source_module=self._source_module,
         )
@@ -165,13 +169,13 @@ class StrategyPositionTracker:
     def get_all_strategy_ids(self) -> list[str]:
         """Get list of all strategy IDs currently being tracked.
 
-        Returns
+        Returns:
         -------
             List of strategy IDs
         """
         # Return all strategy IDs from both positions and performance tracking
         all_ids = set(self._strategy_positions.keys()).union(
-            self._strategy_performance.keys()
+            self._strategy_performance.keys(),
         )
         return list(all_ids)
 
@@ -233,7 +237,7 @@ class StrategyPositionTracker:
         Args:
             strategy_id: Identifier for the strategy
 
-        Returns
+        Returns:
         -------
             Dictionary with exposure details
         """

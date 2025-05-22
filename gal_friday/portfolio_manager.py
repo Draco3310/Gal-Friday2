@@ -1,6 +1,5 @@
 # Portfolio Manager Module
-"""
-Manages portfolio state including funds, positions, and valuations.
+"""Manages portfolio state including funds, positions, and valuations.
 
 This module provides portfolio tracking, position management, trade execution reflection,
 and periodic reconciliation with exchange data to maintain accurate representations
@@ -8,7 +7,7 @@ of the trading account's state.
 """
 
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from decimal import Decimal, getcontext
 from typing import (
@@ -19,8 +18,6 @@ from typing import (
     cast,
     runtime_checkable,
 )
-
-from collections.abc import Callable
 
 from .exceptions import DataValidationError, InsufficientFundsError, PriceNotAvailableError
 from .interfaces.market_price_service_interface import MarketPriceService
@@ -58,20 +55,18 @@ class ReconcilableExecutionHandler(Protocol):
     """Protocol for execution handlers that support account reconciliation."""
 
     async def get_account_balances(self) -> dict[str, Decimal]:
-        """
-        Retrieve account balances from exchange.
+        """Retrieve account balances from exchange.
 
-        Returns
+        Returns:
         -------
             Dictionary of currency to available balance amount
         """
         ...
 
     async def get_open_positions(self) -> dict[str, PositionInfo]:
-        """
-        Retrieve open positions from exchange.
+        """Retrieve open positions from exchange.
 
-        Returns
+        Returns:
         -------
             Dictionary of trading pair to position information
         """
@@ -79,8 +74,7 @@ class ReconcilableExecutionHandler(Protocol):
 
 
 class PortfolioManager:
-    """
-    Coordinate portfolio state updates and provide state snapshots.
+    """Coordinate portfolio state updates and provide state snapshots.
 
     Orchestrates FundsManager, PositionManager, and ValuationService.
     Consumes ExecutionReportEvents to update the portfolio state.
@@ -97,10 +91,9 @@ class PortfolioManager:
         logger_service: "LoggerService",
         execution_handler: Optional["ExecutionHandler"] = None,
     ) -> None:
-        """
-        Initialize the PortfolioManager with required dependencies.
+        """Initialize the PortfolioManager with required dependencies.
 
-        Args
+        Args:
         ----
             config_manager: Configuration manager for system settings
             pubsub_manager: Publisher/subscriber manager for event handling
@@ -121,7 +114,9 @@ class PortfolioManager:
         self.funds_manager = FundsManager(logger_service, self.valuation_currency)
         self.position_manager = PositionManager(logger_service)
         self.valuation_service = ValuationService(
-            logger_service, market_price_service, self.valuation_currency
+            logger_service,
+            market_price_service,
+            self.valuation_currency,
         )
 
         # --- Load Initial State & Config ---
@@ -143,12 +138,13 @@ class PortfolioManager:
 
         self.logger.info("PortfolioManager initialized.", source_module=self._source_module)
         self.logger.info(
-            "Valuation Currency: %s", self.valuation_currency, source_module=self._source_module
+            "Valuation Currency: %s",
+            self.valuation_currency,
+            source_module=self._source_module,
         )
 
     async def _initialize_state(self) -> None:
-        """
-        Initialize funds and positions from configuration.
+        """Initialize funds and positions from configuration.
 
         Loads initial capital and positions from config, sets up the portfolio
         valuation, and logs the initial state.
@@ -159,18 +155,21 @@ class PortfolioManager:
 
             initial_positions_config = self.config_manager.get("portfolio.initial_positions", {})
             await self.position_manager.initialize_positions(
-                initial_positions_config, self._split_symbol
+                initial_positions_config,
+                self._split_symbol,
             )
 
             # Perform initial valuation
             await self._update_portfolio_value_and_cache()
 
             self.logger.info(
-                "Initial Available Funds: %s", self.funds_manager.available_funds,
+                "Initial Available Funds: %s",
+                self.funds_manager.available_funds,
                 source_module=self._source_module,
             )
             self.logger.info(
-                "Initial Positions: %s", self.position_manager.positions,
+                "Initial Positions: %s",
+                self.position_manager.positions,
                 source_module=self._source_module,
             )
             self.logger.info(
@@ -190,21 +189,22 @@ class PortfolioManager:
             raise RuntimeError from e
 
     def _configure_reconciliation(self) -> None:
-        """
-        Load reconciliation configuration from ConfigManager.
+        """Load reconciliation configuration from ConfigManager.
 
         Sets up parameters for comparing internal state with exchange state
         and whether to auto-reconcile differences.
         """
         try:
             self._reconciliation_interval = self.config_manager.get_int(
-                "portfolio.reconciliation.interval_seconds", 3600
+                "portfolio.reconciliation.interval_seconds",
+                3600,
             )
             self._reconciliation_threshold = Decimal(
-                self.config_manager.get("portfolio.reconciliation.threshold", "0.01")
+                self.config_manager.get("portfolio.reconciliation.threshold", "0.01"),
             )
             self._auto_reconcile = self.config_manager.get_bool(
-                "portfolio.reconciliation.auto_update", False
+                "portfolio.reconciliation.auto_update",
+                False,
             )
             self.logger.info("Reconciliation configured.", source_module=self._source_module)
         except Exception:
@@ -217,18 +217,19 @@ class PortfolioManager:
             self._auto_reconcile = False
 
     def _configure_drawdown_resets(self) -> None:
-        """
-        Configure drawdown reset times in the ValuationService.
+        """Configure drawdown reset times in the ValuationService.
 
         Sets up when daily and weekly drawdowns should be reset based on
         configuration parameters.
         """
         try:
             daily_reset_hour = self.config_manager.get_int(
-                "portfolio.drawdown.daily_reset_hour_utc", 0
+                "portfolio.drawdown.daily_reset_hour_utc",
+                0,
             )
             weekly_reset_day = self.config_manager.get_int(
-                "portfolio.drawdown.weekly_reset_day", 0
+                "portfolio.drawdown.weekly_reset_day",
+                0,
             )
             self.valuation_service.configure_drawdown_resets(daily_reset_hour, weekly_reset_day)
         except ValueError:
@@ -245,26 +246,28 @@ class PortfolioManager:
             self.valuation_service.configure_drawdown_resets(0, 0)  # Ensure defaults are set
 
     async def start(self) -> None:
-        """
-        Subscribe to events and start background tasks.
+        """Subscribe to events and start background tasks.
 
         Sets up event handlers and starts reconciliation tasks if configured.
         """
         if self._execution_report_handler:
             self.logger.warning(
-                "PortfolioManager already started.", source_module=self._source_module
+                "PortfolioManager already started.",
+                source_module=self._source_module,
             )
             return
 
         self._execution_report_handler = self._handle_execution_report
         self.pubsub.subscribe(EventType.EXECUTION_REPORT, self._execution_report_handler)
         self.logger.info(
-            "Subscribed to EXECUTION_REPORT events.", source_module=self._source_module
+            "Subscribed to EXECUTION_REPORT events.",
+            source_module=self._source_module,
         )
 
         if self._reconciliation_interval > 0 and self._execution_handler is not None:
             self.logger.info(
-                "Starting periodic reconciliation every %ss.", self._reconciliation_interval,
+                "Starting periodic reconciliation every %ss.",
+                self._reconciliation_interval,
                 source_module=self._source_module,
             )
             self._reconciliation_task = asyncio.create_task(self._run_periodic_reconciliation())
@@ -281,8 +284,7 @@ class PortfolioManager:
             )
 
     async def stop(self) -> None:
-        """
-        Unsubscribe from events and stop background tasks.
+        """Unsubscribe from events and stop background tasks.
 
         Cleans up event subscriptions and stops reconciliation tasks.
         """
@@ -308,7 +310,8 @@ class PortfolioManager:
             try:
                 await self._reconciliation_task
                 self.logger.info(
-                    "Reconciliation task cancelled.", source_module=self._source_module
+                    "Reconciliation task cancelled.",
+                    source_module=self._source_module,
                 )
             except Exception:
                 self.logger.exception(
@@ -319,12 +322,11 @@ class PortfolioManager:
                 self._reconciliation_task = None
 
     async def _handle_execution_report(self, event: "ExecutionReportEvent") -> None:
-        """
-        Process incoming execution report events.
+        """Process incoming execution report events.
 
         Updates portfolio state based on trade execution reports from the exchange.
 
-        Args
+        Args:
         ----
             event: The execution report event containing trade details
         """
@@ -332,13 +334,16 @@ class PortfolioManager:
         # differences between the placeholder class and actual implementation
         if not hasattr(event, "order_status") or not hasattr(event, "exchange_order_id"):
             self.logger.warning(
-                "Received event missing required attributes: %s", type(event),
+                "Received event missing required attributes: %s",
+                type(event),
                 source_module=self._source_module,
             )
             return
 
         self.logger.debug(
-            "Handling exec report: %s - %s", event.exchange_order_id, event.order_status,
+            "Handling exec report: %s - %s",
+            event.exchange_order_id,
+            event.order_status,
             source_module=self._source_module,
         )
 
@@ -348,16 +353,22 @@ class PortfolioManager:
 
         if event.order_status not in ["FILLED", "PARTIALLY_FILLED"]:
             self.logger.debug(
-                "Ignoring exec report status: %s", event.order_status,
+                "Ignoring exec report status: %s",
+                event.order_status,
                 source_module=self._source_module,
             )
             return
 
         try:
             # 1. Parse and Validate Event Data
-            pair, side, qty_filled, avg_price, commission, commission_asset = (
-                self._parse_execution_values(event)
-            )
+            (
+                pair,
+                side,
+                qty_filled,
+                avg_price,
+                commission,
+                commission_asset,
+            ) = self._parse_execution_values(event)
             base_asset, quote_asset = self._split_symbol(pair)
             cost_or_proceeds = qty_filled * avg_price
 
@@ -369,8 +380,8 @@ class PortfolioManager:
                     side=side,
                     quantity=qty_filled,
                     price=avg_price,
-                    cost_or_proceeds=cost_or_proceeds
-                )
+                    cost_or_proceeds=cost_or_proceeds,
+                ),
             )
 
             # 3. Update Position (PositionManager)
@@ -388,7 +399,8 @@ class PortfolioManager:
 
             if pnl != Decimal(0):
                 self.logger.info(
-                    "Realized PNL from trade: %s", pnl,
+                    "Realized PNL from trade: %s",
+                    pnl,
                     source_module=self._source_module,
                 )
 
@@ -404,32 +416,36 @@ class PortfolioManager:
 
         except (DataValidationError, InsufficientFundsError):
             self.logger.exception(
-                "Data/Funds error processing execution report %s:", event.exchange_order_id,
+                "Data/Funds error processing execution report %s:",
+                event.exchange_order_id,
                 source_module=self._source_module,
             )
         except ValueError:  # Catch specific parsing/symbol errors
             self.logger.exception(
-                "Value error processing execution report %s:", event.exchange_order_id,
+                "Value error processing execution report %s:",
+                event.exchange_order_id,
                 source_module=self._source_module,
             )
         except Exception:  # Catch all other unexpected errors
             self.logger.exception(
-                "Unexpected error processing execution report %s:", event.exchange_order_id,
+                "Unexpected error processing execution report %s:",
+                event.exchange_order_id,
                 source_module=self._source_module,
             )
 
     def _handle_order_cancellation(self, event: "ExecutionReportEvent") -> None:
-        """
-        Handle cancellation of an order.
+        """Handle cancellation of an order.
 
         Logs the cancellation event for tracking purposes.
 
-        Args
+        Args:
         ----
             event: The execution report event with cancellation details
         """
         self.logger.info(
-            "Order %s for %s was cancelled.", event.exchange_order_id, event.trading_pair,
+            "Order %s for %s was cancelled.",
+            event.exchange_order_id,
+            event.trading_pair,
             source_module=self._source_module,
         )
         # Optional: Could track pending orders locally if needed
@@ -439,22 +455,22 @@ class PortfolioManager:
         raise ValueError
 
     def _parse_execution_values(
-        self, event: "ExecutionReportEvent"
+        self,
+        event: "ExecutionReportEvent",
     ) -> tuple[str, str, Decimal, Decimal, Decimal, str | None]:
-        """
-        Parse and validate numeric values from the execution report.
+        """Parse and validate numeric values from the execution report.
 
         Extracts and validates key trade data from execution reports.
 
-        Args
+        Args:
         ----
             event: The execution report event to parse
 
-        Returns
+        Returns:
         -------
             Tuple containing pair, side, quantity, price, commission and commission asset
 
-        Raises
+        Raises:
         ------
             ValueError: If quantity or price values are invalid
         """
@@ -482,8 +498,7 @@ class PortfolioManager:
         raise ValueError
 
     async def _update_portfolio_value_and_cache(self) -> None:
-        """
-        Trigger valuation update and cache the results.
+        """Trigger valuation update and cache the results.
 
         Updates portfolio valuation and stores results for synchronous access.
         """
@@ -492,7 +507,8 @@ class PortfolioManager:
             current_positions = self.position_manager.positions  # Get current positions
 
             _, latest_prices, exposure_pct = await self.valuation_service.update_portfolio_value(
-                current_funds, cast(dict[str, Any], current_positions)
+                current_funds,
+                cast(dict[str, Any], current_positions),
             )
 
             # Update local cache for get_current_state
@@ -514,8 +530,7 @@ class PortfolioManager:
             )
 
     def _log_updated_state(self) -> None:
-        """
-        Log the updated portfolio state after changes.
+        """Log the updated portfolio state after changes.
 
         Provides a detailed log of funds, positions, and valuation metrics
         after state changes occur.
@@ -540,25 +555,30 @@ class PortfolioManager:
 
         self.logger.info(
             "State Update: Funds=%s, Positions=%s",
-            funds_str, positions_str,
+            funds_str,
+            positions_str,
             source_module=self._source_module,
         )
         self.logger.info(
             "Valuation: Equity=%.2f %s, Peak=%.2f, DD(Total=%.2f%%, Daily=%.2f%%, Weekly=%.2f%%)",
-            equity, self.valuation_currency, peak_equity, total_dd, daily_dd, weekly_dd,
+            equity,
+            self.valuation_currency,
+            peak_equity,
+            total_dd,
+            daily_dd,
+            weekly_dd,
             source_module=self._source_module,
         )
 
     # --- State Retrieval ---
 
     def get_current_state(self) -> dict[str, Any]:
-        """
-        Return the latest known portfolio state snapshot using cached data.
+        """Return the latest known portfolio state snapshot using cached data.
 
         This is a synchronous method that provides a snapshot of the portfolio
         including positions, funds, and valuation metrics.
 
-        Returns
+        Returns:
         -------
             Dictionary containing comprehensive portfolio state information
         """
@@ -630,14 +650,13 @@ class PortfolioManager:
     # --- Utility and Delegate Methods ---
 
     def get_available_funds(self, currency: str) -> Decimal:
-        """
-        Return the available funds for a specific currency.
+        """Return the available funds for a specific currency.
 
-        Args
+        Args:
         ----
             currency: The currency code to check funds for
 
-        Returns
+        Returns:
         -------
             The available amount of the specified currency
         """
@@ -645,10 +664,9 @@ class PortfolioManager:
         return self.funds_manager.available_funds.get(currency.upper(), Decimal(0))
 
     def get_current_equity(self) -> Decimal:
-        """
-        Return the current equity value.
+        """Return the current equity value.
 
-        Returns
+        Returns:
         -------
             The total portfolio equity in the valuation currency
         """
@@ -656,14 +674,13 @@ class PortfolioManager:
         return self.valuation_service.total_equity
 
     def get_position_history(self, pair: str) -> list[dict[str, Any]]:
-        """
-        Return the trade history for a specific pair.
+        """Return the trade history for a specific pair.
 
-        Args
+        Args:
         ----
             pair: Trading pair to get history for
 
-        Returns
+        Returns:
         -------
             List of historical trades for the specified pair
         """
@@ -682,15 +699,14 @@ class PortfolioManager:
                     "price": str(trade.price),
                     "commission": str(trade.commission),
                     "commission_asset": trade.commission_asset,
-                }
+                },
             )
         return result
 
     def get_open_positions(self) -> list[PositionInfo]:
-        """
-        Return a list of open positions.
+        """Return a list of open positions.
 
-        Returns
+        Returns:
         -------
             List of current open position information objects
         """
@@ -700,18 +716,17 @@ class PortfolioManager:
     EXPECTED_SYMBOL_PARTS = 2
 
     def _split_symbol(self, symbol: str) -> tuple[str, str]:
-        """
-        Split a trading symbol into base and quote assets.
+        """Split a trading symbol into base and quote assets.
 
-        Args
+        Args:
         ----
             symbol: Trading symbol in format 'BASE/QUOTE'
 
-        Returns
+        Returns:
         -------
             Tuple of (base_asset, quote_asset)
 
-        Raises
+        Raises:
         ------
             ValueError: If symbol format is invalid
         """
@@ -724,8 +739,7 @@ class PortfolioManager:
     # --- Reconciliation ---
 
     async def _run_periodic_reconciliation(self) -> None:
-        """
-        Periodically reconcile internal state with the exchange.
+        """Periodically reconcile internal state with the exchange.
 
         Runs a background task that checks for discrepancies between internal
         portfolio state and exchange data at configured intervals.
@@ -740,7 +754,8 @@ class PortfolioManager:
                 await self._reconcile_with_exchange()
             except asyncio.CancelledError:
                 self.logger.info(
-                    "Reconciliation loop cancelled.", source_module=self._source_module
+                    "Reconciliation loop cancelled.",
+                    source_module=self._source_module,
                 )
                 break
             except Exception:
@@ -751,13 +766,12 @@ class PortfolioManager:
                 await asyncio.sleep(self._reconciliation_interval)  # Avoid tight loop
 
     def _execution_handler_available_for_reconciliation(self) -> bool:
-        """
-        Check if the execution handler is suitable for reconciliation.
+        """Check if the execution handler is suitable for reconciliation.
 
         Verifies the execution handler implements the required methods
         for account reconciliation.
 
-        Returns
+        Returns:
         -------
             True if execution handler can be used for reconciliation
         """
@@ -784,8 +798,7 @@ class PortfolioManager:
         return True
 
     async def _reconcile_with_exchange(self) -> None:
-        """
-        Fetch exchange state and compare/update internal state.
+        """Fetch exchange state and compare/update internal state.
 
         Compares internal portfolio state with exchange data and
         reconciles differences based on configuration.
@@ -817,7 +830,8 @@ class PortfolioManager:
             if bal_discrepancies:
                 discrepancies_found = True
                 self.logger.warning(
-                    "Reconciliation: Balance mismatches: %s", bal_discrepancies,
+                    "Reconciliation: Balance mismatches: %s",
+                    bal_discrepancies,
                     source_module=self._source_module,
                 )
                 if self._auto_reconcile:
@@ -828,7 +842,8 @@ class PortfolioManager:
             if pos_discrepancies:
                 discrepancies_found = True
                 self.logger.warning(
-                    "Reconciliation: Position mismatches: %s", pos_discrepancies,
+                    "Reconciliation: Position mismatches: %s",
+                    pos_discrepancies,
                     source_module=self._source_module,
                 )
                 if self._auto_reconcile:
@@ -859,12 +874,11 @@ class PortfolioManager:
             )
 
     async def _auto_reconcile_balances(self, exchange_balances: dict[str, Decimal]) -> None:
-        """
-        Auto-reconcile balances with exchange data.
+        """Auto-reconcile balances with exchange data.
 
         Updates internal fund balances to match exchange reported balances.
 
-        Args
+        Args:
         ----
             exchange_balances: Dictionary of currency to balance amount from exchange
         """
@@ -877,12 +891,11 @@ class PortfolioManager:
         self,
         exchange_positions: dict[str, PositionInfo],
     ) -> None:
-        """
-        Auto-reconcile positions with exchange data.
+        """Auto-reconcile positions with exchange data.
 
         Updates internal positions to match exchange reported positions.
 
-        Args
+        Args:
         ----
             exchange_positions: Dictionary of positions reported by exchange
         """
@@ -892,15 +905,15 @@ class PortfolioManager:
         self.logger.info("Positions auto-reconciled.", source_module=self._source_module)
 
     async def _reconcile_positions_with_exchange(
-        self, exchange_positions: dict[str, PositionInfo]
+        self,
+        exchange_positions: dict[str, PositionInfo],
     ) -> None:
-        """
-        Reconcile positions with exchange data.
+        """Reconcile positions with exchange data.
 
         Adjusts internal positions to match exchange positions by creating
         reconciliation trades as needed.
 
-        Args
+        Args:
         ----
             exchange_positions: Dictionary of positions reported by exchange
         """
@@ -912,19 +925,27 @@ class PortfolioManager:
                 if int_pos.quantity != ex_pos.quantity:
                     self.logger.info(
                         "Adjusting position for %s: %s → %s",
-                        pair, int_pos.quantity, ex_pos.quantity,
+                        pair,
+                        int_pos.quantity,
+                        ex_pos.quantity,
                         source_module=self._source_module,
                     )
                     base_asset, quote_asset = self._split_symbol(pair)
                     # Create a reconciliation trade to adjust the quantity
                     await self._create_reconciliation_trade(
-                        pair, base_asset, quote_asset, int_pos, ex_pos
+                        pair,
+                        base_asset,
+                        quote_asset,
+                        int_pos,
+                        ex_pos,
                     )
             else:
                 # Position exists on exchange but not internally - create it
                 base_asset, quote_asset = self._split_symbol(pair)
                 self.logger.info(
-                    "Creating missing position for %s with qty %s", pair, ex_pos.quantity,
+                    "Creating missing position for %s with qty %s",
+                    pair,
+                    ex_pos.quantity,
                     source_module=self._source_module,
                 )
                 # Create new position through a mock trade
@@ -934,7 +955,8 @@ class PortfolioManager:
         for pair, int_pos in self.position_manager.positions.items():
             if pair not in exchange_positions and int_pos.quantity != 0:
                 self.logger.info(
-                    "Closing position %s that doesn't exist on exchange", pair,
+                    "Closing position %s that doesn't exist on exchange",
+                    pair,
                     source_module=self._source_module,
                 )
                 base_asset, quote_asset = self._split_symbol(pair)
@@ -947,7 +969,11 @@ class PortfolioManager:
                     average_entry_price=Decimal(0),
                 )
                 await self._create_reconciliation_trade(
-                    pair, base_asset, quote_asset, int_pos, dummy_pos
+                    pair,
+                    base_asset,
+                    quote_asset,
+                    int_pos,
+                    dummy_pos,
                 )
 
     async def _create_reconciliation_trade(
@@ -958,13 +984,12 @@ class PortfolioManager:
         current_pos: PositionInfo,
         target_pos: PositionInfo,
     ) -> None:
-        """
-        Create a reconciliation trade to adjust position to match target.
+        """Create a reconciliation trade to adjust position to match target.
 
         Generates a synthetic trade to adjust position quantity to match
         the exchange-reported quantity.
 
-        Args
+        Args:
         ----
             pair: Trading pair symbol
             base_asset: Base asset of the pair
@@ -1031,22 +1056,25 @@ class PortfolioManager:
                 side=side,
                 quantity=abs_qty,
                 price=price,
-                cost_or_proceeds=cost
-            )
+                cost_or_proceeds=cost,
+            ),
         )
 
         # Update portfolio value
         await self._update_portfolio_value_and_cache()
 
     async def _create_position_from_exchange(
-        self, pair: str, base_asset: str, quote_asset: str, exchange_pos: PositionInfo
+        self,
+        pair: str,
+        base_asset: str,
+        quote_asset: str,
+        exchange_pos: PositionInfo,
     ) -> None:
-        """
-        Create a new position from exchange data.
+        """Create a new position from exchange data.
 
         Generates a synthetic position to match exchange-reported position.
 
-        Args
+        Args:
         ----
             pair: Trading pair symbol
             base_asset: Base asset of the pair
@@ -1075,7 +1103,11 @@ class PortfolioManager:
         # Create mock trade to establish the position
         timestamp = datetime.utcnow()
         self.logger.info(
-            "Creating position from exchange: %s %s %s @ %s", pair, side, abs_qty, price,
+            "Creating position from exchange: %s %s %s @ %s",
+            pair,
+            side,
+            abs_qty,
+            price,
             source_module=self._source_module,
         )
 
@@ -1097,27 +1129,28 @@ class PortfolioManager:
                 side=side,
                 quantity=abs_qty,
                 price=price,
-                cost_or_proceeds=cost
-            )
+                cost_or_proceeds=cost,
+            ),
         )
 
         # Update portfolio value
         await self._update_portfolio_value_and_cache()
 
     def _compare_balances(
-        self, internal: dict[str, Decimal], exchange: dict[str, Decimal]
+        self,
+        internal: dict[str, Decimal],
+        exchange: dict[str, Decimal],
     ) -> dict[str, dict[str, Decimal]]:
-        """
-        Compare internal and exchange balances, return discrepancies.
+        """Compare internal and exchange balances, return discrepancies.
 
         Identifies balance differences that exceed configured thresholds.
 
-        Args
+        Args:
         ----
             internal: Dictionary of internal balances
             exchange: Dictionary of exchange-reported balances
 
-        Returns
+        Returns:
         -------
             Dictionary of currencies with discrepancies
         """
@@ -1137,19 +1170,20 @@ class PortfolioManager:
         return discrepancies
 
     def _compare_positions(
-        self, internal: dict[str, PositionInfo], exchange: dict[str, PositionInfo]
+        self,
+        internal: dict[str, PositionInfo],
+        exchange: dict[str, PositionInfo],
     ) -> dict[str, dict[str, Decimal]]:
-        """
-        Compare internal and exchange positions, return discrepancies.
+        """Compare internal and exchange positions, return discrepancies.
 
         Identifies position differences that exceed configured thresholds.
 
-        Args
+        Args:
         ----
             internal: Dictionary of internal positions
             exchange: Dictionary of exchange-reported positions
 
-        Returns
+        Returns:
         -------
             Dictionary of trading pairs with discrepancies
         """

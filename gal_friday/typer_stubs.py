@@ -4,9 +4,8 @@ This file provides minimal stub implementations for typer functions.
 For actual functionality, the real typer package should be installed.
 """
 
-from typing import Optional, TypeVar
-
 from collections.abc import Callable
+from typing import TypeVar
 
 # Type variable for function arguments
 T = TypeVar("T")
@@ -24,7 +23,7 @@ class Typer:
     ) -> None:
         """Initialize a Typer application.
 
-        Args
+        Args:
         ----
             name: The name of the CLI application
             help_text: A description for the CLI application
@@ -38,17 +37,20 @@ class Typer:
         self.commands: list[Callable] = []
 
     def command(
-        self, _name: str | None = None, _help_text: str | None = None, **_kwargs: object
+        self,
+        _name: str | None = None,
+        _help_text: str | None = None,
+        **_kwargs: object,
     ) -> Callable[[Callable[..., object]], Callable[..., object]]:
         """Create a new command.
 
-        Args
+        Args:
         ----
             name: Name for the command
             help_text: Help text to show for the command
             **kwargs: Additional options
 
-        Returns
+        Returns:
         -------
             Decorator function that registers the command
         """
@@ -62,7 +64,7 @@ class Typer:
     def run(self, **_kwargs: object) -> None:
         """Run the application.
 
-        Args
+        Args:
         ----
             **kwargs: Additional arguments for running the application
         """
@@ -72,7 +74,7 @@ class Typer:
 def run(function: Callable[..., object], **_kwargs: object) -> None:
     """Run a function as a Typer application.
 
-    Args
+    Args:
     ----
         function: The function to run as a Typer application
         **kwargs: Additional arguments for running the application
@@ -88,14 +90,14 @@ def argument(
 ) -> object:
     """Declare a command-line argument.
 
-    Args
+    Args:
     ----
         default: Default value for the argument
         help_text: Help text for the argument
         show_default: Show the default value in help
         **kwargs: Additional options
 
-    Returns
+    Returns:
     -------
         An argument specification
     """
@@ -112,7 +114,7 @@ def option(
 ) -> object:
     """Create a command-line option.
 
-    Args
+    Args:
     ----
         default: Default value for the option
         help_text: Help text for the option
@@ -120,7 +122,7 @@ def option(
         is_flag: Whether the option is a flag (boolean)
         **kwargs: Additional options
 
-    Returns
+    Returns:
     -------
         An option specification
     """
@@ -135,7 +137,7 @@ class Context:
     def __init__(self, obj: object = None) -> None:
         """Initialize a context.
 
-        Args
+        Args:
         ----
             obj: Object to store in the context
         """

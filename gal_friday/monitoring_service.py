@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""
-Monitoring Service for Gal Friday trading system.
+"""Monitoring Service for Gal Friday trading system.
 
 This module provides system monitoring capabilities including health checks,
 performance tracking, and automatic trading halt triggers when thresholds are exceeded.
 """
 
 import asyncio
-from collections import deque  # Added for tracking recent API errors
-from collections.abc import Coroutine
-from datetime import datetime, timezone
-from decimal import Decimal
 import time
+import uuid
+from collections import deque  # Added for tracking recent API errors
+from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
+from decimal import Decimal
 from types import TracebackType  # Added for exc_info typing
 from typing import (  # Added Type for exc_info typing
     TYPE_CHECKING,
@@ -19,9 +19,6 @@ from typing import (  # Added Type for exc_info typing
     Optional,
     Union,
 )
-
-from collections.abc import Callable
-import uuid
 
 import psutil  # Added for system resource monitoring
 
@@ -68,11 +65,11 @@ else:
             self.new_state = new_state
             self.reason = reason
 
-    class _PotentialHaltTriggerEvent(_Event): # Existing placeholder
+    class _PotentialHaltTriggerEvent(_Event):  # Existing placeholder
         pass
 
     class _APIErrorEvent(_Event):  # Added placeholder for APIErrorEvent
-        pass # Simple placeholder
+        pass  # Simple placeholder
 
     class _ClosePositionCommand(_Event):  # Added placeholder for ClosePositionCommand
         def __init__(self, data: dict[str, Any] | None = None) -> None:
@@ -86,9 +83,7 @@ else:
         def get(
             self,
             key: str,
-            default: None | (
-                str | int | float | Decimal | bool
-            ) = None,
+            default: None | (str | int | float | Decimal | bool) = None,
         ) -> int | Decimal | None:
             # Provide default values for testing/running without real config
             if key == "monitoring.check_interval_seconds":
@@ -103,13 +98,17 @@ else:
             print(f"Publishing: {event.__dict__}")  # Simple print
 
         def subscribe(
-            self, event_type: str, handler: Callable[[Any], Coroutine[Any, Any, None]]
+            self,
+            event_type: str,
+            handler: Callable[[Any], Coroutine[Any, Any, None]],
         ) -> None:
             # Placeholder for subscribe method
             pass
 
         def unsubscribe(
-            self, event_type: str, handler: Callable[[Any], Coroutine[Any, Any, None]]
+            self,
+            event_type: str,
+            handler: Callable[[Any], Coroutine[Any, Any, None]],
         ) -> None:
             # Placeholder for unsubscribe method
             pass
@@ -126,13 +125,13 @@ else:
     EventType = _EventType
     SystemStateEvent = _SystemStateEvent
     Event = _Event
-    PotentialHaltTriggerEvent = _PotentialHaltTriggerEvent # Corrected to use its own placeholder
-    APIErrorEvent = _APIErrorEvent # Assign the new placeholder
-    ClosePositionCommand = _ClosePositionCommand # Assign the new placeholder
+    PotentialHaltTriggerEvent = _PotentialHaltTriggerEvent  # Corrected to use its own placeholder
+    APIErrorEvent = _APIErrorEvent  # Assign the new placeholder
+    ClosePositionCommand = _ClosePositionCommand  # Assign the new placeholder
+
 
 class MonitoringService:
-    """
-    Monitors the overall system health and manages the global HALT state.
+    """Monitors the overall system health and manages the global HALT state.
 
     Triggers HALT based on predefined conditions (e.g., max drawdown) or manual requests.
     Publishes system state changes (HALTED/RUNNING) via the PubSubManager.
@@ -146,10 +145,9 @@ class MonitoringService:
         logger_service: "LoggerService",
         execution_handler: Optional["ExecutionHandler"] = None,
     ) -> None:
-        """
-        Initialize the MonitoringService.
+        """Initialize the MonitoringService.
 
-        Args
+        Args:
         ----
             config_manager: The application's configuration manager instance.
             pubsub_manager: The application's publish/subscribe manager instance.
@@ -170,9 +168,7 @@ class MonitoringService:
         # Handler storage for unsubscribing
         self._potential_halt_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = None
         self._market_data_l2_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = None
-        self._market_data_ohlcv_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = (
-            None
-        )
+        self._market_data_ohlcv_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = None
         self._execution_report_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = None
         self._api_error_handler: Callable[[Any], Coroutine[Any, Any, None]] | None = None
 
@@ -181,7 +177,7 @@ class MonitoringService:
         self._consecutive_api_failures: int = 0
         self._consecutive_losses: int = 0
         self._recent_api_errors: deque[float] = deque(
-            maxlen=10
+            maxlen=10,
         )  # Store timestamps of recent errors
 
         # Load configuration
@@ -193,34 +189,35 @@ class MonitoringService:
 
             # API monitoring config
             self._api_failure_threshold = int(
-                self._config.get("monitoring.api_failure_threshold", 3)
+                self._config.get("monitoring.api_failure_threshold", 3),
             )
             self._api_error_threshold_count = int(
-                self._config.get("monitoring.api_error_threshold_count", 5)
+                self._config.get("monitoring.api_error_threshold_count", 5),
             )
             self._api_error_threshold_period_s = int(
-                self._config.get("monitoring.api_error_threshold_period_s", 60)
+                self._config.get("monitoring.api_error_threshold_period_s", 60),
             )
 
             # Market data monitoring config
             self._data_staleness_threshold_s = float(
-                self._config.get("monitoring.data_staleness_threshold_s", 120.0)
+                self._config.get("monitoring.data_staleness_threshold_s", 120.0),
             )
 
             # System resource monitoring config
             self._cpu_threshold_pct = float(self._config.get("monitoring.cpu_threshold_pct", 90.0))
             self._memory_threshold_pct = float(
-                self._config.get("monitoring.memory_threshold_pct", 90.0)
+                self._config.get("monitoring.memory_threshold_pct", 90.0),
             )
 
             # Trading halt behavior
             self._halt_position_behavior = self._config.get(
-                "monitoring.halt.position_behavior", "maintain"
+                "monitoring.halt.position_behavior",
+                "maintain",
             ).lower()
 
             # Consecutive loss monitoring
             self._consecutive_loss_limit = int(
-                self._config.get("monitoring.consecutive_loss_limit", 5)
+                self._config.get("monitoring.consecutive_loss_limit", 5),
             )
 
             # Active trading pairs
@@ -259,7 +256,9 @@ class MonitoringService:
         # Publish initial state when starting, if not already halted
         if not self._is_halted:
             await self._publish_state_change(
-                "RUNNING", "System startup", "MonitoringService Start"
+                "RUNNING",
+                "System startup",
+                "MonitoringService Start",
             )
 
         if self._periodic_check_task and not self._periodic_check_task.done():
@@ -278,14 +277,16 @@ class MonitoringService:
         self._potential_halt_handler = self._handle_potential_halt_trigger
         self._pubsub.subscribe(EventType.POTENTIAL_HALT_TRIGGER, self._potential_halt_handler)
         self.logger.info(
-            "Subscribed to POTENTIAL_HALT_TRIGGER events.", source_module=self._source
+            "Subscribed to POTENTIAL_HALT_TRIGGER events.",
+            source_module=self._source,
         )
 
         # Subscribe to API error events
         self._api_error_handler = self._handle_api_error
         self._pubsub.subscribe(EventType.SYSTEM_ERROR, self._api_error_handler)
         self.logger.info(
-            "Subscribed to SYSTEM_ERROR events for API error tracking.", source_module=self._source
+            "Subscribed to SYSTEM_ERROR events for API error tracking.",
+            source_module=self._source,
         )
 
         # Subscribe to market data events to track freshness
@@ -294,14 +295,16 @@ class MonitoringService:
         self._pubsub.subscribe(EventType.MARKET_DATA_L2, self._market_data_l2_handler)
         self._pubsub.subscribe(EventType.MARKET_DATA_OHLCV, self._market_data_ohlcv_handler)
         self.logger.info(
-            "Subscribed to market data events for freshness tracking.", source_module=self._source
+            "Subscribed to market data events for freshness tracking.",
+            source_module=self._source,
         )
 
         # Subscribe to execution reports to track consecutive losses
         self._execution_report_handler = self._handle_execution_report
         self._pubsub.subscribe(EventType.EXECUTION_REPORT, self._execution_report_handler)
         self.logger.info(
-            "Subscribed to execution reports for loss tracking.", source_module=self._source
+            "Subscribed to execution reports for loss tracking.",
+            source_module=self._source,
         )
 
     async def stop(self) -> None:
@@ -311,10 +314,12 @@ class MonitoringService:
             # Potential HALT trigger events
             if self._potential_halt_handler:
                 self._pubsub.unsubscribe(
-                    EventType.POTENTIAL_HALT_TRIGGER, self._potential_halt_handler
+                    EventType.POTENTIAL_HALT_TRIGGER,
+                    self._potential_halt_handler,
                 )
                 self.logger.info(
-                    "Unsubscribed from POTENTIAL_HALT_TRIGGER events.", source_module=self._source
+                    "Unsubscribed from POTENTIAL_HALT_TRIGGER events.",
+                    source_module=self._source,
                 )
                 self._potential_halt_handler = None
 
@@ -322,7 +327,8 @@ class MonitoringService:
             if hasattr(self, "_api_error_handler") and self._api_error_handler:
                 self._pubsub.unsubscribe(EventType.SYSTEM_ERROR, self._api_error_handler)
                 self.logger.info(
-                    "Unsubscribed from SYSTEM_ERROR events.", source_module=self._source
+                    "Unsubscribed from SYSTEM_ERROR events.",
+                    source_module=self._source,
                 )
                 self._api_error_handler = None
 
@@ -333,23 +339,27 @@ class MonitoringService:
 
             if self._market_data_ohlcv_handler:
                 self._pubsub.unsubscribe(
-                    EventType.MARKET_DATA_OHLCV, self._market_data_ohlcv_handler
+                    EventType.MARKET_DATA_OHLCV,
+                    self._market_data_ohlcv_handler,
                 )
                 self._market_data_ohlcv_handler = None
 
             # Execution report events
             if self._execution_report_handler:
                 self._pubsub.unsubscribe(
-                    EventType.EXECUTION_REPORT, self._execution_report_handler
+                    EventType.EXECUTION_REPORT,
+                    self._execution_report_handler,
                 )
                 self._execution_report_handler = None
 
             self.logger.info(
-                "Unsubscribed from all monitoring events.", source_module=self._source
+                "Unsubscribed from all monitoring events.",
+                source_module=self._source,
             )
         except Exception:
             self.logger.exception(
-                "Error unsubscribing from events", source_module=self._source
+                "Error unsubscribing from events",
+                source_module=self._source,
             )
 
         if self._periodic_check_task and not self._periodic_check_task.done():
@@ -379,10 +389,9 @@ class MonitoringService:
             )
 
     async def trigger_halt(self, reason: str, source: str) -> None:
-        """
-        Halt the system operations.
+        """Halt the system operations.
 
-        Args
+        Args:
         ----
             reason: The reason for halting the system.
             source: The source triggering the halt (e.g., 'MANUAL', 'AUTO: Max Drawdown').
@@ -397,7 +406,10 @@ class MonitoringService:
 
         self._is_halted = True
         self.logger.critical(
-            "SYSTEM HALTED by %s. Reason: %s", source, reason, source_module=self._source
+            "SYSTEM HALTED by %s. Reason: %s",
+            source,
+            reason,
+            source_module=self._source,
         )
         await self._publish_state_change("HALTED", reason, source)
 
@@ -405,8 +417,7 @@ class MonitoringService:
         await self._handle_positions_on_halt()
 
     async def _handle_positions_on_halt(self) -> None:
-        """
-        Process existing positions according to the configured HALT behavior.
+        """Process existing positions according to the configured HALT behavior.
 
         Can close positions, maintain them, or perform other actions.
         """
@@ -463,22 +474,25 @@ class MonitoringService:
                         # For future implementation: Create and publish a close position command
                         self.logger.info(
                             "Creating ClosePositionCommand for %s: %s %s",
-                            pair, close_side, abs(qty),
-                            source_module=self._source
+                            pair,
+                            close_side,
+                            abs(qty),
+                            source_module=self._source,
                         )
                         close_command = ClosePositionCommand(
-                            timestamp=datetime.now(timezone.utc),
+                            timestamp=datetime.now(UTC),
                             event_id=uuid.uuid4(),
                             source_module=self._source,
                             trading_pair=pair,
                             quantity=abs(qty),
-                            side=close_side
+                            side=close_side,
                         )
                         await self._pubsub.publish(close_command)
 
             except Exception:
                 self.logger.exception(
-                    "Error during attempt to close positions on HALT", source_module=self._source
+                    "Error during attempt to close positions on HALT",
+                    source_module=self._source,
                 )
         elif halt_behavior == "maintain":
             self.logger.info(
@@ -493,10 +507,9 @@ class MonitoringService:
             )
 
     async def trigger_resume(self, source: str) -> None:
-        """
-        Resume system operations after a HALT.
+        """Resume system operations after a HALT.
 
-        Args
+        Args:
         ----
             source: The source triggering the resume (e.g., 'MANUAL').
         """
@@ -510,15 +523,16 @@ class MonitoringService:
 
         self._is_halted = False
         self.logger.info(
-            "SYSTEM RESUMED by %s.", source, source_module=self._source
+            "SYSTEM RESUMED by %s.",
+            source,
+            source_module=self._source,
         )
         await self._publish_state_change("RUNNING", "Manual resume", source)
 
     async def _publish_state_change(self, new_state: str, reason: str, source: str) -> None:
-        """
-        Publish a SystemStateEvent through the PubSubManager.
+        """Publish a SystemStateEvent through the PubSubManager.
 
-        Args
+        Args:
         ----
             new_state: The new system state ("HALTED" or "RUNNING").
             reason: The reason for the state change.
@@ -543,14 +557,14 @@ class MonitoringService:
             )
         except Exception:
             self.logger.exception(
-                "Failed to publish SYSTEM_STATE_CHANGE event", source_module=self._source
+                "Failed to publish SYSTEM_STATE_CHANGE event",
+                source_module=self._source,
             )
 
     async def _handle_potential_halt_trigger(self, event: "PotentialHaltTriggerEvent") -> None:
-        """
-        Handle events that suggest a potential HALT condition.
+        """Handle events that suggest a potential HALT condition.
 
-        Args
+        Args:
         ----
             event: The PotentialHaltTriggerEvent containing halt trigger information.
         """
@@ -570,8 +584,7 @@ class MonitoringService:
         await self.trigger_halt(reason=event.reason, source=event.source_module)
 
     async def _run_periodic_checks(self) -> None:
-        """
-        Execute the core background task performing periodic checks.
+        """Execute the core background task performing periodic checks.
 
         This method runs at regular intervals defined by the check_interval configuration.
         """
@@ -610,8 +623,7 @@ class MonitoringService:
                 await asyncio.sleep(self._check_interval)
 
     async def _check_drawdown(self) -> None:
-        """
-        Check if the maximum total portfolio drawdown has been exceeded.
+        """Check if the maximum total portfolio drawdown has been exceeded.
 
         Retrieves the current drawdown percentage from the portfolio manager
         and compares it against the configured maximum drawdown threshold.
@@ -659,12 +671,12 @@ class MonitoringService:
 
         except Exception:
             self.logger.exception(
-                "Error occurred during drawdown check.", source_module=self._source
+                "Error occurred during drawdown check.",
+                source_module=self._source,
             )
 
     async def _check_api_connectivity(self) -> None:
-        """
-        Check connectivity to Kraken API by attempting a lightweight authenticated call.
+        """Check connectivity to Kraken API by attempting a lightweight authenticated call.
 
         Triggers HALT if consecutive failures exceed the threshold.
         """
@@ -707,7 +719,8 @@ class MonitoringService:
         except Exception:
             self._consecutive_api_failures += 1
             self.logger.exception(
-                "Error during API connectivity check", source_module=self._source
+                "Error during API connectivity check",
+                source_module=self._source,
             )
 
             if self._consecutive_api_failures >= self._api_failure_threshold:
@@ -718,12 +731,11 @@ class MonitoringService:
                 await self.trigger_halt(reason=reason, source="AUTO: API Connectivity")
 
     async def _check_market_data_freshness(self) -> None:
-        """
-        Check if market data timestamps are recent enough.
+        """Check if market data timestamps are recent enough.
 
         Triggers HALT if data for active pairs is stale beyond threshold.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stale_pairs = []
 
         if not self._active_pairs:
@@ -762,8 +774,7 @@ class MonitoringService:
             await self.trigger_halt(reason=reason, source="AUTO: Market Data Staleness")
 
     async def _check_system_resources(self) -> None:
-        """
-        Monitor CPU and Memory usage.
+        """Monitor CPU and Memory usage.
 
         Logs warnings when thresholds are approached, triggers HALT at critical levels.
         """
@@ -812,12 +823,12 @@ class MonitoringService:
 
         except Exception:
             self.logger.exception(
-                "Error checking system resources", source_module=self._source
+                "Error checking system resources",
+                source_module=self._source,
             )
 
     async def _check_market_volatility(self) -> None:
-        """
-        Check for excessive market volatility.
+        """Check for excessive market volatility.
 
         Triggers HALT if volatility exceeds configured thresholds.
         """
@@ -834,14 +845,14 @@ class MonitoringService:
         )
 
     async def _update_market_data_timestamp(
-        self, event: "Union[MarketDataL2Event, MarketDataOHLCVEvent]"
+        self,
+        event: "Union[MarketDataL2Event, MarketDataOHLCVEvent]",
     ) -> None:
-        """
-        Update the last received timestamp for market data events.
+        """Update the last received timestamp for market data events.
 
         This helps track market data freshness.
 
-        Args
+        Args:
         ----
             event: Either a MarketDataL2Event or MarketDataOHLCVEvent
         """
@@ -872,25 +883,28 @@ class MonitoringService:
 
             # Ensure timestamp is timezone-aware UTC
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=UTC)
 
             # Update the timestamp for this pair
             self._last_market_data_times[pair] = ts
             self.logger.debug(
-                "Updated market data timestamp for %s: %s", pair, ts, source_module=self._source
+                "Updated market data timestamp for %s: %s",
+                pair,
+                ts,
+                source_module=self._source,
             )
         except Exception:
             self.logger.exception(
-                "Error updating market data timestamp", source_module=self._source
+                "Error updating market data timestamp",
+                source_module=self._source,
             )
 
     async def _handle_execution_report(self, event: "ExecutionReportEvent") -> None:
-        """
-        Handle execution report events to track consecutive losses.
+        """Handle execution report events to track consecutive losses.
 
         Triggers HALT if consecutive loss limit is reached.
 
-        Args
+        Args:
         ----
             event: An ExecutionReportEvent
         """
@@ -944,16 +958,16 @@ class MonitoringService:
                     self._consecutive_losses = 0
         except Exception:
             self.logger.exception(
-                "Error handling execution report", source_module=self._source
+                "Error handling execution report",
+                source_module=self._source,
             )
 
     async def _handle_api_error(self, event: "APIErrorEvent") -> None:
-        """
-        Count and evaluate API errors to detect excessive error rates.
+        """Count and evaluate API errors to detect excessive error rates.
 
         Triggers HALT if error frequency exceeds threshold.
 
-        Args
+        Args:
         ----
             event: An APIErrorEvent
         """
@@ -983,7 +997,8 @@ class MonitoringService:
                 await self.trigger_halt(reason=reason, source="AUTO: API Errors")
         except Exception:
             self.logger.exception(
-                "Error handling API error event", source_module=self._source
+                "Error handling API error event",
+                source_module=self._source,
             )
 
 
@@ -993,7 +1008,9 @@ class TestLoggerService(LoggerService[Any]):
     """Mock LoggerService for testing purposes."""
 
     def __init__(
-        self, _config_manager: "ConfigManager", _pubsub_manager: "PubSubManager"
+        self,
+        _config_manager: "ConfigManager",
+        _pubsub_manager: "PubSubManager",
     ) -> None:
         """Initialize the mock logger service."""
 
@@ -1039,10 +1056,9 @@ class TestLoggerService(LoggerService[Any]):
         *args: object,  # More specific type than Any
         source_module: str | None = None,
         context: dict[Any, Any] | None = None,
-        exc_info: None | (
-                bool |
-                tuple[type[BaseException], BaseException, TracebackType | None] |
-                BaseException
+        exc_info: None
+        | (
+            bool | tuple[type[BaseException], BaseException, TracebackType | None] | BaseException
         ) = None,
     ) -> None:
         """Log an error message."""
@@ -1065,10 +1081,9 @@ class TestLoggerService(LoggerService[Any]):
         *args: object,  # More specific type than Any
         source_module: str | None = None,
         context: dict[Any, Any] | None = None,
-        exc_info: None | (
-                bool |
-                tuple[type[BaseException], BaseException, TracebackType | None] |
-                BaseException
+        exc_info: None
+        | (
+            bool | tuple[type[BaseException], BaseException, TracebackType | None] | BaseException
         ) = None,
     ) -> None:
         """Log a critical message."""
@@ -1170,7 +1185,10 @@ async def _test_high_drawdown_halt(
     """Test MonitoringService with high drawdown that should trigger HALT."""
     print("\n=== Starting MonitoringService with high drawdown (should HALT) ===")
     monitor_service_halt = MonitoringService(
-        config_mgr, pubsub_mgr, portfolio_mgr_high, test_logger
+        config_mgr,
+        pubsub_mgr,
+        portfolio_mgr_high,
+        test_logger,
     )
     await monitor_service_halt.start()
     print(f"Is system halted? {monitor_service_halt.is_halted()}")
@@ -1254,7 +1272,10 @@ async def main(logger: Optional["LoggerService[Any]"] = None) -> None:
     # Second test: high drawdown case that should trigger HALT
     portfolio_mgr_high = MockPortfolioManagerHighDrawdown()
     await _test_high_drawdown_halt(
-        config_mgr, pubsub_mgr, portfolio_mgr_high, test_logger
+        config_mgr,
+        pubsub_mgr,
+        portfolio_mgr_high,
+        test_logger,
     )
 
     # Third test: manual trigger of HALT

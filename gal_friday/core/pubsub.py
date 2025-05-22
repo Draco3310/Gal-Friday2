@@ -1,12 +1,10 @@
 """Core Pub/Sub event bus implementation using Event objects."""
 
 import asyncio
-from collections import defaultdict
-from collections.abc import Coroutine
 import logging
-from typing import Any, Optional, Protocol, TypeVar
-
-from collections.abc import Callable
+from collections import defaultdict
+from collections.abc import Callable, Coroutine
+from typing import Any, Protocol, TypeVar
 
 # Fix import path for ConfigManager
 from ..config_manager import ConfigManager
@@ -33,15 +31,15 @@ class PubSubManager:
     def __init__(self, logger: logging.Logger, config_manager: ConfigManager) -> None:
         """Initialize the PubSub manager.
 
-        Args
+        Args:
         ----
             logger: Logger instance for reporting operations
             config_manager: Configuration manager for fetching settings
         """
         # Subscribers stored by EventType enum member
-        self._subscribers: dict[EventType, list[Callable[[Event], Coroutine[Any, Any, None]]]] = (
-            defaultdict(list)
-        )
+        self._subscribers: dict[
+            EventType, list[Callable[[Event], Coroutine[Any, Any, None]]]
+        ] = defaultdict(list)
         self._logger = logger
         self._config = config_manager  # Store config reference
 
@@ -49,11 +47,11 @@ class PubSubManager:
         queue_maxsize = self._config.get_int("pubsub.queue_maxsize", 0)  # Default to 0 (unlimited)
         # Use PriorityQueue with tuple of (priority, event)
         self._event_queue: asyncio.PriorityQueue[tuple[int, Event]] = asyncio.PriorityQueue(
-            maxsize=queue_maxsize
+            maxsize=queue_maxsize,
         )
         self._logger.info(
             "PubSubManager initialized with queue maxsize: %s",
-            "unlimited" if queue_maxsize == 0 else queue_maxsize
+            "unlimited" if queue_maxsize == 0 else queue_maxsize,
         )
 
         # Configure handler timeout
@@ -62,7 +60,8 @@ class PubSubManager:
 
         # Error handling configuration
         self._consumer_error_sleep_s = self._config.get_float(
-            "pubsub.consumer_error_sleep_seconds", 1.0
+            "pubsub.consumer_error_sleep_seconds",
+            1.0,
         )
         self._handler_max_failures = self._config.get_int("pubsub.handler_max_failures", 5)
         self._handler_failure_counts: dict[Callable, int] = defaultdict(int)
@@ -72,7 +71,8 @@ class PubSubManager:
         self._events_processed_count = 0
         self._handler_errors_count = 0
         self._metrics_log_interval_s = self._config.get_float(
-            "pubsub.metrics_log_interval_s", 60.0
+            "pubsub.metrics_log_interval_s",
+            60.0,
         )
         self._metrics_task: asyncio.Task | None = None
 
@@ -102,13 +102,15 @@ class PubSubManager:
                 "Published event: %s (%s) with priority %s",
                 event_type.name,
                 getattr(event, "event_id", "unknown"),
-                priority
+                priority,
             )
         except Exception:
             self._logger.exception("Error publishing event %s", event_type.name)
 
     def subscribe(
-        self, event_type: EventType, handler: Callable[[Any], Coroutine[Any, Any, None]]
+        self,
+        event_type: EventType,
+        handler: Callable[[Any], Coroutine[Any, Any, None]],
     ) -> None:
         """Register a handler coroutine for a specific EventType."""
         # Type hint for handler is broad (Any) because the dict stores handlers for
@@ -118,7 +120,9 @@ class PubSubManager:
         self._logger.info("Handler %s subscribed to %s", handler_name, event_type.name)
 
     def unsubscribe(
-        self, event_type: EventType, handler: Callable[[Any], Coroutine[Any, Any, None]]
+        self,
+        event_type: EventType,
+        handler: Callable[[Any], Coroutine[Any, Any, None]],
     ) -> None:
         """Remove a handler for a specific EventType."""
         try:
@@ -130,11 +134,13 @@ class PubSubManager:
             self._logger.warning(
                 "Attempted to unsubscribe handler %s from %s, but it was not found.",
                 handler_name,
-                event_type.name
+                event_type.name,
             )
 
     async def _dispatch_event_to_handler(
-        self, handler: Callable[[Event], Coroutine[Any, Any, None]], event: Event
+        self,
+        handler: Callable[[Event], Coroutine[Any, Any, None]],
+        event: Event,
     ) -> None:
         """Execute a single handler with timeout and error handling."""
         handler_name = getattr(handler, "__name__", repr(handler))
@@ -157,24 +163,34 @@ class PubSubManager:
         except TimeoutError:
             self._logger.exception(
                 "Handler %s timed out (> %ss) processing event %s (%s).",
-                handler_name, self._handler_timeout_s, event_type_name, event_id
+                handler_name,
+                self._handler_timeout_s,
+                event_type_name,
+                event_id,
             )
             self._handler_errors_count += 1
             if event_type and isinstance(event_type, EventType):
                 self._track_handler_failure(
-                    handler, event_type, f"timeout (> {self._handler_timeout_s}s)"
+                    handler,
+                    event_type,
+                    f"timeout (> {self._handler_timeout_s}s)",
                 )
         except Exception as e:
             self._logger.exception(
                 "Error executing handler %s for event %s (%s)",
-                handler_name, event_type_name, event_id
+                handler_name,
+                event_type_name,
+                event_id,
             )
             self._handler_errors_count += 1
             if event_type and isinstance(event_type, EventType):
                 self._track_handler_failure(handler, event_type, str(e))
 
     def _track_handler_failure(
-        self, handler: Callable, event_type: EventType, error_reason: str
+        self,
+        handler: Callable,
+        event_type: EventType,
+        error_reason: str,
     ) -> None:
         """Track handler failures and auto-unsubscribe if threshold is exceeded."""
         handler_name = getattr(handler, "__name__", repr(handler))
@@ -206,7 +222,7 @@ class PubSubManager:
                 failure_count,
                 self._handler_max_failures,
                 event_type.name,
-                error_reason
+                error_reason,
             )
 
     async def _event_consumer(self) -> None:
@@ -260,7 +276,7 @@ class PubSubManager:
                 qsize,
                 self._events_published_count,
                 self._events_processed_count,
-                self._handler_errors_count
+                self._handler_errors_count,
             )
 
     async def start(self) -> None:

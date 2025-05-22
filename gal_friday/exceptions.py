@@ -1,6 +1,6 @@
 """Standard exceptions for the Gal Friday application."""
 
-from typing import Any, Optional
+from typing import Any
 
 
 class GalFridayError(Exception):
@@ -24,6 +24,7 @@ class DependencyMissingError(SetupError):
             )
         super().__init__(message)
 
+
 class ComponentInitializationError(SetupError):
     """Errors during the initialization of a critical component."""
 
@@ -31,7 +32,7 @@ class ComponentInitializationError(SetupError):
         self,
         component_name: str,
         details: str | None = None,
-        message: str | None = None
+        message: str | None = None,
     ) -> None:
         self.component_name = component_name
         self.details = details
@@ -40,6 +41,7 @@ class ComponentInitializationError(SetupError):
             if details:
                 message += f" Details: {details}"
         super().__init__(message)
+
 
 class OperationalError(GalFridayError):
     """Base class for errors during application operation."""
@@ -55,7 +57,7 @@ class UnsupportedModeError(OperationalError, ValueError):
         self,
         mode: str,
         supported_modes: list[str] | None = None,
-        message: str | None = None
+        message: str | None = None,
     ) -> None:
         self.mode = mode
         self.supported_modes = supported_modes
@@ -100,7 +102,7 @@ class APIError(GalFridayError):
     ) -> None:
         """Initialize an APIError.
 
-        Args
+        Args:
         ----
             message: Description of the error
             service_name: Name of the API service that raised the error
@@ -112,7 +114,7 @@ class APIError(GalFridayError):
             {
                 "service_name": service_name,
                 "status_code": status_code,
-            }
+            },
         )
         super().__init__(message, details)
 
@@ -197,8 +199,7 @@ class ExecutionHandlerInstantiationFailedExit(CriticalExit):
 
     def __init__(self, mode: str, _original_exception: Exception | None = None) -> None:
         message = (
-            f"Execution Handler failed to instantiate for mode: '{mode}'. "
-            "Application exiting."
+            f"Execution Handler failed to instantiate for mode: '{mode}'. " "Application exiting."
         )
         super().__init__(message)
 
@@ -209,7 +210,7 @@ class RiskManagerInstantiationFailedExit(CriticalExit):
     def __init__(
         self,
         component_name: str = "RiskManager",
-        _original_exception: Exception | None = None
+        _original_exception: Exception | None = None,
     ) -> None:
         message = f"{component_name} instantiation failed. Application exiting."
         super().__init__(message)
@@ -222,7 +223,7 @@ class MarketPriceServiceUnsupportedModeError(UnsupportedModeError):
         self,
         mode: str,
         supported_modes: list[str] | None = None,
-        message: str | None = None
+        message: str | None = None,
     ) -> None:
         if message is None:
             message = (
@@ -237,8 +238,7 @@ class MarketPriceServiceCriticalFailureExit(CriticalExit):
 
     def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__(
-            "MarketPriceService instantiation failed critically. "
-            "Application exiting."
+            "MarketPriceService instantiation failed critically. " "Application exiting.",
         )
 
 
@@ -247,7 +247,7 @@ class PortfolioManagerInstantiationFailedExit(CriticalExit):
 
     def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__(
-            "PortfolioManager instantiation failed. Application exiting."
+            "PortfolioManager instantiation failed. Application exiting.",
         )
 
 
@@ -256,7 +256,7 @@ class LoggerServiceInstantiationFailedExit(CriticalExit):
 
     def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__(
-            "LoggerService instantiation failed. Application exiting."
+            "LoggerService instantiation failed. Application exiting.",
         )
 
 
@@ -265,7 +265,7 @@ class PubSubManagerInstantiationFailedExit(CriticalExit):
 
     def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__(
-            "PubSubManager core instantiation failed. Application exiting."
+            "PubSubManager core instantiation failed. Application exiting.",
         )
 
 
@@ -274,5 +274,5 @@ class ConfigurationLoadingFailedExit(CriticalExit):
 
     def __init__(self, _original_exception: Exception | None = None) -> None:
         super().__init__(
-            "Configuration loading failed. Application exiting."
+            "Configuration loading failed. Application exiting.",
         )

@@ -1,8 +1,8 @@
 """Interface definition for prediction model implementations."""
 
-from abc import ABC, abstractmethod
 import logging
-from typing import Any, Optional
+from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 
@@ -14,12 +14,11 @@ class PredictorInterface(ABC):
         self,
         model_path: str,
         model_id: str,
-        config: dict[str, Any] | None = None
+        config: dict[str, Any] | None = None,
     ) -> None:
-        """
-        Initialize the predictor.
+        """Initialize the predictor.
 
-        Args
+        Args:
         ----
             model_path: Path to the model file
             model_id: Unique identifier for this model
@@ -52,15 +51,15 @@ class PredictorInterface(ABC):
         Implementations should handle any necessary internal preprocessing
         (e.g., scaling with self.scaler) before actual model inference.
 
-        Args
+        Args:
         ----
             features: Raw, ordered 1D numpy array of feature values.
 
-        Returns
+        Returns:
         -------
             Prediction results as a numpy array
 
-        Raises
+        Raises:
         ------
             ValueError: If features have wrong shape or contain invalid values
             TypeError: If model is not properly loaded

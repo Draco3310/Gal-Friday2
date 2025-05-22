@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class ExchangeInfoService:
@@ -14,7 +14,7 @@ class ExchangeInfoService:
     def get_exchange_info(self) -> dict[str, Any]:
         """Get general exchange information.
 
-        Returns
+        Returns:
         -------
             Dictionary containing exchange information
         """
@@ -26,7 +26,7 @@ class ExchangeInfoService:
         Args:
             symbol: The trading symbol to get info for
 
-        Returns
+        Returns:
         -------
             Dictionary with symbol information or None if not found
         """
@@ -35,7 +35,7 @@ class ExchangeInfoService:
     def get_trading_pairs(self) -> list[str]:
         """Get list of all available trading pairs.
 
-        Returns
+        Returns:
         -------
             List of trading pair symbols
         """

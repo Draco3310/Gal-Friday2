@@ -3,7 +3,6 @@
 import abc
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
 import pandas as pd
 
@@ -41,12 +40,12 @@ class HistoricalDataService(abc.ABC):
     def get_next_bar(self, trading_pair: str, timestamp: datetime) -> pd.Series | None:
         """Get the next available OHLCV bar after the given timestamp.
 
-        Args
+        Args:
         ----
             trading_pair: The trading pair symbol (e.g., "XRP/USD")
             timestamp: The reference timestamp
 
-        Returns
+        Returns:
         -------
             A pandas Series containing the OHLCV data for the next bar,
             or None if no next bar is available
@@ -55,17 +54,20 @@ class HistoricalDataService(abc.ABC):
 
     @abc.abstractmethod
     def get_atr(
-        self, trading_pair: str, timestamp: datetime, period: int = 14
+        self,
+        trading_pair: str,
+        timestamp: datetime,
+        period: int = 14,
     ) -> Decimal | None:
         """Get the Average True Range indicator value at the given timestamp.
 
-        Args
+        Args:
         ----
             trading_pair: The trading pair symbol (e.g., "XRP/USD")
             timestamp: The reference timestamp
             period: The ATR calculation period, default is 14
 
-        Returns
+        Returns:
         -------
             The ATR value as a Decimal, or None if it cannot be calculated
         """

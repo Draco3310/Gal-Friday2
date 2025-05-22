@@ -1,18 +1,16 @@
 """Concrete implementation of HistoricalDataService for Kraken exchange."""
 
 import asyncio
-from collections.abc import Coroutine
+import logging
+from collections.abc import Callable, Coroutine
 from datetime import datetime, timedelta
 from decimal import Decimal
-import logging
-from typing import Any, Optional, ParamSpec, TypeVar, Union
+from typing import Any, ParamSpec, TypeVar, Union
 
-from collections.abc import Callable
-
-from influxdb_client import InfluxDBClient, Point
-from influxdb_client.client.write_api import SYNCHRONOUS
 import pandas as pd
 import pandas_ta as ta
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
 
 from .historical_data_service import HistoricalDataService
 from .logger_service import LoggerService
@@ -28,7 +26,7 @@ class RateLimitTracker:
     def __init__(self, tier: str = "default", logger: LoggerService | None = None) -> None:
         """Initialize rate limit tracker with specified tier settings.
 
-        Args
+        Args:
         ----
             tier: API tier level determining rate limits (default, intermediate, pro)
             logger: Logger service for logging rate limit events
@@ -76,7 +74,7 @@ class CircuitBreaker:
     ) -> None:
         """Initialize circuit breaker with specified thresholds.
 
-        Args
+        Args:
         ----
             failure_threshold: Number of consecutive failures before opening circuit
             reset_timeout: Time in seconds before attempting to close circuit after failure
@@ -90,7 +88,10 @@ class CircuitBreaker:
         self.logger = logger or logging.getLogger(__name__)
 
     async def execute(
-        self, func: Callable[_P, Coroutine[Any, Any, _RT]], *args: _P.args, **kwargs: _P.kwargs
+        self,
+        func: Callable[_P, Coroutine[Any, Any, _RT]],
+        *args: _P.args,
+        **kwargs: _P.kwargs,
     ) -> _RT:
         """Execute function with circuit breaker pattern."""
         if self.state == "OPEN":
@@ -125,19 +126,18 @@ class CircuitBreaker:
                     self.failure_count,
                 )
 
-            raise # TRY201: Re-raise the original exception to preserve its type and traceback
+            raise  # TRY201: Re-raise the original exception to preserve its type and traceback
         else:
-            return result # TRY300: Moved return to else block
+            return result  # TRY300: Moved return to else block
 
 
 class KrakenHistoricalDataService(HistoricalDataService):
     """Kraken implementation of the HistoricalDataService interface."""
 
     def __init__(self, config: dict[str, Any], logger_service: LoggerService) -> None:
-        """
-        Initialize the Kraken historical data service.
+        """Initialize the Kraken historical data service.
 
-        Args
+        Args:
         ----
             config: Configuration dict with settings for API and storage
             logger_service: Logger service for logging
@@ -163,7 +163,8 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
         # Initialize rate limiter
         self.rate_limiter = RateLimitTracker(
-            tier=config.get("api_tier", "default"), logger=logger_service
+            tier=config.get("api_tier", "default"),
+            logger=logger_service,
         )
 
         # Initialize circuit breaker
@@ -177,7 +178,8 @@ class KrakenHistoricalDataService(HistoricalDataService):
         self._ohlcv_cache: dict[Any, pd.DataFrame] = {}  # Simple cache for OHLCV data
 
         self.logger.info(
-            "KrakenHistoricalDataService initialized", source_module=self._source_module
+            "KrakenHistoricalDataService initialized",
+            source_module=self._source_module,
         )
 
     async def get_historical_ohlcv(
@@ -203,7 +205,10 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
         # Check if data already exists in InfluxDB
         df = await self._query_ohlcv_data_from_influxdb(
-            trading_pair, start_time, end_time, interval
+            trading_pair,
+            start_time,
+            end_time,
+            interval,
         )
 
         # If complete data is available in InfluxDB, return it
@@ -289,7 +294,9 @@ class KrakenHistoricalDataService(HistoricalDataService):
             )
             return result_df
         self.logger.warning(
-            "No OHLCV data available for %s", trading_pair, source_module=self._source_module
+            "No OHLCV data available for %s",
+            trading_pair,
+            source_module=self._source_module,
         )
         return None
 
@@ -387,7 +394,10 @@ class KrakenHistoricalDataService(HistoricalDataService):
             return None
 
     def get_atr(
-        self, trading_pair: str, timestamp: datetime, period: int = 14
+        self,
+        trading_pair: str,
+        timestamp: datetime,
+        period: int = 14,
     ) -> Decimal | None:
         """Get the Average True Range indicator value at the given timestamp."""
         # Need to get enough bars before the timestamp for ATR calculation
@@ -422,7 +432,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
                             "high": float(record.values.get("high", 0)),
                             "low": float(record.values.get("low", 0)),
                             "close": float(record.values.get("close", 0)),
-                        }
+                        },
                     )
 
             if not records:
@@ -453,7 +463,11 @@ class KrakenHistoricalDataService(HistoricalDataService):
             return None
 
     async def _fetch_ohlcv_data(
-        self, trading_pair: str, start_time: datetime, end_time: datetime, interval: str
+        self,
+        trading_pair: str,
+        start_time: datetime,
+        end_time: datetime,
+        interval: str,
     ) -> pd.DataFrame | None:
         """Fetch OHLCV data from Kraken API."""
         try:
@@ -463,18 +477,27 @@ class KrakenHistoricalDataService(HistoricalDataService):
             # Execute API call with circuit breaker
             # Cast the result as the circuit breaker execute() returns Any
             result = await self.circuit_breaker.execute(
-                self._fetch_ohlcv_data_from_api, trading_pair, start_time, end_time, interval
+                self._fetch_ohlcv_data_from_api,
+                trading_pair,
+                start_time,
+                end_time,
+                interval,
             )
             return result
 
         except Exception:
             self.logger.exception(
-                "Error fetching OHLCV data:", source_module=self._source_module
+                "Error fetching OHLCV data:",
+                source_module=self._source_module,
             )
             return None
 
     async def _fetch_ohlcv_data_from_api(
-        self, _trading_pair: str, start_time: datetime, end_time: datetime, interval: str
+        self,
+        _trading_pair: str,
+        start_time: datetime,
+        end_time: datetime,
+        interval: str,
     ) -> pd.DataFrame | None:
         """Actual implementation of API call to Kraken."""
         # TODO: Implement actual API call using aiohttp or ccxt
@@ -482,7 +505,8 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
         # For testing purposes, generate some dummy data
         self.logger.warning(
-            "Using dummy data for testing purposes", source_module=self._source_module
+            "Using dummy data for testing purposes",
+            source_module=self._source_module,
         )
 
         # Create date range with appropriate interval
@@ -517,7 +541,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
                     "low": low_price,  # float
                     "close": close_price,  # float
                     "volume": volume,  # float
-                }
+                },
             )
 
             # Update base price for next iteration
@@ -550,7 +574,8 @@ class KrakenHistoricalDataService(HistoricalDataService):
         """Validate OHLCV data for correctness and completeness."""
         if df is None or df.empty:
             self.logger.warning(
-                "Empty DataFrame provided for validation", source_module=self._source_module
+                "Empty DataFrame provided for validation",
+                source_module=self._source_module,
             )
             return False
 
@@ -559,21 +584,25 @@ class KrakenHistoricalDataService(HistoricalDataService):
         for column in required_columns:
             if column not in df.columns:
                 self.logger.warning(
-                    "Missing required column: %s", column, source_module=self._source_module
+                    "Missing required column: %s",
+                    column,
+                    source_module=self._source_module,
                 )
                 return False
 
         # Check for NaN values
         if df[required_columns].isna().any().any():
             self.logger.warning(
-                "NaN values found in OHLCV data", source_module=self._source_module
+                "NaN values found in OHLCV data",
+                source_module=self._source_module,
             )
             return False
 
         # Check for negative values
         if (df[required_columns] < 0).any().any():
             self.logger.warning(
-                "Negative values found in OHLCV data", source_module=self._source_module
+                "Negative values found in OHLCV data",
+                source_module=self._source_module,
             )
             return False
 
@@ -587,14 +616,18 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
         if not valid_ohlc.all():
             self.logger.warning(
-                "Invalid OHLC relationship found", source_module=self._source_module
+                "Invalid OHLC relationship found",
+                source_module=self._source_module,
             )
             return False
 
         return True
 
     async def _store_ohlcv_data_in_influxdb(
-        self, df: pd.DataFrame, trading_pair: str, interval: str
+        self,
+        df: pd.DataFrame,
+        trading_pair: str,
+        interval: str,
     ) -> bool:
         """Store OHLCV data in InfluxDB."""
         if df is None or df.empty:
@@ -642,7 +675,11 @@ class KrakenHistoricalDataService(HistoricalDataService):
             return True
 
     async def _query_ohlcv_data_from_influxdb(
-        self, trading_pair: str, start_time: datetime, end_time: datetime, interval: str
+        self,
+        trading_pair: str,
+        start_time: datetime,
+        end_time: datetime,
+        interval: str,
     ) -> pd.DataFrame | None:
         """Query OHLCV data from InfluxDB."""
         try:
@@ -673,7 +710,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
                             "low": float(record.values.get("low", 0)),
                             "close": float(record.values.get("close", 0)),
                             "volume": float(record.values.get("volume", 0)),
-                        }
+                        },
                     )
 
             if not records:
@@ -699,7 +736,10 @@ class KrakenHistoricalDataService(HistoricalDataService):
             return df
 
     async def _query_trades_data_from_influxdb(
-        self, trading_pair: str, start_time: datetime, end_time: datetime
+        self,
+        trading_pair: str,
+        start_time: datetime,
+        end_time: datetime,
     ) -> pd.DataFrame | None:
         """Query trade data from InfluxDB."""
         try:
@@ -727,7 +767,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
                             "price": float(record.values.get("price", 0)),
                             "volume": float(record.values.get("volume", 0)),
                             "side": record.values.get("side", ""),
-                        }
+                        },
                     )
 
             if not records:
@@ -753,7 +793,10 @@ class KrakenHistoricalDataService(HistoricalDataService):
             return df
 
     def _get_missing_ranges(
-        self, df: pd.DataFrame | None, start_time: datetime, end_time: datetime
+        self,
+        df: pd.DataFrame | None,
+        start_time: datetime,
+        end_time: datetime,
     ) -> list[tuple[datetime, datetime]]:
         """Determine what date ranges are missing from the data."""
         if df is None or df.empty:
@@ -776,7 +819,9 @@ class KrakenHistoricalDataService(HistoricalDataService):
         return missing_ranges
 
     async def _get_latest_timestamp_from_influxdb(
-        self, trading_pair: str, interval: str
+        self,
+        trading_pair: str,
+        interval: str,
     ) -> datetime | None:
         """Get the latest timestamp for a trading pair/interval in InfluxDB."""
         try:

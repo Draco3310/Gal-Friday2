@@ -7,25 +7,26 @@ and context-rich logging capabilities.
 """
 
 import asyncio
-from asyncio import QueueFull  # Import QueueFull from asyncio, not asyncio.exceptions
-from collections.abc import AsyncIterator, Mapping, Sequence
 import contextlib  # Added for SIM105
-from contextlib import asynccontextmanager  # For AsyncpgPoolAdapter
-from datetime import datetime
-from decimal import Decimal
 import json
 import logging
 import logging.handlers
-from pathlib import Path  # Added for PTH103 and PTH118
 import queue
-from random import SystemRandom
 import re
 import sys
 import threading
 import types  # Added for exc_info typing
+from asyncio import QueueFull  # Import QueueFull from asyncio, not asyncio.exceptions
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager  # For AsyncpgPoolAdapter
+from datetime import datetime
+from decimal import Decimal
+from pathlib import Path  # Added for PTH103 and PTH118
+from random import SystemRandom
 from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncContextManager,
     ClassVar,
     Generic,
     Optional,
@@ -34,13 +35,10 @@ from typing import (
     Union,
 )
 
-from collections.abc import Callable
-
 import asyncpg
 
 # Import JSON Formatter
 from pythonjsonlogger import jsonlogger
-from typing import AsyncContextManager
 
 from .core.events import EventType, LogEvent
 from .core.pubsub import PubSubManager
@@ -65,12 +63,12 @@ class ConfigManagerProtocol(Protocol):
     def get(self, key: str, default: _T | None = None) -> _T:
         """Get a configuration value by key.
 
-        Args
+        Args:
         ----
             key: The configuration key to retrieve
             default: Value to return if key is not found
 
-        Returns
+        Returns:
         -------
             The configuration value or default if not found
         """
@@ -79,12 +77,12 @@ class ConfigManagerProtocol(Protocol):
     def get_int(self, key: str, default: int = 0) -> int:
         """Get an integer configuration value by key.
 
-        Args
+        Args:
         ----
             key: The configuration key to retrieve
             default: Integer value to return if key is not found
 
-        Returns
+        Returns:
         -------
             The integer configuration value or default if not found
         """
@@ -103,16 +101,16 @@ class DBConnection(Protocol):
     async def execute(
         self,
         query: str,
-        params: Sequence[Any] | Mapping[str, Any] | None = None
+        params: Sequence[Any] | Mapping[str, Any] | None = None,
     ) -> _RT:
         """Execute a database query.
 
-        Args
+        Args:
         ----
             query: SQL query string to execute
             params: Optional sequence or mapping of parameters for the query
 
-        Returns
+        Returns:
         -------
             Query result
         """
@@ -131,7 +129,7 @@ class PoolProtocol(Protocol):
     def acquire(self) -> AsyncContextManager[DBConnection]:
         """Acquire a connection from the pool.
 
-        Returns
+        Returns:
         -------
             A connection context manager
         """
@@ -140,7 +138,7 @@ class PoolProtocol(Protocol):
     async def release(self, conn: DBConnection) -> None:
         """Release a connection back to the pool.
 
-        Args
+        Args:
         ----
             conn: The connection to release
         """
@@ -176,11 +174,11 @@ class ContextFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record with context information.
 
-        Args
+        Args:
         ----
             record: The log record to format
 
-        Returns
+        Returns:
         -------
             Formatted log record as string with context information included
         """
@@ -202,7 +200,8 @@ class ContextFormatter(logging.Formatter):
                 s = s.replace("[%(context)s]", f"[{context_str}]")
             else:
                 s = s.replace(
-                    " - [%(context)s]", ""
+                    " - [%(context)s]",
+                    "",
                 )  # Remove placeholder and separator if no context
                 # Remove just placeholder if at start/end
                 s = s.replace("[%(context)s]", "")
@@ -223,7 +222,7 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
     def __init__(self, pool: PoolType, table_name: str, loop: asyncio.AbstractEventLoop) -> None:
         """Initialize the handler with database pool and table name.
 
-        Args
+        Args:
         ----
             pool: Database connection pool
             table_name: Name of the table to log to (must be in ALLOWED_TABLE_NAMES)
@@ -245,7 +244,7 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
 
         Implements the emit method required by the logging.Handler interface.
 
-        Args
+        Args:
         ----
             record: The log record to be processed and stored
         """
@@ -400,7 +399,8 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
                 break
             except Exception as e:
                 print(
-                    f"AsyncPostgresHandler: Error in outer processing loop: {e}", file=sys.stderr
+                    f"AsyncPostgresHandler: Error in outer processing loop: {e}",
+                    file=sys.stderr,
                 )
                 if record_data is not None:
                     with contextlib.suppress(ValueError):
@@ -438,13 +438,15 @@ class LoggerService(Generic[PoolType]):
     _influx_write_api: Optional["WriteApi"] = None
 
     def __init__(
-        self, config_manager: ConfigManagerProtocol, pubsub_manager: "PubSubManager"
+        self,
+        config_manager: ConfigManagerProtocol,
+        pubsub_manager: "PubSubManager",
     ) -> None:
         """Initialize the logger service.
 
         Sets up logging handlers based on configuration and starts the log processing thread.
 
-        Args
+        Args:
         ----
             config_manager: Configuration provider for logger settings
             pubsub_manager: Publish-subscribe manager for event handling
@@ -457,7 +459,8 @@ class LoggerService(Generic[PoolType]):
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(context_json)s",
         )
         self._log_date_format = self._config_manager.get(
-            "logging.date_format", "%Y-%m-%d %H:%M:%S"
+            "logging.date_format",
+            "%Y-%m-%d %H:%M:%S",
         )
 
         # Async DB Handler setup
@@ -517,10 +520,10 @@ class LoggerService(Generic[PoolType]):
         if use_file:
             log_dir = str(self._config_manager.get("logging.file.directory", default="logs"))
             log_filename = str(
-                self._config_manager.get("logging.file.filename", default="gal_friday.log")
+                self._config_manager.get("logging.file.filename", default="gal_friday.log"),
             )
-            Path(log_dir).mkdir(parents=True, exist_ok=True) # Shorter comment
-            log_path = str(Path(log_dir) / log_filename) # Shorter comment
+            Path(log_dir).mkdir(parents=True, exist_ok=True)  # Shorter comment
+            log_path = str(Path(log_dir) / log_filename)  # Shorter comment
 
             # Configure JSON Formatter
             json_formatter = jsonlogger.JsonFormatter(
@@ -530,11 +533,14 @@ class LoggerService(Generic[PoolType]):
             )
 
             max_bytes = int(
-                self._config_manager.get("logging.file.max_bytes", default=10 * 1024 * 1024)
+                self._config_manager.get("logging.file.max_bytes", default=10 * 1024 * 1024),
             )
             backup_count = int(self._config_manager.get("logging.file.backup_count", default=5))
             file_handler = logging.handlers.RotatingFileHandler(
-                log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+                log_path,
+                maxBytes=max_bytes,
+                backupCount=backup_count,
+                encoding="utf-8",
             )
             file_handler.setFormatter(json_formatter)
             file_handler.setLevel(self._log_level)
@@ -545,10 +551,10 @@ class LoggerService(Generic[PoolType]):
         if use_db:
             if self._db_pool:
                 db_table = str(
-                    self._config_manager.get("logging.database.table_name", default="logs")
+                    self._config_manager.get("logging.database.table_name", default="logs"),
                 )
                 db_level_str = str(
-                    self._config_manager.get("logging.database.level", default="INFO")
+                    self._config_manager.get("logging.database.level", default="INFO"),
                 ).upper()
                 db_level = getattr(logging, db_level_str, logging.INFO)
 
@@ -560,9 +566,9 @@ class LoggerService(Generic[PoolType]):
                     logging.info(
                         "Database logging handler added for table '%s'. Level: %s",
                         db_table,
-                        db_level_str
+                        db_level_str,
                     )
-                except Exception: # Parameter e is used in the logging message
+                except Exception:  # Parameter e is used in the logging message
                     logging.exception("Failed to create or add AsyncPostgresHandler")
             else:
                 logging.warning(
@@ -571,7 +577,8 @@ class LoggerService(Generic[PoolType]):
                 )
 
     def _filter_sensitive_data(
-        self, context: dict[str, Any] | None
+        self,
+        context: dict[str, Any] | None,
     ) -> dict[str, Any] | None:
         """Recursively filter sensitive data from log context."""
         if (
@@ -594,7 +601,7 @@ class LoggerService(Generic[PoolType]):
         ]
         # Regex for things that look like keys/secrets
         sensitive_value_pattern = re.compile(
-            r"^[A-Za-z0-9/+]{20,}$"
+            r"^[A-Za-z0-9/+]{20,}$",
         )  # Example: Base64-like strings > 20 chars
 
         for key, value in context.items():
@@ -637,7 +644,7 @@ class LoggerService(Generic[PoolType]):
     ) -> None:
         """Log a message to the configured handlers.
 
-        Args
+        Args:
         ----
             level: The logging level (e.g., logging.INFO, logging.WARNING)
             message: The primary log message string (can be a format string)
@@ -657,7 +664,9 @@ class LoggerService(Generic[PoolType]):
         extra_data = {"context": filtered_context} if filtered_context else {}
 
         # Log the message using the standard logging interface
-        logger.log(level, message, *args, exc_info=exc_info, extra=extra_data, stacklevel=2)  # Pass *args
+        logger.log(
+            level, message, *args, exc_info=exc_info, extra=extra_data, stacklevel=2
+        )  # Pass *args
         # stacklevel=2 ensures filename/lineno are from the caller of this
         # method
 
@@ -672,14 +681,16 @@ class LoggerService(Generic[PoolType]):
     ) -> None:
         """Log a message with DEBUG level.
 
-        Args
+        Args:
         ----
             message: The message to log
             *args: Arguments for the format string in 'message'
             source_module: Optional module name generating the log
             context: Optional context information
         """
-        self.log(logging.DEBUG, message, *args, source_module=source_module, context=context) # Pass *args
+        self.log(
+            logging.DEBUG, message, *args, source_module=source_module, context=context
+        )  # Pass *args
 
     def info(
         self,
@@ -690,14 +701,16 @@ class LoggerService(Generic[PoolType]):
     ) -> None:
         """Log a message with INFO level.
 
-        Args
+        Args:
         ----
             message: The message to log
             *args: Arguments for the format string in 'message'
             source_module: Optional module name generating the log
             context: Optional context information
         """
-        self.log(logging.INFO, message, *args, source_module=source_module, context=context) # Pass *args
+        self.log(
+            logging.INFO, message, *args, source_module=source_module, context=context
+        )  # Pass *args
 
     def warning(
         self,
@@ -708,14 +721,16 @@ class LoggerService(Generic[PoolType]):
     ) -> None:
         """Log a message with WARNING level.
 
-        Args
+        Args:
         ----
             message: The message to log
             *args: Arguments for the format string in 'message'
             source_module: Optional module name generating the log
             context: Optional context information
         """
-        self.log(logging.WARNING, message, *args, source_module=source_module, context=context) # Pass *args
+        self.log(
+            logging.WARNING, message, *args, source_module=source_module, context=context
+        )  # Pass *args
 
     def error(
         self,
@@ -727,7 +742,7 @@ class LoggerService(Generic[PoolType]):
     ) -> None:
         """Log a message with ERROR level.
 
-        Args
+        Args:
         ----
             message: The message to log
             *args: Arguments for the format string in 'message'
@@ -735,7 +750,14 @@ class LoggerService(Generic[PoolType]):
             context: Optional context information
             exc_info: Optional exception info
         """
-        self.log(logging.ERROR, message, *args, source_module=source_module, context=context, exc_info=exc_info) # Pass *args
+        self.log(
+            logging.ERROR,
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
+            exc_info=exc_info,
+        )  # Pass *args
 
     def exception(
         self,
@@ -748,14 +770,21 @@ class LoggerService(Generic[PoolType]):
 
         This method should only be called from an exception handler.
 
-        Args
+        Args:
         ----
             message: The message to log
             *args: Arguments for the format string in 'message'
             source_module: Optional module name generating the log
             context: Optional context information
         """
-        self.log(logging.ERROR, message, *args, source_module=source_module, context=context, exc_info=True) # Pass *args
+        self.log(
+            logging.ERROR,
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
+            exc_info=True,
+        )  # Pass *args
 
     def critical(
         self,
@@ -767,7 +796,7 @@ class LoggerService(Generic[PoolType]):
     ) -> None:
         """Log a message with CRITICAL level.
 
-        Args
+        Args:
         ----
             message: The message to log
             *args: Arguments for the format string in 'message'
@@ -775,13 +804,20 @@ class LoggerService(Generic[PoolType]):
             context: Optional context information
             exc_info: Optional exception info
         """
-        self.log(logging.CRITICAL, message, *args, source_module=source_module, context=context, exc_info=exc_info) # Pass *args
+        self.log(
+            logging.CRITICAL,
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
+            exc_info=exc_info,
+        )  # Pass *args
 
     # --- Placeholder for Time-Series Logging --- #
     async def _initialize_influxdb_client(self) -> bool:
         """Initialize the InfluxDB client if not already initialized.
 
-        Returns
+        Returns:
         -------
             bool: True if initialization was successful, False otherwise
         """
@@ -831,18 +867,22 @@ class LoggerService(Generic[PoolType]):
             return True
 
     def _prepare_influxdb_point(
-        self, measurement: str, tags: dict[str, str], fields: dict[str, Any], timestamp: datetime
+        self,
+        measurement: str,
+        tags: dict[str, str],
+        fields: dict[str, Any],
+        timestamp: datetime,
     ) -> InfluxDBPoint | None:  # Returns InfluxDB Point or None
         """Prepare a data point for InfluxDB.
 
-        Args
+        Args:
         ----
             measurement: Name of the measurement
             tags: Dictionary of tag keys and values
             fields: Dictionary of field keys and values
             timestamp: Timestamp for the data point
 
-        Returns
+        Returns:
         -------
             Optional influxdb_client.Point object or None if preparation fails
         """
@@ -877,9 +917,9 @@ class LoggerService(Generic[PoolType]):
                     valid_fields[key] = float(value)
                 else:
                     self.warning(
-                        "Unsupported type for InfluxDB field '%s': %s. "
-                        "Converting to string.",
-                        key, type(value),
+                        "Unsupported type for InfluxDB field '%s': %s. " "Converting to string.",
+                        key,
+                        type(value),
                         source_module="LoggerService",
                     )
                     valid_fields[key] = str(value)
@@ -896,6 +936,7 @@ class LoggerService(Generic[PoolType]):
                 point = point.field(key, value)
             # Explicitly annotate the return type
             from influxdb_client import Point
+
             return point  # type: ignore[no-any-return]
 
     async def log_timeseries(
@@ -907,7 +948,7 @@ class LoggerService(Generic[PoolType]):
     ) -> None:
         """Log time-series data to InfluxDB.
 
-        Args
+        Args:
         ----
             measurement: Name of the measurement
             tags: Dictionary of tag keys and values
@@ -918,7 +959,10 @@ class LoggerService(Generic[PoolType]):
 
         self.debug(
             "[TimeSeries] M=%s, T=%s, F=%s, TS=%s",
-            measurement, tags, fields, log_time.isoformat(),
+            measurement,
+            tags,
+            fields,
+            log_time.isoformat(),
             source_module="LoggerService",
         )
 
@@ -963,7 +1007,8 @@ class LoggerService(Generic[PoolType]):
         try:
             self._pubsub.subscribe(EventType.LOG_ENTRY, self._handle_log_event)  # Removed await
             self.info(
-                "Subscribed to LOG_ENTRY events from event bus.", source_module="LoggerService"
+                "Subscribed to LOG_ENTRY events from event bus.",
+                source_module="LoggerService",
             )
         except Exception as e:
             self.error(
@@ -981,7 +1026,7 @@ class LoggerService(Generic[PoolType]):
                 if not hasattr(self, "_db_handler"):
                     self.info(
                         "Re-attempting to configure database log handler "
-                        "after pool initialization..."
+                        "after pool initialization...",
                     )
                 self._setup_logging()  # Re-run config to add the handler
             elif not self._db_pool:
@@ -1018,10 +1063,12 @@ class LoggerService(Generic[PoolType]):
                 # AsyncPostgresHandler does)
                 if hasattr(self._async_handler, "wait_closed"):
                     await asyncio.wait_for(
-                        self._async_handler.wait_closed(), timeout=5.0
+                        self._async_handler.wait_closed(),
+                        timeout=5.0,
                     )  # Wait for queue to empty
                     self.info(
-                        "Database log handler closed gracefully.", source_module="LoggerService"
+                        "Database log handler closed gracefully.",
+                        source_module="LoggerService",
                     )
             except TimeoutError:
                 self.warning(
@@ -1044,7 +1091,8 @@ class LoggerService(Generic[PoolType]):
         self._thread.join(timeout=2.0)  # Wait briefly for thread to exit
         if self._thread.is_alive():
             self.warning(
-                "Log processing thread did not exit cleanly.", source_module="LoggerService"
+                "Log processing thread did not exit cleanly.",
+                source_module="LoggerService",
             )
 
     async def _initialize_db_pool(self) -> None:
@@ -1067,17 +1115,19 @@ class LoggerService(Generic[PoolType]):
             min_size = int(self._config_manager.get("logging.database.min_pool_size", default=1))
             max_size = int(self._config_manager.get("logging.database.max_pool_size", default=5))
             self.info(
-                "Initializing database connection pool "
-                "(min: %s, max: %s) for logging...",
-                min_size, max_size,
+                "Initializing database connection pool " "(min: %s, max: %s) for logging...",
+                min_size,
+                max_size,
                 source_module="LoggerService",
             )
             # Create the actual asyncpg pool
             actual_pool = await asyncpg.create_pool(
-                dsn=db_dsn, min_size=min_size, max_size=max_size
+                dsn=db_dsn,
+                min_size=min_size,
+                max_size=max_size,
             )
             # Wrap it with our adapter
-            self._db_pool = AsyncpgPoolAdapter(actual_pool) # type: ignore[assignment]
+            self._db_pool = AsyncpgPoolAdapter(actual_pool)  # type: ignore[assignment]
             # The type: ignore[assignment] might be needed if PoolType is strictly PoolProtocol
             # and the linter can't infer AsyncpgPoolAdapter is a PoolProtocol.
             # Alternatively, refine PoolType or ensure AsyncpgPoolAdapter explicitly inherits
@@ -1085,7 +1135,7 @@ class LoggerService(Generic[PoolType]):
 
             self.info(
                 "Database connection pool (via adapter) initialized successfully.",
-                source_module="LoggerService"
+                source_module="LoggerService",
             )
         except (
             asyncpg.exceptions.InvalidConnectionParametersError,
@@ -1126,7 +1176,7 @@ class LoggerService(Generic[PoolType]):
 
         Process the event and send it to the appropriate logging handlers.
 
-        Args
+        Args:
         ----
             event: The LogEvent object containing log information
         """
@@ -1153,6 +1203,7 @@ class LoggerService(Generic[PoolType]):
             exc_info=None,  # Or derive from context/level if needed
         )
 
+
 # --- Adapter for asyncpg.Connection to match DBConnection protocol ---
 class AsyncpgConnectionAdapter(DBConnection):
     """Adapts an asyncpg.Connection to the DBConnection protocol."""
@@ -1168,29 +1219,30 @@ class AsyncpgConnectionAdapter(DBConnection):
     async def execute(
         self,
         query: str,
-        params: Sequence[Any] | Mapping[str, Any] | None = None
-    ) -> _RT: # Changed Any to _RT
+        params: Sequence[Any] | Mapping[str, Any] | None = None,
+    ) -> _RT:  # Changed Any to _RT
         """Execute a query using the wrapped asyncpg.Connection."""
         if params is None:
             return await self._conn.execute(query)  # type: ignore[no-any-return]
         if isinstance(params, Sequence):
             # Ensure not passing a string as a sequence of characters for multiple params
             if isinstance(params, (str, bytes)):
-                 # If a single string/byte is the *only* param, wrap it in a list for asyncpg
-                 return await self._conn.execute(query, params)  # type: ignore[no-any-return]
+                # If a single string/byte is the *only* param, wrap it in a list for asyncpg
+                return await self._conn.execute(query, params)  # type: ignore[no-any-return]
             return await self._conn.execute(query, *params)  # type: ignore[no-any-return]
         if isinstance(params, Mapping):
             # asyncpg's basic execute(*args) doesn't directly support named params via **kwargs.
             # More complex logic or different asyncpg features would be needed.
             raise NotImplementedError(
                 "Mapping parameters are not directly supported by this adapter's "
-                "execute method for asyncpg."
+                "execute method for asyncpg.",
             )
         # Should not happen with Union type hint, but as a safeguard:
         raise UnsupportedParamsTypeError(type(params))
 
     # Potentially delegate other methods like close, is_closed, etc. if needed
     # and if they are part of DBConnection protocol
+
 
 # --- Adapter for asyncpg.Pool to match PoolProtocol ---
 class AsyncpgPoolAdapter(PoolProtocol):
@@ -1214,12 +1266,12 @@ class AsyncpgPoolAdapter(PoolProtocol):
         # This will be addressed by adding a property to AsyncpgConnectionAdapter.
         if isinstance(conn, AsyncpgConnectionAdapter):
             # Assuming _conn is accessible; consider making it a public property.
-            await self._pool.release(conn.actual_connection) # Changed from conn._conn
+            await self._pool.release(conn.actual_connection)  # Changed from conn._conn
         else:
             # This case should ideally not happen if acquire always returns the adapter.
             # For now, we assume conn will be our adapter.
             # If this adapter is used with other DBConnection types, this release is problematic.
-            pass # Or raise TypeError("Cannot release non-adapter to AsyncpgPoolAdapter")
+            pass  # Or raise TypeError("Cannot release non-adapter to AsyncpgPoolAdapter")
 
     async def close(self) -> None:
         """Close the underlying connection pool."""

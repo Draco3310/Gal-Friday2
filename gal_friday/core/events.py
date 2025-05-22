@@ -5,13 +5,13 @@ system components, including market data events, trading signals, and execution 
 All events are implemented as immutable dataclasses with comprehensive validation.
 """
 
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Any, Optional
-import uuid
+from typing import Any
 
 """
 Core Event Definitions for Gal-Friday
@@ -58,7 +58,7 @@ class MissingAverageFillPriceError(ValidationError):
 
     def __init__(self) -> None:
         super().__init__(
-            "Average fill price must be provided for filled or partially filled orders"
+            "Average fill price must be provided for filled or partially filled orders",
         )
 
 
@@ -492,12 +492,17 @@ class TradeSignalProposedEvent(Event):
         # Validate SL/TP positions if entry price is provided
         if proposed_entry_price is not None:
             cls._validate_sl_tp_positions(
-                side, proposed_sl_price, proposed_tp_price, proposed_entry_price
+                side,
+                proposed_sl_price,
+                proposed_tp_price,
+                proposed_entry_price,
             )
 
     @staticmethod
     def _validate_basic_params(
-        side: str, entry_type: str, proposed_entry_price: Decimal | None
+        side: str,
+        entry_type: str,
+        proposed_entry_price: Decimal | None,
     ) -> None:
         """Validate basic parameters for trade signal."""
         if side not in ["BUY", "SELL"]:
@@ -511,7 +516,9 @@ class TradeSignalProposedEvent(Event):
 
     @staticmethod
     def _validate_price_values(
-        sl_price: Decimal, tp_price: Decimal, entry_price: Decimal | None
+        sl_price: Decimal,
+        tp_price: Decimal,
+        entry_price: Decimal | None,
     ) -> None:
         """Validate that price values are positive."""
         if sl_price <= Decimal(0):
@@ -525,7 +532,10 @@ class TradeSignalProposedEvent(Event):
 
     @staticmethod
     def _validate_sl_tp_positions(
-        side: str, sl_price: Decimal, tp_price: Decimal, entry_price: Decimal
+        side: str,
+        sl_price: Decimal,
+        tp_price: Decimal,
+        entry_price: Decimal,
     ) -> None:
         """Validate stop loss and take profit positions relative to entry price and side."""
         if side == "BUY":
@@ -626,13 +636,19 @@ class TradeSignalApprovedEvent(Event):
 
         # Validate prices and quantity
         cls._validate_prices_and_quantity(
-            params.quantity, params.sl_price, params.tp_price, params.limit_price
+            params.quantity,
+            params.sl_price,
+            params.tp_price,
+            params.limit_price,
         )
 
         # Validate SL/TP positions if limit price is provided
         if params.limit_price is not None:
             cls._validate_sl_tp_positions(
-                params.side, params.sl_price, params.tp_price, params.limit_price
+                params.side,
+                params.sl_price,
+                params.tp_price,
+                params.limit_price,
             )
 
     @staticmethod
@@ -649,7 +665,10 @@ class TradeSignalApprovedEvent(Event):
 
     @staticmethod
     def _validate_prices_and_quantity(
-        quantity: Decimal, sl_price: Decimal, tp_price: Decimal, limit_price: Decimal | None
+        quantity: Decimal,
+        sl_price: Decimal,
+        tp_price: Decimal,
+        limit_price: Decimal | None,
     ) -> None:
         """Validate that prices and quantity are positive."""
         if quantity <= Decimal(0):
@@ -666,7 +685,10 @@ class TradeSignalApprovedEvent(Event):
 
     @staticmethod
     def _validate_sl_tp_positions(
-        side: str, sl_price: Decimal, tp_price: Decimal, limit_price: Decimal
+        side: str,
+        sl_price: Decimal,
+        tp_price: Decimal,
+        limit_price: Decimal,
     ) -> None:
         """Validate stop loss and take profit positions relative to entry price and side."""
         if side == "BUY":
@@ -741,11 +763,11 @@ class TradeSignalRejectedEvent(Event):
     def create(cls, params: TradeSignalRejectedParams) -> "TradeSignalRejectedEvent":
         """Create a TradeSignalRejectedEvent instance.
 
-        Args
+        Args:
         ----
             params: Dataclass with all parameters for creating a TradeSignalRejectedEvent
 
-        Returns
+        Returns:
         -------
             A TradeSignalRejectedEvent instance
         """
@@ -829,12 +851,15 @@ class ExecutionReportEvent(Event):
         """Validate execution report inputs."""
         # Validate order properties
         cls._validate_order_properties(
-            validation_params.order_status, validation_params.order_type, validation_params.side
+            validation_params.order_status,
+            validation_params.order_type,
+            validation_params.side,
         )
 
         # Validate quantities
         cls._validate_quantities(
-            validation_params.quantity_ordered, validation_params.quantity_filled
+            validation_params.quantity_ordered,
+            validation_params.quantity_filled,
         )
 
         # Validate prices
@@ -897,7 +922,8 @@ class ExecutionReportEvent(Event):
 
     @staticmethod
     def _validate_commission(
-        commission: Decimal | None, commission_asset: str | None
+        commission: Decimal | None,
+        commission_asset: str | None,
     ) -> None:
         """Validate commission details."""
         if commission is not None:
@@ -910,15 +936,15 @@ class ExecutionReportEvent(Event):
     def create(cls, params: ExecutionReportParams) -> "ExecutionReportEvent":
         """Create a validated ExecutionReportEvent instance.
 
-        Args
+        Args:
         ----
             params: A dataclass containing all the parameters for creating an ExecutionReportEvent
 
-        Returns
+        Returns:
         -------
             A validated ExecutionReportEvent instance
 
-        Raises
+        Raises:
         ------
             ValueError: If any validation check fails
         """
@@ -934,7 +960,7 @@ class ExecutionReportEvent(Event):
                 limit_price=params.limit_price,
                 commission=params.commission,
                 commission_asset=params.commission_asset,
-            )
+            ),
         )
 
         # Create and return instance
@@ -987,13 +1013,13 @@ class APIErrorEvent(Event):
     def create(cls, source_module: str, error_message: str, **kwargs: Any) -> "APIErrorEvent":
         """Create a new APIErrorEvent with a generated UUID and current timestamp.
 
-        Args
+        Args:
         ----
             source_module: The module that created this event
             error_message: Description of the error that occurred
             **kwargs: Additional fields like http_status, endpoint, etc.
 
-        Returns
+        Returns:
         -------
             A new APIErrorEvent instance
         """
@@ -1002,7 +1028,7 @@ class APIErrorEvent(Event):
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(),
             error_message=error_message,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -1022,18 +1048,18 @@ class ClosePositionCommand(Event):
         source_module: str,
         trading_pair: str,
         quantity: Decimal,
-        side: str
+        side: str,
     ) -> "ClosePositionCommand":
         """Create a new ClosePositionCommand with a generated UUID and current timestamp.
 
-        Args
+        Args:
         ----
             source_module: The module that created this command
             trading_pair: The trading pair to close (e.g., "XBT/USD")
             quantity: The absolute quantity to close
             side: "BUY" or "SELL" (opposite of the position's side)
 
-        Returns
+        Returns:
         -------
             A new ClosePositionCommand instance
         """
@@ -1043,7 +1069,7 @@ class ClosePositionCommand(Event):
             timestamp=datetime.utcnow(),
             trading_pair=trading_pair,
             quantity=quantity,
-            side=side
+            side=side,
         )
 
 
@@ -1059,7 +1085,9 @@ class PredictionConfigUpdatedEvent(Event):
 
     @classmethod
     def create(
-        cls, source_module: str, new_config: dict[str, Any]
+        cls,
+        source_module: str,
+        new_config: dict[str, Any],
     ) -> "PredictionConfigUpdatedEvent":
         """Create a new PredictionConfigUpdatedEvent instance.
 
@@ -1067,7 +1095,7 @@ class PredictionConfigUpdatedEvent(Event):
             source_module: The module that created this event
             new_config: The new prediction service configuration
 
-        Returns
+        Returns:
         -------
             A new PredictionConfigUpdatedEvent instance
         """

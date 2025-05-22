@@ -7,11 +7,11 @@ It also supports volatility-adjusted spread calculation and market depth simulat
 
 """
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from decimal import ROUND_DOWN, ROUND_UP, Decimal
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from decimal import ROUND_DOWN, ROUND_UP, Decimal
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -30,7 +30,7 @@ else:
         log_temp.warning(
             "Could not import ConfigManager from .config_manager. "
             "SimulatedMarketPriceService will use "
-            "default config values if ConfigManager is not provided."
+            "default config values if ConfigManager is not provided.",
         )
 
         # Define a minimal interface for static type checking
@@ -60,7 +60,7 @@ except ImportError:
     log_temp = logging.getLogger(__name__)
     log_temp.warning(
         "pandas_ta library not found. ATR calculation for "
-        "volatility-adjusted spread will be disabled."
+        "volatility-adjusted spread will be disabled.",
     )
 
 _SOURCE_MODULE = "SimulatedMarketPriceService"
@@ -93,7 +93,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     ) -> None:
         """Initialize the service with historical market data.
 
-        Args
+        Args:
         ----
             historical_data: A dictionary where keys are trading pairs (e.g., "XRP/USD")
                              and values are pandas DataFrames containing OHLCV data
@@ -159,39 +159,47 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
         spread_config = sim_config.get("spread", {})
         self._default_spread_pct = self.config.get_decimal(
-            "simulation.spread.default_pct", Decimal("0.1")
+            "simulation.spread.default_pct",
+            Decimal("0.1"),
         )
         self._pair_specific_spread_config = spread_config.get("pairs", {})
         self._volatility_multiplier = self.config.get_decimal(
-            "simulation.spread.volatility_multiplier", Decimal("1.5")
+            "simulation.spread.volatility_multiplier",
+            Decimal("1.5"),
         )
 
         vol_config = spread_config.get("volatility", {})
         self._volatility_enabled = vol_config.get(
-            "enabled", ta is not None
+            "enabled",
+            ta is not None,
         )  # Default true only if ta available
         self._volatility_lookback_period = vol_config.get("lookback_period", 14)
         self._min_volatility_data_points = vol_config.get(
-            "min_data_points", self._volatility_lookback_period + 5
+            "min_data_points",
+            self._volatility_lookback_period + 5,
         )
         self._atr_high_col = vol_config.get("atr_high_col", "high")
         self._atr_low_col = vol_config.get("atr_low_col", "low")
         self._atr_close_col = vol_config.get("atr_close_col", "close")
         self._max_volatility_adjustment_factor = self.config.get_decimal(
-            "simulation.spread.volatility.max_adjustment_factor", Decimal("2.0")
+            "simulation.spread.volatility.max_adjustment_factor",
+            Decimal("2.0"),
         )
 
         depth_config = sim_config.get("depth", {})
         self._depth_simulation_enabled = depth_config.get("enabled", True)
         self._depth_num_levels = depth_config.get("num_levels", 5)
         self._depth_price_step_pct = self.config.get_decimal(
-            "simulation.depth.price_step_pct", Decimal("0.001")
+            "simulation.depth.price_step_pct",
+            Decimal("0.001"),
         )
         self._depth_base_volume = self.config.get_decimal(
-            "simulation.depth.base_volume", Decimal("10.0")
+            "simulation.depth.base_volume",
+            Decimal("10.0"),
         )
         self._depth_volume_decay_factor = self.config.get_decimal(
-            "simulation.depth.volume_decay_factor", Decimal("0.8")
+            "simulation.depth.volume_decay_factor",
+            Decimal("0.8"),
         )
         self._depth_price_precision = self.config.get_int("simulation.depth.price_precision", 8)
         self._depth_volume_precision = self.config.get_int("simulation.depth.volume_precision", 4)
@@ -296,7 +304,9 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self._apply_default_config_values()
 
     def _get_atr_dataframe_slice(
-        self, trading_pair: str, pair_data_full: pd.DataFrame
+        self,
+        trading_pair: str,
+        pair_data_full: pd.DataFrame,
     ) -> pd.DataFrame | None:
         """Get the relevant slice of data for ATR calculation."""
         if not isinstance(self._current_timestamp, datetime):
@@ -335,7 +345,9 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         return df_slice
 
     def _calculate_atr_from_slice(
-        self, df_slice: pd.DataFrame, trading_pair: str
+        self,
+        df_slice: pd.DataFrame,
+        trading_pair: str,
     ) -> Decimal | None:
         """Calculate ATR from a given data slice."""
         required_atr_cols = {self._atr_high_col, self._atr_low_col, self._atr_close_col}
@@ -594,19 +606,22 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     async def start(self) -> None:
         """Initialize the simulated service (no-op for simulation)."""
         self.logger.info(
-            "SimulatedMarketPriceService started.", extra={"source_module": self._source_module}
+            "SimulatedMarketPriceService started.",
+            extra={"source_module": self._source_module},
         )
         # No external connections needed for simulation
 
     async def stop(self) -> None:
         """Stop the simulated service (no-op for simulation)."""
         self.logger.info(
-            "SimulatedMarketPriceService stopped.", extra={"source_module": self._source_module}
+            "SimulatedMarketPriceService stopped.",
+            extra={"source_module": self._source_module},
         )
         # No external connections
 
     async def get_latest_price(
-        self, trading_pair: str
+        self,
+        trading_pair: str,
     ) -> Decimal | None:  # Changed return type
         """Get the latest known price at the current simulation time.
 
@@ -615,7 +630,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         return self._get_latest_price_at_current_time(trading_pair)
 
     async def get_bid_ask_spread(
-        self, trading_pair: str
+        self,
+        trading_pair: str,
     ) -> tuple[Decimal, Decimal] | None:  # Changed return type
         """Get the simulated bid and ask prices at the current simulation time.
 
@@ -712,7 +728,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         Args:
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
 
-        Returns
+        Returns:
         -------
             The raw ATR as a Decimal, or None if it cannot be calculated.
         """
@@ -826,15 +842,16 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         return bid_entry, ask_entry, stop_generation
 
     async def get_order_book_snapshot(
-        self, trading_pair: str
+        self,
+        trading_pair: str,
     ) -> dict[str, list[list[str]]] | None:
         """Generate a simulated order book snapshot with market depth.
 
-        Args
+        Args:
         ----
             trading_pair: The trading_pair symbol (e.g., "XRP/USD").
 
-        Returns
+        Returns:
         -------
             A dictionary with 'bids' and 'asks' lists, or None if depth cannot be generated.
             Each inner list is [price_str, volume_str].
@@ -916,7 +933,11 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 break
 
             bid_entry, ask_entry, stop_generation = self._create_book_level_entries(
-                quantized_bid, quantized_ask, quantized_volume, i, construction_context
+                quantized_bid,
+                quantized_ask,
+                quantized_volume,
+                i,
+                construction_context,
             )
 
             if bid_entry:
@@ -952,7 +973,9 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     # --- End Interface Alignment Methods ---
 
     async def _get_direct_or_reverse_price(
-        self, from_currency: str, to_currency: str
+        self,
+        from_currency: str,
+        to_currency: str,
     ) -> tuple[Decimal, bool] | None:  # Returns (price, is_direct_rate)
         """Get direct or reverse conversion rate."""
         # Direct conversion: from_currency/to_currency
@@ -969,12 +992,17 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         return None
 
     async def _get_cross_conversion_price(
-        self, from_amount: Decimal, from_currency: str, to_currency: str, intermediary: str
+        self,
+        from_amount: Decimal,
+        from_currency: str,
+        to_currency: str,
+        intermediary: str,
     ) -> Decimal | None:
         """Get cross-conversion via an intermediary currency."""
         # Path: from_currency -> intermediary -> to_currency
         from_to_intermediary_rate_info = await self._get_direct_or_reverse_price(
-            from_currency, intermediary
+            from_currency,
+            intermediary,
         )
 
         if from_to_intermediary_rate_info:
@@ -982,7 +1010,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             amount_in_intermediary = from_amount * rate1 if is_direct1 else from_amount / rate1
 
             intermediary_to_target_rate_info = await self._get_direct_or_reverse_price(
-                intermediary, to_currency
+                intermediary,
+                to_currency,
             )
             if intermediary_to_target_rate_info:
                 rate2, is_direct2 = intermediary_to_target_rate_info
@@ -992,7 +1021,10 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         return None
 
     async def convert_amount(
-        self, from_amount: Decimal, from_currency: str, to_currency: str
+        self,
+        from_amount: Decimal,
+        from_currency: str,
+        to_currency: str,
     ) -> Decimal | None:
         """Convert an amount from one currency to another using available market data."""
         # 1. Ensure from_amount is Decimal
@@ -1017,7 +1049,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
         # 3. Try direct or reverse conversion
         direct_or_reverse_info = await self._get_direct_or_reverse_price(
-            from_currency, to_currency
+            from_currency,
+            to_currency,
         )
         if direct_or_reverse_info:
             rate, is_direct = direct_or_reverse_info
@@ -1042,7 +1075,10 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         if all(c != intermediary_currency for c in (from_currency, to_currency)):
             try:
                 converted_amount = await self._get_cross_conversion_price(
-                    from_amount, from_currency, to_currency, intermediary_currency
+                    from_amount,
+                    from_currency,
+                    to_currency,
+                    intermediary_currency,
                 )
                 if converted_amount is not None:
                     return converted_amount  # Successful cross-conversion
@@ -1070,12 +1106,11 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     async def get_historical_ohlcv(
         self,
         trading_pair: str,
-        timeframe: str,  # noqa: ARG002 - Required for API compatibility
+        timeframe: str,  # - Required for API compatibility
         since: datetime,
-        limit: int | None = None
+        limit: int | None = None,
     ) -> list[dict[str, Any]] | None:
-        """
-        Fetch historical OHLCV data for a trading pair from the stored historical data.
+        """Fetch historical OHLCV data for a trading pair from the stored historical data.
 
         Args:
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
@@ -1083,7 +1118,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             since: Python datetime object indicating the start time for fetching data (UTC).
             limit: The maximum number of candles to return.
 
-        Returns
+        Returns:
         -------
             A list of dictionaries, where each dictionary represents an OHLCV candle:
             {'timestamp': datetime_obj, 'open': Decimal, 'high': Decimal,
@@ -1122,7 +1157,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "high": Decimal(str(row.get("high", 0))),
                 "low": Decimal(str(row.get("low", 0))),
                 "close": Decimal(str(row.get("close", 0))),
-                "volume": Decimal(str(row.get("volume", 0)))
+                "volume": Decimal(str(row.get("volume", 0))),
             }
             result.append(candle)
 
@@ -1229,7 +1264,7 @@ async def _setup_service_and_data(
     price_service = SimulatedMarketPriceService(hist_data, logger=main_logger)
 
     # Common timestamp for many tests
-    ts1 = datetime(2023, 1, 1, 0, 1, 0, tzinfo=timezone.utc)
+    ts1 = datetime(2023, 1, 1, 0, 1, 0, tzinfo=UTC)
     return price_service, ts1
 
 
@@ -1253,25 +1288,35 @@ async def _test_price_queries(
     usd_price = usd_price_info
 
     main_logger.info(
-        "Prices at %s: BTC=%s, ETH=%s, USD/USD=%s", ts1, btc_price1, eth_price1, usd_price
+        "Prices at %s: BTC=%s, ETH=%s, USD/USD=%s",
+        ts1,
+        btc_price1,
+        eth_price1,
+        usd_price,
     )
     if btc_spread_info1:
         main_logger.info(
-            "BTC Spread at %s: Bid=%.2f, Ask=%.2f", ts1, btc_spread_info1[0], btc_spread_info1[1]
+            "BTC Spread at %s: Bid=%.2f, Ask=%.2f",
+            ts1,
+            btc_spread_info1[0],
+            btc_spread_info1[1],
         )
     else:
         main_logger.info("BTC Spread at %s: None", ts1)
 
     # Test 2: Get price between timestamps (should get previous close)
-    ts2 = datetime(2023, 1, 1, 0, 1, 30, tzinfo=timezone.utc)
+    ts2 = datetime(2023, 1, 1, 0, 1, 30, tzinfo=UTC)
     price_service.update_time(ts2)
     btc_price2 = await price_service.get_latest_price("BTC/USD")
     main_logger.info(
-        "Prices at %s: BTC=%s (Should be same as %s close: 12.0)", ts2, btc_price2, ts1
+        "Prices at %s: BTC=%s (Should be same as %s close: 12.0)",
+        ts2,
+        btc_price2,
+        ts1,
     )
 
     # Test 3: Get price before data starts
-    ts3 = datetime(2022, 12, 31, 23, 59, 0, tzinfo=timezone.utc)
+    ts3 = datetime(2022, 12, 31, 23, 59, 0, tzinfo=UTC)
     price_service.update_time(ts3)
     btc_price3 = await price_service.get_latest_price("BTC/USD")
     main_logger.info("Prices at %s: BTC=%s (Should be None)", ts3, btc_price3)
@@ -1343,10 +1388,14 @@ async def _test_currency_conversions(
     price_service.historical_data["ETH/BTC"] = data_eth_btc
 
     converted_btc_to_eth_via_usd = await price_service.convert_amount(
-        amount_to_convert, "BTC", "ETH"
+        amount_to_convert,
+        "BTC",
+        "ETH",
     )
     main_logger.info(
-        "Converting %s BTC to ETH via USD: %s", amount_to_convert, converted_btc_to_eth_via_usd
+        "Converting %s BTC to ETH via USD: %s",
+        amount_to_convert,
+        converted_btc_to_eth_via_usd,
     )
 
     # Add direct pair for BTC/ETH
@@ -1357,10 +1406,14 @@ async def _test_currency_conversions(
     )
     price_service.historical_data["BTC/ETH"] = data_btc_eth
     converted_btc_to_eth_direct = await price_service.convert_amount(
-        amount_to_convert, "BTC", "ETH"
+        amount_to_convert,
+        "BTC",
+        "ETH",
     )
     main_logger.info(
-        "Converting %s BTC to ETH (direct): %s", amount_to_convert, converted_btc_to_eth_direct
+        "Converting %s BTC to ETH (direct): %s",
+        amount_to_convert,
+        converted_btc_to_eth_direct,
     )
 
 
@@ -1395,7 +1448,7 @@ if __name__ == "__main__":
         import pandas  # noqa
         import asyncio  # Add back asyncio import
 
-        # import pandas_ta # noqa - ensure this is also handled if used directly in main
+        # import pandas_ta # - ensure this is also handled if used directly in main
         asyncio.run(main())  # Run the async main function
     except ImportError:
         print("Could not run example: pandas not installed.")

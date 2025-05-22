@@ -8,19 +8,19 @@ halting/resuming trading, and gracefully shutting down the application.
 # CLI Service Module
 
 import asyncio
-from collections.abc import Coroutine
 import logging
 import sys
 import threading
 import time
+from collections.abc import Coroutine
 
 # Create TYPE_CHECKING specific imports
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
 
 if TYPE_CHECKING:
+    import typer
     from rich.console import Console
     from rich.table import Table
-    import typer
 
     from .config_manager import ConfigManager
     from .core.pubsub import PubSubManager
@@ -77,10 +77,9 @@ class CLIService:
         logger_service: "LoggerService",
         portfolio_manager: Optional["PortfolioManager"] = None,
     ) -> None:
-        """
-        Initialize the CLIService.
+        """Initialize the CLIService.
 
-        Args
+        Args:
         ----
             monitoring_service: Instance of the MonitoringService.
             main_app_controller: Instance of the main application controller/orchestrator
@@ -113,13 +112,13 @@ class CLIService:
             self.logger.debug(
                 "Task %s was cancelled.",
                 source_module=self.__class__.__name__,
-                context={"task_name": task.get_name()}
+                context={"task_name": task.get_name()},
             )
         except Exception:
             self.logger.exception(
                 "Background task failed",
                 source_module=self.__class__.__name__,
-                context={"task_name": task.get_name()}
+                context={"task_name": task.get_name()},
             )
 
     def signal_input_loop_stop(self) -> None:
@@ -130,12 +129,14 @@ class CLIService:
         """Start listening for commands on stdin."""
         if self._running:
             self.logger.warning(
-                "CLIService already running.", source_module=self.__class__.__name__
+                "CLIService already running.",
+                source_module=self.__class__.__name__,
             )
             return
 
         self.logger.info(
-            "Starting CLIService input listener...", source_module=self.__class__.__name__
+            "Starting CLIService input listener...",
+            source_module=self.__class__.__name__,
         )
         self._running = True
         self._stop_event.clear()
@@ -145,7 +146,8 @@ class CLIService:
             # Try using add_reader for POSIX systems
             loop.add_reader(sys.stdin.fileno(), self._handle_input_posix)
             self.logger.info(
-                "Using asyncio.add_reader for CLI input.", source_module=self.__class__.__name__
+                "Using asyncio.add_reader for CLI input.",
+                source_module=self.__class__.__name__,
             )
             print("\n--- Gal-Friday CLI Ready (POSIX Mode) ---")
             print("Type a command (e.g., 'status', 'halt', 'stop') or '--help' and press Enter.")
@@ -178,12 +180,12 @@ class CLIService:
             if command_args:
                 # Schedule Typer app execution in the event loop
                 self.launch_background_task(
-                    self._run_typer_command(command_args)
+                    self._run_typer_command(command_args),
                 )
         except Exception:
             self.logger.exception(
                 "Error reading/parsing CLI input (POSIX)",
-                source_module=self.__class__.__name__
+                source_module=self.__class__.__name__,
             )
 
     def _threaded_input_loop(self) -> None:
@@ -198,21 +200,23 @@ class CLIService:
                     if command_args:
                         # Schedule the async command execution from the thread
                         asyncio.run_coroutine_threadsafe(
-                            self._run_typer_command(command_args), loop
+                            self._run_typer_command(command_args),
+                            loop,
                         )
             except EOFError:
                 self.logger.info(
                     "EOF received on stdin (threaded), stopping CLI.",
-                    source_module=self.__class__.__name__
+                    source_module=self.__class__.__name__,
                 )
                 asyncio.run_coroutine_threadsafe(
-                    self.main_app_controller.stop(), loop
+                    self.main_app_controller.stop(),
+                    loop,
                 )  # Trigger stop
                 break  # Exit thread loop
             except Exception:
                 self.logger.exception(
                     "Error in threaded CLI input loop",
-                    source_module=self.__class__.__name__
+                    source_module=self.__class__.__name__,
                 )
                 # Avoid busy-looping on persistent errors
                 time.sleep(0.5)
@@ -231,13 +235,13 @@ class CLIService:
                 self.logger.warning(
                     "Typer exited with code",
                     source_module=self.__class__.__name__,
-                    context={"exit_code": str(e.code)}
+                    context={"exit_code": str(e.code)},
                 )
         except Exception:
             self.logger.exception(
                 "Error executing Typer command",
                 source_module=self.__class__.__name__,
-                context={"command": " ".join(args)}
+                context={"command": " ".join(args)},
             )
             print("Error executing command. Check logs for details.")
 
@@ -247,7 +251,8 @@ class CLIService:
             return
 
         self.logger.info(
-            "Stopping CLIService input listener...", source_module=self.__class__.__name__
+            "Stopping CLIService input listener...",
+            source_module=self.__class__.__name__,
         )
         self._running = False
         self._stop_event.set()  # Signal thread loop to stop
@@ -258,7 +263,7 @@ class CLIService:
             self.logger.info(
                 "Cancelling outstanding background tasks",
                 source_module=self.__class__.__name__,
-                context={"task_count": len(tasks_to_cancel)}
+                context={"task_count": len(tasks_to_cancel)},
             )
             for task in tasks_to_cancel:
                 task.cancel()
@@ -274,32 +279,33 @@ class CLIService:
                     loop.remove_reader(sys.stdin.fileno())
                     self.logger.info(
                         "Removed stdin reader",
-                        source_module=self.__class__.__name__
+                        source_module=self.__class__.__name__,
                     )
                 except ValueError:  # Handle case where fd was not registered
                     pass
         except Exception:
             self.logger.exception(
                 "Error removing stdin reader",
-                source_module=self.__class__.__name__
+                source_module=self.__class__.__name__,
             )
 
         # Join the input thread if it exists
         if self._input_thread and self._input_thread.is_alive():
             self.logger.info(
                 "Waiting for input thread to finish",
-                source_module=self.__class__.__name__
+                source_module=self.__class__.__name__,
             )
             # Since it's a daemon thread, it might just exit when the main app exits
             self._input_thread.join(timeout=1.0)  # Wait briefly
             if self._input_thread.is_alive():
                 self.logger.warning(
                     "Input thread did not exit cleanly",
-                    source_module=self.__class__.__name__
+                    source_module=self.__class__.__name__,
                 )
 
         print("CLIService stopped.")
         self._running = False
+
 
 # Global state to allow Typer commands to access the CLIService instance
 class GlobalCLIInstance:
@@ -312,7 +318,7 @@ class GlobalCLIInstance:
     def set_instance(self, instance: CLIService) -> None:
         """Set the global CLI service instance.
 
-        Args
+        Args:
         ----
             instance: The CLIService instance to store globally.
         """
@@ -321,7 +327,7 @@ class GlobalCLIInstance:
     def get_instance(self) -> CLIService | None:
         """Retrieve the global CLI service instance.
 
-        Returns
+        Returns:
         -------
             The globally stored CLIService instance, or None if not set.
         """
@@ -362,7 +368,7 @@ def status() -> None:
         except Exception:  # Catching general Exception, specific error message in log
             cli.logger.exception(
                 "Error fetching portfolio state",
-                source_module=cli.__class__.__name__
+                source_module=cli.__class__.__name__,
             )
 
     console.print(table)
@@ -385,7 +391,7 @@ def halt(
     if typer.confirm("Are you sure you want to HALT trading?"):
         print(">>> Issuing HALT command...")
         cli.launch_background_task(
-            cli.monitoring_service.trigger_halt(reason=reason, source=cli.__class__.__name__)
+            cli.monitoring_service.trigger_halt(reason=reason, source=cli.__class__.__name__),
         )
     else:
         print("Halt command cancelled.")
@@ -405,7 +411,7 @@ def resume() -> None:
 
     print(">>> Issuing RESUME command...")
     cli.launch_background_task(
-        cli.monitoring_service.trigger_resume(source=cli.__class__.__name__)
+        cli.monitoring_service.trigger_resume(source=cli.__class__.__name__),
     )
 
 
@@ -427,18 +433,18 @@ def stop_command() -> None:
 
 # --- Mock Implementations ---
 
+
 class MockLoggerService(LoggerService):
     """Mock implementation of LoggerService for testing."""
 
     def __init__(
         self,
         config_manager: "ConfigManager",
-        pubsub_manager: Optional["PubSubManager"]
+        pubsub_manager: Optional["PubSubManager"],
     ) -> None:
         """Initialize the mock logger."""
         # Minimal implementation for mocks; avoid super().__init__ if it has side effects
         # Store args if needed by other methods, or just pass.
-
 
     def info(
         self,
@@ -476,9 +482,8 @@ class MockLoggerService(LoggerService):
         *args: Any,
         source_module: str | None = None,
         context: dict[Any, Any] | None = None,
-        exc_info: None | (
-            bool | BaseException | tuple[type[BaseException], BaseException, Any]
-        ) = None,
+        exc_info: None
+        | (bool | BaseException | tuple[type[BaseException], BaseException, Any]) = None,
     ) -> None:
         """Log error message."""
         print(f"ERROR [{source_module}]: {message}")
@@ -501,9 +506,8 @@ class MockLoggerService(LoggerService):
         *args: Any,
         source_module: str | None = None,
         context: dict[Any, Any] | None = None,
-        exc_info: None | (
-            bool | BaseException | tuple[type[BaseException], BaseException, Any]
-        ) = None,
+        exc_info: None
+        | (bool | BaseException | tuple[type[BaseException], BaseException, Any]) = None,
     ) -> None:
         """Log critical message."""
         print(f"CRITICAL [{source_module}]: {message}")
@@ -585,7 +589,7 @@ class MockMainAppController:
 
 def _create_mock_logger(
     config_manager: ConfigManager,
-    pubsub_manager: MockPubSubManager | None = None
+    pubsub_manager: MockPubSubManager | None = None,
 ) -> MockLoggerService:
     """Create a mock logger for testing."""
     return MockLoggerService(config_manager, pubsub_manager)
@@ -593,7 +597,7 @@ def _create_mock_logger(
 
 def _create_mock_pubsub(
     logger: MockLoggerService,
-    config_manager: ConfigManager
+    config_manager: ConfigManager,
 ) -> MockPubSubManager:
     """Create a mock PubSub manager."""
     return MockPubSubManager(logger, config_manager)
@@ -619,17 +623,19 @@ def _create_mock_app_controller() -> MockMainAppController:
     return MockMainAppController()
 
 
-def _create_mock_services() -> tuple[
-    MockLoggerService,
-    MockConfigManager,
-    MockPubSubManager,
-    MockMonitoringService,
-    MockMainAppController,
-    MockPortfolioManager,
-]:
+def _create_mock_services() -> (
+    tuple[
+        MockLoggerService,
+        MockConfigManager,
+        MockPubSubManager,
+        MockMonitoringService,
+        MockMainAppController,
+        MockPortfolioManager,
+    ]
+):
     """Create all mock services needed for testing.
 
-    Returns
+    Returns:
     -------
         A tuple containing mock instances of:
         (logger, config, pubsub, monitoring, app_controller, portfolio)
@@ -648,7 +654,7 @@ def _create_mock_services() -> tuple[
 async def _run_example_cli(cli_service: CLIService, duration: int = 60) -> None:
     """Run the example CLI service for a specified duration.
 
-    Args
+    Args:
     ----
         cli_service: The CLI service to run
         duration: How long to run the example in seconds
@@ -670,7 +676,7 @@ async def _run_example_cli(cli_service: CLIService, duration: int = 60) -> None:
 async def _trigger_example_shutdown(cli_service: CLIService, duration: int) -> None:
     """Shutdown after the specified duration unless stopped by CLI.
 
-    Args
+    Args:
     ----
         cli_service: The CLI service to shut down
         duration: How long to wait before automatic shutdown in seconds
@@ -690,7 +696,7 @@ async def _trigger_example_shutdown(cli_service: CLIService, duration: int) -> N
 async def _mock_shutdown(cli_service: CLIService) -> None:
     """Perform a mock shutdown of the application.
 
-    Args
+    Args:
     ----
         cli_service: The CLI service being shut down
     """
@@ -706,7 +712,8 @@ async def example_main() -> None:
     demonstration of its functionality.
     """
     logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
     # Create mock services - only unpack what we actually use

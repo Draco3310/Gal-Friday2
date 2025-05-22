@@ -1,9 +1,9 @@
 """Portfolio valuation and drawdown calculation functionality."""
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Optional, Protocol, Union
+from typing import Any, Protocol, Union
 
 from ..exceptions import PriceNotAvailableError
 from ..interfaces import MarketPriceService
@@ -11,7 +11,7 @@ from ..logger_service import LoggerService
 
 # Constants for magic numbers
 MAX_HOURS_IN_DAY = 23
-MAX_DAYS_IN_WEEK = 6 # 0=Monday, 6=Sunday
+MAX_DAYS_IN_WEEK = 6  # 0=Monday, 6=Sunday
 PAIR_SPLIT_EXPECTED_PARTS = 2
 
 
@@ -22,12 +22,12 @@ class PositionLike(Protocol):
     base_asset: str
     quote_asset: str | None  # Made optional as it's not always used by all consumers
 
+
 PositionInput = Union[PositionLike, dict[str, Any]]
 
 
 class ValuationService:
-    """
-    Handles portfolio valuation and drawdown calculations.
+    """Handles portfolio valuation and drawdown calculations.
 
     Calculates total portfolio value, equity peaks, drawdowns,
     and portfolio exposure metrics.
@@ -39,10 +39,9 @@ class ValuationService:
         market_price_service: MarketPriceService,
         valuation_currency: str = "USD",
     ) -> None:
-        """
-        Initialize the valuation service.
+        """Initialize the valuation service.
 
-        Args
+        Args:
         ----
             logger_service: Service for logging
             market_price_service: Service to fetch market prices
@@ -80,7 +79,7 @@ class ValuationService:
         self.logger.info(
             "ValuationService initialized. Valuation currency: %s",
             self.valuation_currency,
-            source_module=self._source_module
+            source_module=self._source_module,
         )
 
     @property
@@ -109,10 +108,9 @@ class ValuationService:
         return self._weekly_drawdown_pct
 
     def configure_drawdown_resets(self, daily_reset_hour_utc: int, weekly_reset_day: int) -> None:
-        """
-        Configure when drawdown metrics are reset.
+        """Configure when drawdown metrics are reset.
 
-        Args
+        Args:
         ----
             daily_reset_hour_utc: Hour (0-23) in UTC when daily drawdown resets
             weekly_reset_day: Day of week (0=Monday, 6=Sunday) when weekly drawdown resets
@@ -137,17 +135,18 @@ class ValuationService:
         )
 
     async def _try_direct_conversion(
-        self, from_currency: str, to_currency: str
+        self,
+        from_currency: str,
+        to_currency: str,
     ) -> Decimal | None:
-        """
-        Try to directly convert between currencies using market price.
+        """Try to directly convert between currencies using market price.
 
-        Args
+        Args:
         ----
             from_currency: Source currency
             to_currency: Target currency
 
-        Returns
+        Returns:
         -------
             Conversion rate if available, None otherwise
         """
@@ -158,28 +157,32 @@ class ValuationService:
             if rate is not None:
                 # Ensure the rate is a Decimal to satisfy the type checker
                 decimal_rate = Decimal(str(rate))
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 cache_key = f"{from_currency}/{to_currency}"
                 self._price_cache[cache_key] = (decimal_rate, now)
                 return decimal_rate
         except Exception as e:
             self.logger.debug(
-                "Direct price not available for %s: %s", pair, e, source_module=self._source_module
+                "Direct price not available for %s: %s",
+                pair,
+                e,
+                source_module=self._source_module,
             )
         return None
 
     async def _try_inverse_conversion(
-        self, from_currency: str, to_currency: str
+        self,
+        from_currency: str,
+        to_currency: str,
     ) -> Decimal | None:
-        """
-        Try to convert between currencies using inverse market price.
+        """Try to convert between currencies using inverse market price.
 
-        Args
+        Args:
         ----
             from_currency: Source currency
             to_currency: Target currency
 
-        Returns
+        Returns:
         -------
             Conversion rate if available, None otherwise
         """
@@ -190,7 +193,7 @@ class ValuationService:
                 # Ensure we're working with Decimal values
                 decimal_inverse_rate = Decimal(str(inverse_rate))
                 rate = Decimal("1") / decimal_inverse_rate
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 cache_key = f"{from_currency}/{to_currency}"
                 self._price_cache[cache_key] = (rate, now)
                 return rate
@@ -204,15 +207,14 @@ class ValuationService:
         return None
 
     async def _try_usd_conversion(self, from_currency: str, to_currency: str) -> Decimal | None:
-        """
-        Try to convert between currencies using USD as an intermediate.
+        """Try to convert between currencies using USD as an intermediate.
 
-        Args
+        Args:
         ----
             from_currency: Source currency
             to_currency: Target currency
 
-        Returns
+        Returns:
         -------
             Conversion rate if available, None otherwise
         """
@@ -224,7 +226,7 @@ class ValuationService:
             usd_to_rate = await self.get_currency_conversion_rate("USD", to_currency)
             if from_usd_rate is not None and usd_to_rate is not None:
                 rate = from_usd_rate * usd_to_rate
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 cache_key = f"{from_currency}/{to_currency}"
                 self._price_cache[cache_key] = (rate, now)
                 return rate
@@ -246,21 +248,22 @@ class ValuationService:
         return None
 
     async def get_currency_conversion_rate(
-        self, from_currency: str, to_currency: str
+        self,
+        from_currency: str,
+        to_currency: str,
     ) -> Decimal | None:
-        """
-        Get the conversion rate between two currencies.
+        """Get the conversion rate between two currencies.
 
-        Args
+        Args:
         ----
             from_currency: Source currency
             to_currency: Target currency
 
-        Returns
+        Returns:
         -------
             Conversion rate as a Decimal
 
-        Raises
+        Raises:
         ------
             PriceNotAvailableError: If conversion rate cannot be determined
         """
@@ -270,7 +273,7 @@ class ValuationService:
 
         # Check cache first
         cache_key = f"{from_currency}/{to_currency}"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if cache_key in self._price_cache:
             rate, timestamp = self._price_cache[cache_key]
@@ -299,17 +302,19 @@ class ValuationService:
         raise PriceNotAvailableError
 
     def _extract_position_details(
-        self, pair: str, pos_data_any: PositionInput
+        self,
+        pair: str,
+        pos_data_any: PositionInput,
     ) -> tuple[Decimal, str, str] | None:
         """Extract quantity, base_asset, and quote_asset from position data."""
         if (
-            hasattr(pos_data_any, "quantity") and
-            hasattr(pos_data_any, "base_asset") and
-            hasattr(pos_data_any, "quote_asset")
+            hasattr(pos_data_any, "quantity")
+            and hasattr(pos_data_any, "base_asset")
+            and hasattr(pos_data_any, "quote_asset")
         ):
             obj_quantity = Decimal(str(pos_data_any.quantity))  # Ensure Decimal type
-            obj_base_asset = str(pos_data_any.base_asset)       # Ensure str type
-            obj_quote_asset = str(pos_data_any.quote_asset)     # Ensure str type
+            obj_base_asset = str(pos_data_any.base_asset)  # Ensure str type
+            obj_quote_asset = str(pos_data_any.quote_asset)  # Ensure str type
             return obj_quantity, obj_base_asset, obj_quote_asset
         if isinstance(pos_data_any, dict):
             dict_quantity = Decimal(str(pos_data_any.get("quantity", 0)))
@@ -318,26 +323,28 @@ class ValuationService:
                 dict_quote_asset = str(pos_data_any["quote_asset"])
                 return dict_quantity, dict_base_asset, dict_quote_asset
             self.logger.warning(
-                "Cannot determine base/quote for position %s from dict.", pair
+                "Cannot determine base/quote for position %s from dict.",
+                pair,
             )
             return None
         self.logger.warning("Unsupported position data type for %s.", pair)
         return None
 
     async def calculate_position_value(
-        self, positions: dict[str, PositionInput], valuation_currency: str | None = None
+        self,
+        positions: dict[str, PositionInput],
+        valuation_currency: str | None = None,
     ) -> tuple[Decimal, bool, dict[str, Decimal]]:
-        """
-        Calculate total value of all positions in the valuation currency.
+        """Calculate total value of all positions in the valuation currency.
 
-        Args
+        Args:
         ----
             positions: A dictionary of PositionInfo objects or similar dicts
                        keyed by trading_pair. Each must have 'quantity',
                        'base_asset', 'quote_asset'.
             valuation_currency: Optional currency to value in. Defaults to service default.
 
-        Returns
+        Returns:
         -------
             A tuple: (total_value, has_missing_prices, position_specific_values_dict).
             `position_specific_values_dict` contains individual position values.
@@ -351,7 +358,7 @@ class ValuationService:
             position_details = self._extract_position_details(pair, pos_data_any)
             if position_details is None:
                 has_missing_prices = True
-                position_values[pair] = Decimal("NaN") # Mark as NaN if details can't be extracted
+                position_values[pair] = Decimal("NaN")  # Mark as NaN if details can't be extracted
                 continue
 
             quantity, base_asset, quote_asset = position_details
@@ -375,13 +382,14 @@ class ValuationService:
                     value_in_valuation_currency = value_in_quote_asset
                 else:
                     conversion_rate = await self.get_currency_conversion_rate(
-                        quote_asset.upper(), target_valuation_currency
+                        quote_asset.upper(),
+                        target_valuation_currency,
                     )
                     if conversion_rate is None:
                         self.logger.warning(
                             "Could not convert %s to %s",
                             quote_asset,
-                            target_valuation_currency
+                            target_valuation_currency,
                         )
                         has_missing_prices = True
                         value_in_valuation_currency = Decimal("NaN")
@@ -404,17 +412,18 @@ class ValuationService:
         return total_value, has_missing_prices, position_values
 
     async def calculate_cash_value(
-        self, funds: dict[str, Decimal], valuation_currency: str | None = None
+        self,
+        funds: dict[str, Decimal],
+        valuation_currency: str | None = None,
     ) -> tuple[Decimal, bool]:
-        """
-        Calculate the value of cash balances in valuation currency.
+        """Calculate the value of cash balances in valuation currency.
 
-        Args
+        Args:
         ----
             funds: Dict of currency symbols to Decimal amounts.
             valuation_currency: Optional target currency. Defaults to service default.
 
-        Returns
+        Returns:
         -------
             Tuple of (total_cash_value, has_missing_prices).
         """
@@ -431,7 +440,8 @@ class ValuationService:
                 total_cash_val += amount
             else:
                 rate = await self.get_currency_conversion_rate(
-                    currency_upper, target_valuation_currency
+                    currency_upper,
+                    target_valuation_currency,
                 )
                 if rate is not None:
                     total_cash_val += amount * rate
@@ -439,31 +449,32 @@ class ValuationService:
                     self.logger.warning(
                         "Could not convert %s to %s",
                         currency,
-                        target_valuation_currency
+                        target_valuation_currency,
                     )
                     has_missing_prices = True
 
         return total_cash_val, has_missing_prices
 
     async def update_portfolio_value(
-        self, _funds: dict[str, Decimal], positions: dict[str, PositionInput]
+        self,
+        _funds: dict[str, Decimal],
+        positions: dict[str, PositionInput],
     ) -> tuple[Decimal, dict[str, Decimal], Decimal]:
-        """
-        Update total portfolio value, drawdowns, and exposure metrics.
+        """Update total portfolio value, drawdowns, and exposure metrics.
 
         This is the main method to call periodically for portfolio valuation.
 
-        Args
+        Args:
         ----
             funds: Current cash balances (Dict[currency_symbol, Decimal]).
             positions: Current positions (Dict[trading_pair, PositionInfo-like]).
 
-        Returns
+        Returns:
         -------
             A tuple: (total_portfolio_value, position_specific_values, exposure_percentage)
         """
         async with self._lock:
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
             position_value_result = await self.calculate_position_value(positions)
             self._total_equity = position_value_result[0]
             self._peak_equity = max(self._peak_equity, self._total_equity)
@@ -482,14 +493,14 @@ class ValuationService:
                 self._total_equity,
                 self.valuation_currency,
                 exposure_pct,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
             position_values = await self.calculate_position_value(positions)
             return (
                 self._total_equity,
                 position_values[2],
-                exposure_pct
+                exposure_pct,
             )
 
     async def _get_rate_direct_to_valuation_currency(self, base_asset: str) -> Decimal | None:
@@ -497,7 +508,9 @@ class ValuationService:
         return await self.get_currency_conversion_rate(base_asset, self.valuation_currency)
 
     async def _get_rate_via_pair_quote_asset(
-        self, base_asset: str, pair_str: str
+        self,
+        base_asset: str,
+        pair_str: str,
     ) -> Decimal | None:
         """Try to get rate via the pair's quote asset as an intermediary."""
         split_pair = pair_str.split("/")
@@ -505,7 +518,8 @@ class ValuationService:
             self.logger.debug(
                 "Cannot get quote asset from pair '%s' for indirect valuation "
                 "(invalid format).",
-                pair_str, source_module=self._source_module
+                pair_str,
+                source_module=self._source_module,
             )
             return None
 
@@ -515,30 +529,38 @@ class ValuationService:
         if price_base_in_quote is None:
             self.logger.debug(
                 "Failed to get price of %s in %s for indirect valuation (pair: %s).",
-                base_asset, quote_asset_from_pair, pair_str, source_module=self._source_module
+                base_asset,
+                quote_asset_from_pair,
+                pair_str,
+                source_module=self._source_module,
             )
             return None
 
         if quote_asset_from_pair.upper() == self.valuation_currency:
-            return price_base_in_quote # Already in valuation currency
+            return price_base_in_quote  # Already in valuation currency
 
         # Convert the value from quote_asset_from_pair to valuation_currency
         conversion_to_valuation_curr = await self.get_currency_conversion_rate(
-            quote_asset_from_pair, self.valuation_currency
+            quote_asset_from_pair,
+            self.valuation_currency,
         )
 
         if conversion_to_valuation_curr is None:
             self.logger.debug(
                 "Failed to convert %s (quote of %s) to %s for indirect valuation.",
-                quote_asset_from_pair, pair_str, self.valuation_currency,
-                source_module=self._source_module
+                quote_asset_from_pair,
+                pair_str,
+                self.valuation_currency,
+                source_module=self._source_module,
             )
             return None
 
         return price_base_in_quote * conversion_to_valuation_curr
 
     async def _get_position_base_asset_value_in_valuation_currency(
-        self, pair: str, pos_data_any: PositionInput # pair is used for the indirect strategy
+        self,
+        pair: str,
+        pos_data_any: PositionInput,  # pair is used for the indirect strategy
     ) -> Decimal | None:
         """Get the value of a position's base asset in the valuation currency."""
         quantity: Decimal
@@ -554,7 +576,8 @@ class ValuationService:
             if raw_base_asset is None:
                 self.logger.debug(
                     "Skipping value calculation for %s, missing 'base_asset' in dict.",
-                    pair, source_module=self._source_module
+                    pair,
+                    source_module=self._source_module,
                 )
                 return None
             quantity = Decimal(str(raw_quantity))
@@ -562,7 +585,9 @@ class ValuationService:
         else:
             self.logger.debug(
                 "Unsupported position data type for %s: %s.",
-                pair, type(pos_data_any).__name__, source_module=self._source_module
+                pair,
+                type(pos_data_any).__name__,
+                source_module=self._source_module,
             )
             return None
 
@@ -579,10 +604,13 @@ class ValuationService:
         if rate_in_valuation_currency is None:
             self.logger.debug(
                 "Direct valuation failed for %s. Trying via pair %s.",
-                base_asset, pair, source_module=self._source_module
+                base_asset,
+                pair,
+                source_module=self._source_module,
             )
             rate_in_valuation_currency = await self._get_rate_via_pair_quote_asset(
-                base_asset, pair
+                base_asset,
+                pair,
             )
 
         # 3. Calculate final value if rate was found
@@ -591,12 +619,17 @@ class ValuationService:
 
         self.logger.warning(
             "Could not determine value for base asset %s (pair: %s) in %s after all strategies.",
-            base_asset, pair, self.valuation_currency, source_module=self._source_module
+            base_asset,
+            pair,
+            self.valuation_currency,
+            source_module=self._source_module,
         )
         return None
 
     async def _calculate_exposure_percentage(
-        self, positions: dict[str, PositionInput], total_portfolio_value: Decimal
+        self,
+        positions: dict[str, PositionInput],
+        total_portfolio_value: Decimal,
     ) -> Decimal:
         """Calculate the exposure percentage of positions relative to total portfolio value."""
         if total_portfolio_value == Decimal(0) or total_portfolio_value.is_nan():
@@ -607,7 +640,8 @@ class ValuationService:
         for pair, pos_data_any in positions.items():
             try:
                 position_value = await self._get_position_base_asset_value_in_valuation_currency(
-                    pair, pos_data_any
+                    pair,
+                    pos_data_any,
                 )
                 if position_value is not None:
                     total_position_abs_value_in_valuation_currency += position_value
@@ -616,19 +650,19 @@ class ValuationService:
                     "Error calculating exposure component for %s: %s",
                     pair,
                     e,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
                 continue
 
         if total_portfolio_value.is_nan() or total_portfolio_value == Decimal(0):
-            return Decimal(0) # Avoid division by zero or NaN propagation
+            return Decimal(0)  # Avoid division by zero or NaN propagation
 
         return total_position_abs_value_in_valuation_currency / total_portfolio_value
 
     async def _update_daily_drawdown(
         self,
         current_total_equity: Decimal,
-        current_time: datetime
+        current_time: datetime,
     ) -> None:
         """Update daily drawdown metrics."""
         should_reset_daily = False
@@ -636,17 +670,17 @@ class ValuationService:
             should_reset_daily = True
         else:
             cond1 = (
-                current_time.date() > self._last_daily_reset_time.date() and
-                current_time.hour >= self._daily_reset_hour_utc
+                current_time.date() > self._last_daily_reset_time.date()
+                and current_time.hour >= self._daily_reset_hour_utc
             )
             cond2 = (
-                current_time.date() == self._last_daily_reset_time.date() and
-                current_time.hour >= self._daily_reset_hour_utc and
-                self._last_daily_reset_time.hour < self._daily_reset_hour_utc
+                current_time.date() == self._last_daily_reset_time.date()
+                and current_time.hour >= self._daily_reset_hour_utc
+                and self._last_daily_reset_time.hour < self._daily_reset_hour_utc
             )
             cond3 = (
-                current_time.date() > self._last_daily_reset_time.date() and
-                self._last_daily_reset_time.hour < self._daily_reset_hour_utc
+                current_time.date() > self._last_daily_reset_time.date()
+                and self._last_daily_reset_time.hour < self._daily_reset_hour_utc
             )
             if cond1 or cond2 or cond3:
                 should_reset_daily = True
@@ -654,14 +688,18 @@ class ValuationService:
         if should_reset_daily:
             self._daily_peak_equity = current_total_equity
             potential_reset_time = current_time.replace(
-                hour=self._daily_reset_hour_utc, minute=0, second=0, microsecond=0
+                hour=self._daily_reset_hour_utc,
+                minute=0,
+                second=0,
+                microsecond=0,
             )
             if current_time >= potential_reset_time:
                 self._last_daily_reset_time = potential_reset_time
             else:
                 self._last_daily_reset_time = potential_reset_time - timedelta(days=1)
             self.logger.info(
-                "Reset daily drawdown peak to %s", self._daily_peak_equity,
+                "Reset daily drawdown peak to %s",
+                self._daily_peak_equity,
                 source_module=self._source_module,
             )
 
@@ -669,14 +707,14 @@ class ValuationService:
         if self._daily_peak_equity > 0:
             self._daily_drawdown_pct = (
                 (self._daily_peak_equity - current_total_equity) / self._daily_peak_equity
-            ) * Decimal("100") # Ensure percentage is calculated correctly
+            ) * Decimal("100")  # Ensure percentage is calculated correctly
         else:
             self._daily_drawdown_pct = Decimal(0)
 
     async def _update_weekly_drawdown(
         self,
         current_total_equity: Decimal,
-        current_time: datetime
+        current_time: datetime,
     ) -> None:
         """Update weekly drawdown metrics."""
         should_reset_weekly = False
@@ -690,26 +728,32 @@ class ValuationService:
                 current_time - timedelta(days=days_since_configured_reset_day_this_week)
             ).date()
             this_week_reset_event_dt = datetime.combine(
-                date_of_this_week_reset_day, datetime.min.time(), tzinfo=timezone.utc
+                date_of_this_week_reset_day,
+                datetime.min.time(),
+                tzinfo=UTC,
             ).replace(hour=self._daily_reset_hour_utc)
 
             if (
-                self._last_weekly_reset_time < this_week_reset_event_dt and
-                current_time >= this_week_reset_event_dt
+                self._last_weekly_reset_time < this_week_reset_event_dt
+                and current_time >= this_week_reset_event_dt
             ) or (current_time - self._last_weekly_reset_time) >= timedelta(days=7):
                 should_reset_weekly = True
 
         if should_reset_weekly:
             self._weekly_peak_equity = current_total_equity
             days_to_subtract = (current_time.weekday() - self._weekly_reset_day + 7) % 7
-            actual_reset_day_this_cycle = (current_time - timedelta(days=days_to_subtract))
+            actual_reset_day_this_cycle = current_time - timedelta(days=days_to_subtract)
             self._last_weekly_reset_time = actual_reset_day_this_cycle.replace(
-                hour=self._daily_reset_hour_utc, minute=0, second=0, microsecond=0
+                hour=self._daily_reset_hour_utc,
+                minute=0,
+                second=0,
+                microsecond=0,
             )
             if current_time < self._last_weekly_reset_time:
                 self._last_weekly_reset_time -= timedelta(weeks=1)
             self.logger.info(
-                "Reset weekly drawdown peak to %s", self._weekly_peak_equity,
+                "Reset weekly drawdown peak to %s",
+                self._weekly_peak_equity,
                 source_module=self._source_module,
             )
 
@@ -717,18 +761,20 @@ class ValuationService:
         if self._weekly_peak_equity > 0:
             self._weekly_drawdown_pct = (
                 (self._weekly_peak_equity - current_total_equity) / self._weekly_peak_equity
-            ) * Decimal("100") # Ensure percentage is calculated correctly
+            ) * Decimal("100")  # Ensure percentage is calculated correctly
         else:
             self._weekly_drawdown_pct = Decimal(0)
 
     async def _update_drawdown_metrics(
-        self, current_total_equity: Decimal, current_time: datetime
+        self,
+        current_total_equity: Decimal,
+        current_time: datetime,
     ) -> None:
         """Update daily, weekly, and all-time drawdown metrics."""
         if current_total_equity.is_nan():
             self.logger.warning(
                 "Current total equity is NaN, skipping drawdown update.",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return
 
@@ -740,6 +786,6 @@ class ValuationService:
         if self._peak_equity > 0:
             self._total_drawdown_pct = (
                 (self._peak_equity - current_total_equity) / self._peak_equity
-            ) * Decimal("100") # Ensure percentage is calculated correctly
+            ) * Decimal("100")  # Ensure percentage is calculated correctly
         else:
             self._total_drawdown_pct = Decimal(0)

@@ -7,7 +7,7 @@ XGBoost models.
 
 import logging
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import joblib  # For loading scalers
 import numpy as np
@@ -20,17 +20,18 @@ class ModelLoadError(Exception):
     """Exception raised when a model fails to load."""
 
 
-
 class XGBoostPredictor(PredictorInterface):
     """Implementation of PredictorInterface for XGBoost models."""
 
     def __init__(
-        self, model_path: str, model_id: str, config: dict[str, Any] | None = None
+        self,
+        model_path: str,
+        model_id: str,
+        config: dict[str, Any] | None = None,
     ) -> None:
-        """
-        Initialize the XGBoost predictor.
+        """Initialize the XGBoost predictor.
 
-        Args
+        Args:
         ----
             model_path: Path to the XGBoost model file
             model_id: Unique identifier for this model
@@ -47,7 +48,7 @@ class XGBoostPredictor(PredictorInterface):
 
         Sets self.model and self.scaler.
 
-        Raises
+        Raises:
         ------
             xgb.core.XGBoostError: If the model cannot be loaded.
             FileNotFoundError: If the model or scaler file does not exist.
@@ -56,6 +57,7 @@ class XGBoostPredictor(PredictorInterface):
         self.logger.info("Loading assets for model: %s", self.model_id)
         # Load Model
         try:
+
             def _raise_model_not_found() -> None:
                 error_msg = f"Model file not found: {self.model_path}"
                 self.logger.error(error_msg)
@@ -68,7 +70,7 @@ class XGBoostPredictor(PredictorInterface):
             self.model.load_model(self.model_path)
             self.logger.info(
                 "XGBoost model loaded successfully from %s",
-                self.model_path
+                self.model_path,
             )
 
         except xgb.core.XGBoostError as e:
@@ -80,6 +82,7 @@ class XGBoostPredictor(PredictorInterface):
         self.scaler = None
         if self.scaler_path:
             try:
+
                 def _load_scaler() -> None:
                     """Load the scaler from the specified path."""
                     # Add type checking to ensure self.scaler_path is not None
@@ -94,14 +97,14 @@ class XGBoostPredictor(PredictorInterface):
                 self.scaler = joblib.load(self.scaler_path)
                 self.logger.info(
                     "Scaler loaded successfully from %s",
-                    self.scaler_path
+                    self.scaler_path,
                 )
             except FileNotFoundError:
                 raise
             except Exception:
                 self.logger.exception(
                     "Failed to load scaler from %s",
-                    self.scaler_path
+                    self.scaler_path,
                 )
                 raise
         else:
@@ -111,15 +114,15 @@ class XGBoostPredictor(PredictorInterface):
     def predict(self, features: np.ndarray) -> np.ndarray:
         """Generate predictions using the XGBoost model.
 
-        Args
+        Args:
         ----
             features: A 1D numpy array of raw, ordered feature values.
 
-        Returns
+        Returns:
         -------
             Prediction results as a numpy array (usually probabilities for binary:logistic)
 
-        Raises
+        Raises:
         ------
             ValueError: If features have wrong shape or contain invalid values.
             TypeError: If model is not properly loaded.
@@ -153,7 +156,7 @@ class XGBoostPredictor(PredictorInterface):
         if not model_feature_names:
             self.logger.warning(
                 "expected_feature_names not available. "
-                "DMatrix will be created without feature names."
+                "DMatrix will be created without feature names.",
             )
 
         try:
@@ -166,7 +169,8 @@ class XGBoostPredictor(PredictorInterface):
                 # If it's like array([0.7]), get 0.7. If it's already a scalar float, it's fine.
                 return raw_predictions.astype(np.float32)  # Ensure correct type
             return np.array(
-                [raw_predictions], dtype=np.float32
+                [raw_predictions],
+                dtype=np.float32,
             )  # Convert scalar to 1-element array
 
         except xgb.core.XGBoostError:
@@ -183,7 +187,10 @@ class XGBoostPredictor(PredictorInterface):
 
     @classmethod
     def _load_model(
-        cls, model_path: str, model_id: str, logger: logging.Logger
+        cls,
+        model_path: str,
+        model_id: str,
+        logger: logging.Logger,
     ) -> tuple[xgb.Booster | None, dict[str, Any]]:
         """Load XGBoost model from file."""
         if not Path(model_path).exists():
@@ -199,7 +206,10 @@ class XGBoostPredictor(PredictorInterface):
 
     @classmethod
     def _load_scaler(
-        cls, scaler_path: str, model_id: str, logger: logging.Logger
+        cls,
+        scaler_path: str,
+        model_id: str,
+        logger: logging.Logger,
     ) -> tuple[Any, dict[str, Any]]:
         """Load and return a scaler from file."""
         if not scaler_path or not Path(scaler_path).is_file():
@@ -224,7 +234,7 @@ class XGBoostPredictor(PredictorInterface):
         feature_vector: np.ndarray,
         scaler: object | None,  # Could be StandardScaler, MinMaxScaler, etc.
         model_id: str,
-        logger: logging.Logger
+        logger: logging.Logger,
     ) -> tuple[np.ndarray | None, dict[str, Any]]:
         """Prepare and scale features for prediction."""
         if feature_vector.ndim != 1:
@@ -258,7 +268,7 @@ class XGBoostPredictor(PredictorInterface):
         features: np.ndarray,
         feature_names: list[str],  # Renamed to match call site
         model_id: str,
-        logger: logging.Logger
+        logger: logging.Logger,
     ) -> dict[str, Any]:
         """Make prediction using the loaded model."""
         try:
@@ -282,7 +292,9 @@ class XGBoostPredictor(PredictorInterface):
 
             logger.debug(
                 "Prediction for %s successful: %s, Confidence: %s",
-                model_id, prediction_float, confidence_float
+                model_id,
+                prediction_float,
+                confidence_float,
             )
             result = {
                 "prediction": prediction_float,
@@ -315,7 +327,7 @@ class XGBoostPredictor(PredictorInterface):
             model_feature_names (list[str]): List of feature names expected by the model
             _predictor_specific_config (dict[str, Any] | None): Optional additional configuration
 
-        Returns
+        Returns:
         -------
             dict[str, Any]: Dictionary containing prediction results or error information
         """
@@ -342,7 +354,7 @@ class XGBoostPredictor(PredictorInterface):
                     feature_vector=feature_vector,
                     scaler=scaler,
                     model_id=model_id,
-                    logger=logger
+                    logger=logger,
                 )
                 if error:
                     return error
@@ -362,7 +374,7 @@ class XGBoostPredictor(PredictorInterface):
                 features=processed_features,  # Renamed to match method definition
                 feature_names=model_feature_names,
                 model_id=model_id,
-                logger=logger
+                logger=logger,
             )
 
         except Exception as e:

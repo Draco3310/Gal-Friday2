@@ -4,13 +4,11 @@ This module provides lightweight placeholders for classes that would otherwise
 create circular imports when not being used for actual type checking.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Optional, Union
-
-from collections.abc import Callable
 
 
 # --- Event System ---
@@ -42,7 +40,7 @@ class Event:
     ) -> None:
         """Initialize a base Event.
 
-        Args
+        Args:
         ----
             source_module: The module that created this event
             event_id: Unique identifier for this event
@@ -89,7 +87,7 @@ class ExecutionReportEvent(Event):
     ) -> None:
         """Initialize an execution report event.
 
-        Args
+        Args:
         ----
             source_module: Module that created this event
             event_id: Unique identifier for this event

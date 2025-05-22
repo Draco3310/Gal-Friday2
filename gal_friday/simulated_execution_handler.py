@@ -5,17 +5,16 @@ It handles market and limit orders, slippage simulation, and SL/TP order process
 without requiring a connection to an actual exchange.
 """
 
+import decimal  # Used in error handling
+import uuid  # Used for generating unique identifiers
 from collections import defaultdict  # Added for _active_sl_tp
 from dataclasses import dataclass, field  # noqa: F401 # Used in placeholder classes
-from datetime import datetime, timedelta, timezone  # Added timezone for DTZ003
-import decimal  # Used in error handling
+from datetime import UTC, datetime, timedelta  # Added timezone for DTZ003
 from decimal import Decimal, getcontext
 from typing import (
     TYPE_CHECKING,  # Used in type hints and conditional imports
     Any,
-    Optional,
 )
-import uuid  # Used for generating unique identifiers
 
 import pandas as pd  # Used in type hints for pd.Series
 
@@ -103,7 +102,7 @@ class SimulatedExecutionHandler:
     ) -> None:  # Added logger_service
         """Initialize the simulation execution handler with required services.
 
-        Args
+        Args:
         ----
             config_manager: Configuration provider for slippage, fees, etc.
             pubsub_manager: Publish-subscribe manager for event communication
@@ -267,7 +266,7 @@ class SimulatedExecutionHandler:
                     # Determine the correct position_id for SL/TP tracking.
                     pos_id_for_sl_tp = str(event.signal_id)  # Default
                     if event.risk_parameters and event.risk_parameters.get(
-                        "original_signal_id_for_sl_tp"
+                        "original_signal_id_for_sl_tp",
                     ):
                         orig_id = event.risk_parameters["original_signal_id_for_sl_tp"]
                         pos_id_for_sl_tp = str(orig_id)
@@ -302,13 +301,13 @@ class SimulatedExecutionHandler:
                     commission_asset=fill_result["commission_asset"],
                     error_msg=fill_result.get("error_msg"),
                     fill_timestamp=fill_result["timestamp"],
-                    liquidity_type=fill_result.get("liquidity_type")
+                    liquidity_type=fill_result.get("liquidity_type"),
                 )
 
                 await self._publish_simulated_report(
                     originating_event=event,
                     params=report_params,
-                    overrides=None
+                    overrides=None,
                 )
             # If fill_result is None, it implies a limit order was added to _active_limit_orders
             # and will be processed by check_active_limit_orders in subsequent calls.
@@ -332,13 +331,13 @@ class SimulatedExecutionHandler:
                 commission=Decimal(0),
                 commission_asset=None,
                 error_msg="Simulation error",
-                fill_timestamp=None
+                fill_timestamp=None,
             )
 
             await self._publish_simulated_report(
                 originating_event=event,
                 params=error_params,
-                overrides=None
+                overrides=None,
             )
 
     async def _validate_order_parameters(self, event: "TradeSignalApprovedEvent") -> bool:
@@ -441,7 +440,8 @@ class SimulatedExecutionHandler:
                     # allows indexed fetching.
                     # Assuming get_next_bar advances one bar from the provided timestamp.
                     temp_bar = self.data_service.get_next_bar(
-                        event.trading_pair, target_fill_bar_open_timestamp
+                        event.trading_pair,
+                        target_fill_bar_open_timestamp,
                     )
                     if temp_bar is None:
                         error_msg = (
@@ -478,7 +478,8 @@ class SimulatedExecutionHandler:
             # We can't use lookahead_bars parameter as it's not in the interface
             # Instead, we'll need to call get_next_bar multiple times if needed
             next_bar = self.data_service.get_next_bar(
-                event.trading_pair, event.timestamp
+                event.trading_pair,
+                event.timestamp,
             )
 
             # If we need to look ahead more bars due to processing delay
@@ -487,10 +488,12 @@ class SimulatedExecutionHandler:
                 if next_bar is None:
                     break
                 # Get timestamp from bar name or keep current one
-                current_timestamp = next_bar.name if hasattr(next_bar, "name") else \
-                    current_timestamp
+                current_timestamp = (
+                    next_bar.name if hasattr(next_bar, "name") else current_timestamp
+                )
                 next_bar = self.data_service.get_next_bar(
-                    event.trading_pair, current_timestamp
+                    event.trading_pair,
+                    current_timestamp,
                 )
 
             if next_bar is None:
@@ -554,13 +557,13 @@ class SimulatedExecutionHandler:
                         next_bar.name,
                         source_module=self.__class__.__name__,
                     )
-                    fill_timestamp = datetime.now(timezone.utc)  # DTZ003 corrected
+                    fill_timestamp = datetime.now(UTC)  # DTZ003 corrected
         else:
             self.logger.warning(
                 "Bar has no name/index. Using current time for fill timestamp.",
                 source_module=self.__class__.__name__,
             )
-            fill_timestamp = datetime.now(timezone.utc)  # DTZ003 corrected
+            fill_timestamp = datetime.now(UTC)  # DTZ003 corrected
 
         # Handle different order types
         if event.order_type.upper() == "MARKET":
@@ -760,7 +763,9 @@ class SimulatedExecutionHandler:
 
             if simulated_fill_qty_immediate > Decimal("1e-12"):
                 liquidity_type = self._determine_limit_order_liquidity(
-                    event.side, fill_price_if_met, next_bar
+                    event.side,
+                    fill_price_if_met,
+                    next_bar,
                 )
                 commission_pct = (
                     self.maker_fee_pct if liquidity_type == "MAKER" else self.taker_fee_pct
@@ -834,6 +839,7 @@ class SimulatedExecutionHandler:
                     # Create a new event for the remaining quantity
                     # Convert dataclass to dict instead of using model_dump which is for Pydantic
                     import dataclasses
+
                     remaining_payload = dataclasses.asdict(event)
                     remaining_payload["quantity"] = remaining_qty_for_active_order
                     # Ensure the new signal_id for the remainder is unique if needed,
@@ -888,7 +894,8 @@ class SimulatedExecutionHandler:
         # Fallback if logic above isn't complete.
         if not order_fully_processed_immediately:  # and not (active order condition)
             self.logger.warning(
-                "Limit order %s fell through. Assuming rejection.", event.signal_id
+                "Limit order %s fell through. Assuming rejection.",
+                event.signal_id,
             )
             await self._publish_simulated_report(
                 event,
@@ -917,7 +924,7 @@ class SimulatedExecutionHandler:
             "bar_count_waited": 0,
             "status": "NEW",  # Initial status when added
             "initial_event_signal_id_str": initial_event_signal_id_str,
-            "placement_timestamp": datetime.now(timezone.utc),  # When it was added to active list
+            "placement_timestamp": datetime.now(UTC),  # When it was added to active list
         }
         self.logger.info(
             "Limit order (orig_signal_id: %s, qty: %s) added to active tracking. Internal ID: %s",
@@ -945,7 +952,7 @@ class SimulatedExecutionHandler:
             limit_price: The order's limit price.
             bar: OHLCV bar data for the current period.
 
-        Returns
+        Returns:
         -------
             A tuple of (fill_price, is_filled) where:
               - fill_price: The price at which the order filled, or None if not filled
@@ -988,7 +995,7 @@ class SimulatedExecutionHandler:
         Args:
             bar: OHLCV bar data
 
-        Returns
+        Returns:
         -------
             Tuple of (open, low, high) prices as Decimal, or None if extraction failed
         """
@@ -1060,7 +1067,7 @@ class SimulatedExecutionHandler:
                 "defaulting to TAKER. Fill: %s, Bar: %s",
                 fill_price,
                 bar.to_dict(),  # E501: This can be long, but acceptable for a warning.
-                source_module=self.__class__.__name__
+                source_module=self.__class__.__name__,
             )
             # Removed exc_info parameter as it's not supported by the LoggerService interface
             return "TAKER"  # Default to TAKER in case of exceptions
@@ -1159,7 +1166,7 @@ class SimulatedExecutionHandler:
         """Create and publish a simulated ExecutionReportEvent."""
         try:
             # Generate unique simulation order ID if not provided
-            timestamp_micros = int(datetime.now(timezone.utc).timestamp() * 1e6)  # DTZ003 fix
+            timestamp_micros = int(datetime.now(UTC).timestamp() * 1e6)  # DTZ003 fix
 
             if overrides and overrides.exchange_order_id:
                 exchange_order_id = overrides.exchange_order_id
@@ -1181,7 +1188,7 @@ class SimulatedExecutionHandler:
             report = ExecutionReportEvent(
                 source_module=self.__class__.__name__,
                 event_id=uuid.uuid4(),
-                timestamp=datetime.now(timezone.utc),  # DTZ003
+                timestamp=datetime.now(UTC),  # DTZ003
                 signal_id=originating_event.signal_id,
                 exchange_order_id=exchange_order_id,
                 client_order_id=client_order_id,
@@ -1202,7 +1209,7 @@ class SimulatedExecutionHandler:
                 timestamp_exchange=(
                     params.fill_timestamp
                     if params.fill_timestamp
-                    else datetime.now(timezone.utc)  # Access via params
+                    else datetime.now(UTC)  # Access via params
                 ),  # DTZ003
                 error_message=params.error_msg,  # Access via params
                 # Note: liquidity_type is stored in context for logging but not passed to
@@ -1229,7 +1236,7 @@ class SimulatedExecutionHandler:
             bar: The OHLCV data for the current simulation time
             bar_timestamp: The timestamp of the current_bar
 
-        Returns
+        Returns:
         -------
             bool: True if the bar is valid for SL/TP checks, False otherwise
         """
@@ -1253,8 +1260,9 @@ class SimulatedExecutionHandler:
 
         return True
 
-    def _check_sl_tp_trigger(self, sl_tp_data: dict, bar_high: Decimal, bar_low: Decimal,
-                          bar_timestamp: datetime) -> dict | None:  # noqa: ARG002
+    def _check_sl_tp_trigger(
+        self, sl_tp_data: dict, bar_high: Decimal, bar_low: Decimal, bar_timestamp: datetime
+    ) -> dict | None:
         """Check if the current bar triggers any SL/TP conditions.
 
         Args:
@@ -1263,7 +1271,7 @@ class SimulatedExecutionHandler:
             bar_low: Low price of the current bar
             bar_timestamp: Timestamp of the current bar
 
-        Returns
+        Returns:
         -------
             Optional[dict]: Dictionary with exit details if triggered, None otherwise
         """
@@ -1322,7 +1330,7 @@ class SimulatedExecutionHandler:
 
         Called by the backtesting engine for each new bar to monitor active positions.
 
-        Args
+        Args:
         ----
             current_bar: The OHLCV data for the current simulation time
             bar_timestamp: The timestamp of the current_bar (usually its open time)
@@ -1419,8 +1427,7 @@ class SimulatedExecutionHandler:
 
         report_overrides = CustomReportOverrides(
             exchange_order_id=(
-                f"sim_tp_exit_{position_id}_"
-                f"{int(datetime.now(timezone.utc).timestamp() * 1e6)}"
+                f"sim_tp_exit_{position_id}_" f"{int(datetime.now(UTC).timestamp() * 1e6)}"
             ),
             client_order_id=f"sim_tp_exit_{position_id}",
             order_type=exit_details["exit_order_type"],  # Should be "LIMIT" or "TAKE_PROFIT_LIMIT"
@@ -1521,8 +1528,7 @@ class SimulatedExecutionHandler:
                     order_type="MARKET",
                     side=exit_side,
                     exchange_order_id=(
-                        f"sim_sl_err_{position_id}_"
-                        f"{int(datetime.now(timezone.utc).timestamp() * 1e6)}"
+                        f"sim_sl_err_{position_id}_" f"{int(datetime.now(UTC).timestamp() * 1e6)}"
                     ),
                     client_order_id=f"sim_sl_err_{position_id}",
                 ),
@@ -1533,17 +1539,17 @@ class SimulatedExecutionHandler:
         if not isinstance(sl_fill_timestamp, datetime):
             try:
                 sl_fill_timestamp = pd.to_datetime(str(sl_fill_timestamp)).to_pydatetime(
-                    warn=False
+                    warn=False,
                 )
                 if sl_fill_timestamp.tzinfo is None:
-                    sl_fill_timestamp = sl_fill_timestamp.replace(tzinfo=timezone.utc)
+                    sl_fill_timestamp = sl_fill_timestamp.replace(tzinfo=UTC)
 
             except Exception:
                 self.logger.warning(
                     "SL fill timestamp conversion error. Using current UTC.",
-                    source_module=self.__class__.__name__
+                    source_module=self.__class__.__name__,
                 )
-                sl_fill_timestamp = datetime.now(timezone.utc)
+                sl_fill_timestamp = datetime.now(UTC)
 
         # Simulate the market order fill
         # (slippage, partial fill due to liquidity, taker commission)
@@ -1556,8 +1562,7 @@ class SimulatedExecutionHandler:
 
         report_overrides = CustomReportOverrides(
             exchange_order_id=(
-                f"sim_sl_exit_{position_id}_"
-                f"{int(datetime.now(timezone.utc).timestamp() * 1e6)}"
+                f"sim_sl_exit_{position_id}_" f"{int(datetime.now(UTC).timestamp() * 1e6)}"
             ),
             client_order_id=f"sim_sl_exit_{position_id}",
             order_type="MARKET",  # Or specific like "STOP_MARKET"
@@ -1640,7 +1645,8 @@ class SimulatedExecutionHandler:
                 trigger_timestamp=bar_timestamp,
             )
             sl_outcome = await self._simulate_sl_market_order_for_exit(
-                position_id, market_exit_params
+                position_id,
+                market_exit_params,
             )
             outcome_details.update(sl_outcome)
             sl_market_exit_signal_id_for_report = sl_outcome.get("sl_market_exit_signal_id")
@@ -1686,7 +1692,7 @@ class SimulatedExecutionHandler:
         )
         exit_exchange_order_id = (
             f"sim_exit_{originating_event.signal_id}_"
-            f"{int(datetime.now(timezone.utc).timestamp() * 1e6)}"  # Split f-string
+            f"{int(datetime.now(UTC).timestamp() * 1e6)}"  # Split f-string
         )
 
         report_overrides = CustomReportOverrides(
@@ -1754,11 +1760,11 @@ class SimulatedExecutionHandler:
             tp_price=Decimal("0"),  # Required field, set to 0 for SL exit event
             risk_parameters={
                 "reason": "SL_EXIT_INTERNAL_SIM",
-                "original_signal_id": str(params.originating_event.signal_id)
+                "original_signal_id": str(params.originating_event.signal_id),
             },
             limit_price=None,  # Market order has no limit price
             source_module=self.__class__.__name__,  # Add missing required parameter
-            event_id=uuid.uuid4()  # Add missing required parameter with a new UUID
+            event_id=uuid.uuid4(),  # Add missing required parameter with a new UUID
         )
 
         next_bar_for_sl_fill = await self._get_next_bar_data(sl_exit_event_for_sim)
@@ -1768,17 +1774,17 @@ class SimulatedExecutionHandler:
             if not isinstance(actual_fill_timestamp, datetime):
                 try:
                     actual_fill_timestamp = pd.to_datetime(
-                        str(actual_fill_timestamp)
+                        str(actual_fill_timestamp),
                     ).to_pydatetime(warn=False)
                     if actual_fill_timestamp.tzinfo is None:
-                        actual_fill_timestamp = actual_fill_timestamp.replace(tzinfo=timezone.utc)
+                        actual_fill_timestamp = actual_fill_timestamp.replace(tzinfo=UTC)
                 except ValueError:
                     self.logger.warning(
                         "SL fill timestamp conversion error for %s. Using current UTC.",
                         actual_fill_timestamp,
-                        source_module=self.__class__.__name__
+                        source_module=self.__class__.__name__,
                     )
-                    actual_fill_timestamp = datetime.now(timezone.utc)
+                    actual_fill_timestamp = datetime.now(UTC)
 
             market_fill_result = await self._simulate_market_order(
                 sl_exit_event_for_sim,
@@ -1925,9 +1931,9 @@ class SimulatedExecutionHandler:
                 source_module=self.__class__.__name__,
             )
         else:
-            self._active_sl_tp[position_id]["cumulative_filled_entry_qty"] += (
-                fill_details.qty_increment
-            )
+            self._active_sl_tp[position_id][
+                "cumulative_filled_entry_qty"
+            ] += fill_details.qty_increment
             self._active_sl_tp[position_id]["last_entry_order_type"] = fill_details.order_type
             self.logger.info(
                 "Additional quantity %s added to SL/TP position %s. New total: %s.",
@@ -2029,9 +2035,9 @@ class SimulatedExecutionHandler:
                         fill_ts_market_conv_dt = pd.to_datetime(str(fill_ts_market_conv))
                         fill_ts_market_conv = fill_ts_market_conv_dt.to_pydatetime(warn=False)
                         if fill_ts_market_conv.tzinfo is None:
-                            fill_ts_market_conv = fill_ts_market_conv.replace(tzinfo=timezone.utc)
+                            fill_ts_market_conv = fill_ts_market_conv.replace(tzinfo=UTC)
                     except Exception:
-                        fill_ts_market_conv = datetime.now(timezone.utc)
+                        fill_ts_market_conv = datetime.now(UTC)
 
                 market_fill_result = await self._simulate_market_order(
                     market_conversion_event,
@@ -2121,7 +2127,9 @@ class SimulatedExecutionHandler:
             )
 
     async def check_active_limit_orders(
-        self, current_bar: pd.Series, bar_timestamp: datetime
+        self,
+        current_bar: pd.Series,
+        bar_timestamp: datetime,
     ) -> None:
         """Check active limit orders against the current bar for fills or timeouts.
 
@@ -2238,6 +2246,7 @@ class SimulatedExecutionHandler:
                 if internal_sim_order_id in self._active_limit_orders:
                     del self._active_limit_orders[internal_sim_order_id]
 
+
 def _check_bar_for_trigger(
     original_side: str,
     trigger_type: str,  # "SL" or "TP"
@@ -2245,8 +2254,7 @@ def _check_bar_for_trigger(
     bar_low: Decimal,
     bar_high: Decimal,
 ) -> bool:
-    """
-    Check if the given bar's low/high prices trigger the specified SL/TP condition.
+    """Check if the given bar's low/high prices trigger the specified SL/TP condition.
 
     Args:
         original_side: The side of the original trade ("BUY" or "SELL").
@@ -2255,7 +2263,7 @@ def _check_bar_for_trigger(
         bar_low: The low price of the current bar.
         bar_high: The high price of the current bar.
 
-    Returns
+    Returns:
     -------
         True if the bar triggers the condition, False otherwise.
     """
