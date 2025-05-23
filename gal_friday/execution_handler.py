@@ -16,7 +16,7 @@ from datetime import UTC, datetime  # Modified import
 from decimal import Decimal
 
 # Added Callable, Coroutine
-from typing import Any, Optional, cast
+from typing import Any, cast
 from uuid import UUID
 
 import aiohttp
@@ -970,7 +970,7 @@ class ExecutionHandler:
         # Convert UUID to string for logging
         signal_id_str = str(signal_id)
 
-        kraken_pair_name = cast(Optional[str], pair_info.get("altname"))
+        kraken_pair_name = cast("str | None", pair_info.get("altname"))
         if not kraken_pair_name:
             self.logger.error(
                 "Missing Kraken altname for pair %s in loaded info for signal %s.",
@@ -1729,7 +1729,7 @@ class ExecutionHandler:
     def _get_quote_currency(self, internal_pair: str) -> str | None:
         """Get the quote currency for an internal pair name."""
         info = self._pair_info.get(internal_pair)
-        return cast(Optional[str], info.get("quote")) if info else None  # Added cast
+        return cast("str | None", info.get("quote")) if info else None  # Added cast
 
     async def _has_sl_tp_been_placed(self, signal_id: UUID | None) -> bool:
         """Check if SL/TP orders have already been placed for a signal."""

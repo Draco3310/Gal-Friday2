@@ -517,7 +517,7 @@ class BacktestHistoricalDataProviderImpl:
                                 "low": "min",
                                 "close": "last",
                                 "volume": "sum",
-                            }
+                            },
                         )
                         .dropna()
                     )
@@ -605,7 +605,7 @@ def _calculate_annualized_return(
             first_date = equity_curve.index[0]
             last_date = equity_curve.index[-1]
             if isinstance(first_date, (pd.Timestamp, datetime)) and isinstance(
-                last_date, (pd.Timestamp, datetime)
+                last_date, (pd.Timestamp, datetime),
             ):
                 duration_days = (last_date - first_date).total_seconds() / (60 * 60 * 24)
                 if duration_days > 0:

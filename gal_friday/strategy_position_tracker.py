@@ -42,7 +42,7 @@ class StrategyPositionTracker:
                 "exposure_pct": Decimal("0"),
                 "position_count": 0,
                 "last_updated": datetime.utcnow(),
-            }
+            },
         )
         self._portfolio_equity = Decimal("0")  # Total portfolio equity for reference
 
@@ -160,7 +160,7 @@ class StrategyPositionTracker:
                 else Decimal(
                     str(
                         metrics["drawdown_pct"] if metrics["drawdown_pct"] is not None else 0,
-                    )
+                    ),
                 ),
             ),
             source_module=self._source_module,

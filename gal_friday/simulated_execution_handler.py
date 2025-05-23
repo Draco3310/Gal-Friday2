@@ -1261,7 +1261,7 @@ class SimulatedExecutionHandler:
         return True
 
     def _check_sl_tp_trigger(
-        self, sl_tp_data: dict, bar_high: Decimal, bar_low: Decimal, bar_timestamp: datetime
+        self, sl_tp_data: dict, bar_high: Decimal, bar_low: Decimal, bar_timestamp: datetime,
     ) -> dict | None:
         """Check if the current bar triggers any SL/TP conditions.
 

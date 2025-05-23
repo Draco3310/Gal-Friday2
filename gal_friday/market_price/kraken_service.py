@@ -539,7 +539,7 @@ class KrakenMarketPriceService(MarketPriceService):
                                 "low": Decimal(str(candle[3])),
                                 "close": Decimal(str(candle[4])),
                                 "volume": Decimal(str(candle[6])),  # volume is at index 6
-                            }
+                            },
                         )
 
                     # Kraken's limit is on returned data points (max 720).

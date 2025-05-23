@@ -17,7 +17,6 @@ from typing import (  # Added Type for exc_info typing
     TYPE_CHECKING,
     Any,
     Optional,
-    Union,
 )
 
 import psutil  # Added for system resource monitoring
@@ -846,7 +845,7 @@ class MonitoringService:
 
     async def _update_market_data_timestamp(
         self,
-        event: "Union[MarketDataL2Event, MarketDataOHLCVEvent]",
+        event: "MarketDataL2Event | MarketDataOHLCVEvent",
     ) -> None:
         """Update the last received timestamp for market data events.
 

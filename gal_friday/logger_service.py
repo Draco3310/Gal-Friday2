@@ -32,7 +32,6 @@ from typing import (
     Optional,
     Protocol,
     TypeVar,
-    Union,
 )
 
 import asyncpg
@@ -626,11 +625,7 @@ class LoggerService(Generic[PoolType]):
 
     # Define a type alias for exc_info to improve readability and manage line length
     ExcInfoType = Optional[
-        Union[
-            bool,
-            tuple[type[BaseException], BaseException, types.TracebackType],
-            BaseException,
-        ]
+        bool | tuple[type[BaseException], BaseException, types.TracebackType] | BaseException
     ]
 
     def log(
@@ -665,7 +660,7 @@ class LoggerService(Generic[PoolType]):
 
         # Log the message using the standard logging interface
         logger.log(
-            level, message, *args, exc_info=exc_info, extra=extra_data, stacklevel=2
+            level, message, *args, exc_info=exc_info, extra=extra_data, stacklevel=2,
         )  # Pass *args
         # stacklevel=2 ensures filename/lineno are from the caller of this
         # method
@@ -689,7 +684,7 @@ class LoggerService(Generic[PoolType]):
             context: Optional context information
         """
         self.log(
-            logging.DEBUG, message, *args, source_module=source_module, context=context
+            logging.DEBUG, message, *args, source_module=source_module, context=context,
         )  # Pass *args
 
     def info(
@@ -709,7 +704,7 @@ class LoggerService(Generic[PoolType]):
             context: Optional context information
         """
         self.log(
-            logging.INFO, message, *args, source_module=source_module, context=context
+            logging.INFO, message, *args, source_module=source_module, context=context,
         )  # Pass *args
 
     def warning(
@@ -729,7 +724,7 @@ class LoggerService(Generic[PoolType]):
             context: Optional context information
         """
         self.log(
-            logging.WARNING, message, *args, source_module=source_module, context=context
+            logging.WARNING, message, *args, source_module=source_module, context=context,
         )  # Pass *args
 
     def error(

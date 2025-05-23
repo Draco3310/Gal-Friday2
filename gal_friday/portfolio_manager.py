@@ -508,7 +508,7 @@ class PortfolioManager:
 
             _, latest_prices, exposure_pct = await self.valuation_service.update_portfolio_value(
                 current_funds,
-                cast(dict[str, Any], current_positions),
+                cast("dict[str, Any]", current_positions),
             )
 
             # Update local cache for get_current_state
@@ -806,7 +806,7 @@ class PortfolioManager:
         if not self._execution_handler_available_for_reconciliation():
             return
 
-        reconcilable_handler = cast(ReconcilableExecutionHandler, self._execution_handler)
+        reconcilable_handler = cast("ReconcilableExecutionHandler", self._execution_handler)
 
         try:
             # Fetch exchange state

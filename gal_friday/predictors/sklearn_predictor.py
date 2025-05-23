@@ -494,8 +494,8 @@ class SKLearnPredictor(PredictorInterface):
                 cls._raise_with_result(result, "Model is None")
 
             prediction, confidence, error = cls._make_prediction(
-                cast(Model, model),
-                cast(np.ndarray, processed_features),
+                cast("Model", model),
+                cast("np.ndarray", processed_features),
                 request.model_id,
             )
             if error:
@@ -507,7 +507,7 @@ class SKLearnPredictor(PredictorInterface):
                 {
                     "prediction": str(prediction) if prediction is not None else "",
                     "confidence": str(confidence) if confidence is not None else "",
-                }
+                },
             )
             logger.debug(
                 "Prediction successful: %s, Confidence: %s",

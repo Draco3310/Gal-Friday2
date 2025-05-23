@@ -6,8 +6,7 @@ from ..core.events import TradeSignalApprovedEvent
 
 
 class ExecutionHandlerInterface(abc.ABC):
-    """
-    Abstract Base Class for components that execute trades on exchanges.
+    """Abstract Base Class for components that execute trades on exchanges.
 
     Implementations should:
     1. Handle connection setup/teardown via start()/stop().
@@ -20,8 +19,7 @@ class ExecutionHandlerInterface(abc.ABC):
 
     @abc.abstractmethod
     async def start(self) -> None:
-        """
-        Initialize the service and establish connections to the exchange.
+        """Initialize the service and establish connections to the exchange.
 
         Should be called once during application startup to set up connections,
         load essential information, and subscribe to events.
@@ -30,8 +28,7 @@ class ExecutionHandlerInterface(abc.ABC):
 
     @abc.abstractmethod
     async def stop(self) -> None:
-        """
-        Clean up resources and close connections.
+        """Clean up resources and close connections.
 
         Should be called once during application shutdown to properly close
         connections, clean up resources, and unsubscribe from events.
@@ -40,10 +37,9 @@ class ExecutionHandlerInterface(abc.ABC):
 
     @abc.abstractmethod
     async def handle_trade_signal_approved(self, event: TradeSignalApprovedEvent) -> None:
-        """
-        Process an approved trade signal by placing the corresponding order.
+        """Process an approved trade signal by placing the corresponding order.
 
-        Args
+        Args:
         ----
             event: The approved trade signal event containing trade details
         """
@@ -51,14 +47,13 @@ class ExecutionHandlerInterface(abc.ABC):
 
     @abc.abstractmethod
     async def cancel_order(self, exchange_order_id: str) -> bool:
-        """
-        Cancel an open order on the exchange.
+        """Cancel an open order on the exchange.
 
-        Args
+        Args:
         ----
             exchange_order_id: The exchange-specific order ID to cancel
 
-        Returns
+        Returns:
         -------
             True if cancellation was successful or initiated, False otherwise
         """

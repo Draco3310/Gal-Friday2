@@ -274,7 +274,7 @@ class LSTMPredictor(PredictorInterface):
                     f"expected dimensions for model {self.model_id}",
                 )
                 raise InvalidDimensionsError(
-                    "Model output dimensions do not match expected format"
+                    "Model output dimensions do not match expected format",
                 )
             return model_output
         except Exception as e:

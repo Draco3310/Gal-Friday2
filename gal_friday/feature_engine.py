@@ -102,7 +102,7 @@ class FeatureEngine:
         # deque stores: {"ts": datetime, "price": Decimal, "vol": Decimal, "side": "buy"/"sell"}
         trade_history_maxlen = config.get("feature_engine", {}).get("trade_history_maxlen", 2000)
         self.trade_history: dict[str, deque] = defaultdict(
-            lambda: deque(maxlen=trade_history_maxlen)
+            lambda: deque(maxlen=trade_history_maxlen),
         )
 
         self.logger.info("FeatureEngine initialized.", source_module=self._source_module)
@@ -1102,10 +1102,10 @@ class FeatureEngine:
 
         try:
             # Convert the dictionary to an Event object to match expected type
-            from typing import Any, cast
+            from typing import cast
 
             # Use Any for Event since we can't import the actual type
-            await self.pubsub_manager.publish(cast(Any, full_feature_event))
+            await self.pubsub_manager.publish(cast("Any", full_feature_event))
             self.logger.info(
                 "Published FEATURES_CALCULATED event for %s at %s",
                 trading_pair,

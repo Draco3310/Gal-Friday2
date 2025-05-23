@@ -468,7 +468,7 @@ class DataIngestor:
             bool: True if reconnection was successful, False if max retries exceeded
         """
         self.logger.info(
-            "Attempting to reconnect to WebSocket...", source_module=self._source_module
+            "Attempting to reconnect to WebSocket...", source_module=self._source_module,
         )
         await self._cleanup_connection()
 

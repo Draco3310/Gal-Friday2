@@ -9,8 +9,8 @@ import base64
 import hashlib
 import hmac
 import time
-from typing import Any  # Removed Optional, Tuple, Dict
 import urllib.parse
+from typing import Any  # Removed Optional, Tuple, Dict
 
 from ..config_manager import ConfigManager
 from ..core.pubsub import PubSubManager
@@ -42,8 +42,7 @@ class KrakenApiSecretMissingError(KrakenExecutionError):
 
 
 class KrakenExecutionHandler(ExecutionHandler):
-    """
-    Kraken-specific implementation of the ExecutionHandler.
+    """Kraken-specific implementation of the ExecutionHandler.
 
     This class handles order execution on the Kraken cryptocurrency exchange by:
     1. Translating internal order formats to Kraken API parameters
@@ -80,10 +79,9 @@ class KrakenExecutionHandler(ExecutionHandler):
         monitoring_service: MonitoringService,  # Now required
         logger_service: LoggerService,
     ) -> None:
-        """
-        Initialize the Kraken-specific execution handler.
+        """Initialize the Kraken-specific execution handler.
 
-        Args
+        Args:
         ----
             config_manager: Configuration manager instance
             pubsub_manager: PubSub manager for event handling
@@ -106,26 +104,25 @@ class KrakenExecutionHandler(ExecutionHandler):
         # Validate API credentials
         if not self._api_key or not self._api_secret:
             self.logger.warning(
-                "Kraken API credentials not configured. Live trading will not be available."
+                "Kraken API credentials not configured. Live trading will not be available.",
             )
 
         self.logger.info(
-            "KrakenExecutionHandler initialized."
+            "KrakenExecutionHandler initialized.",
         )
 
     def _get_api_endpoint(self, action: str) -> str:
-        """
-        Get the Kraken API endpoint path for a given action.
+        """Get the Kraken API endpoint path for a given action.
 
-        Args
+        Args:
         ----
             action: The action to perform (add_order, cancel_order, etc.)
 
-        Returns
+        Returns:
         -------
             The API endpoint path
 
-        Raises
+        Raises:
         ------
             ValueError: If the action is unknown
         """
@@ -178,15 +175,14 @@ class KrakenExecutionHandler(ExecutionHandler):
         return kraken_params
 
     def _prepare_request_data(self, internal_data: dict[str, Any], action: str) -> dict[str, Any]:
-        """
-        Translate internal order details to Kraken API parameters.
+        """Translate internal order details to Kraken API parameters.
 
-        Args
+        Args:
         ----
             internal_data: Internal order parameters
             action: The action being performed
 
-        Returns
+        Returns:
         -------
             Kraken-specific parameters
         """
@@ -202,17 +198,16 @@ class KrakenExecutionHandler(ExecutionHandler):
         return kraken_params
 
     def _generate_auth_headers(
-        self, uri_path: str, request_data: dict[str, Any]
+        self, uri_path: str, request_data: dict[str, Any],
     ) -> dict[str, str]:
-        """
-        Generate Kraken-specific authentication headers.
+        """Generate Kraken-specific authentication headers.
 
-        Args
+        Args:
         ----
             uri_path: API endpoint path
             request_data: Request parameters (the dictionary, not urlencoded string)
 
-        Returns
+        Returns:
         -------
             Authentication headers
         """
@@ -232,15 +227,14 @@ class KrakenExecutionHandler(ExecutionHandler):
         }
 
     def _parse_response(self, response_data: dict[str, Any], action: str) -> dict[str, Any]:
-        """
-        Parse Kraken's response for a given action into a standard format.
+        """Parse Kraken's response for a given action into a standard format.
 
-        Args
+        Args:
         ----
             response_data: Raw response from Kraken API
             action: The action that was performed
 
-        Returns
+        Returns:
         -------
             Standardized response dictionary
         """
@@ -252,7 +246,7 @@ class KrakenExecutionHandler(ExecutionHandler):
             self.logger.error(
                 "Kraken API error for %s: %s",
                 action,
-                parsed["error"]
+                parsed["error"],
             )
         # Check for result field
         elif "result" in response_data:
@@ -263,35 +257,34 @@ class KrakenExecutionHandler(ExecutionHandler):
             if action == "add_order" and "txid" in response_data["result"]:
                 self.logger.info(
                     "Order placed successfully: %s",
-                    response_data["result"]["txid"]
+                    response_data["result"]["txid"],
                 )
             elif action == "cancel_order":
                 self.logger.info(
                     "Order cancelled: %s",
-                    response_data["result"]
+                    response_data["result"],
                 )
         else:
             parsed["error"] = "Unknown response format from Kraken API"
             self.logger.error(
                 "Unknown response format from Kraken API for %s",
-                action
+                action,
             )
 
         return parsed
 
     def _generate_kraken_signature(self, uri_path: str, data: dict[str, Any], nonce: int) -> str:
-        """
-        Generate the API-Sign header required by Kraken private endpoints.
+        """Generate the API-Sign header required by Kraken private endpoints.
 
         This method now matches the superclass signature.
 
-        Args
+        Args:
         ----
             uri_path: API endpoint path
             data: Request parameters as a dictionary
             nonce: Unique nonce value
 
-        Returns
+        Returns:
         -------
             Base64-encoded signature
         """
@@ -318,14 +311,13 @@ class KrakenExecutionHandler(ExecutionHandler):
         return base64.b64encode(signature.digest()).decode()
 
     async def place_order(self, order_details: dict[str, Any]) -> dict[str, Any]:
-        """
-        Place an order on the Kraken exchange.
+        """Place an order on the Kraken exchange.
 
-        Args
+        Args:
         ----
             order_details: Dictionary containing order details
 
-        Returns
+        Returns:
         -------
             Response containing order status
         """
@@ -341,7 +333,7 @@ class KrakenExecutionHandler(ExecutionHandler):
 
         log_msg = "Placing {} order for {}".format(
             order_details.get("order_type"),
-            order_details.get("trading_pair")
+            order_details.get("trading_pair"),
         )
         self.logger.info(log_msg, source_module=self.__class__.__name__)
 
@@ -356,16 +348,15 @@ class KrakenExecutionHandler(ExecutionHandler):
         return self._parse_response(api_result, action)
 
     async def cancel_order(self, order_id: str) -> bool:
-        """
-        Cancel an existing order on the Kraken exchange.
+        """Cancel an existing order on the Kraken exchange.
 
         This method now implements the cancellation fully and returns bool.
 
-        Args
+        Args:
         ----
             order_id: The ID of the order to cancel
 
-        Returns
+        Returns:
         -------
             True if cancellation was successful (or acknowledged by Kraken), False otherwise.
         """
@@ -411,16 +402,15 @@ class KrakenExecutionHandler(ExecutionHandler):
         return False  # Default to False if not explicitly successful
 
     async def get_order_status(self, order_id: str) -> dict[str, Any]:
-        """
-        Get the current status of an order on the Kraken exchange.
+        """Get the current status of an order on the Kraken exchange.
 
         This method now implements the status retrieval fully.
 
-        Args
+        Args:
         ----
             order_id: The ID of the order to check
 
-        Returns
+        Returns:
         -------
             Response containing order status
         """

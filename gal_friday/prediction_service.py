@@ -121,7 +121,7 @@ class PredictionService:
         self.configuration_manager = configuration_manager  # Store it
 
         self._feature_event_handler: Callable[
-            [FeatureEvent], Coroutine[Any, Any, None]
+            [FeatureEvent], Coroutine[Any, Any, None],
         ] = self._handle_feature_event
         # Added handler for config updates
         self._config_update_handler: Callable[
@@ -451,7 +451,7 @@ class PredictionService:
             raise  # Re-raise to signal failure to start properly
 
         loaded_count = len(
-            [p for p in self._predictors.values() if getattr(p, "is_critical", False)]
+            [p for p in self._predictors.values() if getattr(p, "is_critical", False)],
         )
         total_critical = sum(
             1 for p in self._predictors.values() if getattr(p, "is_critical", False)
@@ -928,7 +928,7 @@ class PredictionService:
                             ),
                             "confidence": result.get("confidence"),
                             "config": model_config,
-                        }
+                        },
                     )
                 else:
                     log_msg = (
@@ -1060,7 +1060,7 @@ class PredictionService:
                 "prediction_target": target,
                 "confidence": avg_confidence,
                 "config": {"model_id": ensemble_id, "prediction_target": target},
-            }
+            },
         )
 
     def _apply_weighted_average_ensembling(
@@ -1125,7 +1125,7 @@ class PredictionService:
                     "prediction_target": target,
                     "confidence": avg_confidence,
                     "config": {"model_id": ensemble_id, "prediction_target": target},
-                }
+                },
             )
 
     def _prepare_features_for_model(

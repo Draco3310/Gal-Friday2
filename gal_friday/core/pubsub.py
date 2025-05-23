@@ -38,7 +38,7 @@ class PubSubManager:
         """
         # Subscribers stored by EventType enum member
         self._subscribers: dict[
-            EventType, list[Callable[[Event], Coroutine[Any, Any, None]]]
+            EventType, list[Callable[[Event], Coroutine[Any, Any, None]]],
         ] = defaultdict(list)
         self._logger = logger
         self._config = config_manager  # Store config reference

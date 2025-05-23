@@ -5,7 +5,7 @@ import logging
 from collections.abc import Callable, Coroutine
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any, ParamSpec, TypeVar, Union
+from typing import Any, ParamSpec, TypeVar
 
 import pandas as pd
 import pandas_ta as ta
@@ -520,7 +520,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
         import numpy as np
 
         # More precise typing for the list of dictionaries
-        data_element_type = dict[str, Union[pd.Timestamp, float, int]]  # numpy can yield int/float
+        data_element_type = dict[str, pd.Timestamp | float | int]  # numpy can yield int/float
         data: list[data_element_type] = []
         base_price = 100.0
 

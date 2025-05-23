@@ -642,7 +642,7 @@ class RiskManager:
         )
 
         is_price_valid, price_rejection_reason = self._validate_prices_fat_finger_and_sl_distance(
-            price_validation_ctx
+            price_validation_ctx,
         )
 
         if not is_price_valid:
@@ -729,7 +729,7 @@ class RiskManager:
 
             # --- Stage 2: Fat Finger & Stop-Loss Distance (Market Price Dependent) ---
             current_market_price_for_validation = await self._get_current_market_price(
-                event.trading_pair
+                event.trading_pair,
             )
             stage2_ctx = Stage2Context(
                 event=event,
@@ -811,7 +811,7 @@ class RiskManager:
                 portfolio_state=portfolio_state,
             )
             initial_rounded_calculated_qty = self._stage3_position_sizing_and_portfolio_checks(
-                stage3_ctx
+                stage3_ctx,
             )
 
             # --- Stage 4: Position Scaling (if applicable) ---

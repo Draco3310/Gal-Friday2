@@ -118,7 +118,7 @@ class BackgroundProcess(Generic[T]):
             raise
         else:
             self._status = ProcessStatus.COMPLETED
-            return cast(T, result)
+            return cast("T", result)
 
     async def aget_result(self, poll_interval: float = 0.1) -> T:
         """Asynchronously get the result of the background process.
@@ -159,7 +159,7 @@ class BackgroundProcess(Generic[T]):
                 MSG_PROCESS_FAILED_NO_SPECIFIC_EXCEPTION % self._target_name,
             )
 
-        return cast(T, self._future.result())
+        return cast("T", self._future.result())
 
     def cancel(self) -> bool:
         """Attempt to cancel the background process.
@@ -249,7 +249,7 @@ class BackgroundProcessManager:
                 max_workers if max_workers is not None else cls._max_workers_at_init
             )
             BackgroundProcessManager._executor = ProcessPoolExecutor(
-                max_workers=resolved_max_workers
+                max_workers=resolved_max_workers,
             )
             if cls._max_workers_at_init is None and resolved_max_workers is not None:
                 cls._max_workers_at_init = resolved_max_workers

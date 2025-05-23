@@ -1,5 +1,4 @@
-"""
-Predictors for Gal-Friday.
+"""Predictors for Gal-Friday.
 
 This package contains implementations of the PredictorInterface
 for various machine learning model types.
