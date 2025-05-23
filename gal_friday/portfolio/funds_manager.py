@@ -3,7 +3,7 @@
 import asyncio
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from ..exceptions import DataValidationError, InsufficientFundsError
 from ..logger_service import LoggerService
@@ -36,10 +36,9 @@ class FundsManager:
     INSUFFICIENT_BASE_FUNDS = "Insufficient {} to sell. Required: {}, Available: {}"
 
     def __init__(self, logger_service: LoggerService, valuation_currency: str = "USD") -> None:
-        """
-        Initialize the funds manager.
+        """Initialize the funds manager.
 
-        Args
+        Args:
         ----
             logger_service: Service for logging.
             valuation_currency: The currency for overall valuation (default: "USD").
@@ -56,10 +55,9 @@ class FundsManager:
         return self._available_funds.copy()
 
     async def initialize_funds(self, initial_capital: dict[str, Any]) -> None:
-        """
-        Initialize funds from configuration.
+        """Initialize funds from configuration.
 
-        Args
+        Args:
         ----
             initial_capital: A dictionary where keys are currency symbols (e.g., "USD")
                              and values are the initial amounts.
@@ -95,10 +93,9 @@ class FundsManager:
         self,
         trade: TradeParams,
     ) -> None:
-        """
-        Update available funds based on a trade execution.
+        """Update available funds based on a trade execution.
 
-        Args
+        Args:
         ----
             trade: Trade parameters
         """
@@ -117,8 +114,10 @@ class FundsManager:
                 if current_balance_quote < trade.cost_or_proceeds:
                     raise InsufficientFundsError(
                         self.INSUFFICIENT_QUOTE_FUNDS.format(
-                            quote_asset_upper, trade.cost_or_proceeds, current_balance_quote
-                        )
+                            quote_asset_upper,
+                            trade.cost_or_proceeds,
+                            current_balance_quote,
+                        ),
                     )
                 self._available_funds[quote_asset_upper] = (
                     current_balance_quote - trade.cost_or_proceeds
@@ -139,8 +138,10 @@ class FundsManager:
                 if current_balance_base < trade.quantity:
                     raise InsufficientFundsError(
                         self.INSUFFICIENT_BASE_FUNDS.format(
-                            base_asset_upper, trade.quantity, current_balance_base
-                        )
+                            base_asset_upper,
+                            trade.quantity,
+                            current_balance_base,
+                        ),
                     )
                 self._available_funds[base_asset_upper] = current_balance_base - trade.quantity
                 self._available_funds[quote_asset_upper] = (
@@ -163,10 +164,9 @@ class FundsManager:
         commission: Decimal,
         commission_asset: str | None,
     ) -> None:
-        """
-        Update funds to account for trading commission.
+        """Update funds to account for trading commission.
 
-        Args
+        Args:
         ----
             commission: Commission amount
             commission_asset: Commission currency symbol
@@ -193,15 +193,14 @@ class FundsManager:
             )
 
     async def deposit(self, currency: str, amount: Decimal) -> None:
-        """
-        Record a deposit of funds.
+        """Record a deposit of funds.
 
-        Args
+        Args:
         ----
             currency: Currency symbol
             amount: Deposit amount
 
-        Raises
+        Raises:
         ------
             DataValidationError: If amount is invalid
         """
@@ -223,15 +222,14 @@ class FundsManager:
             )
 
     async def withdraw(self, currency: str, amount: Decimal) -> None:
-        """
-        Record a withdrawal of funds.
+        """Record a withdrawal of funds.
 
-        Args
+        Args:
         ----
             currency: Currency symbol
             amount: Withdrawal amount
 
-        Raises
+        Raises:
         ------
             DataValidationError: If amount is invalid
             InsufficientFundsError: If not enough funds
@@ -239,14 +237,13 @@ class FundsManager:
         if amount <= Decimal(0):
             raise DataValidationError(self.INVALID_WITHDRAWAL_AMOUNT % amount)
 
-
         async with self._lock:
             currency_upper = currency.upper()
             current_balance = self._available_funds.get(currency_upper, Decimal(0))
 
             if current_balance < amount:
                 raise InsufficientFundsError(
-                    self.INSUFFICIENT_BASE_FUNDS % (currency_upper, amount, current_balance)
+                    self.INSUFFICIENT_BASE_FUNDS % (currency_upper, amount, current_balance),
                 )
 
             new_balance = current_balance - amount
@@ -261,12 +258,12 @@ class FundsManager:
             )
 
     async def reconcile_with_exchange_balances(
-        self, exchange_balances: dict[str, Decimal]
+        self,
+        exchange_balances: dict[str, Decimal],
     ) -> None:
-        """
-        Reconciles internal fund balances with exchange-reported balances.
+        """Reconciles internal fund balances with exchange-reported balances.
 
-        Args
+        Args:
         ----
             exchange_balances: Dictionary of currency to balance from exchange API
         """

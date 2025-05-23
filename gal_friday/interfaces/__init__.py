@@ -1,5 +1,4 @@
-"""
-Core interfaces for the Gal-Friday trading system.
+"""Core interfaces for the Gal-Friday trading system.
 
 This module contains abstract base classes that define the essential interfaces
 that various components of the system must implement.

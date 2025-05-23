@@ -5,7 +5,7 @@ when not in type checking mode. These mocks allow the module to run without
 requiring all dependencies to be installed.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 
 class Console:
@@ -108,6 +108,7 @@ class LoggerService:
         if context:
             print(f"Context: {context}")
         import sys
+
         print(f"Exception: {sys.exc_info()[1]}")
 
     def debug(

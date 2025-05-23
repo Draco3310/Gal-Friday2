@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeVar
 from collections.abc import Callable
+from typing import Any, TypeVar
 
 from typing_extensions import Protocol
 
 T = TypeVar("T")
+
 
 class PubSubManager:
     """Manager for publish-subscribe pattern."""
@@ -18,6 +19,7 @@ class PubSubManager:
 
     def subscribe(self, event_type: str, callback: Callable[..., Any]) -> None:
         """Subscribe to an event type.
+
         Args:
             event_type: The event type to subscribe to
             callback: The callback function to call when the event is published
@@ -28,6 +30,7 @@ class PubSubManager:
 
     def unsubscribe(self, event_type: str, callback: Callable[..., Any]) -> None:
         """Unsubscribe from an event type.
+
         Args:
             event_type: The event type to unsubscribe from
             callback: The callback function to remove
@@ -37,6 +40,7 @@ class PubSubManager:
 
     def publish(self, event_type: str, *args, **kwargs) -> None:
         """Publish an event.
+
         Args:
             event_type: The event type to publish
             *args: Positional arguments to pass to callbacks
@@ -45,6 +49,7 @@ class PubSubManager:
         if event_type in self._subscribers:
             for callback in list(self._subscribers[event_type]):
                 callback(*args, **kwargs)
+
 
 class PubSubManagerProtocol(Protocol):
     """Protocol defining the required interface for pubsub managers."""

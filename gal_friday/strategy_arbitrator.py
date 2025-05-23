@@ -7,13 +7,12 @@ supports configurable threshold strategies with secondary confirmation rules.
 
 # Strategy Arbitrator Module
 
+import operator  # Added for condition dispatch
+import uuid
+from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-import operator  # Added for condition dispatch
-from typing import ClassVar, Optional
-
-from collections.abc import Callable
-import uuid
+from typing import ClassVar
 
 # Event imports
 from .core.events import EventType, PredictionEvent, TradeSignalProposedEvent
@@ -45,7 +44,7 @@ class StrategyArbitrator:
     ) -> None:
         """Initialize the StrategyArbitrator.
 
-        Args
+        Args:
         ----
             config (dict): Configuration settings. Expected structure:
                 strategy_arbitrator:
@@ -103,23 +102,25 @@ class StrategyArbitrator:
             # New config options from whiteboard
             self._confirmation_rules = self._mvp_strategy_config.get("confirmation_rules", [])
             self._limit_offset_pct = Decimal(
-                str(self._mvp_strategy_config.get("limit_offset_pct", "0.0001"))
+                str(self._mvp_strategy_config.get("limit_offset_pct", "0.0001")),
             )  # e.g. 0.01% = 0.0001
             self._prediction_interpretation = self._mvp_strategy_config.get(
-                "prediction_interpretation", "prob_up"
+                "prediction_interpretation",
+                "prob_up",
             )
             default_rr_ratio_str = self._mvp_strategy_config.get(
-                "default_reward_risk_ratio", "2.0"
+                "default_reward_risk_ratio",
+                "2.0",
             )
             self._default_reward_risk_ratio = Decimal(str(default_rr_ratio_str))
 
             # Specific config for price_change_pct interpretation
             if self._prediction_interpretation == "price_change_pct":
                 self._price_change_buy_threshold_pct = Decimal(
-                    str(self._mvp_strategy_config["price_change_buy_threshold_pct"])
+                    str(self._mvp_strategy_config["price_change_buy_threshold_pct"]),
                 )
                 self._price_change_sell_threshold_pct = Decimal(
-                    str(self._mvp_strategy_config["price_change_sell_threshold_pct"])
+                    str(self._mvp_strategy_config["price_change_sell_threshold_pct"]),
                 )
 
             self._validate_configuration()
@@ -192,7 +193,8 @@ class StrategyArbitrator:
 
         if self._prediction_interpretation == "price_change_pct":
             if not hasattr(self, "_price_change_buy_threshold_pct") or not hasattr(
-                self, "_price_change_sell_threshold_pct"
+                self,
+                "_price_change_sell_threshold_pct",
             ):
                 self.logger.error(
                     "Missing price_change_pct thresholds for '%s' interpretation.",
@@ -238,7 +240,8 @@ class StrategyArbitrator:
         self._validate_confirmation_rules_config()
 
         self.logger.info(
-            "Strategy configuration validated successfully.", source_module=self._source_module
+            "Strategy configuration validated successfully.",
+            source_module=self._source_module,
         )
 
     def _validate_prediction_event(self, event: PredictionEvent) -> bool:
@@ -344,7 +347,10 @@ class StrategyArbitrator:
         return tp_price
 
     async def _calculate_sl_tp_prices(
-        self, side: str, current_price: Decimal, trading_pair: str
+        self,
+        side: str,
+        current_price: Decimal,
+        trading_pair: str,
     ) -> tuple[Decimal | None, Decimal | None]:
         """Calculate SL/TP prices based on configuration and current price."""
         if current_price <= 0:
@@ -362,11 +368,15 @@ class StrategyArbitrator:
 
         # Attempt 1: Calculate SL directly, then TP
         sl_price, risk_amount_per_unit = self._calculate_stop_loss_price_and_risk(
-            side, current_price
+            side,
+            current_price,
         )
         if sl_price and risk_amount_per_unit:
             tp_price = self._calculate_take_profit_price(
-                side, current_price, sl_price, risk_amount_per_unit
+                side,
+                current_price,
+                sl_price,
+                risk_amount_per_unit,
             )
 
         # Attempt 2: If SL failed but TP might be possible directly, calculate TP then derive SL
@@ -375,7 +385,9 @@ class StrategyArbitrator:
             if tp_price_direct:
                 # Try to derive SL using this TP
                 derived_sl, derived_risk = self._calculate_stop_loss_price_and_risk(
-                    side, current_price, tp_price_for_rr_calc=tp_price_direct
+                    side,
+                    current_price,
+                    tp_price_for_rr_calc=tp_price_direct,
                 )
                 if derived_sl and derived_risk:
                     sl_price = derived_sl
@@ -436,7 +448,10 @@ class StrategyArbitrator:
             return None, None
 
     async def _determine_entry_price(
-        self, side: str, current_price: Decimal, trading_pair: str
+        self,
+        side: str,
+        current_price: Decimal,
+        trading_pair: str,
     ) -> Decimal | None:
         """Determine the proposed entry price based on order type."""
         if self._entry_type == "MARKET":
@@ -508,7 +523,11 @@ class StrategyArbitrator:
     }
 
     def _validate_confirmation_rule(
-        self, rule: dict, features: dict, trading_pair: str, primary_side: str
+        self,
+        rule: dict,
+        features: dict,
+        trading_pair: str,
+        primary_side: str,
     ) -> bool:
         """Validate a single confirmation rule against event features."""
         feature_name = rule.get("feature")
@@ -579,7 +598,9 @@ class StrategyArbitrator:
         return rule_passes
 
     def _apply_secondary_confirmation(
-        self, prediction_event: PredictionEvent, primary_side: str
+        self,
+        prediction_event: PredictionEvent,
+        primary_side: str,
     ) -> bool:
         """Check if secondary confirmation rules pass."""
         if not self._confirmation_rules:
@@ -598,7 +619,10 @@ class StrategyArbitrator:
 
         for rule in self._confirmation_rules:
             if not self._validate_confirmation_rule(
-                rule, features, prediction_event.trading_pair, primary_side
+                rule,
+                features,
+                prediction_event.trading_pair,
+                primary_side,
             ):
                 return False
 
@@ -686,7 +710,8 @@ class StrategyArbitrator:
         return self._get_side_from_prob_up(prediction_val)
 
     async def _evaluate_strategy(
-        self, prediction_event: PredictionEvent
+        self,
+        prediction_event: PredictionEvent,
     ) -> TradeSignalProposedEvent | None:
         """Evaluate trading strategy based on prediction probabilities.
 
@@ -730,7 +755,9 @@ class StrategyArbitrator:
                     # generated_event remains None
                 else:
                     sl_price, tp_price = await self._calculate_sl_tp_prices(
-                        side, current_price, trading_pair
+                        side,
+                        current_price,
+                        trading_pair,
                     )
                     if sl_price is None or tp_price is None:
                         self.logger.warning(
@@ -745,7 +772,9 @@ class StrategyArbitrator:
                     else:
                         # All checks passed, proceed to create the event
                         proposed_entry = await self._determine_entry_price(
-                            side, current_price, trading_pair
+                            side,
+                            current_price,
+                            trading_pair,
                         )
                         signal_id = uuid.uuid4()
                         generated_event = TradeSignalProposedEvent(
@@ -822,7 +851,8 @@ class StrategyArbitrator:
         try:
             self.pubsub.unsubscribe(EventType.PREDICTION_GENERATED, self._prediction_handler)
             self.logger.info(
-                "Unsubscribed from PREDICTION_GENERATED.", source_module=self._source_module
+                "Unsubscribed from PREDICTION_GENERATED.",
+                source_module=self._source_module,
             )
         except Exception:
             self.logger.exception(
@@ -836,7 +866,9 @@ class StrategyArbitrator:
         """Handle incoming prediction events directly."""
         if not isinstance(event, PredictionEvent):
             self.logger.warning(
-                "Received non-PredictionEvent: %s", type(event), source_module=self._source_module
+                "Received non-PredictionEvent: %s",
+                type(event),
+                source_module=self._source_module,
             )
             return
 

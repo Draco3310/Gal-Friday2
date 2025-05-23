@@ -1,6 +1,5 @@
 #!/usr/bin/env python
-"""
-Main entry point for the Gal-Friday trading bot application.
+"""Main entry point for the Gal-Friday trading bot application.
 
 This script initializes all necessary components (configuration, logging, services,
  event bus, executor), wires them together, starts the application, and handles
@@ -13,9 +12,9 @@ import concurrent.futures
 import functools
 import logging
 import logging.handlers  # Added for RotatingFileHandler
-from pathlib import Path  # PTHxxx fix: Import Path
 import signal
 import sys
+from pathlib import Path  # PTHxxx fix: Import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 # --- Custom Exceptions Import ---
@@ -76,7 +75,7 @@ if TYPE_CHECKING:
         ) -> None:
             """Initialize an execution handler.
 
-            Args
+            Args:
             ----
                 config_manager: Configuration manager instance
                 pubsub_manager: Publish-subscribe manager instance
@@ -97,11 +96,11 @@ if TYPE_CHECKING:
         def submit_order(self, order_data: dict[str, Any]) -> str:
             """Submit an order to the exchange.
 
-            Args
+            Args:
             ----
                 order_data: Dictionary containing order details
 
-            Returns
+            Returns:
             -------
                 Order ID from the exchange
             """
@@ -110,11 +109,11 @@ if TYPE_CHECKING:
         def cancel_order(self, order_id: str) -> bool:
             """Cancel an existing order.
 
-            Args
+            Args:
             ----
                 order_id: ID of the order to cancel
 
-            Returns
+            Returns:
             -------
                 True if cancellation was successful, False otherwise
             """
@@ -244,24 +243,22 @@ log = logging.getLogger(__name__)
 
 # Global shutdown event to signal termination across tasks
 shutdown_event = asyncio.Event()
+
+
 class ServiceInitializationError(RuntimeError):
     """Raised when a required service fails to initialize."""
-
 
 
 class MarketPriceServiceError(ServiceInitializationError):
     """Raised when the market price service is not available."""
 
 
-
 class PubSubManagerError(ServiceInitializationError):
     """Raised when the PubSub manager is not available."""
 
 
-
 class LoggerServiceError(ServiceInitializationError):
     """Raised when the logger service is not available."""
-
 
 
 class GlobalState:
@@ -269,13 +266,16 @@ class GlobalState:
 
     main_event_loop: asyncio.AbstractEventLoop | None = None
 
+
 # Global state instance
 global_state = GlobalState()
+
 
 # --- Logging Setup Function --- #
 # Use string literal for the type hint
 def setup_logging(
-    config: Optional["ConfigManagerType"], log_level_override: str | None = None
+    config: Optional["ConfigManagerType"],
+    log_level_override: str | None = None,
 ) -> None:
     """Configure logging based on the application configuration."""
     # Runtime check still needed
@@ -304,13 +304,15 @@ def setup_logging(
     console_config = log_config.get("console", {})
     if console_config.get("enabled", True):
         console_format = console_config.get(
-            "format", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            "format",
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         )
         console_handler = logging.StreamHandler(sys.stdout)
         # Handler level defaults to root logger level
         console_handler.setLevel(log_level)
         console_formatter = logging.Formatter(
-            console_format, datefmt=log_config.get("date_format")
+            console_format,
+            datefmt=log_config.get("date_format"),
         )
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)
@@ -338,15 +340,19 @@ def setup_logging(
                 # Consider adding jsonlogger to requirements.txt and
                 # implementing later.
                 file_format = json_file_config.get(
-                    "format", "%(asctime)s %(name)s %(levelname)s %(message)s"
+                    "format",
+                    "%(asctime)s %(name)s %(levelname)s %(message)s",
                 )
 
                 file_handler = logging.handlers.RotatingFileHandler(
-                    log_filename, maxBytes=max_bytes, backupCount=backup_count
+                    log_filename,
+                    maxBytes=max_bytes,
+                    backupCount=backup_count,
                 )
                 file_handler.setLevel(log_level)
                 file_formatter = logging.Formatter(
-                    file_format, datefmt=log_config.get("date_format")
+                    file_format,
+                    datefmt=log_config.get("date_format"),
                 )
                 file_handler.setFormatter(file_formatter)
                 root_logger.addHandler(file_handler)
@@ -412,7 +418,7 @@ class GalFridayApp:
             self._config_manager_instance = ConfigManager(
                 config_path=config_path,
                 logger_service=logging.getLogger(
-                    "gal_friday.config_manager"
+                    "gal_friday.config_manager",
                 ),  # Give it its own logger instance
                 pubsub_manager=self.pubsub,  # self.pubsub will be set in _instantiate_pubsub
                 loop=global_state.main_event_loop,
@@ -421,13 +427,13 @@ class GalFridayApp:
             log.info("Configuration loaded successfully from: %s", config_path)
             if not self.config.is_valid():
                 log.error(
-                    "Initial configuration is invalid. Review errors logged by ConfigManager."
+                    "Initial configuration is invalid. Review errors logged by ConfigManager.",
                 )
                 # Depending on desired strictness, could raise ConfigurationLoadingFailedExit here.
         except Exception as e:
             log.exception(
                 "FATAL: Failed to load configuration from %s",
-                config_path
+                config_path,
             )
             raise ConfigurationLoadingFailedExit from e
 
@@ -452,8 +458,7 @@ class GalFridayApp:
     def _handle_missing_config_for_pubsub(self) -> None:
         """Handle missing configuration for PubSubManager initialization."""
         error_msg = (
-            "ConfigManager instance not available for PubSubManager. "
-            "Load configuration first."
+            "ConfigManager instance not available for PubSubManager. " "Load configuration first."
         )
         log.critical(error_msg)
         raise DependencyMissingError("PubSubManager", error_msg)
@@ -461,7 +466,8 @@ class GalFridayApp:
     def _update_config_manager_with_pubsub(self) -> None:
         """Update ConfigManager with PubSubManager instance if available."""
         if self._config_manager_instance and hasattr(
-            self._config_manager_instance, "set_pubsub_manager"
+            self._config_manager_instance,
+            "set_pubsub_manager",
         ):
             self._config_manager_instance.set_pubsub_manager(self.pubsub)
         if hasattr(self, "_logger"):
@@ -471,7 +477,9 @@ class GalFridayApp:
         """Instantiate the PubSubManager."""
         try:
             self._ensure_class_available(
-                PubSubManager, "PubSubManager", "PubSubManager instantiation"
+                PubSubManager,
+                "PubSubManager",
+                "PubSubManager instantiation",
             )
 
             # Should use self._config_manager_instance for initial state
@@ -527,11 +535,13 @@ class GalFridayApp:
             # Prerequisite checks for CLIService (monitoring_service, portfolio_manager)
             if self.monitoring_service is None:
                 raise DependencyMissingError(
-                    component="CLIService", dependency="MonitoringService instance"
+                    component="CLIService",
+                    dependency="MonitoringService instance",
                 )
             if self.portfolio_manager is None:
                 raise DependencyMissingError(
-                    component="CLIService", dependency="PortfolioManager instance"
+                    component="CLIService",
+                    dependency="PortfolioManager instance",
                 )
 
             if self.logger_service is None:
@@ -566,7 +576,8 @@ class GalFridayApp:
         """Ensure all prerequisites for StrategyArbitrator are met before instantiation."""
         if self.market_price_service is None:
             raise DependencyMissingError(
-                component="StrategyArbitrator", dependency="MarketPriceService instance"
+                component="StrategyArbitrator",
+                dependency="MarketPriceService instance",
             )
         if StrategyArbitrator is None:  # This is the class itself from the import block
             raise DependencyMissingError(
@@ -578,11 +589,13 @@ class GalFridayApp:
         """Ensure all prerequisites for RiskManager are met before instantiation."""
         if self.market_price_service is None:
             raise DependencyMissingError(
-                component="RiskManager", dependency="MarketPriceService instance"
+                component="RiskManager",
+                dependency="MarketPriceService instance",
             )
         if self.portfolio_manager is None:
             raise DependencyMissingError(
-                component="RiskManager", dependency="PortfolioManager instance"
+                component="RiskManager",
+                dependency="PortfolioManager instance",
             )
         if RiskManager is None:  # This is the class itself from the import block
             raise DependencyMissingError(
@@ -594,7 +607,8 @@ class GalFridayApp:
         """Ensure all prerequisites for PortfolioManager are met before instantiation."""
         if self.market_price_service is None:
             raise DependencyMissingError(
-                component="PortfolioManager", dependency="MarketPriceService instance"
+                component="PortfolioManager",
+                dependency="MarketPriceService instance",
             )
         if PortfolioManager is None:  # This is the class itself
             raise DependencyMissingError(
@@ -624,11 +638,14 @@ class GalFridayApp:
         )
 
     def _raise_dependency_not_instantiated(
-        self, component_name: str, dependency_name: str
+        self,
+        component_name: str,
+        dependency_name: str,
     ) -> None:
         """Raise DependencyMissingError for a non-instantiated dependency."""
         raise DependencyMissingError(
-            component=component_name, dependency=f"{dependency_name} not instantiated or available"
+            component=component_name,
+            dependency=f"{dependency_name} not instantiated or available",
         )
 
     def _raise_logger_service_instantiation_failed(self) -> None:
@@ -638,7 +655,8 @@ class GalFridayApp:
     def _raise_kraken_market_price_service_unavailable_for_live_mode(self) -> None:
         """Raise DependencyMissingError for unavailable KrakenMarketPriceService in live mode."""
         raise DependencyMissingError(
-            component="MarketPriceService (live mode)", dependency="KrakenMarketPriceService class"
+            component="MarketPriceService (live mode)",
+            dependency="KrakenMarketPriceService class",
         )
 
     def _raise_market_price_service_unsupported_mode(self, mode: str) -> None:
@@ -660,11 +678,11 @@ class GalFridayApp:
     def _instantiate_execution_handler(self, run_mode: str) -> _ExecutionHandlerType:
         """Instantiate the correct ExecutionHandler based on the run mode.
 
-        Returns
+        Returns:
         -------
             The instantiated execution handler.
 
-        Raises
+        Raises:
         ------
             ExecutionHandlerInstantiationFailedExit: If instantiation fails after attempting.
             DependencyMissingError: If a required component for the handler is missing.
@@ -686,7 +704,8 @@ class GalFridayApp:
             raise DependencyMissingError(component="ExecutionHandler", dependency="LoggerService")
         if self.monitoring_service is None or MonitoringService is None:  # Added check
             raise DependencyMissingError(
-                component="ExecutionHandler", dependency="MonitoringService"
+                component="ExecutionHandler",
+                dependency="MonitoringService",
             )
 
         if run_mode == "live":
@@ -711,7 +730,8 @@ class GalFridayApp:
                 )
             if self.historical_data_service is None or HistoricalDataService is None:
                 raise DependencyMissingError(
-                    component="SimulatedExecutionHandler", dependency="HistoricalDataService"
+                    component="SimulatedExecutionHandler",
+                    dependency="HistoricalDataService",
                 )
             self.execution_handler = SimulatedExecutionHandler(
                 config_manager=self.config,
@@ -738,9 +758,9 @@ class GalFridayApp:
         # Append the successfully instantiated handler to the services list
         self.services.append(self.execution_handler)
         # We know execution_handler is not None at this point due to earlier checks
-        assert self.execution_handler is not None, (
-            "Execution handler should not be None at this point"
-        )
+        assert (
+            self.execution_handler is not None
+        ), "Execution handler should not be None at this point"
         return self.execution_handler  # type: ignore[return-value]
 
     async def initialize(self, args: argparse.Namespace) -> None:  # Add return type
@@ -871,7 +891,8 @@ class GalFridayApp:
 
         # Start ConfigManager file watching if enabled and available
         if self._config_manager_instance and hasattr(
-            self._config_manager_instance, "start_watching"
+            self._config_manager_instance,
+            "start_watching",
         ):
             log.info("Starting configuration file watcher...")
             self._config_manager_instance.start_watching()
@@ -970,7 +991,8 @@ class GalFridayApp:
                 loop = asyncio.get_running_loop()
                 # Ensure shutdown is non-blocking in the main async flow
                 await loop.run_in_executor(
-                    None, functools.partial(self.executor.shutdown, wait=True, cancel_futures=True)
+                    None,
+                    functools.partial(self.executor.shutdown, wait=True, cancel_futures=True),
                 )
                 log.info("ProcessPoolExecutor shut down successfully.")
             except Exception:
@@ -984,7 +1006,8 @@ class GalFridayApp:
 
         # Stop ConfigManager file watching first
         if self._config_manager_instance and hasattr(
-            self._config_manager_instance, "stop_watching"
+            self._config_manager_instance,
+            "stop_watching",
         ):
             log.info("Stopping configuration file watcher...")
             self._config_manager_instance.stop_watching()

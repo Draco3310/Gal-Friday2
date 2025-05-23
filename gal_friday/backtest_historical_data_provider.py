@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -19,7 +19,7 @@ class BacktestHistoricalDataProvider:
         symbol: str,
         start_time: datetime,
         end_time: datetime,
-        interval: str = "1d"
+        interval: str = "1d",
     ) -> pd.DataFrame | None:
         """Get historical data for the given symbol and time range.
 
@@ -29,7 +29,7 @@ class BacktestHistoricalDataProvider:
             end_time: End of the time range
             interval: Data interval (e.g., '1d', '1h', '1m')
 
-        Returns
+        Returns:
         -------
             DataFrame with historical data or None if not available
         """

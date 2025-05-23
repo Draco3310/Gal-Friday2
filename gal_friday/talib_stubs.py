@@ -38,7 +38,7 @@ def sma(close: np.ndarray, _timeperiod: int = 30) -> np.ndarray:
 
 
 def macd(
-    close: np.ndarray, _fastperiod: int = 12, _slowperiod: int = 26, _signalperiod: int = 9
+    close: np.ndarray, _fastperiod: int = 12, _slowperiod: int = 26, _signalperiod: int = 9,
 ) -> tuple:
     """Calculate Moving Average Convergence/Divergence."""
     # This is just a stub

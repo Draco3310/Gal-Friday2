@@ -1,10 +1,9 @@
 """Utility functions for the Gal Friday application."""
 
-from collections.abc import Coroutine
-from dataclasses import dataclass, field
 import logging
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass, field
 from typing import Any, Generic, Optional, TypeVar
-from collections.abc import Callable
 
 T = TypeVar("T")
 
@@ -31,23 +30,22 @@ def handle_exceptions(
     logger: logging.Logger,
     config: ExceptionHandlerConfig[T],
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """
-    Handle exceptions in a standardized way.
+    """Handle exceptions in a standardized way.
 
-    Args
+    Args:
     ----
         logger: The logger to use for error reporting
         config: Configuration for exception handling.
 
-    Returns
+    Returns:
     -------
         Decorated function
     """
     effective_exceptions: tuple[type[Exception], ...]
-    if (\
-        config.specific_exceptions\
-        and isinstance(config.specific_exceptions, tuple)\
-        and len(config.specific_exceptions) > 0\
+    if (
+        config.specific_exceptions
+        and isinstance(config.specific_exceptions, tuple)
+        and len(config.specific_exceptions) > 0
     ):
         effective_exceptions = config.specific_exceptions
     else:
@@ -69,7 +67,7 @@ def handle_exceptions(
                 if config.re_raise:
                     raise e.__class__(formatted_message) from e
 
-                return config.default_return # type: ignore
+                return config.default_return  # type: ignore
 
         return wrapper
 
@@ -80,23 +78,22 @@ def handle_exceptions_async(
     logger: logging.Logger,
     config: ExceptionHandlerConfig[T],
 ) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
-    """
-    Handle exceptions in a standardized way for async functions.
+    """Handle exceptions in a standardized way for async functions.
 
-    Args
+    Args:
     ----
         logger: The logger to use for error reporting
         config: Configuration for exception handling.
 
-    Returns
+    Returns:
     -------
         Decorated function
     """
     effective_exceptions: tuple[type[Exception], ...]
-    if (\
-        config.specific_exceptions\
-        and isinstance(config.specific_exceptions, tuple)\
-        and len(config.specific_exceptions) > 0\
+    if (
+        config.specific_exceptions
+        and isinstance(config.specific_exceptions, tuple)
+        and len(config.specific_exceptions) > 0
     ):
         effective_exceptions = config.specific_exceptions
     else:
@@ -120,6 +117,8 @@ def handle_exceptions_async(
                 if config.re_raise:
                     raise e.__class__(formatted_message) from e
 
-                return config.default_return # type: ignore
+                return config.default_return  # type: ignore
+
         return wrapper
+
     return decorator
