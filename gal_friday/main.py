@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from .risk_manager import RiskManager as RiskManagerType
     from .simulated_execution_handler import SimulatedExecutionHandler
     from .strategy_arbitrator import StrategyArbitrator as StrategyArbitratorType
+    from sqlalchemy.ext.asyncio import async_sessionmaker # Added
 
     class ExecutionHandlerProtocol(Protocol):
         """Protocol defining interface for execution handlers."""
@@ -216,6 +217,20 @@ try:
 except ImportError:
     startup_logger.error("Failed to import HistoricalDataService")
     HistoricalDataService = None  # type: ignore[assignment,misc]
+
+# --- DAL Imports ---
+try:
+    from .dal.connection_pool import DatabaseConnectionPool
+except ImportError:
+    startup_logger.error("Failed to import DatabaseConnectionPool")
+    DatabaseConnectionPool = None # type: ignore[assignment,misc]
+
+try:
+    from .dal.migrations.migration_manager import MigrationManager
+except ImportError:
+    startup_logger.error("Failed to import MigrationManager")
+    MigrationManager = None # type: ignore[assignment,misc]
+
 
 # --- Import concrete service implementations --- #
 try:
@@ -397,6 +412,9 @@ class GalFridayApp:
 
         # Store references to specific services after instantiation for DI
         self.logger_service: LoggerServiceType | None = None
+        self.db_connection_pool: DatabaseConnectionPool | None = None # Added
+        self.session_maker: async_sessionmaker | None = None # type: ignore # Added 
+        self.migration_manager: MigrationManager | None = None # Added
         # Added
         self.market_price_service: MarketPriceServiceType | None = None
         # Added
@@ -815,14 +833,79 @@ class GalFridayApp:
         self._setup_executor()
 
         # --- 4. PubSub Manager Instantiation ---
-        self._instantiate_pubsub()
+        self._instantiate_pubsub() # PubSub should be early
         # No assertion needed, _instantiate_pubsub raises SystemExit on failure
 
-        # --- 5. Service Instantiation (Order Matters!) ---
-        # LoggerService needs to be instantiated *before* other services that depend on it.
-        # Services are initialized in dependency order
-        self._init_strategy_arbitrator()
-        self._init_cli_service()
+        # --- 5. Database Connection Pool and Session Maker ---
+        if DatabaseConnectionPool is not None and self.config is not None:
+            # Create a basic logger instance for DatabaseConnectionPool if self.logger_service isn't fully ready
+            # Or ensure LoggerService is instantiated in a basic mode first.
+            # For this step, assuming a basic logger from python's logging can be passed or self.logger_service is basic.
+            # If LoggerService needs full setup for other services to use its get_logger, this order is tricky.
+            # Let's assume self.logger_service is not yet the full DB-logging instance.
+            # We will use a temporary logger for db_pool.
+            temp_db_logger = logging.getLogger("gal_friday.db_pool_init")
+
+            self.db_connection_pool = DatabaseConnectionPool(
+                config=self.config,
+                logger=temp_db_logger # type: ignore # Pass a basic logger
+            )
+            await self.db_connection_pool.initialize()
+            self.session_maker = self.db_connection_pool.get_session_maker()
+            if not self.session_maker:
+                log.critical("Failed to get session_maker from DatabaseConnectionPool. DB-dependent services will fail.")
+                raise DependencyMissingError("Application", "session_maker from DatabaseConnectionPool")
+            log.info("DatabaseConnectionPool initialized and session_maker created.")
+        else:
+            log.critical("DatabaseConnectionPool or its dependencies (ConfigManager) are missing.")
+            raise DependencyMissingError("Application", "DatabaseConnectionPool or ConfigManager")
+
+        # --- 6. LoggerService Full Instantiation (with DB capabilities) ---
+        if LoggerService is None:
+            self._raise_logger_service_instantiation_failed()
+
+        try:
+            # Now instantiate the full LoggerService, passing the session_maker
+            self.logger_service = LoggerService(
+                config_manager=self.config, # type: ignore
+                pubsub_manager=self.pubsub, # type: ignore
+                db_session_maker=self.session_maker # Pass the session_maker
+            )
+            self.services.append(self.logger_service) # Add to services for start/stop
+            log.info("LoggerService instantiated/configured with DB support.")
+            # If setup_logging was called earlier with a basic config, the LoggerService
+            # might reconfigure handlers, or setup_logging should be called *after* this.
+            # For simplicity, assume LoggerService internal _setup_logging handles this.
+        except Exception as e:
+            log.exception("FATAL: Failed to instantiate full LoggerService")
+            raise LoggerServiceInstantiationFailedExit from e
+            
+        # --- 7. MigrationManager Setup ---
+        if MigrationManager is not None and self.logger_service is not None:
+            self.migration_manager = MigrationManager(
+                logger=self.logger_service, # Pass the full logger service
+                project_root_path="/app" # Explicitly set project root
+            )
+            log.info("MigrationManager instantiated.")
+            try:
+                log.info("Running database migrations to head...")
+                await asyncio.to_thread(self.migration_manager.upgrade_to_head)
+                log.info("Database migrations completed.")
+            except Exception as e:
+                log.exception("Failed to run database migrations.")
+                raise # Re-raise as this is critical for app consistency
+        else:
+            log.critical("MigrationManager or LoggerService missing, cannot run migrations.")
+            raise DependencyMissingError("Application", "MigrationManager or LoggerService")
+
+        # --- 8. Other Service Instantiation (Order Matters!) ---
+        # Services are initialized in dependency order.
+        # Now pass session_maker to services that need it.
+        # Example: self.portfolio_manager = PortfolioManager(..., session_maker=self.session_maker)
+        # For now, these init methods are called; they would need internal updates
+        # to accept and use the session_maker in subsequent refactoring.
+        self._init_strategy_arbitrator() # TODO: Refactor to take session_maker if needed
+        self._init_cli_service()         # TODO: Refactor to take session_maker if needed
 
         log.info("Initialization phase complete.")
 
@@ -1048,7 +1131,13 @@ class GalFridayApp:
         # 2. Cancel any running tasks created during start()
         await self._cancel_active_tasks()
 
-        # 3. Shutdown the executor
+        # 3. Close DatabaseConnectionPool
+        if self.db_connection_pool:
+            log.info("Closing DatabaseConnectionPool...")
+            await self.db_connection_pool.close()
+            log.info("DatabaseConnectionPool closed.")
+
+        # 4. Shutdown the executor
         await self._shutdown_process_executor()
 
         log.info("Shutdown sequence complete.")

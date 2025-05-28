@@ -3,16 +3,21 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Optional
 
-import asyncpg
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
 
 
 class DatabaseConnectionPool:
-    """Manages database connection pools."""
+    """Manages SQLAlchemy database engine and sessions."""
 
     def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
         """Initialize the connection pool manager.
@@ -25,84 +30,98 @@ class DatabaseConnectionPool:
         self.logger = logger
         self._source_module = self.__class__.__name__
 
-        self.postgres_pool: asyncpg.Pool | None = None
+        self._engine: Optional[AsyncEngine] = None
+        self._session_maker: Optional[async_sessionmaker[AsyncSession]] = None
         self._pool_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
-        """Initialize connection pools."""
+        """Initialize the SQLAlchemy AsyncEngine."""
         async with self._pool_lock:
-            if self.postgres_pool is None:
+            if self._engine is None:
                 try:
-                    self.postgres_pool = await asyncpg.create_pool(
-                        self.config.get("database.connection_string"),
-                        min_size=self.config.get_int("database.pool.min_size", 10),
-                        max_size=self.config.get_int("database.pool.max_size", 20),
-                        max_inactive_connection_lifetime=300,
-                        command_timeout=10,
-                    )
+                    db_url = self.config.get("database.connection_string")
+                    if not db_url:
+                        self.logger.error(
+                            "Database connection string is not configured.",
+                            source_module=self._source_module,
+                        )
+                        raise ValueError("Database connection string is missing.")
 
+                    # Note: Pool size and other asyncpg-specific pool params are
+                    # handled differently in SQLAlchemy or have defaults.
+                    # `pool_size` and `max_overflow` are common SQLAlchemy pool params.
+                    # We can expose these via config if needed.
+                    self._engine = create_async_engine(
+                        db_url,
+                        pool_size=self.config.get_int("database.pool.min_size", 5), # SQLAlchemy uses pool_size
+                        max_overflow=self.config.get_int("database.pool.max_size", 10) - self.config.get_int("database.pool.min_size", 5), # max_overflow is additional connections beyond pool_size
+                        pool_recycle=300, # Corresponds to max_inactive_connection_lifetime
+                        pool_timeout=10, # Corresponds to command_timeout (for connection acquisition)
+                        echo=self.config.get_bool("database.echo_sql", False), # Optional: log SQL
+                    )
+                    self._session_maker = async_sessionmaker(
+                        self._engine, expire_on_commit=False, class_=AsyncSession
+                    )
                     self.logger.info(
-                        "Database connection pool initialized",
+                        "SQLAlchemy AsyncEngine initialized",
                         source_module=self._source_module,
                     )
                 except Exception:
                     self.logger.exception(
-                        "Failed to initialize database pool",
+                        "Failed to initialize SQLAlchemy AsyncEngine",
                         source_module=self._source_module,
                     )
                     raise
 
     async def close(self) -> None:
-        """Close all connection pools."""
-        if self.postgres_pool:
-            await self.postgres_pool.close()
-            self.postgres_pool = None
+        """Dispose of the SQLAlchemy AsyncEngine."""
+        async with self._pool_lock:
+            if self._engine:
+                await self._engine.dispose()
+                self._engine = None
+                self._session_maker = None
+                self.logger.info(
+                    "SQLAlchemy AsyncEngine disposed",
+                    source_module=self._source_module,
+                )
+
+    def is_initialized(self) -> bool:
+        """Check if the engine is initialized."""
+        return self._engine is not None and self._session_maker is not None
 
     @asynccontextmanager
-    async def acquire(self) -> AsyncIterator[asyncpg.Connection]:
-        """Acquire a database connection.
+    async def acquire(self) -> AsyncIterator[AsyncSession]:
+        """Provide an AsyncSession from the session maker.
 
         Yields:
-            asyncpg.Connection: A database connection from the pool
+            AsyncSession: A SQLAlchemy AsyncSession
 
         Raises:
-            RuntimeError: If the connection pool is not initialized
-            asyncpg.PostgresError: If there's an error acquiring a connection
+            RuntimeError: If the session maker is not initialized
         """
-        if not self.postgres_pool:
-            raise RuntimeError("Database connection pool is not initialized")
+        if not self._session_maker:
+            self.logger.error(
+                "Session maker not initialized. Call initialize() first.",
+                source_module=self._source_module,
+            )
+            raise RuntimeError(
+                "Session maker is not initialized. Call initialize() first."
+            )
 
-        async with self.postgres_pool.acquire() as conn:
-            yield conn
+        session = self._session_maker()
+        try:
+            yield session
+            # Note: Transactions should be handled by the calling code (e.g., repository methods)
+            # await session.commit() # Typically not done here, but in the repository
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
 
-    async def execute_query(self, query: str, *args: object) -> list[dict[str, Any]]:
-        """Execute a query and return results.
+    # execute_query and execute_command are removed as direct session usage is preferred.
+    # Repositories will use the acquire() method to get a session and perform operations.
 
-        Args:
-            query: SQL query string
-            *args: Query parameters
-
-        Returns:
-            List of dictionaries representing the query results
-
-        Raises:
-            asyncpg.PostgresError: If there's an error executing the query
-        """
-        async with self.acquire() as conn:
-            return await conn.fetch(query, *args)
-
-    async def execute_command(self, command: str, *args: object) -> str:
-        """Execute a command (INSERT, UPDATE, DELETE).
-
-        Args:
-            command: SQL command string
-            *args: Command parameters
-
-        Returns:
-            str: Status message from the database
-
-        Raises:
-            asyncpg.PostgresError: If there's an error executing the command
-        """
-        async with self.acquire() as conn:
-            return await conn.execute(command, *args)
+    def get_session_maker(self) -> async_sessionmaker[AsyncSession] | None:
+        """Return the async_sessionmaker instance."""
+        return self._session_maker
