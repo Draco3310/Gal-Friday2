@@ -32,7 +32,6 @@ from gal_friday.logger_service import LoggerService
 # Forward reference for ConfigurationManager
 if TYPE_CHECKING:
     from collections.abc import Coroutine
-    from typing import Any, Optional
 
     # Use string literal to avoid circular imports
     ConfigurationManager = Any
@@ -64,6 +63,12 @@ class ModelConfigError(PredictionServiceError):
     """Raised when there's an error in model configuration."""
 
     def __init__(self, message: str, context: dict | None = None) -> None:
+        """Initialize the ModelConfigError with an error message and optional context.
+
+        Args:
+            message: The error message
+            context: Optional dictionary with additional context about the error
+        """
         self.message = message
         self.context = context
         super().__init__(self.message)
@@ -111,6 +116,8 @@ class PredictionService:
             pubsub_manager (PubSubManager): For subscribing/publishing events.
             process_pool_executor (ProcessPoolExecutor): Executor for running inference.
             logger_service (LoggerService): The shared logger instance.
+            configuration_manager (Optional[ConfigurationManager]):
+                Optional configuration manager instance.
         """
         self._service_config = config.get("prediction_service", {})
         self.pubsub = pubsub_manager

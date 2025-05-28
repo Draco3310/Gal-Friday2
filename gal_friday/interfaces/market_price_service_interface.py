@@ -139,10 +139,12 @@ class MarketPriceService(abc.ABC):
 
         Args:
             trading_pair: The trading pair symbol (e.g., "XRP/USD").
-            timeframe: The timeframe for the candles (e.g., "1m", "1h", "1d" - map to Kraken's minute values).
+            timeframe: The timeframe for the candles (e.g., "1m", "1h", "1d" - maps to
+                Kraken's minute values).
             since: Python datetime object indicating the start time for fetching data (UTC).
                    Kraken 'since' is exclusive start of time slice, returns data *after* this time.
-            limit: The maximum number of candles to return. Kraken's OHLC 'limit' is not directly supported,
+            limit: The maximum number of candles to return. Kraken's OHLC 'limit' is not
+                directly supported,
                    it returns up to 720 data points. We might need to handle this.
 
         Returns:

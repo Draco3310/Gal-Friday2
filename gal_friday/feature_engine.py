@@ -4,22 +4,25 @@ This module provides the FeatureEngine class that handles computation of technic
 indicators and other features used in prediction models.
 """
 
+from __future__ import annotations
+
 import uuid
 from collections import defaultdict, deque
-from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pandas_ta as ta
 
 from gal_friday.core.events import EventType
-from gal_friday.core.pubsub import PubSubManager
-from gal_friday.interfaces.historical_data_service_interface import (
-    HistoricalDataService,
-)
-from gal_friday.logger_service import LoggerService
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from gal_friday.core.pubsub import PubSubManager
+    from gal_friday.interfaces.historical_data_service_interface import HistoricalDataService
+    from gal_friday.logger_service import LoggerService
 
 
 class FeatureEngine:
@@ -241,7 +244,7 @@ class FeatureEngine:
             processed_bids = []
             for i, bid_level in enumerate(raw_bids):
                 if (
-                    isinstance(bid_level, (list, tuple))
+                    isinstance(bid_level, list | tuple)
                     and len(bid_level) == self._EXPECTED_L2_LEVEL_LENGTH
                 ):
                     try:
@@ -269,7 +272,7 @@ class FeatureEngine:
             processed_asks = []
             for i, ask_level in enumerate(raw_asks):
                 if (
-                    isinstance(ask_level, (list, tuple))
+                    isinstance(ask_level, list | tuple)
                     and len(ask_level) == self._EXPECTED_L2_LEVEL_LENGTH
                 ):
                     try:
@@ -1125,7 +1128,7 @@ class FeatureEngine:
 
     def _format_feature_value(self, value: Decimal | float | object) -> str:
         """Format a feature value to string. Decimal/float to 8 decimal places."""
-        if isinstance(value, (Decimal, float)):
+        if isinstance(value, Decimal | float):
             return f"{value:.8f}"
         return str(value)
 

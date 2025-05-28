@@ -91,15 +91,12 @@ The `SimulatedExecutionHandler` is responsible for realistically simulating how 
         * *Take-Profit Orders:* Handled similarly to Limit orders.
     * **Tick Data / L2 Data:** Allows for much more realistic simulation. Orders can be matched against historical bid/ask prices and volumes. Limit orders fill if the price crosses the limit level. Market orders "walk the book," consuming available volume at progressively worse prices until filled. This naturally incorporates slippage based on historical liquidity. *This is significantly more complex to implement.*
 
-* **Assumption for MVP:** Assume simulation based on **OHLCV data only** for simplicity, using conservative fill assumptions (e.g., market orders fill at next bar open + slippage, limit/stop orders trigger if the bar's high/low range crosses the price).
-
 ### 5.2 Slippage Modeling
 * Slippage is the difference between the expected fill price and the actual fill price. It's crucial for market orders and stop-loss orders.
 * **Models (for OHLCV backtesting):**
     * *Fixed Slippage:* Add/subtract a fixed amount or percentage to the assumed fill price (e.g., 0.05% of price). Simple but unrealistic.
     * *Volatility-Based Slippage:* Calculate slippage based on recent price volatility (e.g., a fraction of the Average True Range - ATR). More realistic.
     * *Volume-Based Slippage (Requires Volume Data):* Estimate slippage based on the order size relative to the bar's volume (larger orders relative to volume experience more slippage).
-* **Assumption for MVP:** Implement **Volatility-Based Slippage** using ATR as a configurable parameter.
 
 ### 5.3 Commission/Fee Modeling
 * The `SimulatedExecutionHandler` must apply trading fees based on Kraken's fee structure.
@@ -111,7 +108,6 @@ The `SimulatedExecutionHandler` is responsible for realistically simulating how 
 ### 5.4 Latency Simulation (Optional)
 * Simulate delays between signal generation, order placement, and fill confirmation.
 * **Model:** Add a configurable fixed or random delay (e.g., 50-200ms) before an order is considered "sent" to the simulated exchange and before a fill confirmation is generated. This can impact strategies sensitive to execution speed.
-* **Assumption for MVP:** No explicit latency simulation initially, but acknowledge its potential impact.
 
 ## 6. State Management
 

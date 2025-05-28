@@ -1,53 +1,36 @@
-# Portfolio Manager Module
-"""Manages portfolio state including funds, positions, and valuations.
+"""Portfolio Manager for maintaining comprehensive portfolio state tracking.
 
-This module provides portfolio tracking, position management, trade execution reflection,
-and periodic reconciliation with exchange data to maintain accurate representations
-of the trading account's state.
+This module orchestrates the FundsManager, PositionManager, and ValuationService
+to provide a unified interface for portfolio operations, state tracking, and
+exchange reconciliation.
 """
 
 import asyncio
 from collections.abc import Callable, Coroutine
 from datetime import datetime
 from decimal import Decimal, getcontext
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    Protocol,
-    cast,
-    runtime_checkable,
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
+from .config_manager import ConfigManager
+from .core.events import EventType, ExecutionReportEvent
+from .core.pubsub import PubSubManager
+from .exceptions import (
+    DataValidationError,
+    InsufficientFundsError,
+    PriceNotAvailableError,
 )
-
-from .exceptions import DataValidationError, InsufficientFundsError, PriceNotAvailableError
+from .execution_handler import ExecutionHandler
 from .interfaces.market_price_service_interface import MarketPriceService
-
-# Import new components
-from .portfolio import FundsManager, PositionInfo, PositionManager, ValuationService
-from .portfolio.funds_manager import TradeParams
+from .logger_service import LoggerService
+from .portfolio.funds_manager import FundsManager, TradeParams
+from .portfolio.position_manager import PositionInfo, PositionManager
+from .portfolio.valuation_service import ValuationService
 
 # Set Decimal precision
 getcontext().prec = 28
-
-# Import type hints when type checking
-if TYPE_CHECKING:
-    from .config_manager import ConfigManager
-    from .core.events import EventType, ExecutionReportEvent
-    from .core.pubsub import PubSubManager
-    from .execution_handler import ExecutionHandler
-    from .logger_service import LoggerService
-else:
-    # Placeholders if needed, although explicit imports are preferred
-    from .core.placeholder_classes import (
-        ConfigManager,
-        EventType,
-        ExecutionHandler,
-        ExecutionReportEvent,
-        LoggerService,
-        MarketPriceService,
-        PubSubManager,
-    )
-
 
 # Define a protocol for the methods expected by _reconcile_with_exchange
 @runtime_checkable
@@ -85,11 +68,11 @@ class PortfolioManager:
     def __init__(
         self,
         *,  # Force keyword arguments for better readability
-        config_manager: "ConfigManager",
-        pubsub_manager: "PubSubManager",
-        market_price_service: "MarketPriceService",
-        logger_service: "LoggerService",
-        execution_handler: Optional["ExecutionHandler"] = None,
+        config_manager: ConfigManager,
+        pubsub_manager: PubSubManager,
+        market_price_service: MarketPriceService,
+        logger_service: LoggerService,
+        execution_handler: ExecutionHandler | None = None,
     ) -> None:
         """Initialize the PortfolioManager with required dependencies.
 
@@ -321,7 +304,7 @@ class PortfolioManager:
             finally:
                 self._reconciliation_task = None
 
-    async def _handle_execution_report(self, event: "ExecutionReportEvent") -> None:
+    async def _handle_execution_report(self, event: ExecutionReportEvent) -> None:
         """Process incoming execution report events.
 
         Updates portfolio state based on trade execution reports from the exchange.
@@ -433,7 +416,7 @@ class PortfolioManager:
                 source_module=self._source_module,
             )
 
-    def _handle_order_cancellation(self, event: "ExecutionReportEvent") -> None:
+    def _handle_order_cancellation(self, event: ExecutionReportEvent) -> None:
         """Handle cancellation of an order.
 
         Logs the cancellation event for tracking purposes.
@@ -456,7 +439,7 @@ class PortfolioManager:
 
     def _parse_execution_values(
         self,
-        event: "ExecutionReportEvent",
+        event: ExecutionReportEvent,
     ) -> tuple[str, str, Decimal, Decimal, Decimal, str | None]:
         """Parse and validate numeric values from the execution report.
 

@@ -6,6 +6,7 @@ performance tracking, and automatic trading halt triggers when thresholds are ex
 """
 
 import asyncio
+import logging  # Added for structured logging
 import time
 import uuid
 from collections import deque  # Added for tracking recent API errors
@@ -22,6 +23,10 @@ from typing import (  # Added Type for exc_info typing
 import psutil  # Added for system resource monitoring
 
 # Import actual classes when available, otherwise use placeholders
+from .execution_handler import ExecutionHandler
+from .logger_service import LoggerService
+from .portfolio_manager import PortfolioManager
+
 if TYPE_CHECKING:
     from .config_manager import ConfigManager
     from .core.events import (
@@ -35,10 +40,8 @@ if TYPE_CHECKING:
         PotentialHaltTriggerEvent,
         SystemStateEvent,
     )
+    from .core.halt_coordinator import HaltCoordinator
     from .core.pubsub import PubSubManager  # Import from correct module
-    from .execution_handler import ExecutionHandler  # MODIFIED: Corrected import path
-    from .logger_service import LoggerService
-    from .portfolio_manager import PortfolioManager
 else:
     # Simple placeholder classes for testing/development
     class _EventType:
@@ -78,6 +81,28 @@ else:
             # to be handled by the real ClosePositionCommand during type checking
             # and when the real event is instantiated.
 
+    class _HaltCoordinator:
+        """Placeholder HaltCoordinator for non-TYPE_CHECKING mode."""
+        def __init__(
+            self,
+            config_manager: "ConfigManager",
+            pubsub_manager: "PubSubManager",
+            logger_service: "LoggerService",
+        ) -> None:
+            pass
+
+        def set_halt_state(self, is_halted: bool, reason: str, source: str) -> None:
+            pass
+
+        def clear_halt_state(self) -> None:
+            pass
+
+        def check_all_conditions(self) -> list[dict[str, Any]]:
+            return []
+
+        def update_condition(self, name: str, value: float | int | Decimal) -> bool:
+            return False
+
     class _ConfigManager:
         def get(
             self,
@@ -92,9 +117,13 @@ else:
             return default
 
     class _PubSubManager:
+        def __init__(self) -> None:
+            """Initialize mock PubSub manager."""
+            self.logger = logging.getLogger("MockPubSubManager")
+
         async def publish(self, event: "_Event") -> None:
             # Updated signature to match real implementation
-            print(f"Publishing: {event.__dict__}")  # Simple print
+            self.logger.debug(f"Publishing mock event: {event.__dict__}")
 
         def subscribe(
             self,
@@ -127,6 +156,7 @@ else:
     PotentialHaltTriggerEvent = _PotentialHaltTriggerEvent  # Corrected to use its own placeholder
     APIErrorEvent = _APIErrorEvent  # Assign the new placeholder
     ClosePositionCommand = _ClosePositionCommand  # Assign the new placeholder
+    HaltCoordinator = _HaltCoordinator  # Assign the new placeholder
 
 
 class MonitoringService:
@@ -138,11 +168,12 @@ class MonitoringService:
 
     def __init__(
         self,
-        config_manager: "ConfigManager",
-        pubsub_manager: "PubSubManager",
-        portfolio_manager: "PortfolioManager",
-        logger_service: "LoggerService",
-        execution_handler: Optional["ExecutionHandler"] = None,
+        config_manager: ConfigManager,
+        pubsub_manager: PubSubManager,
+        portfolio_manager: PortfolioManager,
+        logger_service: LoggerService,
+        execution_handler: ExecutionHandler | None = None,
+        halt_coordinator: Optional["HaltCoordinator"] = None,
     ) -> None:
         """Initialize the MonitoringService.
 
@@ -153,13 +184,33 @@ class MonitoringService:
             portfolio_manager: The application's portfolio manager instance.
             logger_service: The shared logger instance.
             execution_handler: Optional execution handler for API connectivity checks.
+            halt_coordinator: Optional HALT coordinator for centralized HALT management.
         """
-        self._config = config_manager
-        self._pubsub = pubsub_manager
+        self.config_manager = config_manager
+        self.pubsub_manager = pubsub_manager
         self._portfolio_manager = portfolio_manager
         self.logger = logger_service
         self._execution_handler = execution_handler
         self._source = self.__class__.__name__
+
+        # Initialize HALT coordinator if not provided
+        if halt_coordinator is None:
+            try:
+                from .core.halt_coordinator import HaltCoordinator as RealHaltCoordinator
+                self._halt_coordinator = RealHaltCoordinator(
+                    config_manager=config_manager,
+                    pubsub_manager=pubsub_manager,
+                    logger_service=logger_service,
+                )
+            except ImportError:
+                # Fall back to placeholder if real implementation not available
+                self._halt_coordinator = HaltCoordinator(
+                    config_manager=config_manager,
+                    pubsub_manager=pubsub_manager,
+                    logger_service=logger_service,
+                )
+        else:
+            self._halt_coordinator = halt_coordinator
 
         self._is_halted: bool = False
         self._periodic_check_task: asyncio.Task | None = None
@@ -179,70 +230,8 @@ class MonitoringService:
             maxlen=10,
         )  # Store timestamps of recent errors
 
-        # Load configuration
-        try:
-            # Basic monitoring config
-            self._check_interval = int(self._config.get("monitoring.check_interval_seconds", 60))
-            raw_max_drawdown = self._config.get("risk.limits.max_total_drawdown_pct", "10.0")
-            self._max_drawdown_pct = Decimal(raw_max_drawdown)
-
-            # API monitoring config
-            self._api_failure_threshold = int(
-                self._config.get("monitoring.api_failure_threshold", 3),
-            )
-            self._api_error_threshold_count = int(
-                self._config.get("monitoring.api_error_threshold_count", 5),
-            )
-            self._api_error_threshold_period_s = int(
-                self._config.get("monitoring.api_error_threshold_period_s", 60),
-            )
-
-            # Market data monitoring config
-            self._data_staleness_threshold_s = float(
-                self._config.get("monitoring.data_staleness_threshold_s", 120.0),
-            )
-
-            # System resource monitoring config
-            self._cpu_threshold_pct = float(self._config.get("monitoring.cpu_threshold_pct", 90.0))
-            self._memory_threshold_pct = float(
-                self._config.get("monitoring.memory_threshold_pct", 90.0),
-            )
-
-            # Trading halt behavior
-            self._halt_position_behavior = self._config.get(
-                "monitoring.halt.position_behavior",
-                "maintain",
-            ).lower()
-
-            # Consecutive loss monitoring
-            self._consecutive_loss_limit = int(
-                self._config.get("monitoring.consecutive_loss_limit", 5),
-            )
-
-            # Active trading pairs
-            self._active_pairs = self._config.get_list("trading.pairs", [])
-
-            self.logger.info(
-                "MonitoringService configured with intervals and thresholds",
-                source_module=self._source,
-            )
-        except Exception:
-            self.logger.exception(
-                "Failed to load configuration for MonitoringService. Using defaults.",
-                source_module=self._source,
-            )
-            # Set defaults for all configurations
-            self._check_interval = 60
-            self._max_drawdown_pct = Decimal("10.0")
-            self._api_failure_threshold = 3
-            self._api_error_threshold_count = 5
-            self._api_error_threshold_period_s = 60
-            self._data_staleness_threshold_s = 120.0
-            self._cpu_threshold_pct = 90.0
-            self._memory_threshold_pct = 90.0
-            self._halt_position_behavior = "maintain"
-            self._consecutive_loss_limit = 5
-            self._active_pairs = []
+        # Load configuration values instead of hardcoded constants
+        self._load_configuration()
 
         self.logger.info("MonitoringService initialized.", source_module=self._source)
 
@@ -274,7 +263,10 @@ class MonitoringService:
 
         # Subscribe to potential halt events
         self._potential_halt_handler = self._handle_potential_halt_trigger
-        self._pubsub.subscribe(EventType.POTENTIAL_HALT_TRIGGER, self._potential_halt_handler)
+        self.pubsub_manager.subscribe(
+            EventType.POTENTIAL_HALT_TRIGGER,
+            self._potential_halt_handler,
+        )
         self.logger.info(
             "Subscribed to POTENTIAL_HALT_TRIGGER events.",
             source_module=self._source,
@@ -282,7 +274,7 @@ class MonitoringService:
 
         # Subscribe to API error events
         self._api_error_handler = self._handle_api_error
-        self._pubsub.subscribe(EventType.SYSTEM_ERROR, self._api_error_handler)
+        self.pubsub_manager.subscribe(EventType.SYSTEM_ERROR, self._api_error_handler)
         self.logger.info(
             "Subscribed to SYSTEM_ERROR events for API error tracking.",
             source_module=self._source,
@@ -291,8 +283,8 @@ class MonitoringService:
         # Subscribe to market data events to track freshness
         self._market_data_l2_handler = self._update_market_data_timestamp
         self._market_data_ohlcv_handler = self._update_market_data_timestamp
-        self._pubsub.subscribe(EventType.MARKET_DATA_L2, self._market_data_l2_handler)
-        self._pubsub.subscribe(EventType.MARKET_DATA_OHLCV, self._market_data_ohlcv_handler)
+        self.pubsub_manager.subscribe(EventType.MARKET_DATA_L2, self._market_data_l2_handler)
+        self.pubsub_manager.subscribe(EventType.MARKET_DATA_OHLCV, self._market_data_ohlcv_handler)
         self.logger.info(
             "Subscribed to market data events for freshness tracking.",
             source_module=self._source,
@@ -300,7 +292,7 @@ class MonitoringService:
 
         # Subscribe to execution reports to track consecutive losses
         self._execution_report_handler = self._handle_execution_report
-        self._pubsub.subscribe(EventType.EXECUTION_REPORT, self._execution_report_handler)
+        self.pubsub_manager.subscribe(EventType.EXECUTION_REPORT, self._execution_report_handler)
         self.logger.info(
             "Subscribed to execution reports for loss tracking.",
             source_module=self._source,
@@ -312,7 +304,7 @@ class MonitoringService:
         try:
             # Potential HALT trigger events
             if self._potential_halt_handler:
-                self._pubsub.unsubscribe(
+                self.pubsub_manager.unsubscribe(
                     EventType.POTENTIAL_HALT_TRIGGER,
                     self._potential_halt_handler,
                 )
@@ -324,7 +316,7 @@ class MonitoringService:
 
             # API error events
             if hasattr(self, "_api_error_handler") and self._api_error_handler:
-                self._pubsub.unsubscribe(EventType.SYSTEM_ERROR, self._api_error_handler)
+                self.pubsub_manager.unsubscribe(EventType.SYSTEM_ERROR, self._api_error_handler)
                 self.logger.info(
                     "Unsubscribed from SYSTEM_ERROR events.",
                     source_module=self._source,
@@ -333,11 +325,14 @@ class MonitoringService:
 
             # Market data events
             if self._market_data_l2_handler:
-                self._pubsub.unsubscribe(EventType.MARKET_DATA_L2, self._market_data_l2_handler)
+                self.pubsub_manager.unsubscribe(
+                    EventType.MARKET_DATA_L2,
+                    self._market_data_l2_handler,
+                )
                 self._market_data_l2_handler = None
 
             if self._market_data_ohlcv_handler:
-                self._pubsub.unsubscribe(
+                self.pubsub_manager.unsubscribe(
                     EventType.MARKET_DATA_OHLCV,
                     self._market_data_ohlcv_handler,
                 )
@@ -345,7 +340,7 @@ class MonitoringService:
 
             # Execution report events
             if self._execution_report_handler:
-                self._pubsub.unsubscribe(
+                self.pubsub_manager.unsubscribe(
                     EventType.EXECUTION_REPORT,
                     self._execution_report_handler,
                 )
@@ -404,6 +399,14 @@ class MonitoringService:
             return
 
         self._is_halted = True
+
+        # Update HALT coordinator state
+        self._halt_coordinator.set_halt_state(
+            is_halted=True,
+            reason=reason,
+            source=source,
+        )
+
         self.logger.critical(
             "SYSTEM HALTED by %s. Reason: %s",
             source,
@@ -486,7 +489,7 @@ class MonitoringService:
                             quantity=abs(qty),
                             side=close_side,
                         )
-                        await self._pubsub.publish(close_command)
+                        await self.pubsub_manager.publish(close_command)
 
             except Exception:
                 self.logger.exception(
@@ -521,6 +524,10 @@ class MonitoringService:
             return
 
         self._is_halted = False
+
+        # Clear HALT coordinator state
+        self._halt_coordinator.clear_halt_state()
+
         self.logger.info(
             "SYSTEM RESUMED by %s.",
             source,
@@ -547,7 +554,7 @@ class MonitoringService:
                 reason=reason,
             )
             # Correct publish method call - only passing the event
-            await self._pubsub.publish(event)
+            await self.pubsub_manager.publish(event)
             self.logger.debug(
                 "Published SYSTEM_STATE_CHANGE event: %s - %s",
                 new_state,
@@ -600,12 +607,8 @@ class MonitoringService:
                         "Running periodic checks...",
                         source_module=self._source,
                     )
-                    await self._check_drawdown()
-                    # Add calls to new check methods
-                    await self._check_api_connectivity()
-                    await self._check_market_data_freshness()
-                    await self._check_system_resources()
-                    await self._check_market_volatility()
+                    # Comprehensive check of all HALT conditions
+                    await self._check_all_halt_conditions()
 
             except asyncio.CancelledError:
                 self.logger.info(
@@ -620,6 +623,93 @@ class MonitoringService:
                 )
                 # Avoid tight loop on unexpected errors
                 await asyncio.sleep(self._check_interval)
+
+    async def _check_all_halt_conditions(self) -> None:
+        """Comprehensive check of all HALT conditions."""
+        # 1. Drawdown checks
+        await self._check_drawdown_conditions()
+
+        # 2. Market volatility checks
+        await self._check_market_volatility()
+
+        # 3. System health checks
+        await self._check_system_health()
+
+        # 4. API connectivity checks
+        await self._check_api_connectivity()
+
+        # 5. Data freshness checks
+        await self._check_market_data_freshness()
+
+        # 6. Position risk checks
+        await self._check_position_risk()
+
+        # Check if any conditions are triggered
+        triggered_conditions = self._halt_coordinator.check_all_conditions()
+        if triggered_conditions:
+            # Build comprehensive reason from all triggered conditions
+            reasons = [
+                f"{c.name}: {c.current_value} > {c.threshold}"
+                for c in triggered_conditions
+            ]
+            combined_reason = "; ".join(reasons)
+            await self.trigger_halt(
+                reason=f"Multiple HALT conditions triggered: {combined_reason}",
+                source="AUTO: Multiple Conditions",
+            )
+
+    async def _check_drawdown_conditions(self) -> None:
+        """Check all drawdown-related conditions."""
+        try:
+            current_state = self._portfolio_manager.get_current_state()
+
+            # Total drawdown
+            total_dd = current_state.get("total_drawdown_pct", Decimal("0"))
+            if not isinstance(total_dd, Decimal):
+                total_dd = Decimal(str(total_dd))
+
+            # Update condition in coordinator
+            if self._halt_coordinator.update_condition("max_total_drawdown", abs(total_dd)):
+                await self.trigger_halt(
+                    reason=f"Maximum total drawdown exceeded: {abs(total_dd):.2f}%",
+                    source="AUTO: Max Drawdown",
+                )
+
+            # Daily drawdown
+            daily_dd = current_state.get("daily_drawdown_pct", Decimal("0"))
+            if not isinstance(daily_dd, Decimal):
+                daily_dd = Decimal(str(daily_dd))
+
+            if self._halt_coordinator.update_condition("max_daily_drawdown", abs(daily_dd)):
+                await self.trigger_halt(
+                    reason=f"Maximum daily drawdown exceeded: {abs(daily_dd):.2f}%",
+                    source="AUTO: Daily Drawdown",
+                )
+
+# Consecutive losses
+            consecutive_losses = self._consecutive_losses
+            if self._halt_coordinator.update_condition(
+                "max_consecutive_losses", consecutive_losses,
+            ):
+                await self.trigger_halt(
+                    reason=f"Maximum consecutive losses reached: {consecutive_losses}",
+                    source="AUTO: Consecutive Losses",
+                )
+
+        except Exception:
+            self.logger.exception(
+                "Error checking drawdown conditions",
+                source_module=self._source,
+            )
+
+    async def _check_system_health(self) -> None:
+        """Check system resource health."""
+        await self._check_system_resources()
+
+    async def _check_position_risk(self) -> None:
+        """Check position-specific risk metrics."""
+        # This would check individual position sizes, concentration risk, etc.
+        # For now, placeholder implementation
 
     async def _check_drawdown(self) -> None:
         """Check if the maximum total portfolio drawdown has been exceeded.
@@ -656,14 +746,14 @@ class MonitoringService:
             self.logger.debug(
                 "Current total drawdown: %.2f%% (Limit: %s%%)",
                 drawdown_pct,
-                self._max_drawdown_pct,
+                self._max_total_drawdown_pct,
                 source_module=self._source,
             )
 
             # Check if drawdown exceeds the limit (absolute value)
-            if abs(drawdown_pct) > self._max_drawdown_pct:
+            if abs(drawdown_pct) > self._max_total_drawdown_pct:
                 drawdown_val = abs(drawdown_pct)
-                limit_val = self._max_drawdown_pct
+                limit_val = self._max_total_drawdown_pct
                 reason = f"Max total drawdown limit exceeded: {drawdown_val:.2f}% > {limit_val}%"
                 self.logger.warning(reason, source_module=self._source)
                 await self.trigger_halt(reason=reason, source="AUTO: Max Drawdown")
@@ -831,17 +921,48 @@ class MonitoringService:
 
         Triggers HALT if volatility exceeds configured thresholds.
         """
-        # This is a placeholder that would need access to market price data
-        # Implementation would require:
-        # 1. Access to recent price data for active pairs
-        # 2. Calculation of price change percentage over configured time window
-        # 3. Comparison against volatility threshold
-        #
-        # For now, we'll just log that this check would occur
+        try:
+            for pair in self._active_pairs:
+                # Calculate rolling volatility (would need price history)
+                volatility = await self._calculate_volatility(pair)
+
+                if (
+                    volatility is not None and
+                    self._halt_coordinator.update_condition("max_volatility", volatility)
+                ):
+                    reason = (
+                        f"Market volatility for {pair} ({volatility:.2f}%) "
+                        f"exceeds threshold"
+                    )
+                    await self.trigger_halt(
+                        reason=reason,
+                        source="AUTO: Market Volatility",
+                    )
+                    break
+
+        except Exception:
+            self.logger.exception(
+                "Error checking market volatility",
+                source_module=self._source,
+            )
+
+    async def _calculate_volatility(self, pair: str) -> Decimal | None:
+        """Calculate rolling volatility for a trading pair.
+
+        This is a placeholder - actual implementation would:
+        1. Get recent price history from market data
+        2. Calculate standard deviation of returns
+        3. Annualize the volatility
+
+        Returns:
+            Decimal: Volatility percentage, or None if insufficient data
+        """
+        # Placeholder - would need actual price data
         self.logger.debug(
-            "Market volatility check (placeholder implementation)",
+            f"Calculating volatility for {pair} (placeholder)",
             source_module=self._source,
         )
+        return None
 
     async def _update_market_data_timestamp(
         self,
@@ -1000,6 +1121,49 @@ class MonitoringService:
                 source_module=self._source,
             )
 
+    def _load_configuration(self) -> None:
+        """Load configuration values from ConfigManager."""
+        monitoring_config = self.config_manager.get("monitoring", {})
+        risk_config = self.config_manager.get("risk", {})
+        trading_config = self.config_manager.get("trading", {})
+
+        # Main monitoring intervals and thresholds
+        self._check_interval = monitoring_config.get("check_interval_seconds", 60)
+
+        # API monitoring configuration
+        self._api_failure_threshold = monitoring_config.get(
+            "api_failure_threshold", 3,
+        )
+        self._api_error_threshold_count = monitoring_config.get(
+            "api_error_threshold_count", 5,
+        )
+        self._api_error_threshold_period_s = monitoring_config.get(
+            "api_error_threshold_period_s", 60,
+        )
+        self._data_staleness_threshold_s = monitoring_config.get(
+            "data_staleness_threshold_s", 120.0,
+        )
+
+        # System resource monitoring configuration
+        self._cpu_threshold_pct = monitoring_config.get("cpu_threshold_pct", 90.0)
+        self._memory_threshold_pct = monitoring_config.get("memory_threshold_pct", 90.0)
+
+        # Trading performance monitoring configuration
+        self._consecutive_loss_limit = monitoring_config.get("consecutive_loss_limit", 5)
+
+        # Risk management configuration
+        risk_limits = risk_config.get("limits", {})
+        self._max_total_drawdown_pct = Decimal(
+            str(risk_limits.get("max_total_drawdown_pct", 10.0)),
+        )
+
+        # HALT behavior configuration
+        halt_config = monitoring_config.get("halt", {})
+        self._halt_position_behavior = halt_config.get("position_behavior", "maintain").lower()
+
+        # Active trading pairs
+        self._active_pairs = trading_config.get("pairs", [])
+
 
 # Define Mock Classes at module level for accessibility by helper functions
 # Create a mock logger service that implements LoggerService
@@ -1021,9 +1185,11 @@ class TestLoggerService(LoggerService[Any]):
         context: dict[Any, Any] | None = None,
     ) -> None:
         """Log an info message."""
+        context_str = f" {context}" if context else ""
         formatted_message = message % args if args else message
-        context_str = f" [context: {context}]" if context else ""
-        print(f"INFO [{source_module}]:{context_str} {formatted_message}")
+        # Use logging instead of print for test consistency
+        logger = logging.getLogger("TestLogger")
+        logger.info(f"INFO [{source_module}]:{context_str} {formatted_message}")
 
     def debug(
         self,
@@ -1033,9 +1199,10 @@ class TestLoggerService(LoggerService[Any]):
         context: dict[Any, Any] | None = None,
     ) -> None:
         """Log a debug message."""
+        context_str = f" {context}" if context else ""
         formatted_message = message % args if args else message
-        context_str = f" [context: {context}]" if context else ""
-        print(f"DEBUG [{source_module}]:{context_str} {formatted_message}")
+        logger = logging.getLogger("TestLogger")
+        logger.debug(f"DEBUG [{source_module}]:{context_str} {formatted_message}")
 
     def warning(
         self,
@@ -1045,9 +1212,10 @@ class TestLoggerService(LoggerService[Any]):
         context: dict[Any, Any] | None = None,
     ) -> None:
         """Log a warning message."""
+        context_str = f" {context}" if context else ""
         formatted_message = message % args if args else message
-        context_str = f" [context: {context}]" if context else ""
-        print(f"WARN [{source_module}]:{context_str} {formatted_message}")
+        logger = logging.getLogger("TestLogger")
+        logger.warning(f"WARN [{source_module}]:{context_str} {formatted_message}")
 
     def error(
         self,
@@ -1061,18 +1229,12 @@ class TestLoggerService(LoggerService[Any]):
         ) = None,
     ) -> None:
         """Log an error message."""
+        context_str = f" {context}" if context else ""
+        exc_str = f" Exception: {exc_info}" if exc_info and not isinstance(exc_info, bool) else ""
         formatted_message = message % args if args else message
-        context_str = f" [context: {context}]" if context else ""
-        exc_str = ""
-        if exc_info:
-            if isinstance(exc_info, bool) and exc_info:
-                exc_str = " [with current exception]"
-            elif isinstance(exc_info, BaseException):
-                exc_str = f" [exception: {type(exc_info).__name__}: {exc_info}]"
-            elif isinstance(exc_info, tuple):
-                exc_type, exc_value, _ = exc_info
-                exc_str = f" [exception: {exc_type.__name__}: {exc_value}]"
-        print(f"ERROR [{source_module}]:{context_str}{exc_str} {formatted_message}")
+        logging.getLogger("TestLogger").error(
+            f"ERROR [{source_module}]:{context_str}{exc_str} {formatted_message}",
+        )
 
     def critical(
         self,
@@ -1086,18 +1248,12 @@ class TestLoggerService(LoggerService[Any]):
         ) = None,
     ) -> None:
         """Log a critical message."""
+        context_str = f" {context}" if context else ""
+        exc_str = f" Exception: {exc_info}" if exc_info and not isinstance(exc_info, bool) else ""
         formatted_message = message % args if args else message
-        context_str = f" [context: {context}]" if context else ""
-        exc_str = ""
-        if exc_info:
-            if isinstance(exc_info, bool) and exc_info:
-                exc_str = " [with current exception]"
-            elif isinstance(exc_info, BaseException):
-                exc_str = f" [exception: {type(exc_info).__name__}: {exc_info}]"
-            elif isinstance(exc_info, tuple):
-                exc_type, exc_value, _ = exc_info
-                exc_str = f" [exception: {exc_type.__name__}: {exc_value}]"
-        print(f"CRITICAL [{source_module}]:{context_str}{exc_str} {formatted_message}")
+        logging.getLogger("TestLogger").critical(
+            f"CRITICAL [{source_module}]:{context_str}{exc_str} {formatted_message}",
+        )
 
 
 # Create a mock config manager that inherits from ConfigManager
@@ -1165,13 +1321,13 @@ async def _test_normal_drawdown(
     test_logger: "LoggerService[Any]",
 ) -> None:
     """Test MonitoringService with normal drawdown."""
-    print("\n=== Starting MonitoringService with normal drawdown ===")
+    test_logger.info("Starting MonitoringService with normal drawdown")
     monitor_service = MonitoringService(config_mgr, pubsub_mgr, portfolio_mgr, test_logger)
     await monitor_service.start()
-    print(f"Is system halted? {monitor_service.is_halted()}")
-    print("Sleeping for 2 seconds to allow periodic check to run...")
+    test_logger.info(f"Is system halted? {monitor_service.is_halted()}")
+    test_logger.info("Sleeping for 2 seconds to allow periodic check to run...")
     await asyncio.sleep(2)
-    print(f"Is system halted? {monitor_service.is_halted()}")
+    test_logger.info(f"Is system halted? {monitor_service.is_halted()}")
     await monitor_service.stop()
 
 
@@ -1182,18 +1338,20 @@ async def _test_high_drawdown_halt(
     test_logger: "LoggerService[Any]",
 ) -> None:
     """Test MonitoringService with high drawdown that should trigger HALT."""
-    print("\n=== Starting MonitoringService with high drawdown (should HALT) ===")
+    test_logger.info("Starting MonitoringService with high drawdown (should HALT)")
     monitor_service_halt = MonitoringService(
         config_mgr,
         pubsub_mgr,
-        portfolio_mgr_high,
+        portfolio_mgr_high,  # Use the high drawdown portfolio manager
         test_logger,
     )
     await monitor_service_halt.start()
-    print(f"Is system halted? {monitor_service_halt.is_halted()}")
-    print("Sleeping for 2 seconds to allow periodic check to run...")
+    test_logger.info(f"Is system halted? {monitor_service_halt.is_halted()}")
+    test_logger.info("Sleeping for 2 seconds to allow periodic check to run...")
     await asyncio.sleep(2)
-    print(f"Is system halted? {monitor_service_halt.is_halted()} (should be True)")
+    test_logger.info(
+        f"Is system halted? {monitor_service_halt.is_halted()} (should be True)",
+    )
     await monitor_service_halt.stop()
 
 
@@ -1204,12 +1362,12 @@ async def _test_manual_halt(
     test_logger: "LoggerService[Any]",
 ) -> None:
     """Test manual trigger of HALT."""
-    print("\n=== Testing manual HALT trigger ===")
+    test_logger.info("Testing manual HALT trigger")
     monitor_service = MonitoringService(config_mgr, pubsub_mgr, portfolio_mgr, test_logger)
     await monitor_service.start()
-    print(f"Is system halted before manual trigger? {monitor_service.is_halted()}")
+    test_logger.info(f"Is system halted before manual trigger? {monitor_service.is_halted()}")
     await monitor_service.trigger_halt("Manual test halt", "TEST")
-    print(f"Is system halted after manual trigger? {monitor_service.is_halted()}")
+    test_logger.info(f"Is system halted after manual trigger? {monitor_service.is_halted()}")
     await monitor_service.stop()
 
 
@@ -1220,13 +1378,13 @@ async def _test_resume_after_halt(
     test_logger: "LoggerService[Any]",
 ) -> None:
     """Test RESUME after HALT."""
-    print("\n=== Testing RESUME after HALT ===")
+    test_logger.info("Testing RESUME after HALT")
     monitor_service = MonitoringService(config_mgr, pubsub_mgr, portfolio_mgr, test_logger)
     await monitor_service.start()
     await monitor_service.trigger_halt("Test halt for resume test", "TEST")
-    print(f"Is system halted after trigger? {monitor_service.is_halted()}")
+    test_logger.info(f"Is system halted after trigger? {monitor_service.is_halted()}")
     await monitor_service.trigger_resume("TEST")
-    print(f"Is system running after resume? {not monitor_service.is_halted()}")
+    test_logger.info(f"Is system running after resume? {not monitor_service.is_halted()}")
     await monitor_service.stop()
 
 
@@ -1245,7 +1403,8 @@ async def main(logger: Optional["LoggerService[Any]"] = None) -> None:
 
     # Import PubSubManager from core.pubsub instead of event_bus for type consistency
     from .core.pubsub import PubSubManager
-    from .logger_service import LoggerService
+    if TYPE_CHECKING:
+        from .logger_service import LoggerService
 
     # Mock classes are now defined at module level
 
@@ -1283,7 +1442,7 @@ async def main(logger: Optional["LoggerService[Any]"] = None) -> None:
     # Fourth test: resume
     await _test_resume_after_halt(config_mgr, pubsub_mgr, portfolio_mgr, test_logger)
 
-    print("\n=== All MonitoringService tests completed ===")
+    test_logger.info("All MonitoringService tests completed")
 
 
 if __name__ == "__main__":

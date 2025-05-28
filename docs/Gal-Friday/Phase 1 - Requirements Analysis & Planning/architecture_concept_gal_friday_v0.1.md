@@ -23,7 +23,7 @@
 
 ## 1. Introduction
 
-This document outlines the proposed high-level software architecture concept for the Gal-Friday automated trading system. This concept is based on the project requirements defined in the SRS (`srs_gal_friday_v0.1` [R1]) and informed by the findings of the architectural design research performed via Deep Research. The primary goal is to establish a robust, performant, and maintainable structure for the system, particularly focusing on the needs of the Minimum Viable Product (MVP).
+This document outlines the proposed high-level software architecture concept for the Gal-Friday automated trading system. This concept is based on the project requirements defined in the SRS (`srs_gal_friday_v0.1` [R1]) and informed by the findings of the architectural design research performed via Deep Research. The primary goal is to establish a robust, performant, and maintainable structure for the system, particularly focusing on the needs of the full system.
 
 ## 2. Selected Architecture: Modular Monolith
 
@@ -34,7 +34,7 @@ Based on the comparative analysis provided by Deep Research, the selected archit
 * **Low Latency:** This pattern facilitates minimal latency for the critical trading path (Market Data -> Prediction -> Risk Check -> Order Execution) by enabling fast, in-process communication between core modules. This is crucial for the effectiveness of the planned scalping and day trading strategies.
 * **Simplified Data Consistency:** Managing the strongly consistent, real-time state of the portfolio (positions, equity, risk limits) is significantly simpler within a single process, avoiding the complexities of distributed transactions or eventual consistency inherent in microservices.
 * **Reduced Complexity:** The development, deployment, testing, and operational overhead are considerably lower compared to a distributed microservices architecture, allowing the initial focus to be on core trading logic and ML integration.
-* **Manageable Scalability (Initial):** While monolithic scaling is less granular, the primary anticipated bottleneck (CPU-bound ML inference) can likely be addressed within the monolith using techniques like multiprocessing pools, mitigating the most critical scaling concern for the MVP scope.
+* **Manageable Scalability (Initial):** While monolithic scaling is less granular, the primary anticipated bottleneck (CPU-bound ML inference) can likely be addressed within the monolith using techniques like multiprocessing pools, mitigating the most critical scaling concern for the full system scope.
 * **Evolution Path:** A well-designed modular monolith provides a foundation that can potentially evolve towards microservices in the future if significant scaling needs arise, by extracting well-defined modules.
 
 This approach prioritizes performance for the core trading loop and development simplicity for the initial build, accepting the trade-off of less granular scalability and fault isolation compared to microservices.

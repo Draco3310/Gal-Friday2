@@ -13,20 +13,20 @@ import logging
 import logging.handlers
 import queue
 import re
-import sys
 import threading
 import types  # Added for exc_info typing
 from asyncio import QueueFull  # Import QueueFull from asyncio, not asyncio.exceptions
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from contextlib import asynccontextmanager  # For AsyncpgPoolAdapter
+from contextlib import (
+    AbstractAsyncContextManager,
+    asynccontextmanager,  # For AsyncpgPoolAdapter
+)
 from datetime import datetime
 from decimal import Decimal
-from pathlib import Path  # Added for PTH103 and PTH118
 from random import SystemRandom
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncContextManager,
     ClassVar,
     Generic,
     Optional,
@@ -36,11 +36,14 @@ from typing import (
 
 import asyncpg
 
-# Import JSON Formatter
-from pythonjsonlogger import jsonlogger
+# Runtime imports
+from influxdb_client import Point as InfluxDBPoint
 
+# Import JSON Formatter
 from .core.events import EventType, LogEvent
-from .core.pubsub import PubSubManager
+
+if TYPE_CHECKING:
+    from .core.pubsub import PubSubManager
 
 # Import custom exceptions
 from .exceptions import DatabaseError, InvalidLoggerTableNameError, UnsupportedParamsTypeError
@@ -125,7 +128,7 @@ class PoolProtocol(Protocol):
     Specifies the methods required for connection pooling functionality.
     """
 
-    def acquire(self) -> AsyncContextManager[DBConnection]:
+    def acquire(self) -> AbstractAsyncContextManager[DBConnection]:
         """Acquire a connection from the pool.
 
         Returns:
@@ -154,13 +157,14 @@ PoolType = TypeVar("PoolType", bound=PoolProtocol)
 # Placeholder Type Hints (Refine later if needed)
 if TYPE_CHECKING:
     # Use actual type if stubs were available
-    AsyncPostgresHandlerType = logging.Handler  # Placeholder for typing
-    from influxdb_client import InfluxDBClient  # Added InfluxDBPoint for type hinting
-    from influxdb_client import Point as InfluxDBPoint
+    from influxdb_client import InfluxDBClient
     from influxdb_client.client.write_api import WriteApi
+    AsyncPostgresHandlerType = logging.Handler  # Placeholder for typing
 else:
     # Define placeholders if not type checking to avoid runtime errors
     AsyncPostgresHandlerType = logging.Handler
+
+
 
 
 class ContextFormatter(logging.Formatter):
@@ -297,49 +301,88 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
         }
 
     async def _attempt_db_insert(self, record_data: dict[str, Any]) -> bool:
-        """Attempt to insert a single log record into the database."""
+        """Attempt to insert a single log record into the database.
+
+        Note: The table name is validated against ALLOWED_TABLE_NAMES in __init__
+        and again here for defense in depth.
+        """
         try:
-            async with self._pool.acquire() as conn:
-                query = f"""
-                    INSERT INTO {self._table_name} (
+            # Double-check table name against allowed values
+            if self._table_name not in self.ALLOWED_TABLE_NAMES:
+                raise ValueError(f"Invalid table name: {self._table_name}")
+
+            # Define query templates for each allowed table
+            query_templates = {
+                "logs": """
+                    INSERT INTO logs (
                         timestamp, logger_name, level_name, level_no, message,
                         pathname, filename, lineno, func_name, context_json,
                         exception_text
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                """  # nosec B608
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                """,
+                "application_logs": """
+                    INSERT INTO application_logs (
+                        timestamp, logger_name, level_name, level_no, message,
+                        pathname, filename, lineno, func_name, context_json,
+                        exception_text
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                """,
+                "system_logs": """
+                    INSERT INTO system_logs (
+                        timestamp, logger_name, level_name, level_no, message,
+                        pathname, filename, lineno, func_name, context_json,
+                        exception_text
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                """,
+            }
 
-                db_params = [
-                    record_data["timestamp"],
-                    record_data["logger_name"],
-                    record_data["level_name"],
-                    record_data["level_no"],
-                    record_data["message"],
-                    record_data["pathname"],
-                    record_data["filename"],
-                    record_data["lineno"],
-                    record_data["func_name"],
-                    record_data["context_json"],
-                    record_data["exception_text"],
-                ]
-                await conn.execute(query, params=db_params)
-        except (
-            asyncpg.exceptions.ConnectionDoesNotExistError,
-            asyncpg.exceptions.ConnectionIsClosedError,
-            asyncpg.exceptions.InterfaceError,  # Can indicate connection issues
-            OSError,  # Can occur on network issues
-        ):
-            # This will be handled by the retry logic in _process_queue_with_retry
-            raise
-        except (asyncpg.PostgresError, DatabaseError, ValueError, TypeError) as e:
-            # Non-retryable error during DB operation
-            print(
-                f"AsyncPostgresHandler: Non-retryable error inserting log record: {e}",
-                file=sys.stderr,
+
+            # Get the pre-defined query for this table
+            query = query_templates[self._table_name]
+
+            async with self._pool.acquire() as conn:
+                try:
+                    await conn.execute(
+                        query,
+                        record_data["timestamp"],
+                        record_data["logger_name"],
+                        record_data["level_name"],
+                        record_data["level_no"],
+                        record_data["message"],
+                        record_data["pathname"],
+                        record_data["filename"],
+                        record_data["lineno"],
+                        record_data["func_name"],
+                        record_data["context_json"],
+                        record_data["exception_text"],
+                    )
+                    return True
+                except (
+                    asyncpg.exceptions.ConnectionDoesNotExistError,
+                    asyncpg.exceptions.ConnectionIsClosedError,
+                    asyncpg.exceptions.InterfaceError,
+                    OSError,
+                ) as e:
+                    # These are retryable errors
+                    logging.getLogger(__name__).debug(
+                        "Retryable error in _attempt_db_insert: %s", str(e),
+                    )
+                    raise
+                except Exception as e:
+                    # Non-retryable error during DB operation
+                    logging.getLogger(__name__).error(
+                        "Non-retryable error in _attempt_db_insert: %s",
+                        str(e),
+                        exc_info=True,
+                    )
+                    return False
+        except Exception as e:
+            logging.getLogger(__name__).error(
+                "Unexpected error in _attempt_db_insert: %s",
+                str(e),
+                exc_info=True,
             )
-            return False  # Indicate non-retryable failure for this record
-        else:
-            return True
+            return False
 
     async def _process_queue_with_retry(self, record_data: dict[str, Any]) -> None:
         """Process a single record with retry logic."""
@@ -358,19 +401,23 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
             ) as conn_err:
                 attempt += 1
                 if attempt >= max_retries:
-                    print(
-                        f"AsyncPostgresHandler: DB connection error failed after {max_retries} "
-                        f"attempts: {conn_err}",
-                        file=sys.stderr,
+                    logging.getLogger(__name__).error(
+                        "AsyncPostgresHandler: DB connection error failed after %d attempts: %s",
+                        max_retries,
+                        str(conn_err),
+                        exc_info=True,
                     )
                 else:
                     # Exponential backoff with jitter
                     wait_time = min(base_backoff * (2**attempt), 30.0)  # Cap at 30s
                     wait_time += SystemRandom().uniform(0, wait_time * 0.1)
-                    print(
-                        f"AsyncPostgresHandler: DB connection error (Attempt {attempt}/"
-                        f"{max_retries}). Retrying in {wait_time:.2f}s. Error: {conn_err}",
-                        file=sys.stderr,
+                    logging.getLogger(__name__).warning(
+                        "AsyncPostgresHandler: DB connection error (Attempt %d/%d). "
+                        "Retrying in %.2fs. Error: %s",
+                        attempt,
+                        max_retries,
+                        wait_time,
+                        str(conn_err),
                     )
                     await asyncio.sleep(wait_time)
             except (RuntimeError, ValueError, TypeError, DatabaseError, asyncpg.PostgresError):
@@ -391,15 +438,18 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
                 self._queue.task_done()
 
             except asyncio.CancelledError:
-                print("AsyncPostgresHandler queue processing cancelled.", file=sys.stderr)
+                logging.getLogger(__name__).info(
+                    "AsyncPostgresHandler queue processing cancelled.",
+                )
                 if record_data is not None:
                     with contextlib.suppress(ValueError):
                         self._queue.task_done()
                 break
             except Exception as e:
-                print(
-                    f"AsyncPostgresHandler: Error in outer processing loop: {e}",
-                    file=sys.stderr,
+                logging.getLogger(__name__).error(
+                    "AsyncPostgresHandler: Error in outer processing loop: %s",
+                    e,
+                    exc_info=True,
                 )
                 if record_data is not None:
                     with contextlib.suppress(ValueError):
@@ -424,6 +474,7 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
 
 
 # -------------------------------------
+
 
 
 class LoggerService(Generic[PoolType]):
@@ -468,8 +519,7 @@ class LoggerService(Generic[PoolType]):
         self._async_handler: AsyncPostgresHandler[PoolType] | None = None
         self._db_pool: PoolType | None = None
 
-        # Queue and thread for handling synchronous logging calls from async
-        # context
+        # Queue and thread for handling synchronous logging calls from async context
         self._queue: queue.Queue[tuple[Callable[..., None], tuple, dict]] = queue.Queue()
         self._thread = threading.Thread(target=self._process_log_queue, daemon=True)
         self._stop_event = threading.Event()
@@ -480,112 +530,22 @@ class LoggerService(Generic[PoolType]):
         self._thread.start()
         self.info("LoggerService initialized.", source_module="LoggerService")
 
-    def _process_log_queue(self) -> None:
-        """Worker thread target to process log messages from the queue."""
-        while not self._stop_event.is_set():
-            try:
-                # Wait for an item with a timeout to allow checking the stop
-                # event
-                log_func, args, kwargs = self._queue.get(timeout=0.1)
-                log_func(*args, **kwargs)
-                self._queue.task_done()
-            except queue.Empty:
-                continue
-            except Exception:
-                # Log error using root logger to avoid recursion if self.error
-                # uses the queue
-                logging.exception("Error processing log queue item")
-
-    def _setup_logging(self) -> None:
-        """Configure root logger and handlers."""
-        self._root_logger.setLevel(self._log_level)
-
-        # Remove existing handlers
-        for handler in self._root_logger.handlers[:]:
-            self._root_logger.removeHandler(handler)
-            handler.close()
-
-        # --- Console Handler (Human-Readable) ---
-        use_console = bool(self._config_manager.get("logging.console.enabled", default=True))
-        if use_console:
-            console_formatter = ContextFormatter(self._log_format, datefmt=self._log_date_format)
-            console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setFormatter(console_formatter)
-            console_handler.setLevel(self._log_level)
-            self._root_logger.addHandler(console_handler)
-
-        # --- File Handler (JSON Format) ---
-        use_file = bool(self._config_manager.get("logging.file.enabled", default=True))
-        if use_file:
-            log_dir = str(self._config_manager.get("logging.file.directory", default="logs"))
-            log_filename = str(
-                self._config_manager.get("logging.file.filename", default="gal_friday.log"),
-            )
-            Path(log_dir).mkdir(parents=True, exist_ok=True)  # Shorter comment
-            log_path = str(Path(log_dir) / log_filename)  # Shorter comment
-
-            # Configure JSON Formatter
-            json_formatter = jsonlogger.JsonFormatter(
-                self._log_format,
-                datefmt=self._log_date_format,
-                rename_fields={"levelname": "level"},
-            )
-
-            max_bytes = int(
-                self._config_manager.get("logging.file.max_bytes", default=10 * 1024 * 1024),
-            )
-            backup_count = int(self._config_manager.get("logging.file.backup_count", default=5))
-            file_handler = logging.handlers.RotatingFileHandler(
-                log_path,
-                maxBytes=max_bytes,
-                backupCount=backup_count,
-                encoding="utf-8",
-            )
-            file_handler.setFormatter(json_formatter)
-            file_handler.setLevel(self._log_level)
-            self._root_logger.addHandler(file_handler)
-
-        # --- Database Handler (PostgreSQL) ---
-        use_db = self._db_enabled
-        if use_db:
-            if self._db_pool:
-                db_table = str(
-                    self._config_manager.get("logging.database.table_name", default="logs"),
-                )
-                db_level_str = str(
-                    self._config_manager.get("logging.database.level", default="INFO"),
-                ).upper()
-                db_level = getattr(logging, db_level_str, logging.INFO)
-
-                try:
-                    loop = asyncio.get_running_loop()
-                    self._async_handler = AsyncPostgresHandler(self._db_pool, db_table, loop)
-                    self._async_handler.setLevel(db_level)
-                    self._root_logger.addHandler(self._async_handler)
-                    logging.info(
-                        "Database logging handler added for table '%s'. Level: %s",
-                        db_table,
-                        db_level_str,
-                    )
-                except Exception:  # Parameter e is used in the logging message
-                    logging.exception("Failed to create or add AsyncPostgresHandler")
-            else:
-                logging.warning(
-                    "Database logging enabled, but pool not yet initialized. "
-                    "Handler will be added after pool connection.",
-                )
-
     def _filter_sensitive_data(
         self,
-        context: dict[str, Any] | None,
-    ) -> dict[str, Any] | None:
-        """Recursively filter sensitive data from log context."""
-        if (
-            not context
-        ):  # Simplified check for None or empty dict, though type hint is Optional[Dict]
+        context: dict[str, object] | None,
+    ) -> dict[str, object] | None:
+        """Recursively filter sensitive data from log context.
+
+        Args:
+            context: Dictionary containing log context data to be filtered
+
+        Returns:
+            Filtered dictionary with sensitive data redacted, or None if input is None/empty
+        """
+        if not context:  # Handle None or empty dict
             return None
 
-        filtered: dict[str, Any] = {}
+        filtered: dict[str, object] = {}
         sensitive_keys = [
             "api_key",
             "secret",
@@ -624,17 +584,20 @@ class LoggerService(Generic[PoolType]):
         return filtered
 
     # Define a type alias for exc_info to improve readability and manage line length
-    ExcInfoType = Optional[
-        bool | tuple[type[BaseException], BaseException, types.TracebackType] | BaseException
-    ]
+    ExcInfoType = (
+        bool |
+        tuple[type[BaseException], BaseException, types.TracebackType] |
+        BaseException |
+        None
+    )
 
     def log(
         self,
         level: int,
         message: str,
-        *args: Any,  # Add *args here
+        *args: object,
         source_module: str | None = None,
-        context: dict | None = None,
+        context: dict[str, object] | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message to the configured handlers.
@@ -670,9 +633,9 @@ class LoggerService(Generic[PoolType]):
     def debug(
         self,
         message: str,
-        *args: Any,  # Add *args
+        *args: object,
         source_module: str | None = None,
-        context: dict | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log a message with DEBUG level.
 
@@ -690,9 +653,9 @@ class LoggerService(Generic[PoolType]):
     def info(
         self,
         message: str,
-        *args: Any,  # Add *args
+        *args: object,
         source_module: str | None = None,
-        context: dict | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log a message with INFO level.
 
@@ -710,9 +673,9 @@ class LoggerService(Generic[PoolType]):
     def warning(
         self,
         message: str,
-        *args: Any,  # Add *args
+        *args: object,
         source_module: str | None = None,
-        context: dict | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log a message with WARNING level.
 
@@ -730,9 +693,9 @@ class LoggerService(Generic[PoolType]):
     def error(
         self,
         message: str,
-        *args: Any,  # Add *args
+        *args: object,
         source_module: str | None = None,
-        context: dict | None = None,
+        context: dict[str, object] | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message with ERROR level.
@@ -757,9 +720,9 @@ class LoggerService(Generic[PoolType]):
     def exception(
         self,
         message: str,
-        *args: Any,  # Add *args
+        *args: object,
         source_module: str | None = None,
-        context: dict | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log a message with ERROR level and include exception information.
 
@@ -784,9 +747,9 @@ class LoggerService(Generic[PoolType]):
     def critical(
         self,
         message: str,
-        *args: Any,  # Add *args
+        *args: object,
         source_module: str | None = None,
-        context: dict | None = None,
+        context: dict[str, object] | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message with CRITICAL level.
@@ -851,8 +814,12 @@ class LoggerService(Generic[PoolType]):
             self._influx_write_api = None  # Ensure write_api is also cleared
             return False
         else:
-            # Since we've already checked that all([url, token, org]) is True, we can safely assert these are strings
-            assert isinstance(token, str) and isinstance(org, str)
+            # Since we've already checked that all([url, token, org]) is True,
+            # we can safely check these are strings
+            if not isinstance(token, str):
+                raise TypeError("Token must be a string")
+            if not isinstance(org, str):
+                raise TypeError("Organization must be a string")
             self._influx_client = influxdb_client.InfluxDBClient(url=url, token=token, org=org)
             self._influx_write_api = self._influx_client.write_api(write_options=SYNCHRONOUS)
             self.info(
@@ -906,7 +873,7 @@ class LoggerService(Generic[PoolType]):
 
             valid_fields = {}
             for key, value in fields.items():
-                if isinstance(value, (float, int, bool, str)):
+                if isinstance(value, float | int | bool | str):
                     valid_fields[key] = value
                 elif isinstance(value, Decimal):
                     valid_fields[key] = float(value)
@@ -1204,6 +1171,11 @@ class AsyncpgConnectionAdapter(DBConnection):
     """Adapts an asyncpg.Connection to the DBConnection protocol."""
 
     def __init__(self, actual_connection: asyncpg.Connection) -> None:
+        """Initialize the adapter with an asyncpg connection.
+
+        Args:
+            actual_connection: The asyncpg connection to adapt
+        """
         self._conn = actual_connection
 
     @property
@@ -1221,7 +1193,7 @@ class AsyncpgConnectionAdapter(DBConnection):
             return await self._conn.execute(query)  # type: ignore[no-any-return]
         if isinstance(params, Sequence):
             # Ensure not passing a string as a sequence of characters for multiple params
-            if isinstance(params, (str, bytes)):
+            if isinstance(params, str | bytes):
                 # If a single string/byte is the *only* param, wrap it in a list for asyncpg
                 return await self._conn.execute(query, params)  # type: ignore[no-any-return]
             return await self._conn.execute(query, *params)  # type: ignore[no-any-return]
@@ -1244,6 +1216,11 @@ class AsyncpgPoolAdapter(PoolProtocol):
     """Adapts an asyncpg.Pool to the PoolProtocol."""
 
     def __init__(self, actual_pool: asyncpg.Pool) -> None:
+        """Initialize the adapter with an asyncpg pool.
+
+        Args:
+            actual_pool: The asyncpg pool to adapt
+        """
         self._pool = actual_pool
 
     @asynccontextmanager

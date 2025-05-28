@@ -50,6 +50,16 @@ class BackgroundProcess(Generic[T]):
     """
 
     def __init__(self, future: Future, target_name: str = "Unnamed Process") -> None:
+        """Initialize a BackgroundProcess instance.
+
+        Args:
+            future: A concurrent.futures.Future object representing the background task.
+            target_name: A human-readable name for the background process. Defaults to
+                "Unnamed Process".
+
+        Raises:
+            TypeError: If the provided future is not a Future instance.
+        """
         if not isinstance(future, Future):
             raise TypeError(MSG_FUTURE_TYPE_ERROR)
         self._future: Future = future

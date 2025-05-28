@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from collections.abc import Awaitable, Callable, Coroutine
 from datetime import datetime
 from decimal import Decimal
@@ -309,7 +310,7 @@ if "RiskManager" not in globals():
     RiskManager: type[RiskManagerBase] = RiskManagerBase  # type: ignore
 
 try:
-    from gal_friday.pubsub import PubSubManager as _PubSubManager  # type: ignore
+    from gal_friday.core.pubsub import PubSubManager as _PubSubManager  # type: ignore
 
     if "PubSubManager" in globals() and globals()["PubSubManager"] is not Any:  # type: ignore
         PubSubManager = _PubSubManager  # type: ignore
@@ -834,6 +835,7 @@ if TYPE_CHECKING:
     from gal_friday.backtest_historical_data_provider import (
         BacktestHistoricalDataProvider as _BacktestHistoricalDataProvider,
     )
+    from gal_friday.core.pubsub import PubSubManager as _PubSubManager
     from gal_friday.exchange_info_service import ExchangeInfoService as _ExchangeInfoService
     from gal_friday.execution_handler import ExecutionHandler as _ExecutionHandler
     from gal_friday.feature_engine import FeatureEngine as _FeatureEngine
@@ -841,7 +843,6 @@ if TYPE_CHECKING:
     from gal_friday.market_price_service import MarketPriceService as _MarketPriceService
     from gal_friday.portfolio_manager import PortfolioManager as _PortfolioManager
     from gal_friday.prediction_service import PredictionService as _PredictionService
-    from gal_friday.pubsub_manager import PubSubManager as _PubSubManager
     from gal_friday.risk_manager import RiskManager as _RiskManager
     from gal_friday.simulated_market_price_service import (
         SimulatedMarketPriceService as _SimulatedMarketPriceService,
@@ -1138,12 +1139,31 @@ class BacktestingEngine:
         services: dict[str, Any],
         run_config: dict[str, Any],
     ) -> None:
-        """Execute the backtest simulation.
+        """Execute the backtest simulation with proper time-series iteration.
 
         Args:
             services: Dictionary of initialized services
             run_config: Configuration for the backtest run
         """
+        log.info("Starting backtest simulation")
+
+        # Get configuration
+        trading_pairs = run_config.get("trading_pairs", [])
+        start_date = pd.to_datetime(run_config["start_date"])
+        end_date = pd.to_datetime(run_config["end_date"])
+
+        # Get services
+        market_price_service = services.get("market_price_service")
+        portfolio_manager = services.get("portfolio_manager")
+        execution_handler = services.get("execution_handler")
+        feature_engine = services.get("feature_engine")
+        prediction_service = services.get("prediction_service")
+        strategy_arbitrator = services.get("strategy_arbitrator")
+        risk_manager = services.get("risk_manager")
+
+        if not all([market_price_service, portfolio_manager, execution_handler]):
+            raise ValueError("Required services not available for simulation")
+
         # Start all services
         for service_name, service in services.items():
             if hasattr(service, "start") and callable(service.start):
@@ -1160,12 +1180,88 @@ class BacktestingEngine:
                     raise
 
         try:
-            # Main simulation loop would go here
-            # This is a placeholder for the actual simulation logic
-            while True:
-                await asyncio.sleep(1)  # Prevent busy waiting
-                # Break condition would be based on your simulation logic
-                break  # Simulation complete
+            # Get unified timeline from all trading pairs
+            all_timestamps = set()
+            for pair in trading_pairs:
+                if pair in self._data:
+                    pair_data = self._data[pair]
+                    pair_timestamps = pair_data[
+                        (pair_data["timestamp"] >= start_date) &
+                        (pair_data["timestamp"] <= end_date)
+                    ]["timestamp"]
+                    all_timestamps.update(pair_timestamps)
+
+            if not all_timestamps:
+                log.error("No data available for simulation period")
+                return
+
+            # Sort timestamps for proper time progression
+            sorted_timestamps = sorted(all_timestamps)
+            log.info(f"Simulation will process {len(sorted_timestamps)} time steps")
+
+            # Initialize equity curve tracking
+            equity_curve_data = []
+
+            # Main simulation loop - iterate through time
+            for i, current_timestamp in enumerate(sorted_timestamps):
+                self._current_step = i
+                self._current_time = current_timestamp
+
+                log.debug(f"Processing timestamp {current_timestamp} (step {i})")
+
+                try:
+                    # 1. Update market price service with current timestamp
+                    if market_price_service is not None and hasattr(market_price_service, "update_time"):
+                        market_price_service.update_time(current_timestamp)
+
+                    # 2. Generate market data events for all pairs at this timestamp
+                    for pair in trading_pairs:
+                        await self._process_market_data_for_timestamp(
+                            pair, current_timestamp, services,
+                        )
+
+                    # 3. Process any pending limit orders and stop-loss/take-profit
+                    if execution_handler is not None and hasattr(execution_handler, "check_active_limit_orders"):
+                        # Get current bar data for limit order processing
+                        for pair in trading_pairs:
+                            current_bar = self._get_bar_at_timestamp(pair, current_timestamp)
+                            if current_bar is not None:
+                                await execution_handler.check_active_limit_orders(
+                                    current_bar, current_timestamp,
+                                )
+                                if hasattr(execution_handler, "check_active_sl_tp"):
+                                    await execution_handler.check_active_sl_tp(
+                                        current_bar, current_timestamp,
+                                    )
+
+                    # 4. Update portfolio value and record equity curve
+                    if portfolio_manager is not None and hasattr(portfolio_manager, "get_current_state"):
+                        portfolio_state = portfolio_manager.get_current_state()
+                        if portfolio_state and "total_value" in portfolio_state:
+                            equity_curve_data.append({
+                                "timestamp": current_timestamp,
+                                "equity": portfolio_state["total_value"],
+                            })
+
+                    # 5. Small delay to prevent overwhelming the event loop
+                    if i % 1000 == 0:  # Every 1000 steps
+                        await asyncio.sleep(0.001)  # Minimal delay
+
+                except Exception as e:
+                    log.error(f"Error processing timestamp {current_timestamp}: {e}")
+                    # Continue processing unless it's a critical error
+                    if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                        raise
+                    continue
+
+            # Store final equity curve in services for metrics calculation
+            if equity_curve_data:
+                equity_df = pd.DataFrame(equity_curve_data)
+                equity_df.set_index("timestamp", inplace=True)
+                services["equity_curve"] = equity_df["equity"]
+                log.info(f"Simulation completed. Final equity: {equity_df['equity'].iloc[-1]}")
+            else:
+                log.warning("No equity curve data collected during simulation")
 
         except asyncio.CancelledError:
             log.info("Simulation cancelled")
@@ -1203,3 +1299,76 @@ class BacktestingEngine:
                             log.exception("Error shutting down process pool")
 
             log.info("All services shut down")
+
+    async def _process_market_data_for_timestamp(
+        self,
+        trading_pair: str,
+        timestamp: datetime,
+        services: dict[str, Any],
+    ) -> None:
+        """Process market data for a specific trading pair and timestamp.
+        
+        Args:
+            trading_pair: The trading pair to process
+            timestamp: Current simulation timestamp
+            services: Dictionary of initialized services
+        """
+        try:
+            # Get bar data for this timestamp
+            bar_data = self._get_bar_at_timestamp(trading_pair, timestamp)
+            if bar_data is None:
+                return  # No data for this pair at this timestamp
+
+            # Create and publish market data event
+            from .core.events import MarketDataOHLCVEvent
+
+            market_event = MarketDataOHLCVEvent(
+                source_module=self.__class__.__name__,
+                event_id=uuid.uuid4(),
+                timestamp=timestamp,
+                trading_pair=trading_pair,
+                exchange="simulated",  # Add required exchange field
+                interval="1d",  # Add required interval field
+                timestamp_bar_start=timestamp,  # Add required timestamp_bar_start field
+                open=str(bar_data.get("open", 0)),
+                high=str(bar_data.get("high", 0)),
+                low=str(bar_data.get("low", 0)),
+                close=str(bar_data.get("close", 0)),
+                volume=str(bar_data.get("volume", 0)),
+            )
+
+            # Send to feature engine if available
+            feature_engine = services.get("feature_engine")
+            if feature_engine and hasattr(feature_engine, "handle_market_data_event"):
+                await feature_engine.handle_market_data_event(market_event)
+
+        except Exception as e:
+            log.error(f"Error processing market data for {trading_pair} at {timestamp}: {e}")
+
+    def _get_bar_at_timestamp(self, trading_pair: str, timestamp: datetime) -> pd.Series | None:
+        """Get OHLCV bar data for a specific trading pair and timestamp.
+        
+        Args:
+            trading_pair: Trading pair to get data for
+            timestamp: Timestamp to look up
+            
+        Returns:
+            Series containing OHLCV data or None if not found
+        """
+        try:
+            if trading_pair not in self._data:
+                return None
+
+            pair_data = self._data[trading_pair]
+
+            # Find exact timestamp match
+            matching_rows = pair_data[pair_data["timestamp"] == timestamp]
+
+            if matching_rows.empty:
+                return None
+
+            return matching_rows.iloc[0]
+
+        except Exception as e:
+            log.error(f"Error getting bar data for {trading_pair} at {timestamp}: {e}")
+            return None

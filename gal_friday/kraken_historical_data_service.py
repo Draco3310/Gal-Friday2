@@ -474,16 +474,14 @@ class KrakenHistoricalDataService(HistoricalDataService):
             # Wait for rate limit if needed
             await self.rate_limiter.wait_if_needed()
 
-            # Execute API call with circuit breaker
-            # Cast the result as the circuit breaker execute() returns Any
-            result = await self.circuit_breaker.execute(
+            # Execute API call with circuit breaker and return the result
+            return await self.circuit_breaker.execute(
                 self._fetch_ohlcv_data_from_api,
                 trading_pair,
                 start_time,
                 end_time,
                 interval,
             )
-            return result
 
         except Exception:
             self.logger.exception(
@@ -518,6 +516,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
         # Generate dummy data
         import numpy as np
+        rng = np.random.default_rng()
 
         # More precise typing for the list of dictionaries
         data_element_type = dict[str, pd.Timestamp | float | int]  # numpy can yield int/float
@@ -525,13 +524,13 @@ class KrakenHistoricalDataService(HistoricalDataService):
         base_price = 100.0
 
         for timestamp in date_range:  # timestamp is pd.Timestamp
-            # Random price movement
-            price_change = (np.random.random() - 0.5) * 2  # float
+            # Random price movement using modern numpy random generator
+            price_change = (rng.random() - 0.5) * 2  # float
             close_price = base_price * (1 + price_change * 0.01)  # float
-            high_price = close_price * (1 + np.random.random() * 0.005)  # float
-            low_price = close_price * (1 - np.random.random() * 0.005)  # float
-            open_price = close_price * (1 + (np.random.random() - 0.5) * 0.01)  # float
-            volume = np.random.random() * 100  # float
+            high_price = close_price * (1 + rng.random() * 0.005)  # float
+            low_price = close_price * (1 - rng.random() * 0.005)  # float
+            open_price = close_price * (1 + (rng.random() - 0.5) * 0.01)  # float
+            volume = rng.random() * 100  # float
 
             data.append(
                 {

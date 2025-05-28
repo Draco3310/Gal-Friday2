@@ -15,7 +15,11 @@ import logging.handlers  # Added for RotatingFileHandler
 import signal
 import sys
 from pathlib import Path  # PTHxxx fix: Import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
+
+# Import exchange specification classes
+from .config_manager import ConfigManager as ConfigManagerType
+from .core.asset_registry import ExchangeSpecification, ExchangeType
 
 # --- Custom Exceptions Import ---
 from .exceptions import (
@@ -45,7 +49,6 @@ if TYPE_CHECKING:
     from typing import Protocol
 
     from .cli_service import CLIService as CLIServiceType
-    from .config_manager import ConfigManager as ConfigManagerType
     from .core.pubsub import PubSubManager as PubSubManagerType
     from .data_ingestor import DataIngestor as DataIngestorType
 
@@ -121,107 +124,110 @@ if TYPE_CHECKING:
 
     # Now use this protocol for type annotations
     ExecutionHandlerTypeHint = type[ExecutionHandlerProtocol]
-    _ExecutionHandlerType = Union[KrakenExecutionHandler, SimulatedExecutionHandler]
+    _ExecutionHandlerType = KrakenExecutionHandler | SimulatedExecutionHandler
 
 
 # --- Attempt to import core application modules (Runtime) --- #
+# Initialize basic logging for import issues
+startup_logger = logging.getLogger("gal_friday.startup")
+
 try:
     from .config_manager import ConfigManager
 except ImportError:
-    print("Failed to import ConfigManager")
+    startup_logger.error("Failed to import ConfigManager")
     ConfigManager = None  # type: ignore[assignment,misc]
 
 try:
     from .core.pubsub import PubSubManager
 except ImportError:
-    print("Failed to import PubSubManager")
+    startup_logger.error("Failed to import PubSubManager")
     PubSubManager = None  # type: ignore[assignment,misc]
 
 try:
     from .data_ingestor import DataIngestor
 except ImportError:
-    print("Failed to import DataIngestor")
+    startup_logger.error("Failed to import DataIngestor")
     DataIngestor = None  # type: ignore[assignment,misc]
 
 try:
     from .prediction_service import PredictionService
 except ImportError:
-    print("Failed to import PredictionService")
+    startup_logger.error("Failed to import PredictionService")
     PredictionService = None  # type: ignore[assignment,misc]
 
 try:
     from .strategy_arbitrator import StrategyArbitrator
 except ImportError:
-    print("Failed to import StrategyArbitrator")
+    startup_logger.error("Failed to import StrategyArbitrator")
     StrategyArbitrator = None  # type: ignore[assignment,misc]
 
 try:
     from .portfolio_manager import PortfolioManager
 except ImportError:
-    print("Failed to import PortfolioManager")
+    startup_logger.error("Failed to import PortfolioManager")
     PortfolioManager = None  # type: ignore[assignment,misc]
 
 try:
     from .risk_manager import RiskManager
 except ImportError:
-    print("Failed to import RiskManager")
+    startup_logger.error("Failed to import RiskManager")
     RiskManager = None  # type: ignore[assignment,misc]
 
 # --- Execution Handler Imports (Runtime) --- #
 try:
     from .execution.kraken import KrakenExecutionHandler
 except ImportError as e:
-    print(f"Failed to import KrakenExecutionHandler: {e}")
+    startup_logger.error("Failed to import KrakenExecutionHandler: %s", e)
     KrakenExecutionHandler = None  # type: ignore
 
 try:
     from .simulated_execution_handler import SimulatedExecutionHandler
 except ImportError:
-    print("Failed to import SimulatedExecutionHandler")
+    startup_logger.error("Failed to import SimulatedExecutionHandler")
     SimulatedExecutionHandler = None  # type: ignore
 
 # --- Other Service Imports (Runtime) --- #
 try:
     from .logger_service import LoggerService
 except ImportError:
-    print("Failed to import LoggerService")
+    startup_logger.error("Failed to import LoggerService")
     LoggerService = None  # type: ignore[assignment,misc]
 
 try:
     from .monitoring_service import MonitoringService
 except ImportError:
-    print("Failed to import MonitoringService")
+    startup_logger.error("Failed to import MonitoringService")
     MonitoringService = None  # type: ignore[assignment,misc]
 
 try:
     from .cli_service import CLIService
 except ImportError:
-    print("Failed to import CLIService")
+    startup_logger.error("Failed to import CLIService")
     CLIService = None  # type: ignore[assignment,misc]
 
 try:
     from .market_price_service import MarketPriceService
 except ImportError:
-    print("Failed to import MarketPriceService")
+    startup_logger.error("Failed to import MarketPriceService")
     MarketPriceService = None  # type: ignore[assignment,misc]
 
 try:
     from .historical_data_service import HistoricalDataService
 except ImportError:
-    print("Failed to import HistoricalDataService")
+    startup_logger.error("Failed to import HistoricalDataService")
     HistoricalDataService = None  # type: ignore[assignment,misc]
 
 # --- Import concrete service implementations --- #
 try:
     from .market_price.kraken_service import KrakenMarketPriceService
 except ImportError as e:
-    print(f"Failed to import KrakenMarketPriceService: {e}")
+    startup_logger.warning("Failed to import KrakenMarketPriceService: %s", e)
     KrakenMarketPriceService = None  # type: ignore
 
 try:
     from .kraken_historical_data_service import KrakenHistoricalDataService
 except ImportError as e:
-    print(f"Failed to import KrakenHistoricalDataService: {e}")
+    startup_logger.warning("Failed to import KrakenHistoricalDataService: %s", e)
     KrakenHistoricalDataService = None  # type: ignore
 
 try:
@@ -229,7 +235,7 @@ try:
         SimulatedMarketPriceService,
     )
 except ImportError:
-    print("Failed to import SimulatedMarketPriceService")
+    startup_logger.error("Failed to import SimulatedMarketPriceService")
     SimulatedMarketPriceService = None  # type: ignore # Restored fallback
 
 # --- Global Setup --- #
@@ -420,8 +426,6 @@ class GalFridayApp:
                 logger_service=logging.getLogger(
                     "gal_friday.config_manager",
                 ),  # Give it its own logger instance
-                pubsub_manager=self.pubsub,  # self.pubsub will be set in _instantiate_pubsub
-                loop=global_state.main_event_loop,
             )
             self.config = self._config_manager_instance  # Main access point for config
             log.info("Configuration loaded successfully from: %s", config_path)
@@ -512,7 +516,8 @@ class GalFridayApp:
         self._ensure_strategy_arbitrator_prerequisites()
         if self.config is None:
             self._raise_config_not_initialized()
-        assert isinstance(self.config, ConfigManagerType)  # Add type guard
+        if not isinstance(self.config, ConfigManagerType):
+            raise TypeError(f"Expected ConfigManagerType, got {type(self.config).__name__}")
         strategy_arbitrator_config = self.config.get("strategy_arbitrator", {})
         if self.market_price_service is None:
             raise MarketPriceServiceError
@@ -675,6 +680,31 @@ class GalFridayApp:
         """Raise PortfolioManagerInstantiationFailedExit."""
         raise PortfolioManagerInstantiationFailedExit
 
+    def _create_kraken_exchange_spec(self) -> ExchangeSpecification:
+        """Create ExchangeSpecification for Kraken exchange."""
+        from decimal import Decimal
+
+        return ExchangeSpecification(
+            exchange_id="kraken",
+            exchange_type=ExchangeType.CRYPTO_EXCHANGE,
+            name="Kraken",
+            supports_limit_orders=True,
+            supports_market_orders=True,
+            supports_stop_orders=True,
+            supports_bracket_orders=False,
+            supports_margin=True,
+            maker_fee_bps=Decimal("16"),  # 0.16%
+            taker_fee_bps=Decimal("26"),  # 0.26%
+            fee_currency="USD",
+            provides_l2_data=True,
+            provides_tick_data=False,
+            max_market_data_depth=1000,
+            max_orders_per_second=200,
+            supports_websocket=True,
+            supports_private_ws=True,
+            typical_latency_ms=50.0,
+        )
+
     def _instantiate_execution_handler(self, run_mode: str) -> _ExecutionHandlerType:
         """Instantiate the correct ExecutionHandler based on the run mode.
 
@@ -715,6 +745,7 @@ class GalFridayApp:
                     dependency="KrakenExecutionHandler class",
                 )
             self.execution_handler = KrakenExecutionHandler(
+                exchange_spec=self._create_kraken_exchange_spec(),  # Create ExchangeSpec
                 config_manager=self.config,
                 pubsub_manager=self.pubsub,
                 logger_service=self.logger_service,
@@ -736,7 +767,7 @@ class GalFridayApp:
             self.execution_handler = SimulatedExecutionHandler(
                 config_manager=self.config,
                 pubsub_manager=self.pubsub,
-                data_service=self.historical_data_service,
+                data_service=self.historical_data_service,  # type: ignore[arg-type]
                 logger_service=self.logger_service,
             )
             log.debug("SimulatedExecutionHandler instantiated for paper mode.")
@@ -758,9 +789,8 @@ class GalFridayApp:
         # Append the successfully instantiated handler to the services list
         self.services.append(self.execution_handler)
         # We know execution_handler is not None at this point due to earlier checks
-        assert (
-            self.execution_handler is not None
-        ), "Execution handler should not be None at this point"
+        if self.execution_handler is None:
+            raise RuntimeError("Execution handler should not be None at this point")
         return self.execution_handler  # type: ignore[return-value]
 
     async def initialize(self, args: argparse.Namespace) -> None:  # Add return type
