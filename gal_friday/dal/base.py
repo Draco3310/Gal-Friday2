@@ -1,125 +1,152 @@
-"""Base repository pattern for data access."""
+"""Base repository pattern for data access using SQLAlchemy."""
 
-from abc import ABC, abstractmethod
-from collections.abc import Callable
-from typing import Any, Generic, TypeVar
+from datetime import datetime, timezone
+from typing import Any, Generic, TypeVar, Sequence
 
-import asyncpg
+from sqlalchemy import select, delete as sqlalchemy_delete, asc, desc
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gal_friday.logger_service import LoggerService
+from gal_friday.dal.models import Base # Assuming Base is your declarative_base from models
 
 
-# Define a bound TypeVar that must be a BaseEntity
-class BaseEntity(ABC):
-    """Base class for all database entities."""
-
-    @abstractmethod
-    def to_dict(self) -> dict[str, Any]:
-        """Convert entity to dictionary for database storage."""
-
-    @classmethod
-    @abstractmethod
-    def from_dict(cls, data: dict[str, Any]) -> "BaseEntity":
-        """Create entity from database record."""
+# Define a TypeVar bound to the SQLAlchemy Base model
+T = TypeVar("T", bound=Base)
 
 
-T = TypeVar("T", bound=BaseEntity)
+class BaseRepository(Generic[T]):
+    """Base repository with common SQLAlchemy database operations."""
 
-
-class BaseRepository(Generic[T], ABC):
-    """Base repository with common database operations."""
-
-    def __init__(self, db_pool: asyncpg.Pool, logger: LoggerService, table_name: str) -> None:
+    def __init__(
+        self,
+        session_maker: async_sessionmaker[AsyncSession],
+        model_class: type[T],
+        logger: LoggerService,
+    ) -> None:
         """Initialize base repository.
 
         Args:
-            db_pool: Database connection pool
-            logger: Logger service instance
-            table_name: Name of the database table
+            session_maker: SQLAlchemy async_sessionmaker for creating sessions.
+            model_class: The SQLAlchemy model class this repository manages.
+            logger: Logger service instance.
         """
-        self.db_pool = db_pool
+        self.session_maker = session_maker
+        self.model_class = model_class
         self.logger = logger
-        self.table_name = table_name
         self._source_module = self.__class__.__name__
 
-    def _quote_identifier(self, identifier: str) -> str:
-        """Properly quote SQL identifiers."""
-        return f'"{identifier}"'
-
-    async def create(self, data: dict[str, Any]) -> str:
+    async def create(self, data: dict[str, Any] | T) -> T:
         """Create a new entity.
 
         Args:
-            data: Dictionary of column names to values
+            data: Dictionary of column names to values, or a model instance.
         Returns:
-            str: The ID of the created entity
+            The created entity instance, with all fields populated (including defaults).
         Raises:
-            DatabaseError: If the operation fails
+            SQLAlchemyError: If the database operation fails.
         """
-        columns = list(data.keys())
-        values = list(data.values())
-        placeholders = [f"${i+1}" for i in range(len(columns))]
-
-        # Use parameterized query to prevent SQL injection
-        query = """
-            INSERT INTO {table_name} ({columns})
-            VALUES ({placeholders})
-            RETURNING id
-        """.format(
-            table_name=self._quote_identifier(self.table_name),
-            columns=", ".join(self._quote_identifier(col) for col in columns),
-            placeholders=", ".join(placeholders),
-        ).strip()
-
         try:
-            async with self.db_pool.acquire() as conn:
-                result = await conn.fetchval(query, *values)
-                return str(result)
-        except Exception:
+            async with self.session_maker() as session:
+                if isinstance(data, dict):
+                    instance = self.model_class(**data)
+                else:
+                    instance = data
+
+                session.add(instance)
+                await session.commit()  # Commit flushes and expires objects
+                await session.refresh(instance) # Refresh to get server-side defaults like ID, created_at
+                self.logger.debug(
+                    f"Created new {self.model_class.__name__} with ID {getattr(instance, 'id', None)}",
+                    source_module=self._source_module,
+                )
+                return instance
+        except Exception as e: # Catch generic Exception for logging, re-raise specific if needed
             self.logger.exception(
-                f"Error creating in {self.table_name}",
+                f"Error creating in {self.model_class.__name__}: {e}",
                 source_module=self._source_module,
             )
             raise
 
-    async def update(self, id: str, updates: dict[str, Any]) -> bool:
+    async def get_by_id(self, entity_id: Any) -> T | None:
+        """Get an entity by its primary key.
+
+        Args:
+            entity_id: The primary key value.
+        Returns:
+            The entity instance or None if not found.
+        Raises:
+            SQLAlchemyError: If the database operation fails.
+        """
+        try:
+            async with self.session_maker() as session:
+                instance = await session.get(self.model_class, entity_id)
+                if instance:
+                    self.logger.debug(
+                        f"Retrieved {self.model_class.__name__} with ID {entity_id}",
+                        source_module=self._source_module,
+                    )
+                else:
+                    self.logger.debug(
+                        f"{self.model_class.__name__} with ID {entity_id} not found",
+                        source_module=self._source_module,
+                    )
+                return instance
+        except Exception as e:
+            self.logger.exception(
+                f"Error getting {self.model_class.__name__} by ID {entity_id}: {e}",
+                source_module=self._source_module,
+            )
+            raise
+
+    async def update(self, entity_id: Any, updates: dict[str, Any]) -> T | None:
         """Update an existing entity.
 
         Args:
-            id: ID of the entity to update
-            updates: Dictionary of column names to new values
+            entity_id: ID of the entity to update.
+            updates: Dictionary of column names to new values.
         Returns:
-            bool: True if update was successful, False otherwise
+            The updated entity instance or None if not found.
         Raises:
-            DatabaseError: If the operation fails
+            SQLAlchemyError: If the operation fails.
         """
         if not updates:
-            return False
-
-        set_clauses = [f"{self._quote_identifier(col)} = ${i+2}"
-                      for i, col in enumerate(updates.keys())]
-
-        # Use parameterized query to prevent SQL injection
-        query = """
-            UPDATE {table_name}
-            SET {set_clauses}, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
-        """.format(
-            table_name=self._quote_identifier(self.table_name),
-            set_clauses=", ".join(set_clauses),
-        ).strip()
+            self.logger.warning(
+                f"Update called for {self.model_class.__name__} ID {entity_id} with no updates.",
+                source_module=self._source_module,
+            )
+            return await self.get_by_id(entity_id) # Return current state if no updates
 
         try:
-            async with self.db_pool.acquire() as conn:
-                result = await conn.execute(query, id, *updates.values())
-                # Parse the result string to check if rows were affected
-                # PostgreSQL execute returns a string like "UPDATE 1" or "UPDATE 0"
-                if isinstance(result, str):
-                    return result.split()[-1] != "0"
-                return bool(result)
-        except Exception:
+            async with self.session_maker() as session:
+                entity = await session.get(self.model_class, entity_id)
+                if entity:
+                    for key, value in updates.items():
+                        if hasattr(entity, key):
+                            setattr(entity, key, value)
+                        else:
+                            self.logger.warning(
+                                f"Attempted to update non-existent attribute '{key}' on {self.model_class.__name__}",
+                                source_module=self._source_module
+                            )
+                    if hasattr(entity, "updated_at"):
+                        entity.updated_at = datetime.now(timezone.utc) # type: ignore
+
+                    await session.commit()
+                    await session.refresh(entity)
+                    self.logger.info(
+                        f"Updated {self.model_class.__name__} with ID {entity_id}",
+                        source_module=self._source_module,
+                    )
+                    return entity
+                else:
+                    self.logger.warning(
+                        f"Attempted to update non-existent {self.model_class.__name__} with ID {entity_id}",
+                        source_module=self._source_module,
+                    )
+                    return None
+        except Exception as e:
             self.logger.exception(
-                f"Error updating {self.table_name}",
+                f"Error updating {self.model_class.__name__} with ID {entity_id}: {e}",
                 source_module=self._source_module,
             )
             raise
@@ -127,108 +154,108 @@ class BaseRepository(Generic[T], ABC):
     async def find_all(
         self,
         filters: dict[str, Any] | None = None,
-        limit: int = 100,
-        offset: int = 0,
-        order_by: str | None = None,
-    ) -> list[T]:
-        """Find multiple entities with filtering.
+        limit: int | None = None,
+        offset: int | None = None,
+        order_by: str | None = None, # e.g., "column_name" or "column_name DESC"
+    ) -> Sequence[T]:
+        """Find multiple entities with filtering, ordering, and pagination.
 
         Args:
-            filters: Dictionary of column names to filter values
-            limit: Maximum number of results to return
-            offset: Number of results to skip
-            order_by: Column to order results by
+            filters: Dictionary of column names to filter values.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip.
+            order_by: Column to order results by (e.g., "name" or "created_at DESC").
         Returns:
-            List[T]: List of found entities
+            A sequence of found entities.
         Raises:
-            DatabaseError: If the operation fails
+            SQLAlchemyError: If the operation fails.
+            ValueError: If order_by clause is malformed.
         """
-        # Use parameterized query to prevent SQL injection
-        query_parts = [f"SELECT * FROM {self._quote_identifier(self.table_name)}"]
-        params: list[Any] = []
-        param_count = 0
-
-        # Add WHERE clause if filters provided
-        if filters:
-            where_clauses = []
-            for col, value in filters.items():
-                param_count += 1
-                where_clauses.append(f"{col} = ${param_count}")
-                params.append(value)
-            query_parts.append(f"WHERE {' AND '.join(where_clauses)}")
-
-        # Add ORDER BY
-        if order_by:
-            query_parts.append(f"ORDER BY {order_by}")
-
-        # Add pagination
-        param_count += 1
-        query_parts.append(f"LIMIT ${param_count}")
-        params.append(limit)
-
-        param_count += 1
-        query_parts.append(f"OFFSET ${param_count}")
-        params.append(offset)
-
-        query = " ".join(query_parts)
-
         try:
-            async with self.db_pool.acquire() as conn:
-                rows = await conn.fetch(query, *params)
-                return [self._row_to_entity(dict(row)) for row in rows]
-        except Exception:
+            async with self.session_maker() as session:
+                stmt = select(self.model_class)
+
+                if filters:
+                    for column_name, value in filters.items():
+                        if hasattr(self.model_class, column_name):
+                            stmt = stmt.where(getattr(self.model_class, column_name) == value)
+                        else:
+                            self.logger.warning(
+                                f"Filter key '{column_name}' not found on model {self.model_class.__name__}",
+                                source_module=self._source_module
+                            )
+                if order_by:
+                    parts = order_by.strip().split()
+                    col_name = parts[0]
+                    if not hasattr(self.model_class, col_name):
+                        raise ValueError(f"Invalid order_by column: {col_name} on {self.model_class.__name__}")
+
+                    col = getattr(self.model_class, col_name)
+                    if len(parts) > 1 and parts[1].upper() == "DESC":
+                        stmt = stmt.order_by(desc(col))
+                    else:
+                        stmt = stmt.order_by(asc(col))
+
+                if limit is not None:
+                    stmt = stmt.limit(limit)
+                if offset is not None:
+                    stmt = stmt.offset(offset)
+
+                result = await session.execute(stmt)
+                entities = result.scalars().all()
+                self.logger.debug(
+                    f"Found {len(entities)} {self.model_class.__name__}(s) with given criteria",
+                    source_module=self._source_module,
+                )
+                return entities
+        except ValueError as ve: # Catch specific ValueError for logging
+            self.logger.error(
+                f"Invalid order_by clause for {self.model_class.__name__}: {ve}",
+                source_module=self._source_module,
+            )
+            raise
+        except Exception as e:
             self.logger.exception(
-                f"Error finding many in {self.table_name}",
+                f"Error finding all {self.model_class.__name__}: {e}",
                 source_module=self._source_module,
             )
             raise
 
-    async def delete(self, id: str) -> bool:
+    async def delete(self, entity_id: Any) -> bool:
         """Delete entity by ID.
 
         Args:
-            id: ID of the entity to delete
+            entity_id: ID of the entity to delete.
         Returns:
-            bool: True if deletion was successful, False otherwise
+            True if deletion was successful, False otherwise.
         Raises:
-            DatabaseError: If the operation fails
+            SQLAlchemyError: If the operation fails.
         """
-        # Use parameterized query to prevent SQL injection
-        query = f"""
-            DELETE FROM {self._quote_identifier(self.table_name)}
-            WHERE id = $1
-        """.strip()
-
         try:
-            async with self.db_pool.acquire() as conn:
-                result = await conn.execute(query, id)
-                # Parse the result string to check if rows were affected
-                # PostgreSQL execute returns a string like "DELETE 1" or "DELETE 0"
-                if isinstance(result, str):
-                    return result.split()[-1] != "0"
-                return bool(result)
-        except Exception:
+            async with self.session_maker() as session:
+                entity = await session.get(self.model_class, entity_id)
+                if entity:
+                    await session.delete(entity)
+                    await session.commit()
+                    self.logger.info(
+                        f"Deleted {self.model_class.__name__} with ID {entity_id}",
+                        source_module=self._source_module,
+                    )
+                    return True
+                self.logger.warning(
+                    f"Attempted to delete non-existent {self.model_class.__name__} with ID {entity_id}",
+                    source_module=self._source_module,
+                )
+                return False
+        except Exception as e:
             self.logger.exception(
-                f"Error deleting from {self.table_name}",
+                f"Error deleting {self.model_class.__name__} with ID {entity_id}: {e}",
                 source_module=self._source_module,
             )
             raise
 
-    async def execute_transaction(
-        self,
-        operations: list[Callable[[asyncpg.Connection], Any]],
-    ) -> None:
-        """Execute multiple operations in a transaction.
-
-        Args:
-            operations: List of async functions that take a connection
-        Raises:
-            DatabaseError: If any operation in the transaction fails
-        """
-        async with self.db_pool.acquire() as conn, conn.transaction():
-            for operation in operations:
-                await operation(conn)
-
-    @abstractmethod
-    def _row_to_entity(self, row: dict[str, Any]) -> T:
-        """Convert database row to entity."""
+    # execute_transaction method is removed as SQLAlchemy sessions handle transactions.
+    # Each method like create, update, delete that calls session.commit()
+    # is effectively an atomic transaction if the session_maker is configured
+    # correctly (which it is by default). For multi-operation transactions,
+    # a session can be passed around or a higher-level service can manage it.

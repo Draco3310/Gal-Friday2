@@ -1,81 +1,106 @@
-"""Position repository implementation."""
+"""Position repository implementation using SQLAlchemy."""
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 
-import asyncpg
+from sqlalchemy import select, func, cast, Numeric
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
 from gal_friday.dal.base import BaseRepository
-from gal_friday.dal.entities.position import PositionEntity
+from gal_friday.dal.models.position import Position
 
 if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
 
-class PositionRepository(BaseRepository[PositionEntity]):
-    """Repository for position data persistence."""
+class PositionRepository(BaseRepository[Position]):
+    """Repository for position data persistence using SQLAlchemy."""
 
-    def __init__(self, db_pool: asyncpg.Pool, logger: "LoggerService") -> None:
+    def __init__(
+        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService"
+    ) -> None:
         """Initialize the position repository.
 
         Args:
-            db_pool: Async database connection pool
-            logger: Logger service instance
+            session_maker: SQLAlchemy async_sessionmaker for creating sessions.
+            logger: Logger service instance.
         """
-        super().__init__(db_pool, logger, "positions")
+        super().__init__(session_maker, Position, logger)
 
-    def _row_to_entity(self, row: dict[str, Any]) -> PositionEntity:
-        """Convert database row to position entity."""
-        return PositionEntity.from_dict(row)
-
-    async def get_active_positions(self) -> list[PositionEntity]:
+    async def get_active_positions(self) -> Sequence[Position]:
         """Get all active positions."""
-        return await self.find_many(
-            filters={"is_active": True},
-            order_by="opened_at DESC",
+        return await self.find_all(
+            filters={"is_active": True}, order_by="opened_at DESC"
         )
 
-    async def get_position_by_pair(self, trading_pair: str) -> PositionEntity | None:
+    async def get_position_by_pair(self, trading_pair: str) -> Position | None:
         """Get active position for a trading pair."""
-        positions = await self.find_many(
-            filters={"trading_pair": trading_pair, "is_active": True},
-            limit=1,
+        positions = await self.find_all(
+            filters={"trading_pair": trading_pair, "is_active": True}, limit=1
         )
         return positions[0] if positions else None
 
-    async def update_position_price(self,
-                                   position_id: str,
-                                   current_price: Decimal,
-                                   unrealized_pnl: Decimal) -> bool:
-        """Update position with current market price."""
-        return await self.update(position_id, {
-            "current_price": float(current_price),
-            "unrealized_pnl": float(unrealized_pnl),
-        })
+    async def update_position_price(
+        self, position_id: str, current_price: Decimal, unrealized_pnl: Decimal
+    ) -> Position | None:
+        """Update position with current market price. Returns the updated position or None."""
+        return await self.update(
+            position_id,
+            {
+                "current_price": current_price, # Keep as Decimal
+                "unrealized_pnl": unrealized_pnl, # Keep as Decimal
+            },
+        )
 
-    async def close_position(self,
-                           position_id: str,
-                           realized_pnl: Decimal) -> bool:
-        """Mark position as closed."""
-        return await self.update(position_id, {
-            "is_active": False,
-            "closed_at": datetime.now(UTC),
-            "realized_pnl": float(realized_pnl),
-            "unrealized_pnl": 0,
-        })
+    async def close_position(
+        self, position_id: str, realized_pnl: Decimal
+    ) -> Position | None:
+        """Mark position as closed. Returns the updated position or None."""
+        return await self.update(
+            position_id,
+            {
+                "is_active": False,
+                "closed_at": datetime.now(timezone.utc),
+                "realized_pnl": realized_pnl, # Keep as Decimal
+                "unrealized_pnl": Decimal("0"), # Ensure it's a Decimal
+            },
+        )
 
     async def get_position_summary(self) -> dict[str, Any]:
-        """Get summary of all positions."""
-        query = """
-            SELECT
-                COUNT(*) FILTER (WHERE is_active = true) as active_positions,
-                COUNT(*) FILTER (WHERE is_active = false) as closed_positions,
-                SUM(realized_pnl) as total_realized_pnl,
-                SUM(unrealized_pnl) FILTER (WHERE is_active = true) as total_unrealized_pnl
-            FROM positions
-        """
+        """Get summary of all positions using SQLAlchemy."""
+        try:
+            async with self.session_maker() as session:
+                stmt = select(
+                    func.count(Position.id).filter(Position.is_active == True).label("active_positions"),
+                    func.count(Position.id).filter(Position.is_active == False).label("closed_positions"),
+                    func.sum(cast(Position.realized_pnl, Numeric)).label("total_realized_pnl"),
+                    func.sum(cast(Position.unrealized_pnl, Numeric)).filter(Position.is_active == True).label("total_unrealized_pnl")
+                )
+                result = await session.execute(stmt)
+                summary = result.one_or_none() # Using one_or_none() as SUM can return None if no rows
+                
+                if summary:
+                    self.logger.debug("Retrieved position summary.", source_module=self._source_module)
+                    # Convert Row to dict, handling None for sums if necessary
+                    return {
+                        "active_positions": summary.active_positions or 0,
+                        "closed_positions": summary.closed_positions or 0,
+                        "total_realized_pnl": summary.total_realized_pnl or Decimal("0"),
+                        "total_unrealized_pnl": summary.total_unrealized_pnl or Decimal("0"),
+                    }
+                else: # Should not happen with COUNT/SUM over a table unless it's empty and SUM returns NULL
+                    self.logger.warning("Position summary query returned no rows.", source_module=self._source_module)
+                    return {
+                        "active_positions": 0,
+                        "closed_positions": 0,
+                        "total_realized_pnl": Decimal("0"),
+                        "total_unrealized_pnl": Decimal("0"),
+                    }
 
-        async with self.db_pool.acquire() as conn:
-            row = await conn.fetchrow(query)
-            return dict(row)
+        except Exception as e:
+            self.logger.exception(
+                f"Error retrieving position summary: {e}",
+                source_module=self._source_module
+            )
+            raise

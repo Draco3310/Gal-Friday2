@@ -9,18 +9,23 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, Sequence # Added Sequence
 
 import numpy as np
 from scipy import stats
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession # Added
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.dal.repositories.experiment_repository import ExperimentRepository
+# Import SQLAlchemy models that this manager might deal with if it transforms data
+from gal_friday.dal.models.experiment import Experiment as ExperimentModel
+from gal_friday.dal.models.experiment_assignment import ExperimentAssignment as ExperimentAssignmentModel
+from gal_friday.dal.models.experiment_outcome import ExperimentOutcome as ExperimentOutcomeModel
 from gal_friday.logger_service import LoggerService
 
 if TYPE_CHECKING:
-    from gal_friday.model_lifecycle.registry import ModelRegistry
+    from gal_friday.model_lifecycle.registry import Registry as ModelRegistryType # Updated to new Registry
 
 # Type variable for generic event type
 T = TypeVar("T")
@@ -148,26 +153,27 @@ class ExperimentManager:
 
     def __init__(
         self,
-        config: ConfigManager,
-        model_registry: "ModelRegistry",
-        experiment_repo: ExperimentRepository,
-        pubsub: PubSubManager,
-        logger: LoggerService,
+        config_manager: ConfigManager, # Renamed for clarity
+        model_registry: "ModelRegistryType", # Updated type hint
+        session_maker: async_sessionmaker[AsyncSession], # Changed from experiment_repo
+        pubsub_manager: PubSubManager, # Renamed for clarity
+        logger_service: LoggerService, # Renamed for clarity
     ) -> None:
         """Initialize the ExperimentManager.
 
         Args:
-            config: Configuration manager instance.
+            config_manager: Configuration manager instance.
             model_registry: Model registry for accessing models.
-            experiment_repo: Repository for experiment data.
-            pubsub: PubSub manager for event handling.
-            logger: Logger instance for logging.
+            session_maker: SQLAlchemy async_sessionmaker for database sessions.
+            pubsub_manager: PubSub manager for event handling.
+            logger_service: Logger instance for logging.
         """
-        self.config = config
+        self.config = config_manager
         self.model_registry = model_registry
-        self.experiment_repo = experiment_repo
-        self.pubsub = pubsub
-        self.logger = logger
+        self.session_maker = session_maker # Store session_maker
+        self.experiment_repo = ExperimentRepository(session_maker, logger_service) # Instantiate repo
+        self.pubsub = pubsub_manager
+        self.logger = logger_service
         self._source_module = self.__class__.__name__
 
         # Active experiments
@@ -241,23 +247,42 @@ class ExperimentManager:
                 ),
             }
 
-            # Save to database
-            await self.experiment_repo.save_experiment(config)
+            # Save to database - experiment_repo.save_experiment now takes a dict
+            experiment_data_dict = config.to_dict()
+            # Ensure UUIDs are actual UUID objects if repo expects them
+            experiment_data_dict["experiment_id"] = uuid.UUID(config.experiment_id)
+            if config.control_model_id: # Assuming these are str from ExperimentConfig
+                experiment_data_dict["control_model_id"] = uuid.UUID(config.control_model_id)
+            if config.treatment_model_id:
+                experiment_data_dict["treatment_model_id"] = uuid.UUID(config.treatment_model_id)
 
-            # Add to active experiments
-            self.active_experiments[config.experiment_id] = config
+            # Convert specific Decimal fields back to Decimal if to_dict stringified them
+            for key in ['traffic_split', 'confidence_level', 'minimum_detectable_effect', 'max_loss_threshold']:
+                if key in experiment_data_dict and experiment_data_dict[key] is not None:
+                    experiment_data_dict[key] = Decimal(str(experiment_data_dict[key]))
+            
+            # Dates should be datetime objects
+            experiment_data_dict["start_time"] = config.start_time
+            if config.end_time:
+                experiment_data_dict["end_time"] = config.end_time
+
+
+            created_experiment_model = await self.experiment_repo.save_experiment(experiment_data_dict)
+
+            # Add to active experiments (still using ExperimentConfig dataclass for now)
+            self.active_experiments[created_experiment_model.experiment_id.hex] = config # Use hex for dict key if UUID
 
             self.logger.info(
-                f"Created experiment: {config.name}",
+                f"Created experiment: {created_experiment_model.name}",
                 source_module=self._source_module,
                 context={
-                    "experiment_id": config.experiment_id,
-                    "control": config.control_model_id,
-                    "treatment": config.treatment_model_id,
+                    "experiment_id": created_experiment_model.experiment_id.hex,
+                    "control": created_experiment_model.control_model_id.hex,
+                    "treatment": created_experiment_model.treatment_model_id.hex,
                 },
             )
 
-            return config.experiment_id
+            return created_experiment_model.experiment_id.hex # Return UUID as hex string
 
         except Exception:
             self.logger.exception(
@@ -390,12 +415,14 @@ class ExperimentManager:
         event: T,
     ) -> None:
         """Record variant assignment."""
-        await self.experiment_repo.record_assignment(
-            experiment_id=experiment_id,
-            variant=variant,
-            event_id=str(event.event_id),
-            timestamp=datetime.now(UTC),
-        )
+        # experiment_repo.record_assignment takes a dictionary
+        assignment_data = {
+            "experiment_id": uuid.UUID(experiment_id), # Ensure UUID
+            "variant": variant,
+            "event_id": uuid.UUID(str(event.event_id)), # Ensure UUID
+            "assigned_at": datetime.now(timezone.utc) # Use timezone.utc
+        }
+        await self.experiment_repo.record_assignment(assignment_data)
 
     async def record_outcome(
         self,
@@ -405,26 +432,37 @@ class ExperimentManager:
     ) -> None:
         """Record the outcome of a prediction for analysis."""
         try:
-            # Get the variant assignment
-            assignment = await self.experiment_repo.get_assignment(experiment_id, event_id)
-            if not assignment:
+            # Get the variant assignment (repo returns ExperimentAssignmentModel or None)
+            assignment_model = await self.experiment_repo.get_assignment(
+                uuid.UUID(experiment_id), uuid.UUID(event_id) # Ensure UUIDs
+            )
+            if not assignment_model:
+                self.logger.warning(f"No assignment found for experiment {experiment_id}, event {event_id}. Cannot record outcome.", source_module=self._source_module)
                 return
 
-            variant = assignment["variant"]
+            variant = assignment_model.variant
 
-            # Update performance metrics
-            if experiment_id in self.experiment_performance:
-                performance = self.experiment_performance[experiment_id][variant]
-                performance.update_metrics(outcome)
+            # Update performance metrics (in-memory, consider if this should also be DB driven)
+            if experiment_id in self.experiment_performance: # experiment_id is string here
+                # Ensure variant is a valid key ('control' or 'treatment')
+                if variant in self.experiment_performance[experiment_id]:
+                    performance = self.experiment_performance[experiment_id][variant]
+                    performance.update_metrics(outcome)
+                else:
+                    self.logger.warning(f"Variant '{variant}' not found in performance tracking for experiment {experiment_id}.", source_module=self._source_module)
 
-            # Save outcome to database
-            await self.experiment_repo.save_outcome(
-                experiment_id=experiment_id,
-                event_id=event_id,
-                variant=variant,
-                outcome=outcome,
-                timestamp=datetime.now(UTC),
-            )
+            # Save outcome to database (repo takes a dictionary)
+            outcome_data_for_db = {
+                "experiment_id": uuid.UUID(experiment_id), # Ensure UUID
+                "event_id": uuid.UUID(event_id),           # Ensure UUID
+                "variant": variant,
+                "outcome_data": outcome, # This is already a dict
+                "correct_prediction": outcome.get("correct_prediction"),
+                "signal_generated": outcome.get("signal_generated"),
+                "trade_return": Decimal(str(outcome.get("return", "0"))), # Ensure Decimal
+                "recorded_at": datetime.now(timezone.utc) # Use timezone.utc
+            }
+            await self.experiment_repo.save_outcome(outcome_data_for_db)
 
         except Exception:
             self.logger.exception(
@@ -609,22 +647,58 @@ class ExperimentManager:
     async def _load_active_experiments(self) -> None:
         """Load active experiments from database."""
         try:
-            experiments = await self.experiment_repo.get_active_experiments()
+            # experiment_repo.get_active_experiments() returns Sequence[ExperimentModel]
+            active_experiment_models: Sequence[ExperimentModel] = await self.experiment_repo.get_active_experiments()
 
-            for exp_data in experiments:
-                config = ExperimentConfig(**exp_data)
-                self.active_experiments[config.experiment_id] = config
-
-                # Load performance data
-                await self.experiment_repo.get_experiment_performance(
-                    config.experiment_id,
+            for exp_model in active_experiment_models:
+                # Convert ExperimentModel to ExperimentConfig if internal logic still uses it.
+                # This is a simplification; direct use of exp_model attributes is preferred.
+                config_data = exp_model.config_data or {} # Use stored config_data if available
+                # Map model fields to ExperimentConfig fields
+                # This mapping might be complex if structures differ significantly.
+                # For now, assume a basic mapping or that ExperimentConfig adapts.
+                exp_config = ExperimentConfig(
+                    experiment_id=exp_model.experiment_id.hex,
+                    name=exp_model.name,
+                    description=exp_model.description or "",
+                    control_model_id=exp_model.control_model_id.hex,
+                    treatment_model_id=exp_model.treatment_model_id.hex,
+                    allocation_strategy=AllocationStrategy(exp_model.allocation_strategy),
+                    traffic_split=exp_model.traffic_split, # Already Decimal
+                    start_time=exp_model.start_time.replace(tzinfo=UTC if exp_model.start_time.tzinfo is None else None), # Ensure tz-aware
+                    end_time=exp_model.end_time.replace(tzinfo=UTC if exp_model.end_time and exp_model.end_time.tzinfo is None else None) if exp_model.end_time else None,
+                    min_samples_per_variant=exp_model.min_samples_per_variant or 1000,
+                    primary_metric=exp_model.primary_metric,
+                    secondary_metrics=exp_model.secondary_metrics.get("metrics", []) if isinstance(exp_model.secondary_metrics, dict) else (exp_model.secondary_metrics or []),
+                    confidence_level=exp_model.confidence_level or DEFAULT_CONFIDENCE_LEVEL,
+                    minimum_detectable_effect=exp_model.minimum_detectable_effect or DEFAULT_MIN_DETECTABLE_EFFECT,
+                    max_loss_threshold=exp_model.max_loss_threshold,
                 )
+                self.active_experiments[exp_model.experiment_id.hex] = exp_config
 
-                # Reconstruct performance objects
-                # This would need proper deserialization in production
+                # Load performance data (repo returns dict)
+                # This part might need adjustment if VariantPerformance objects are stored/retrieved differently
+                perf_data = await self.experiment_repo.get_experiment_performance(exp_model.experiment_id)
+                
+                # Reconstruct performance objects (if still using VariantPerformance in memory)
+                # This is complex and depends on how performance data is stored/aggregated.
+                # For simplicity, this reconstruction is illustrative.
+                self.experiment_performance[exp_model.experiment_id.hex] = {}
+                for variant_name, metrics in perf_data.items():
+                    model_id_for_variant = exp_model.control_model_id.hex if variant_name == "control" else exp_model.treatment_model_id.hex
+                    vp = VariantPerformance(model_id=model_id_for_variant, variant_name=variant_name)
+                    vp.sample_count = metrics.get("sample_count", 0)
+                    vp.correct_predictions = metrics.get("correct_predictions", 0)
+                    vp.predictions_made = vp.sample_count # Assuming one prediction per sample for this metric
+                    vp.signals_generated = metrics.get("signals_generated", 0)
+                    vp.total_return = metrics.get("total_return", Decimal(0))
+                    if vp.predictions_made > 0:
+                         vp.mean_accuracy = vp.correct_predictions / vp.predictions_made
+                    self.experiment_performance[exp_model.experiment_id.hex][variant_name] = vp
+
 
             self.logger.info(
-                f"Loaded {len(self.active_experiments)} active experiments",
+                f"Loaded {len(self.active_experiments)} active experiments from DB",
                 source_module=self._source_module,
             )
 

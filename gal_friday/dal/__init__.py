@@ -1,12 +1,11 @@
 """Data Access Layer for Gal-Friday."""
 
-from .base import BaseEntity, BaseRepository
+from .base import BaseRepository # Removed BaseEntity
 from .connection_pool import DatabaseConnectionPool
-from .influxdb_client import TimeSeriesDB
+# from .influxdb_client import TimeSeriesDB # Commented out to avoid ModuleNotFoundError during alembic autogen
 
 __all__ = [
-    "BaseEntity",
-    "BaseRepository",
+    "BaseRepository", # Removed BaseEntity
     "DatabaseConnectionPool",
-    "TimeSeriesDB",
+    # "TimeSeriesDB", # Commented out
 ]

@@ -1,156 +1,149 @@
-"""Repository for model retraining jobs and drift metrics."""
+"""Repository for model retraining jobs and drift metrics using SQLAlchemy."""
 
-import json
-from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+import uuid
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, Sequence
 
-import asyncpg
+from sqlalchemy import select, func, cast, Numeric, text, column
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy.dialects.postgresql import JSONB
 
 from gal_friday.dal.base import BaseRepository
-from gal_friday.model_lifecycle.retraining_pipeline import RetrainingJob
+from gal_friday.dal.models.retraining_job import RetrainingJob
+from gal_friday.dal.models.drift_detection_event import DriftDetectionEvent
+# RetrainingJob Pydantic model from pipeline might be used by service layer, not repo directly.
 
 if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
 
-class RetrainingRepository(BaseRepository):
-    """Repository for retraining job persistence."""
+class RetrainingRepository(BaseRepository[RetrainingJob]):
+    """Repository for RetrainingJob data persistence using SQLAlchemy."""
 
-    def __init__(self, db_pool: asyncpg.Pool, logger: "LoggerService") -> None:
+    def __init__(
+        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService"
+    ) -> None:
         """Initialize the retraining repository.
 
         Args:
-            db_pool: Database connection pool
-            logger: Logger service instance
+            session_maker: SQLAlchemy async_sessionmaker for creating sessions.
+            logger: Logger service instance.
         """
-        super().__init__(db_pool, logger, "retraining_jobs")
+        super().__init__(session_maker, RetrainingJob, logger)
 
-    async def save_job(self, job: RetrainingJob) -> None:
-        """Save retraining job."""
-        query = """
-            INSERT INTO retraining_jobs (
-                job_id, model_id, model_name, trigger,
-                drift_metrics, status, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    async def save_job(self, job_data: dict[str, Any]) -> RetrainingJob:
+        """Saves a retraining job.
+        `job_data` should contain fields for RetrainingJob model.
+        job_id should be a UUID. model_id and new_model_id (if present) should be UUIDs.
         """
+        for key in ["job_id", "model_id", "new_model_id"]:
+            if key in job_data and isinstance(job_data[key], str):
+                job_data[key] = uuid.UUID(job_data[key])
+        
+        for key in ["start_time", "end_time", "created_at", "updated_at"]:
+            if key in job_data and isinstance(job_data[key], str):
+                 dt_obj = datetime.fromisoformat(job_data[key])
+                 job_data[key] = dt_obj.replace(tzinfo=timezone.utc) if dt_obj.tzinfo is None else dt_obj
+            elif key in job_data and isinstance(job_data[key], datetime) and job_data[key].tzinfo is None:
+                 job_data[key] = job_data[key].replace(tzinfo=timezone.utc)
 
-        await self.db_pool.execute(
-            query,
-            job.job_id,
-            job.model_id,
-            job.model_name,
-            job.trigger.value,
-            json.dumps([m.__dict__ for m in job.drift_metrics]),
-            job.status,
-            datetime.now(UTC),
-        )
 
-    async def update_job_status(self, job: RetrainingJob) -> None:
+        # Ensure job_id is present
+        if "job_id" not in job_data:
+            job_data["job_id"] = uuid.uuid4()
+        
+        return await self.create(job_data)
+
+    async def update_job_status(self, job_id: uuid.UUID, updates: dict[str, Any]) -> RetrainingJob | None:
         """Update job status and results."""
-        query = """
-            UPDATE retraining_jobs SET
-                status = $2,
-                start_time = $3,
-                end_time = $4,
-                new_model_id = $5,
-                performance_comparison = $6,
-                error_message = $7,
-                updated_at = $8
-            WHERE job_id = $1
-        """
+        if "updated_at" not in updates: # Ensure updated_at is set
+            updates["updated_at"] = datetime.now(timezone.utc)
+        
+        for key in ["start_time", "end_time", "updated_at"]:
+            if key in updates and isinstance(updates[key], str):
+                 dt_obj = datetime.fromisoformat(updates[key])
+                 updates[key] = dt_obj.replace(tzinfo=timezone.utc) if dt_obj.tzinfo is None else dt_obj
+            elif key in updates and isinstance(updates[key], datetime) and updates[key].tzinfo is None:
+                 updates[key] = updates[key].replace(tzinfo=timezone.utc)
 
-        await self.db_pool.execute(
-            query,
-            job.job_id,
-            job.status,
-            job.start_time,
-            job.end_time,
-            job.new_model_id,
-            json.dumps(job.performance_comparison) if job.performance_comparison else None,
-            job.error_message,
-            datetime.now(UTC),
-        )
+        if "new_model_id" in updates and isinstance(updates["new_model_id"], str):
+            updates["new_model_id"] = uuid.UUID(updates["new_model_id"])
 
-    async def get_job(self, job_id: str) -> dict[str, Any] | None:
+        return await self.update(job_id, updates)
+
+    async def get_job(self, job_id: uuid.UUID) -> RetrainingJob | None:
         """Get retraining job by ID."""
-        query = """
-            SELECT * FROM retraining_jobs WHERE job_id = $1
-        """
+        return await self.get_by_id(job_id)
 
-        row = await self.db_pool.fetchrow(query, job_id)
-        if row:
-            return dict(row)
-        return None
-
-    async def get_recent_jobs(self, days: int = 7) -> list[dict[str, Any]]:
+    async def get_recent_jobs(self, days: int = 7) -> Sequence[RetrainingJob]:
         """Get recent retraining jobs."""
-        query = """
-            SELECT * FROM retraining_jobs
-            WHERE created_at > $1
-            ORDER BY created_at DESC
-        """
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+        async with self.session_maker() as session:
+            stmt = (
+                select(RetrainingJob)
+                .where(RetrainingJob.created_at > cutoff_date)
+                .order_by(RetrainingJob.created_at.desc())
+            )
+            result = await session.execute(stmt)
+            return result.scalars().all()
 
-        cutoff = datetime.now(UTC) - timedelta(days=days)
-        rows = await self.db_pool.fetch(query, cutoff)
-
-        return [dict(row) for row in rows]
-
-    async def get_jobs_by_model(self, model_id: str) -> list[dict[str, Any]]:
+    async def get_jobs_by_model(self, model_id: uuid.UUID) -> Sequence[RetrainingJob]:
         """Get all retraining jobs for a model."""
-        query = """
-            SELECT * FROM retraining_jobs
-            WHERE model_id = $1
-            ORDER BY created_at DESC
-        """
+        return await self.find_all(filters={"model_id": model_id}, order_by="created_at DESC")
 
-        rows = await self.db_pool.fetch(query, model_id)
-        return [dict(row) for row in rows]
+    async def save_drift_detection_event(
+        self, event_data: dict[str, Any]
+    ) -> DriftDetectionEvent:
+        """Saves a drift detection event."""
+        # event_id is auto-generated by default in DriftDetectionEvent model
+        for key in ["model_id"]: # Ensure UUIDs
+            if key in event_data and isinstance(event_data[key], str):
+                event_data[key] = uuid.UUID(event_data[key])
+        
+        if "detected_at" in event_data and isinstance(event_data["detected_at"], str):
+            dt_obj = datetime.fromisoformat(event_data["detected_at"])
+            event_data["detected_at"] = dt_obj.replace(tzinfo=timezone.utc) if dt_obj.tzinfo is None else dt_obj
+        elif "detected_at" in event_data and isinstance(event_data["detected_at"], datetime) and event_data["detected_at"].tzinfo is None:
+            event_data["detected_at"] = event_data["detected_at"].replace(tzinfo=timezone.utc)
 
-    async def save_drift_detection(self,
-                                 model_id: str,
-                                 drift_type: str,
-                                 metric_name: str,
-                                 drift_score: float,
-                                 is_significant: bool,
-                                 details: dict[str, Any]) -> None:
-        """Save drift detection event."""
-        query = """
-            INSERT INTO drift_detection_events (
-                model_id, drift_type, metric_name,
-                drift_score, is_significant, details,
-                detected_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-        """
 
-        await self.db_pool.execute(
-            query,
-            model_id,
-            drift_type,
-            metric_name,
-            drift_score,
-            is_significant,
-            json.dumps(details),
-            datetime.now(UTC),
-        )
+        if "drift_score" in event_data and not isinstance(event_data["drift_score"], Decimal):
+            event_data["drift_score"] = Decimal(str(event_data["drift_score"]))
 
-    async def get_drift_history(self,
-                              model_id: str,
-                              days: int = 30) -> list[dict[str, Any]]:
+        async with self.session_maker() as session:
+            instance = DriftDetectionEvent(**event_data)
+            session.add(instance)
+            await session.commit()
+            await session.refresh(instance)
+            return instance
+
+    async def get_drift_history(
+        self, model_id: uuid.UUID, days: int = 30
+    ) -> Sequence[DriftDetectionEvent]:
         """Get drift detection history for a model."""
-        query = """
-            SELECT * FROM drift_detection_events
-            WHERE model_id = $1 AND detected_at > $2
-            ORDER BY detected_at DESC
-        """
-
-        cutoff = datetime.now(UTC) - timedelta(days=days)
-        rows = await self.db_pool.fetch(query, model_id, cutoff)
-
-        return [dict(row) for row in rows]
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+        async with self.session_maker() as session:
+            stmt = (
+                select(DriftDetectionEvent)
+                .where(
+                    DriftDetectionEvent.model_id == model_id,
+                    DriftDetectionEvent.detected_at > cutoff_date,
+                )
+                .order_by(DriftDetectionEvent.detected_at.desc())
+            )
+            result = await session.execute(stmt)
+            return result.scalars().all()
 
     async def get_retraining_metrics(self) -> dict[str, Any]:
-        """Get aggregated retraining metrics."""
-        query = """
+        """Get aggregated retraining metrics using raw SQL for complex aggregation."""
+        # This query is complex and uses CTEs with specific PostgreSQL functions (row_to_json, json_agg).
+        # It's often easier to execute such queries directly with SQLAlchemy's text() construct
+        # and then process the results, rather than trying to build it entirely with the ORM/Query builder.
+        
+        thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+
+        query = text(f"""
             WITH job_stats AS (
                 SELECT
                     COUNT(*) as total_jobs,
@@ -159,14 +152,14 @@ class RetrainingRepository(BaseRepository):
                     COUNT(CASE WHEN status = 'running' THEN 1 END) as running_jobs,
                     AVG(EXTRACT(EPOCH FROM (end_time - start_time))) as avg_duration_seconds
                 FROM retraining_jobs
-                WHERE created_at > NOW() - INTERVAL '30 days'
+                WHERE created_at > '{thirty_days_ago}'
             ),
             trigger_stats AS (
                 SELECT
                     trigger,
                     COUNT(*) as count
                 FROM retraining_jobs
-                WHERE created_at > NOW() - INTERVAL '30 days'
+                WHERE created_at > '{thirty_days_ago}'
                 GROUP BY trigger
             ),
             drift_stats AS (
@@ -175,21 +168,28 @@ class RetrainingRepository(BaseRepository):
                     COUNT(*) as detections,
                     COUNT(CASE WHEN is_significant THEN 1 END) as significant_detections
                 FROM drift_detection_events
-                WHERE detected_at > NOW() - INTERVAL '30 days'
+                WHERE detected_at > '{thirty_days_ago}'
                 GROUP BY drift_type
             )
             SELECT
-                (SELECT row_to_json(job_stats) FROM job_stats) as job_statistics,
-                (SELECT json_agg(row_to_json(trigger_stats))
-                 FROM trigger_stats) as trigger_distribution,
-                (SELECT json_agg(row_to_json(drift_stats))
-                 FROM drift_stats) as drift_statistics
-        """
+                (SELECT row_to_json(js) FROM job_stats js) as job_statistics,
+                (SELECT json_agg(ts) FROM trigger_stats ts) as trigger_distribution,
+                (SELECT json_agg(ds) FROM drift_stats ds) as drift_statistics
+        """)
 
-        row = await self.db_pool.fetchrow(query)
+        async with self.session_maker() as session:
+            result = await session.execute(query)
+            row = result.one_or_none() # Expecting a single row with JSON aggregates
 
-        return {
-            "job_statistics": row["job_statistics"] or {},
-            "trigger_distribution": row["trigger_distribution"] or [],
-            "drift_statistics": row["drift_statistics"] or [],
-        }
+            if row:
+                # Access columns by name or index. For text() queries with labels, name is usually preferred.
+                # If using mappings(), keys will be strings.
+                row_mapping = row._mapping # Access the underlying mapping
+                return {
+                    "job_statistics": row_mapping.get("job_statistics", {}),
+                    "trigger_distribution": row_mapping.get("trigger_distribution", []),
+                    "drift_statistics": row_mapping.get("drift_statistics", []),
+                }
+            return { # Default empty structure if no data (e.g., tables are empty)
+                "job_statistics": {}, "trigger_distribution": [], "drift_statistics": []
+            }
