@@ -85,7 +85,6 @@ This project plan follows a Waterfall methodology, proceeding sequentially throu
 | 3 | 3.16 | Create Main Application Entry Point | Code main script (`main.py`) to initialize modules, executor, event buses, and manage lifecycle. | 1 day | AI | Main App Entry | Completed | 3.3 - 3.15 |
 | 3 | 3.17 | Integrate LoggerService | Pass LoggerService instance to other modules and replace print/basic logging calls. | 1 day | AI | Integrated Logging | Completed | 3.10a, 3.3 - 3.9, 3.11-3.16 |
 | 3 | 3.18 | Code Review & Refinement | Internal review and cleanup of implemented code. | 3 days | AI | Internally Reviewed Codebase | Completed | 3.17 |
-| 3 | 3.19 | System Documentation Generation | Create comprehensive system documentation for all modules, folders, and key architectural aspects of Gal-Friday v0.2. Review existing Phase 1 documents for alignment. | 5 days | AI | System Documentation (Markdown files in `docs/Gal-Friday/Phase 4 - Full Implementation/System Documents/`) | In-progress | 3.18 |
 
 | **Phase 4: Testing ** | | | | | | | | |
 | 4 | 4.1 | Develop Unit Tests | Create tests for individual functions/classes in each module. | 5 days | AI | Unit Test Suite | Pending | 3.18 |
