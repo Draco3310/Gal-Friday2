@@ -34,10 +34,35 @@ from typing import (
     TypeVar,
 )
 
-import asyncpg
-
 # Runtime imports
-from influxdb_client import Point as InfluxDBPoint
+# from influxdb_client import Point as InfluxDBPoint # Moved into methods
+
+if TYPE_CHECKING:
+    import asyncpg
+    # For type hinting InfluxDBClient and WriteApi if needed at class/method signature level
+    from influxdb_client import InfluxDBClient, Point as InfluxDBPoint
+    from influxdb_client.client.write_api import WriteApi
+    from asyncpg import Connection as AsyncpgConnection
+    from asyncpg import Pool as AsyncpgPool
+    from asyncpg.exceptions import ConnectionDoesNotExistError as AsyncpgConnectionDoesNotExistError
+    from asyncpg.exceptions import ConnectionIsClosedError as AsyncpgConnectionIsClosedError
+    from asyncpg.exceptions import InterfaceError as AsyncpgInterfaceError
+    from asyncpg.exceptions import PostgresError as AsyncpgPostgresError
+else:
+    # Define placeholders if asyncpg is not available at runtime for type checking purposes
+    # This helps prevent ModuleNotFoundError if asyncpg is not installed during e.g. linting
+    # or if a part of the code is executed where asyncpg is not strictly needed.
+    AsyncpgConnection = Any
+    AsyncpgPool = Any
+    AsyncpgConnectionDoesNotExistError = Exception
+    AsyncpgConnectionIsClosedError = Exception
+    AsyncpgInterfaceError = Exception
+    AsyncpgPostgresError = Exception
+
+# SQLAlchemy imports for refactored DB logging
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
+from gal_friday.dal.models.log import Log # Import the Log model
 
 # Import JSON Formatter
 from .core.events import EventType, LogEvent
@@ -119,52 +144,15 @@ class DBConnection(Protocol):
         ...
 
 
-# Define a Protocol for the Pool interface we need
-
-
-class PoolProtocol(Protocol):
-    """Protocol defining a connection pool interface.
-
-    Specifies the methods required for connection pooling functionality.
-    """
-
-    def acquire(self) -> AbstractAsyncContextManager[DBConnection]:
-        """Acquire a connection from the pool.
-
-        Returns:
-        -------
-            A connection context manager
-        """
-        ...
-
-    async def release(self, conn: DBConnection) -> None:
-        """Release a connection back to the pool.
-
-        Args:
-        ----
-            conn: The connection to release
-        """
-        ...
-
-    async def close(self) -> None:
-        """Close the connection pool."""
-        ...
-
-
 # Define a proper type alias for the Pool type
-PoolType = TypeVar("PoolType", bound=PoolProtocol)
+# PoolType = TypeVar("PoolType", bound=PoolProtocol) # Replaced by async_sessionmaker
+# PoolProtocol and DBConnection might be removable if AsyncpgPoolAdapter is removed.
 
 # Placeholder Type Hints (Refine later if needed)
-if TYPE_CHECKING:
-    # Use actual type if stubs were available
-    from influxdb_client import InfluxDBClient
-    from influxdb_client.client.write_api import WriteApi
-    AsyncPostgresHandlerType = logging.Handler  # Placeholder for typing
-else:
-    # Define placeholders if not type checking to avoid runtime errors
-    AsyncPostgresHandlerType = logging.Handler
-
-
+# InfluxDBClient and WriteApi are already hinted in the TYPE_CHECKING block above
+# if needed for method signatures.
+# If only used locally in methods, they can be imported there directly.
+AsyncPostgresHandlerType = logging.Handler # Placeholder for typing
 
 
 class ContextFormatter(logging.Formatter):
@@ -213,32 +201,27 @@ class ContextFormatter(logging.Formatter):
 
 
 # --- Custom Async Database Handler ---
-class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
-    """Asynchronous handler for logging to PostgreSQL database."""
+class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
+    """Asynchronous handler for logging to PostgreSQL database using SQLAlchemy."""
 
-    ALLOWED_TABLE_NAMES: ClassVar[set[str]] = {
-        "logs",
-        "application_logs",
-        "system_logs",
-    }  # Add your allowed table names here
+    # ALLOWED_TABLE_NAMES might not be strictly necessary if we always log to the 'Log' model's table.
+    # However, if the table name for the Log model can vary, this could be used for validation.
+    # For now, assuming Log model maps to 'logs' table.
+    # ALLOWED_TABLE_NAMES: ClassVar[set[str]] = {"logs"}
 
-    def __init__(self, pool: PoolType, table_name: str, loop: asyncio.AbstractEventLoop) -> None:
-        """Initialize the handler with database pool and table name.
+    def __init__(self, session_maker: async_sessionmaker[AsyncSession], loop: asyncio.AbstractEventLoop) -> None:
+        """Initialize the handler with SQLAlchemy session maker and event loop.
 
         Args:
         ----
-            pool: Database connection pool
-            table_name: Name of the table to log to (must be in ALLOWED_TABLE_NAMES)
-            loop: Event loop to use for async operations
+            session_maker: SQLAlchemy async_sessionmaker for creating sessions.
+            loop: Event loop to use for async operations.
         """
         super().__init__()
-        if table_name not in self.ALLOWED_TABLE_NAMES:
-            raise InvalidLoggerTableNameError(table_name, self.ALLOWED_TABLE_NAMES)
-        self._table_name = table_name
-        self._pool = pool
-        self._loop = loop
+        self._session_maker = session_maker
+        self._loop = loop # Still needed for call_soon_threadsafe
         self._queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-        self._task: asyncio.Task[None] | None = None
+        self._task: asyncio.Task[None] | None = None # Type hint for task
         self._closed = False
         self._task = asyncio.create_task(self._process_queue())
 
@@ -303,80 +286,30 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
     async def _attempt_db_insert(self, record_data: dict[str, Any]) -> bool:
         """Attempt to insert a single log record into the database.
 
-        Note: The table name is validated against ALLOWED_TABLE_NAMES in __init__
-        and again here for defense in depth.
+        Note: The table name is implicitly handled by the Log model.
         """
         try:
-            # Double-check table name against allowed values
-            if self._table_name not in self.ALLOWED_TABLE_NAMES:
-                raise ValueError(f"Invalid table name: {self._table_name}")
-
-            # Define query templates for each allowed table
-            query_templates = {
-                "logs": """
-                    INSERT INTO logs (
-                        timestamp, logger_name, level_name, level_no, message,
-                        pathname, filename, lineno, func_name, context_json,
-                        exception_text
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                """,
-                "application_logs": """
-                    INSERT INTO application_logs (
-                        timestamp, logger_name, level_name, level_no, message,
-                        pathname, filename, lineno, func_name, context_json,
-                        exception_text
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                """,
-                "system_logs": """
-                    INSERT INTO system_logs (
-                        timestamp, logger_name, level_name, level_no, message,
-                        pathname, filename, lineno, func_name, context_json,
-                        exception_text
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                """,
-            }
-
-
-            # Get the pre-defined query for this table
-            query = query_templates[self._table_name]
-
-            async with self._pool.acquire() as conn:
-                try:
-                    await conn.execute(
-                        query,
-                        record_data["timestamp"],
-                        record_data["logger_name"],
-                        record_data["level_name"],
-                        record_data["level_no"],
-                        record_data["message"],
-                        record_data["pathname"],
-                        record_data["filename"],
-                        record_data["lineno"],
-                        record_data["func_name"],
-                        record_data["context_json"],
-                        record_data["exception_text"],
-                    )
-                    return True
-                except (
-                    asyncpg.exceptions.ConnectionDoesNotExistError,
-                    asyncpg.exceptions.ConnectionIsClosedError,
-                    asyncpg.exceptions.InterfaceError,
-                    OSError,
-                ) as e:
-                    # These are retryable errors
-                    logging.getLogger(__name__).debug(
-                        "Retryable error in _attempt_db_insert: %s", str(e),
-                    )
-                    raise
-                except Exception as e:
-                    # Non-retryable error during DB operation
-                    logging.getLogger(__name__).error(
-                        "Non-retryable error in _attempt_db_insert: %s",
-                        str(e),
-                        exc_info=True,
-                    )
-                    return False
-        except Exception as e:
+            # Map record_data keys to Log model attributes if they differ.
+            # Assuming _format_record produces keys matching Log model attributes.
+            log_entry = Log(**record_data)
+            
+            async with self._session_maker() as session:
+                async with session.begin(): # Start a transaction
+                    session.add(log_entry)
+                # Commit happens automatically with session.begin() context manager,
+                # or call await session.commit() if not using begin()
+            return True
+        except SQLAlchemyError as e: # Catch specific SQLAlchemy errors
+            # Determine if retryable based on specific SQLAlchemy error types if needed
+            logging.getLogger(__name__).error(
+                "SQLAlchemy error in _attempt_db_insert: %s",
+                str(e),
+                exc_info=True,
+            )
+            # For simplicity, treating all SQLAlchemyErrors as non-retryable here.
+            # More sophisticated retry logic could inspect e.orig for DBAPI errors.
+            return False # Non-retryable for this attempt
+        except Exception as e: # Catch any other unexpected errors
             logging.getLogger(__name__).error(
                 "Unexpected error in _attempt_db_insert: %s",
                 str(e),
@@ -393,26 +326,34 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
             try:
                 if await self._attempt_db_insert(record_data):
                     return  # Success
-            except (
-                asyncpg.exceptions.ConnectionDoesNotExistError,
-                asyncpg.exceptions.ConnectionIsClosedError,
-                asyncpg.exceptions.InterfaceError,
-                OSError,
-            ) as conn_err:
+            # Update exception handling for SQLAlchemy context
+            except SQLAlchemyError as db_err: # Broader catch for SQLAlchemy issues
+                # Potentially inspect db_err.orig for specific DBAPI errors if retry is desired
+                # For now, treating as non-retryable by this handler's direct logic.
+                logging.getLogger(__name__).error(
+                    "AsyncPostgresHandler: Database operation error (Attempt %d/%d). Error: %s",
+                    attempt + 1, # attempt is 0-indexed
+                    max_retries,
+                    str(db_err),
+                    exc_info=True
+                )
+                # If it's a connection issue that might be resolved, could retry.
+                # For now, assume it's not directly retryable by this handler.
+                return # Stop processing this record for now.
+            except OSError as conn_err: # Keep OSError for network issues
                 attempt += 1
                 if attempt >= max_retries:
                     logging.getLogger(__name__).error(
-                        "AsyncPostgresHandler: DB connection error failed after %d attempts: %s",
+                        "AsyncPostgresHandler: Network/OS error failed after %d attempts: %s",
                         max_retries,
                         str(conn_err),
                         exc_info=True,
                     )
                 else:
-                    # Exponential backoff with jitter
-                    wait_time = min(base_backoff * (2**attempt), 30.0)  # Cap at 30s
+                    wait_time = min(base_backoff * (2**attempt), 30.0)
                     wait_time += SystemRandom().uniform(0, wait_time * 0.1)
                     logging.getLogger(__name__).warning(
-                        "AsyncPostgresHandler: DB connection error (Attempt %d/%d). "
+                        "AsyncPostgresHandler: Network/OS error (Attempt %d/%d). "
                         "Retrying in %.2fs. Error: %s",
                         attempt,
                         max_retries,
@@ -420,8 +361,11 @@ class AsyncPostgresHandler(logging.Handler, Generic[PoolType]):
                         str(conn_err),
                     )
                     await asyncio.sleep(wait_time)
-            except (RuntimeError, ValueError, TypeError, DatabaseError, asyncpg.PostgresError):
-                # Catches non-retryable errors from _attempt_db_insert
+            except (RuntimeError, ValueError, TypeError, DatabaseError) as e: # General non-DB errors
+                logging.getLogger(__name__).error(
+                    "AsyncPostgresHandler: Non-retryable error caught in _process_queue_with_retry for record: %s. Error: %s",
+                    record_data.get("message", "N/A"), e, exc_info=True
+                )
                 return  # Stop processing this record
 
     async def _process_queue(self) -> None:
@@ -484,13 +428,15 @@ class LoggerService(Generic[PoolType]):
     files, databases and time-series databases with support for context information.
     """
 
-    _influx_client: Optional["InfluxDBClient"] = None
-    _influx_write_api: Optional["WriteApi"] = None
+    _influx_client: Optional["InfluxDBClient"] = None # Assuming InfluxDBClient type hint from TYPE_CHECKING
+    _influx_write_api: Optional["WriteApi"] = None # Assuming WriteApi type hint from TYPE_CHECKING
 
     def __init__(
         self,
         config_manager: ConfigManagerProtocol,
         pubsub_manager: "PubSubManager",
+        # Add db_session_maker for SQLAlchemy
+        db_session_maker: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         """Initialize the logger service.
 
@@ -498,8 +444,9 @@ class LoggerService(Generic[PoolType]):
 
         Args:
         ----
-            config_manager: Configuration provider for logger settings
-            pubsub_manager: Publish-subscribe manager for event handling
+            config_manager: Configuration provider for logger settings.
+            pubsub_manager: Publish-subscribe manager for event handling.
+            db_session_maker: Optional SQLAlchemy async_sessionmaker for database logging.
         """
         self._config_manager = config_manager
         self._pubsub = pubsub_manager
@@ -513,14 +460,15 @@ class LoggerService(Generic[PoolType]):
             "%Y-%m-%d %H:%M:%S",
         )
 
-        # Async DB Handler setup
+        # SQLAlchemy DB Handler setup
         self._db_config: dict[str, Any] = self._config_manager.get("logging.database", {})
         self._db_enabled = bool(self._db_config.get("enabled", False))
-        self._async_handler: AsyncPostgresHandler[PoolType] | None = None
-        self._db_pool: PoolType | None = None
+        self._db_session_maker = db_session_maker # Store the session_maker
+        self._async_handler: AsyncPostgresHandler | None = None # No longer Generic[PoolType]
+        # self._db_pool: PoolType | None = None # Removed, using session_maker
 
         # Queue and thread for handling synchronous logging calls from async context
-        self._queue: queue.Queue[tuple[Callable[..., None], tuple, dict]] = queue.Queue()
+        self._queue: queue.Queue[tuple[Callable[..., None], tuple, dict]] = queue.Queue() # Keep this for sync calls
         self._thread = threading.Thread(target=self._process_log_queue, daemon=True)
         self._stop_event = threading.Event()
         self._loggers: dict[str, logging.Logger] = {}
@@ -792,7 +740,8 @@ class LoggerService(Generic[PoolType]):
             )
             return False
         try:
-            import influxdb_client  # Import here to keep dependency optional
+            # Import influxdb_client specifics here, only when actually trying to initialize
+            from influxdb_client import InfluxDBClient
             from influxdb_client.client.write_api import SYNCHRONOUS
         except ImportError:
             self.error(
@@ -801,7 +750,7 @@ class LoggerService(Generic[PoolType]):
                 source_module="LoggerService",
             )
             self._influx_client = None
-            self._influx_write_api = None  # Ensure write_api is also cleared
+            self._influx_write_api = None
             return False
         except Exception as e:
             self.error(
@@ -820,7 +769,9 @@ class LoggerService(Generic[PoolType]):
                 raise TypeError("Token must be a string")
             if not isinstance(org, str):
                 raise TypeError("Organization must be a string")
-            self._influx_client = influxdb_client.InfluxDBClient(url=url, token=token, org=org)
+            
+            # Now use the imported InfluxDBClient
+            self._influx_client = InfluxDBClient(url=url, token=token, org=org)
             self._influx_write_api = self._influx_client.write_api(write_options=SYNCHRONOUS)
             self.info(
                 "InfluxDB client initialized for timeseries logging.",
@@ -834,7 +785,7 @@ class LoggerService(Generic[PoolType]):
         tags: dict[str, str],
         fields: dict[str, Any],
         timestamp: datetime,
-    ) -> InfluxDBPoint | None:  # Returns InfluxDB Point or None
+    ) -> "InfluxDBPoint | None":  # Returns InfluxDB Point or None
         """Prepare a data point for InfluxDB.
 
         Args:
@@ -849,7 +800,8 @@ class LoggerService(Generic[PoolType]):
             Optional influxdb_client.Point object or None if preparation fails
         """
         try:
-            from influxdb_client import Point, WritePrecision  # Import here
+            # Import Point and WritePrecision here
+            from influxdb_client import Point, WritePrecision
         except ImportError:
             # This case should ideally be caught by _initialize_influxdb_client
             self.error(
@@ -896,10 +848,10 @@ class LoggerService(Generic[PoolType]):
 
             for key, value in valid_fields.items():
                 point = point.field(key, value)
-            # Explicitly annotate the return type
-            from influxdb_client import Point
+            # Explicitly annotate the return type if needed, or ensure it matches InfluxDBPoint type hint
+            # from influxdb_client import Point # Already imported if TYPE_CHECKING or locally
 
-            return point  # type: ignore[no-any-return]
+            return point
 
     async def log_timeseries(
         self,
@@ -1045,10 +997,10 @@ class LoggerService(Generic[PoolType]):
                     exc_info=True,
                 )
 
-        # Close the pool
-        await self._close_db_pool()
+        # Close the pool (No longer needed as session_maker is managed externally)
+        # await self._close_db_pool() # Removed
 
-        # Signal the log processing thread to stop
+        # Signal the log processing thread to stop (This thread is for the python logging queue, keep it)
         self._stop_event.set()
         self._thread.join(timeout=2.0)  # Wait briefly for thread to exit
         if self._thread.is_alive():
@@ -1062,76 +1014,13 @@ class LoggerService(Generic[PoolType]):
 
         Creates a new connection pool if database logging is enabled in the configuration.
         """
-        if not self._db_enabled:
-            return
-
-        db_dsn = str(self._config_manager.get("logging.database.connection_string"))
-        if not db_dsn:
-            self.error(
-                "Database logging enabled but connection_string is missing.",
-                source_module="LoggerService",
-            )
-            return
-
-        try:
-            min_size = int(self._config_manager.get("logging.database.min_pool_size", default=1))
-            max_size = int(self._config_manager.get("logging.database.max_pool_size", default=5))
-            self.info(
-                "Initializing database connection pool " "(min: %s, max: %s) for logging...",
-                min_size,
-                max_size,
-                source_module="LoggerService",
-            )
-            # Create the actual asyncpg pool
-            actual_pool = await asyncpg.create_pool(
-                dsn=db_dsn,
-                min_size=min_size,
-                max_size=max_size,
-            )
-            # Wrap it with our adapter
-            self._db_pool = AsyncpgPoolAdapter(actual_pool)  # type: ignore[assignment]
-            # The type: ignore[assignment] might be needed if PoolType is strictly PoolProtocol
-            # and the linter can't infer AsyncpgPoolAdapter is a PoolProtocol.
-            # Alternatively, refine PoolType or ensure AsyncpgPoolAdapter explicitly inherits
-            # (it does structurally).
-
-            self.info(
-                "Database connection pool (via adapter) initialized successfully.",
-                source_module="LoggerService",
-            )
-        except (
-            asyncpg.exceptions.InvalidConnectionParametersError,
-            asyncpg.exceptions.CannotConnectNowError,
-            OSError,
-            Exception,  # Catching generic Exception last
-        ) as e:
-            self.critical(
-                "Failed to initialize database connection pool: %s",
-                e,
-                source_module="LoggerService",
-                exc_info=True,
-            )
-            self._db_pool = None
+        # This method is no longer needed as the session_maker is passed in.
+        # If specific pool management were still required for some reason, it would be handled externally.
+        pass
 
     async def _close_db_pool(self) -> None:
-        """Close the database connection pool.
-
-        Safely shuts down the asyncpg connection pool if it exists.
-        """
-        if self._db_pool:
-            self.info("Closing database connection pool...", source_module="LoggerService")
-            try:
-                await self._db_pool.close()
-                self.info("Database connection pool closed.", source_module="LoggerService")
-            except Exception as e:
-                self.error(
-                    "Error closing database connection pool: %s",
-                    e,
-                    source_module="LoggerService",
-                    exc_info=True,
-                )
-            finally:
-                self._db_pool = None
+        # This method is no longer needed.
+        pass
 
     async def _handle_log_event(self, event: LogEvent) -> None:
         """Handle a LogEvent received from the event bus.
@@ -1166,85 +1055,7 @@ class LoggerService(Generic[PoolType]):
         )
 
 
-# --- Adapter for asyncpg.Connection to match DBConnection protocol ---
-class AsyncpgConnectionAdapter(DBConnection):
-    """Adapts an asyncpg.Connection to the DBConnection protocol."""
-
-    def __init__(self, actual_connection: asyncpg.Connection) -> None:
-        """Initialize the adapter with an asyncpg connection.
-
-        Args:
-            actual_connection: The asyncpg connection to adapt
-        """
-        self._conn = actual_connection
-
-    @property
-    def actual_connection(self) -> asyncpg.Connection:
-        """Provides access to the underlying asyncpg.Connection."""
-        return self._conn
-
-    async def execute(
-        self,
-        query: str,
-        params: Sequence[Any] | Mapping[str, Any] | None = None,
-    ) -> _RT:  # Changed Any to _RT
-        """Execute a query using the wrapped asyncpg.Connection."""
-        if params is None:
-            return await self._conn.execute(query)  # type: ignore[no-any-return]
-        if isinstance(params, Sequence):
-            # Ensure not passing a string as a sequence of characters for multiple params
-            if isinstance(params, str | bytes):
-                # If a single string/byte is the *only* param, wrap it in a list for asyncpg
-                return await self._conn.execute(query, params)  # type: ignore[no-any-return]
-            return await self._conn.execute(query, *params)  # type: ignore[no-any-return]
-        if isinstance(params, Mapping):
-            # asyncpg's basic execute(*args) doesn't directly support named params via **kwargs.
-            # More complex logic or different asyncpg features would be needed.
-            raise NotImplementedError(
-                "Mapping parameters are not directly supported by this adapter's "
-                "execute method for asyncpg.",
-            )
-        # Should not happen with Union type hint, but as a safeguard:
-        raise UnsupportedParamsTypeError(type(params))
-
-    # Potentially delegate other methods like close, is_closed, etc. if needed
-    # and if they are part of DBConnection protocol
-
-
-# --- Adapter for asyncpg.Pool to match PoolProtocol ---
-class AsyncpgPoolAdapter(PoolProtocol):
-    """Adapts an asyncpg.Pool to the PoolProtocol."""
-
-    def __init__(self, actual_pool: asyncpg.Pool) -> None:
-        """Initialize the adapter with an asyncpg pool.
-
-        Args:
-            actual_pool: The asyncpg pool to adapt
-        """
-        self._pool = actual_pool
-
-    @asynccontextmanager
-    async def acquire(self) -> AsyncIterator[DBConnection]:  # type: ignore[override]
-        """Acquires an adapted connection from the pool."""
-        # The type: ignore[override] can be needed if type checker has trouble with
-        # AsyncContextManager variance or our adapter vs DBConnection in this context.
-        async with self._pool.acquire() as actual_conn:
-            yield AsyncpgConnectionAdapter(actual_conn)
-
-    async def release(self, conn: DBConnection) -> None:
-        """Releases an adapted connection back to the pool."""
-        # This is tricky. The `conn` here will be our AsyncpgConnectionAdapter.
-        # We need to unwrap it to release the actual asyncpg.Connection.
-        # This will be addressed by adding a property to AsyncpgConnectionAdapter.
-        if isinstance(conn, AsyncpgConnectionAdapter):
-            # Assuming _conn is accessible; consider making it a public property.
-            await self._pool.release(conn.actual_connection)  # Changed from conn._conn
-        else:
-            # This case should ideally not happen if acquire always returns the adapter.
-            # For now, we assume conn will be our adapter.
-            # If this adapter is used with other DBConnection types, this release is problematic.
-            pass  # Or raise TypeError("Cannot release non-adapter to AsyncpgPoolAdapter")
-
-    async def close(self) -> None:
-        """Close the underlying connection pool."""
-        await self._pool.close()
+# AsyncpgConnectionAdapter, AsyncpgPoolAdapter, PoolProtocol, DBConnection can be removed
+# if they are no longer used elsewhere and were only for the previous asyncpg implementation.
+# For now, they are left in case other parts of the system might still use them,
+# but LoggerService itself does not require them for SQLAlchemy-based logging.

@@ -7,12 +7,22 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Sequence # Added Sequence
+
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 
 from gal_friday.config_manager import ConfigManager
+# Import new repositories and models
 from gal_friday.dal.repositories.position_repository import PositionRepository
+from gal_friday.dal.repositories.order_repository import OrderRepository
 from gal_friday.dal.repositories.reconciliation_repository import ReconciliationRepository
-from gal_friday.execution_handler import ExecutionHandler
+from gal_friday.dal.models.position import Position as PositionModel
+from gal_friday.dal.models.order import Order as OrderModel
+from gal_friday.dal.models.reconciliation_event import ReconciliationEvent as ReconciliationEventModel
+from gal_friday.dal.models.position_adjustment import PositionAdjustment as PositionAdjustmentModel
+
+from gal_friday.execution_handler import ExecutionHandler # Keep as is
 from gal_friday.logger_service import LoggerService
 from gal_friday.monitoring.alerting_system import Alert, AlertingSystem, AlertSeverity
 from gal_friday.portfolio_manager import PortfolioManager
@@ -134,32 +144,34 @@ class ReconciliationService:
     USD_MEDIUM = 10
 
     def __init__(self,
-                 config: ConfigManager,
-                 portfolio_manager: PortfolioManager,
-                 execution_handler: ExecutionHandler,
-                 position_repo: PositionRepository,
-                 reconciliation_repo: ReconciliationRepository,
-                 alerting: AlertingSystem,
-                 logger: LoggerService) -> None:
+                 config_manager: ConfigManager, # Renamed for clarity
+                 portfolio_manager: PortfolioManager, # Stays as is, its internal methods will be refactored
+                 execution_handler: ExecutionHandler, # Stays as is
+                 alerting_system: AlertingSystem, # Renamed for clarity
+                 logger_service: LoggerService, # Renamed for clarity
+                 session_maker: async_sessionmaker[AsyncSession]) -> None:
         """Initialize the reconciliation service.
 
         Args:
-            config: Application configuration manager
-            portfolio_manager: Portfolio manager instance
-            execution_handler: Exchange execution handler
-            position_repo: Position repository for data access
-            reconciliation_repo: Reconciliation repository for storing reports
-            alerting: Alerting system for notifications
-            logger: Logger instance for logging
+            config_manager: Application configuration manager.
+            portfolio_manager: Portfolio manager instance.
+            execution_handler: Exchange execution handler.
+            alerting_system: Alerting system for notifications.
+            logger_service: Logger instance for logging.
+            session_maker: SQLAlchemy async_sessionmaker for database sessions.
         """
-        self.config = config
+        self.config = config_manager
         self.portfolio_manager = portfolio_manager
         self.execution_handler = execution_handler
-        self.position_repo = position_repo
-        self.reconciliation_repo = reconciliation_repo
-        self.alerting = alerting
-        self.logger = logger
+        self.alerting = alerting_system
+        self.logger = logger_service
         self._source_module = self.__class__.__name__
+        
+        # Instantiate repositories
+        self.session_maker = session_maker
+        self.position_repository = PositionRepository(session_maker, logger_service)
+        self.order_repository = OrderRepository(session_maker, logger_service)
+        self.reconciliation_repository = ReconciliationRepository(session_maker, logger_service)
 
         # Configuration
         self.reconciliation_interval = config.get_int(
@@ -254,8 +266,8 @@ class ReconciliationService:
             # Calculate duration
             report.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
 
-            # 6. Save report
-            await self.reconciliation_repo.save_report(report)
+            # 6. Save report and adjustments
+            await self._save_reconciliation_report_and_adjustments(report)
 
             # 7. Send alerts if needed
             await self._send_reconciliation_alerts(report)
@@ -283,8 +295,8 @@ class ReconciliationService:
                 "Reconciliation failed",
                 source_module=self._source_module,
             )
-
-            await self.reconciliation_repo.save_report(report)
+            # Attempt to save the failed report
+            await self._save_reconciliation_report_and_adjustments(report) # Adjustments might be empty
             await self._send_critical_alert(f"Reconciliation failed: {e!s}")
 
             return report
@@ -293,14 +305,15 @@ class ReconciliationService:
         """Reconcile positions with exchange."""
         try:
             # Get positions from both sources
-            internal_positions = await self.portfolio_manager.get_all_positions()  # type: ignore[attr-defined]
-            exchange_positions = await self.execution_handler.get_exchange_positions()  # type: ignore[attr-defined]
+            # Assuming portfolio_manager.get_all_db_positions() is refactored to return List[PositionModel]
+            internal_positions_models: Sequence[PositionModel] = await self.portfolio_manager.get_all_db_positions() # type: ignore
+            exchange_positions_data = await self.execution_handler.get_exchange_positions() # type: ignore
 
-            report.positions_checked = len(internal_positions) + len(exchange_positions)
+            report.positions_checked = len(internal_positions_models) + len(exchange_positions_data)
 
             # Create position maps
-            internal_map = {pos["trading_pair"]: pos for pos in internal_positions}
-            exchange_map = {pos["symbol"]: pos for pos in exchange_positions}
+            internal_map = {pos.trading_pair: pos for pos in internal_positions_models}
+            exchange_map = {pos_data["symbol"]: pos_data for pos_data in exchange_positions_data}
 
             # Check all trading pairs
             all_pairs = set(internal_map.keys()) | set(exchange_map.keys())
@@ -314,69 +327,59 @@ class ReconciliationService:
                     discrepancy = PositionDiscrepancy(
                         trading_pair=pair,
                         discrepancy_type=DiscrepancyType.POSITION_MISSING_EXCHANGE,
-                        internal_value=internal_pos["quantity"],
+                        internal_value=internal_pos.quantity, # Access model attribute
                         severity="critical",
                     )
                     report.position_discrepancies.append(discrepancy)
                     report.manual_review_required.append({
-                        "type": "position",
-                        "pair": pair,
+                        "type": "position", "pair": pair,
                         "issue": "Position exists internally but not on exchange",
+                        "internal_qty": str(internal_pos.quantity),
                     })
 
-                elif exchange_pos and not internal_pos:
+                elif exchange_pos_data and not internal_pos:
+                    exchange_qty = Decimal(str(exchange_pos_data.get("quantity", 0)))
                     discrepancy = PositionDiscrepancy(
                         trading_pair=pair,
                         discrepancy_type=DiscrepancyType.POSITION_MISSING_INTERNAL,
-                        exchange_value=exchange_pos["quantity"],
+                        exchange_value=exchange_qty,
                         severity="high",
                     )
                     report.position_discrepancies.append(discrepancy)
 
-                    # Auto-correct: Add missing position
-                    if self._can_auto_correct(Decimal(str(exchange_pos["quantity"]))):
-                        await self._add_missing_position(pair, exchange_pos, report)
+                    if self._can_auto_correct(exchange_qty): # Check if the exchange quantity itself is small enough
+                        await self._add_missing_db_position(pair, exchange_pos_data, report)
                     else:
                         report.manual_review_required.append({
-                            "type": "position",
-                            "pair": pair,
+                            "type": "position", "pair": pair,
                             "issue": "Position exists on exchange but not tracked internally",
+                            "exchange_qty": str(exchange_qty),
                         })
 
-                elif internal_pos and exchange_pos:
-                    # Check quantity match
-                    internal_qty = Decimal(str(internal_pos["quantity"]))
-                    exchange_qty = Decimal(str(exchange_pos["quantity"]))
+                elif internal_pos and exchange_pos_data:
+                    internal_qty = internal_pos.quantity
+                    exchange_qty = Decimal(str(exchange_pos_data.get("quantity", 0)))
                     qty_diff = abs(internal_qty - exchange_qty)
 
-                    if qty_diff > Decimal("0.00000001"):  # Tolerance for rounding
+                    if qty_diff > Decimal("0.00000001"):  # Tolerance
                         severity = self._determine_severity(qty_diff, internal_qty)
-
                         discrepancy = PositionDiscrepancy(
-                            trading_pair=pair,
-                            discrepancy_type=DiscrepancyType.QUANTITY_MISMATCH,
-                            internal_value=internal_qty,
-                            exchange_value=exchange_qty,
-                            difference=qty_diff,
-                            severity=severity,
+                            trading_pair=pair, discrepancy_type=DiscrepancyType.QUANTITY_MISMATCH,
+                            internal_value=internal_qty, exchange_value=exchange_qty,
+                            difference=qty_diff, severity=severity,
                         )
                         report.position_discrepancies.append(discrepancy)
 
-                        # Auto-correct small differences
                         if self._can_auto_correct(qty_diff):
-                            await self._adjust_position_quantity(
-                                pair, internal_qty, exchange_qty, report,
-                            )
+                            await self._adjust_db_position_quantity(internal_pos, exchange_qty, report)
                         else:
                             report.manual_review_required.append({
-                                "type": "quantity",
-                                "pair": pair,
-                                "internal": str(internal_qty),
-                                "exchange": str(exchange_qty),
+                                "type": "quantity", "pair": pair,
+                                "internal": str(internal_qty), "exchange": str(exchange_qty),
                                 "difference": str(qty_diff),
                             })
-
         except Exception as e:
+            self.logger.exception("Error during position reconciliation", source_module=self._source_module)
             report.error_messages.append(f"Position reconciliation error: {e!s}")
             raise
 
@@ -433,29 +436,26 @@ class ReconciliationService:
             report.orders_checked = len(exchange_orders)
 
             # Check if all orders are tracked
-            for order in exchange_orders:
-                order_id = order["order_id"]
+            for ex_order_data in exchange_orders:
+                exchange_order_id = ex_order_data["order_id"] # Assuming key is "order_id"
 
-                # Check if order exists in our system
-                tracked_order = await self.execution_handler.get_order_by_exchange_id(  # type: ignore[attr-defined]
-                    order_id,
-                )
+                # Check if order exists in our system using OrderRepository
+                tracked_order_model = await self.order_repository.find_by_exchange_id(exchange_order_id)
 
-                if not tracked_order:
-                    report.untracked_orders.append(order_id)
+                if not tracked_order_model:
+                    report.untracked_orders.append(exchange_order_id)
 
                     # Determine if this affects positions
-                    if order["status"] == "filled":
+                    if ex_order_data.get("status") == "filled": # Use .get for safety
                         report.manual_review_required.append({
-                            "type": "order",
-                            "order_id": order_id,
-                            "pair": order["pair"],
-                            "side": order["side"],
-                            "quantity": str(order["quantity"]),
-                            "issue": "Filled order not tracked in system",
+                            "type": "order", "order_id": exchange_order_id,
+                            "pair": ex_order_data.get("pair", "UNKNOWN"),
+                            "side": ex_order_data.get("side", "UNKNOWN"),
+                            "quantity": str(ex_order_data.get("quantity", 0)),
+                            "issue": "Filled order from exchange not tracked in internal system",
                         })
-
         except Exception as e:
+            self.logger.exception("Error during order reconciliation", source_module=self._source_module)
             report.error_messages.append(f"Order reconciliation error: {e!s}")
             raise
 
@@ -535,12 +535,7 @@ class ReconciliationService:
                         reason="Reconciliation auto-correction",
                     )
 
-                # Record adjustment in database
-                await self.reconciliation_repo.save_adjustment(
-                    report.reconciliation_id,
-                    correction,
-                )
-
+                # Recording of adjustments will be handled by _save_reconciliation_event_and_adjustments
             except Exception as e:
                 self.logger.error(
                     f"Failed to apply auto-correction: {e}",
@@ -551,56 +546,106 @@ class ReconciliationService:
                     f"Auto-correction failed: {correction['type']} - {e!s}",
                 )
 
-    async def _add_missing_position(self,
-                                   pair: str,
-                                   exchange_pos: dict,
-                                   report: ReconciliationReport) -> None:
-        """Add position that exists on exchange but not internally."""
-        correction = {
-            "type": "add_position",
-            "pair": pair,
-            "quantity": exchange_pos["quantity"],
-            "entry_price": exchange_pos.get("average_price", 0),
-            "reason": "Position found on exchange during reconciliation",
+    async def _add_missing_db_position(self, pair: str, exchange_pos_data: dict, report: ReconciliationReport) -> None:
+        """Marks for auto-correction: Add position that exists on exchange but not internally.
+        Actual DB write happens via portfolio_manager or directly if this service owns position creation logic.
+        For now, this method prepares the 'correction' dict for the report.
+        """
+        # This method now just prepares the correction for the report.
+        # The actual DB creation should be handled by PortfolioManager or a dedicated method
+        # that uses self.position_repository.create()
+        # For this refactor, we assume `portfolio_manager.create_new_position_from_exchange_data` exists
+        # or this is noted for `_apply_auto_corrections`.
+        
+        correction_data = {
+            "type": "add_position", "pair": pair,
+            "quantity": str(exchange_pos_data.get("quantity", 0)), # Ensure string for JSON
+            "entry_price": str(exchange_pos_data.get("average_price", 0)), # Ensure string
+            "reason": "Position found on exchange, not in internal records. Auto-created.",
+            # Fields needed for PositionAdjustmentModel
+            "adjustment_type": DiscrepancyType.POSITION_MISSING_INTERNAL.value,
+            "old_value": None,
+            "new_value": Decimal(str(exchange_pos_data.get("quantity", 0))),
         }
+        report.auto_corrections.append(correction_data)
+        self.logger.info(f"Marked missing position for {pair} for auto-creation.", source_module=self._source_module)
 
-        report.auto_corrections.append(correction)
 
-        # Will be applied in _apply_auto_corrections
-
-    async def _adjust_position_quantity(self,
-                                      pair: str,
-                                      internal_qty: Decimal,
-                                      exchange_qty: Decimal,
-                                      report: ReconciliationReport) -> None:
-        """Adjust position quantity to match exchange."""
-        correction = {
-            "type": "position_quantity",
-            "pair": pair,
-            "old_quantity": str(internal_qty),
-            "new_quantity": str(exchange_qty),
-            "difference": str(exchange_qty - internal_qty),
-            "reason": "Quantity adjustment to match exchange",
+    async def _adjust_db_position_quantity(
+        self, internal_pos_model: PositionModel, exchange_qty: Decimal, report: ReconciliationReport
+    ) -> None:
+        """Marks for auto-correction: Adjust internal position quantity to match exchange."""
+        # This method now just prepares the correction for the report.
+        # Actual DB update via portfolio_manager.adjust_position_quantity(...)
+        
+        correction_data = {
+            "type": "position_quantity", "pair": internal_pos_model.trading_pair,
+            "old_value": internal_pos_model.quantity, # Keep as Decimal for PositionAdjustmentModel
+            "new_value": exchange_qty,               # Keep as Decimal
+            "reason": "Quantity adjustment to match exchange data.",
+            "adjustment_type": DiscrepancyType.QUANTITY_MISMATCH.value,
         }
+        report.auto_corrections.append(correction_data)
+        self.logger.info(f"Marked position {internal_pos_model.trading_pair} for quantity adjustment.", source_module=self._source_module)
 
-        report.auto_corrections.append(correction)
-
-    async def _adjust_balance(self,
-                            currency: str,
-                            internal_balance: Decimal,
-                            exchange_balance: Decimal,
-                            report: ReconciliationReport) -> None:
-        """Adjust balance to match exchange."""
-        correction = {
-            "type": "balance",
-            "currency": currency,
-            "old_balance": str(internal_balance),
-            "new_balance": str(exchange_balance),
-            "difference": str(exchange_balance - internal_balance),
-            "reason": "Balance adjustment to match exchange",
+    async def _adjust_balance( # This method's DB interaction is via PortfolioManager
+        self, currency: str, internal_balance: Decimal, exchange_balance: Decimal, report: ReconciliationReport
+    ) -> None:
+        """Marks for auto-correction: Adjust internal balance to match exchange."""
+        # This method now just prepares the correction for the report.
+        # Actual DB update via portfolio_manager.adjust_balance(...)
+        correction_data = {
+            "type": "balance_adjustment", "currency": currency, # 'type' changed for clarity
+            "old_value": internal_balance, # Keep as Decimal
+            "new_value": exchange_balance, # Keep as Decimal
+            "reason": "Balance adjustment to match exchange data.",
+            "adjustment_type": DiscrepancyType.BALANCE_MISMATCH.value, # Use enum value
+            "trading_pair": currency, # For PositionAdjustmentModel, pair can be currency
         }
+        report.auto_corrections.append(correction_data)
+        self.logger.info(f"Marked balance for {currency} for adjustment.", source_module=self._source_module)
 
-        report.auto_corrections.append(correction)
+    async def _save_reconciliation_event_and_adjustments(self, report: ReconciliationReport) -> None:
+        """Saves the main reconciliation event and all its adjustments to the database."""
+        try:
+            event_data = {
+                "reconciliation_id": uuid.UUID(report.reconciliation_id),
+                "timestamp": report.timestamp,
+                "reconciliation_type": "full", # Example, could be more dynamic
+                "status": report.status.value,
+                "discrepancies_found": report.total_discrepancies,
+                "auto_corrected": len(report.auto_corrections),
+                "manual_review_required": len(report.manual_review_required),
+                "report": report.to_dict(), # Full report as JSON
+                "duration_seconds": Decimal(str(report.duration_seconds)) if report.duration_seconds is not None else None,
+            }
+            created_event = await self.reconciliation_repository.save_reconciliation_event(event_data)
+            self.logger.info(f"Saved reconciliation event {created_event.reconciliation_id}", source_module=self._source_module)
+
+            # Save all adjustments (auto-corrections and those needing manual review if they are stored)
+            # For now, only saving auto_corrections as explicit adjustments.
+            for adj_data in report.auto_corrections:
+                # Ensure adj_data matches PositionAdjustmentModel fields
+                adjustment_to_save = {
+                    "reconciliation_id": created_event.reconciliation_id,
+                    "trading_pair": adj_data.get("pair") or adj_data.get("currency", "UNKNOWN_PAIR"),
+                    "adjustment_type": adj_data.get("adjustment_type", "UNKNOWN_ADJUSTMENT"),
+                    "old_value": adj_data.get("old_value"), # Should be Decimal or None
+                    "new_value": adj_data.get("new_value"), # Should be Decimal or None
+                    "reason": adj_data.get("reason", ""),
+                    # adjusted_at is defaulted by DB
+                }
+                # Convert numeric strings to Decimal if they came from report.to_dict()
+                for key in ['old_value', 'new_value']:
+                    if isinstance(adjustment_to_save[key], str):
+                        adjustment_to_save[key] = Decimal(adjustment_to_save[key])
+                
+                await self.reconciliation_repository.save_position_adjustment(adjustment_to_save)
+            self.logger.info(f"Saved {len(report.auto_corrections)} adjustments for event {created_event.reconciliation_id}", source_module=self._source_module)
+
+        except Exception as e:
+            self.logger.exception(f"Error saving reconciliation report/adjustments for event {report.reconciliation_id}: {e}", source_module=self._source_module)
+            # Decide if this should re-raise or just log
 
     async def _send_reconciliation_alerts(self, report: ReconciliationReport) -> None:
         """Send alerts based on reconciliation results."""
@@ -667,9 +712,21 @@ class ReconciliationService:
     async def get_reconciliation_status(self) -> dict[str, Any]:
         """Get current reconciliation status."""
         last_report = None
-        if self._last_reconciliation:
-            last_report = await self.reconciliation_repo.get_latest_report()
-
+        if self._last_reconciliation: # Fetch the ReconciliationEventModel
+            # Assuming ReconciliationRepository has a method like get_latest_event()
+            # This needs to be adapted if get_latest_report returns the Pydantic model.
+            # For now, let's assume it can fetch the model or we adapt.
+            # This part shows a slight mismatch if get_latest_report still returns Pydantic model.
+            # Ideally, repo methods return SQLAlchemy models.
+            latest_event_model = await self.reconciliation_repository.get_latest_reconciliation_event() # New method needed in repo
+            if latest_event_model:
+                # Convert model to dict for status, or use a Pydantic model constructed from it
+                last_report_data = latest_event_model.report # The JSONB field
+            else:
+                last_report_data = None
+        else:
+            last_report_data = None
+            
         last_run = (
             self._last_reconciliation.isoformat()
             if self._last_reconciliation

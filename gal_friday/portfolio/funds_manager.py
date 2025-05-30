@@ -35,15 +35,22 @@ class FundsManager:
     INSUFFICIENT_QUOTE_FUNDS = "Insufficient {} funds for trade. Required: {}, Available: {}"
     INSUFFICIENT_BASE_FUNDS = "Insufficient {} to sell. Required: {}, Available: {}"
 
-    def __init__(self, logger_service: LoggerService, valuation_currency: str = "USD") -> None:
+    def __init__(
+        self, 
+        logger_service: LoggerService, 
+        session_maker: Any, # async_sessionmaker | None = None, for consistency, but unused
+        valuation_currency: str = "USD"
+    ) -> None:
         """Initialize the funds manager.
 
         Args:
         ----
             logger_service: Service for logging.
+            session_maker: SQLAlchemy async_sessionmaker (unused in this class, for API consistency).
             valuation_currency: The currency for overall valuation (default: "USD").
         """
         self.logger = logger_service
+        self.session_maker = session_maker # Stored for API consistency, not used.
         self._source_module = self.__class__.__name__
         self._available_funds: dict[str, Decimal] = {}
         self.valuation_currency = valuation_currency
