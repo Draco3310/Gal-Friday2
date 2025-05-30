@@ -84,6 +84,7 @@ scikit-learn==1.6.1
 scipy==1.15.2
 setuptools==80.3.1
 six==1.17.0
+sqlalchemy>=2.0
 snowballstemmer==2.2.0
 sortedcontainers==2.4.0
 sqlalchemy==2.0.29

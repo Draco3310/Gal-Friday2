@@ -13,6 +13,7 @@ import logging
 import logging.handlers
 import queue
 import re
+import sys
 import threading
 import types  # Added for exc_info typing
 from asyncio import QueueFull  # Import QueueFull from asyncio, not asyncio.exceptions
@@ -23,6 +24,7 @@ from contextlib import (
 )
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path  # Add missing import
 from random import SystemRandom
 from typing import (
     TYPE_CHECKING,
@@ -33,6 +35,8 @@ from typing import (
     Protocol,
     TypeVar,
 )
+
+import pythonjsonlogger.jsonlogger as jsonlogger  # Add missing import for JSON logging
 
 # Runtime imports
 # from influxdb_client import Point as InfluxDBPoint # Moved into methods
@@ -72,6 +76,11 @@ if TYPE_CHECKING:
 
 # Import custom exceptions
 from .exceptions import DatabaseError, InvalidLoggerTableNameError, UnsupportedParamsTypeError
+
+# SQLAlchemy imports
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError # For error handling
 
 # Type variables for generic protocols
 _T = TypeVar("_T")
@@ -223,7 +232,12 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
         self._queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None # Type hint for task
         self._closed = False
-        self._task = asyncio.create_task(self._process_queue())
+
+    def start_processing(self) -> None:
+        """Starts the queue processing task. Should be called when an event loop is available."""
+        if self._task is None and not self._closed and self._loop:
+            self._task = self._loop.create_task(self._process_queue())
+
 
     def emit(self, record: logging.LogRecord) -> None:
         """Format record and place it in the queue for async processing.
@@ -249,13 +263,18 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
 
     def _format_record(self, record: logging.LogRecord) -> dict[str, Any]:
         """Format the log record into a dictionary suitable for DB insertion."""
-        context_json = None
+        context_data = None # Changed from context_json
         if hasattr(record, "context") and record.context:
-            try:
-                context_json = json.dumps(record.context)
-            except TypeError:
-                # Fallback for non-serializable
-                context_json = json.dumps(str(record.context))
+            if isinstance(record.context, dict) or isinstance(record.context, list):
+                context_data = record.context # Keep as Python dict/list for SQLAlchemy
+            else:
+                try:
+                    # Attempt to load if it's a JSON string
+                    context_data = json.loads(str(record.context))
+                except json.JSONDecodeError:
+                    # Fallback for non-serializable or non-JSON string
+                    context_data = {"raw_context": str(record.context)}
+
 
         exc_text = None
         if record.exc_info and not record.exc_text:
@@ -279,7 +298,7 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
             "filename": record.filename,
             "lineno": record.lineno,
             "func_name": record.funcName,
-            "context_json": context_json,
+            "context_json": context_data, # Renamed from context_json
             "exception_text": exc_text,
         }
 
@@ -318,7 +337,9 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
             return False
 
     async def _process_queue_with_retry(self, record_data: dict[str, Any]) -> None:
-        """Process a single record with retry logic."""
+        """Process a single record with retry logic using SQLAlchemy."""
+        from sqlalchemy.exc import OperationalError # For specific retryable exceptions
+
         max_retries = 3
         base_backoff = 1.0  # seconds
         attempt = 0
@@ -404,8 +425,19 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
         """Close the handler, signaling the queue processor to finish."""
         if not self._closed:
             self._closed = True
-            self._loop.call_soon_threadsafe(lambda: self._queue.put_nowait(None))
-        super().close()
+            # Ensure task is created before trying to put None on queue if it wasn't started
+            if self._task is None and self._loop: # Ensure the task is running or has run
+                 self.start_processing() # Try to start it if it never did
+
+            if self._loop and self._loop.is_running(): # Check if loop is available for call_soon_threadsafe
+                 self._loop.call_soon_threadsafe(lambda: self._queue.put_nowait(None))
+            else: # Fallback if loop is closed, try to put directly (might fail if full)
+                try:
+                    self._queue.put_nowait(None)
+                except QueueFull:
+                    logging.getLogger(__name__).error("AsyncPostgresHandler: Queue full while trying to add sentinel in close().")
+
+        super().close() # Calls Handler.close()
 
     async def wait_closed(self) -> None:
         """Wait for the queue processing task to finish.
@@ -420,8 +452,7 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
 # -------------------------------------
 
 
-
-class LoggerService(Generic[PoolType]):
+class LoggerService:
     """Handle logging configuration and provides interfaces for logging messages/time-series data.
 
     Configures and manages logging to multiple destinations including console,
@@ -453,7 +484,8 @@ class LoggerService(Generic[PoolType]):
         self._log_level = self._config_manager.get("logging.level", "INFO").upper()
         self._log_format = self._config_manager.get(
             "logging.format",
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(context_json)s",
+            # Using a format that ContextFormatter can work with if context is present
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s - [%(context)s]",
         )
         self._log_date_format = self._config_manager.get(
             "logging.date_format",
@@ -477,6 +509,109 @@ class LoggerService(Generic[PoolType]):
         self._setup_logging()
         self._thread.start()
         self.info("LoggerService initialized.", source_module="LoggerService")
+
+    def _process_log_queue(self) -> None:
+        """Worker thread target to process log messages from the queue."""
+        while not self._stop_event.is_set():
+            try:
+                # Wait for an item with a timeout to allow checking the stop
+                # event
+                log_func, args, kwargs = self._queue.get(timeout=0.1)
+                log_func(*args, **kwargs)
+                self._queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception:
+                # Log error using root logger to avoid recursion if self.error
+                # uses the queue
+                logging.exception("Error processing log queue item")
+
+    def _setup_logging(self) -> None:
+        """Configure root logger and handlers."""
+        self._root_logger.setLevel(self._log_level)
+
+        # Remove existing handlers
+        for handler in self._root_logger.handlers[:]:
+            self._root_logger.removeHandler(handler)
+            handler.close()
+
+        # --- Console Handler (Human-Readable) ---
+        use_console = bool(self._config_manager.get("logging.console.enabled", default=True))
+        if use_console:
+            console_formatter = ContextFormatter(self._log_format, datefmt=self._log_date_format)
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setFormatter(console_formatter)
+            console_handler.setLevel(self._log_level)
+            self._root_logger.addHandler(console_handler)
+
+        # --- File Handler (JSON Format) ---
+        use_file = bool(self._config_manager.get("logging.file.enabled", default=True))
+        if use_file:
+            log_dir = str(self._config_manager.get("logging.file.directory", default="logs"))
+            log_filename = str(
+                self._config_manager.get("logging.file.filename", default="gal_friday.log"),
+            )
+            Path(log_dir).mkdir(parents=True, exist_ok=True)  # Shorter comment
+            log_path = str(Path(log_dir) / log_filename)  # Shorter comment
+
+            # Configure JSON Formatter
+            json_formatter = jsonlogger.JsonFormatter(
+                self._log_format,
+                datefmt=self._log_date_format,
+                rename_fields={"levelname": "level"},
+            )
+
+            max_bytes = int(
+                self._config_manager.get("logging.file.max_bytes", default=10 * 1024 * 1024),
+            )
+            backup_count = int(self._config_manager.get("logging.file.backup_count", default=5))
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_path,
+                maxBytes=max_bytes,
+                backupCount=backup_count,
+                encoding="utf-8",
+            )
+            file_handler.setFormatter(json_formatter)
+            file_handler.setLevel(self._log_level)
+            self._root_logger.addHandler(file_handler)
+
+        # --- Database Handler (SQLAlchemy) ---
+        use_db = self._db_enabled
+        if use_db:
+            # SQLAlchemy engine and session factory should be initialized by start()
+            # _setup_logging is called in __init__ before factory was ready,
+            # _async_handler might be None. We need to set it up now.
+            if self._async_handler is None and self._db_session_maker:
+                self.info(
+                    "SQLAlchemy initialized. Re-evaluating database log handler setup.",
+                    source_module="LoggerService"
+                )
+                # Temporarily remove and re-add handlers to ensure correct setup
+                # This is a bit heavy-handed; a more refined approach might be better
+                # but this ensures correctness if _setup_logging is complex.
+                # For now, directly try to add the handler if missing.
+                current_handlers = self._root_logger.handlers[:]
+                for handler in current_handlers:
+                    if isinstance(handler, AsyncPostgresHandler): # Remove any old/stale one
+                        self._root_logger.removeHandler(handler)
+                        handler.close()
+                # Re-run the DB handler part of _setup_logging logic
+                db_table = str(self._config_manager.get("logging.database.table_name", default="logs"))
+                if db_table != "logs": db_table = "logs" # Enforce
+                db_level_str = str(self._config_manager.get("logging.database.level", default="INFO")).upper()
+                db_level = getattr(logging, db_level_str, logging.INFO)
+                try:
+                    self._async_handler = AsyncPostgresHandler(self._db_session_maker, asyncio.get_event_loop())
+                    self._async_handler.setLevel(db_level)
+                    self._root_logger.addHandler(self._async_handler)
+                    logging.info("SQLAlchemy Database logging handler added/updated in start().")
+                except Exception:
+                    logging.exception("Failed to add/update AsyncPostgresHandler in start()")
+            else:
+                logging.warning(
+                    "Database logging enabled, but SQLAlchemy session factory not yet initialized "
+                    "during _setup_logging. Handler will be set up in start().",
+                )
 
     def _filter_sensitive_data(
         self,
@@ -917,9 +1052,42 @@ class LoggerService(Generic[PoolType]):
         """
         self.info("LoggerService start sequence initiated.", source_module="LoggerService")
 
+        # Initialize SQLAlchemy engine and session factory if DB logging is enabled
+        if self._db_enabled:
+            await self._initialize_sqlalchemy()
+            # If _setup_logging ran in __init__ before factory was ready,
+            # _async_handler might be None. We need to set it up now.
+            if self._async_handler is None and self._db_session_maker:
+                self.info(
+                    "SQLAlchemy initialized. Re-evaluating database log handler setup.",
+                    source_module="LoggerService"
+                )
+                # Temporarily remove and re-add handlers to ensure correct setup
+                # This is a bit heavy-handed; a more refined approach might be better
+                # but this ensures correctness if _setup_logging is complex.
+                # For now, directly try to add the handler if missing.
+                current_handlers = self._root_logger.handlers[:]
+                for handler in current_handlers:
+                    if isinstance(handler, AsyncPostgresHandler): # Remove any old/stale one
+                        self._root_logger.removeHandler(handler)
+                        handler.close()
+                # Re-run the DB handler part of _setup_logging logic
+                db_table = str(self._config_manager.get("logging.database.table_name", default="logs"))
+                if db_table != "logs": db_table = "logs" # Enforce
+                db_level_str = str(self._config_manager.get("logging.database.level", default="INFO")).upper()
+                db_level = getattr(logging, db_level_str, logging.INFO)
+                try:
+                    self._async_handler = AsyncPostgresHandler(self._db_session_maker, asyncio.get_event_loop())
+                    self._async_handler.setLevel(db_level)
+                    self._root_logger.addHandler(self._async_handler)
+                    logging.info("SQLAlchemy Database logging handler added/updated in start().")
+                except Exception:
+                    logging.exception("Failed to add/update AsyncPostgresHandler in start()")
+
+
         # Subscribe to LOG events from the event bus
         try:
-            self._pubsub.subscribe(EventType.LOG_ENTRY, self._handle_log_event)  # Removed await
+            self._pubsub.subscribe(EventType.LOG_ENTRY, self._handle_log_event)
             self.info(
                 "Subscribed to LOG_ENTRY events from event bus.",
                 source_module="LoggerService",
@@ -932,33 +1100,24 @@ class LoggerService(Generic[PoolType]):
                 exc_info=True,
             )
 
-        if self._db_enabled:
-            await self._initialize_db_pool()
-            # Attempt to configure DB handler again if pool initialization
-            # succeeded now
-            if self._db_pool and not self._async_handler:
-                if not hasattr(self, "_db_handler"):
-                    self.info(
-                        "Re-attempting to configure database log handler "
-                        "after pool initialization...",
-                    )
-                self._setup_logging()  # Re-run config to add the handler
-            elif not self._db_pool:
-                logging.error(
-                    "Database logging enabled but pool initialization failed. "
-                    "DB logging inactive.",
-                )
+        # Start the DB handler's internal processing task
+        if self._async_handler:
+            self._async_handler.start_processing()
+            self.info("AsyncPostgresHandler processing started.", source_module="LoggerService")
+        elif self._db_enabled:
+            self.error("DB logging enabled, but AsyncPostgresHandler not initialized in start().", source_module="LoggerService")
+
 
     async def stop(self) -> None:
         """Shut down the logger service gracefully.
 
-        Closes the database handler, connection pool, and logging threads.
+        Closes the database handler, SQLAlchemy engine, and logging threads.
         """
         self.info("LoggerService stop sequence initiated.", source_module="LoggerService")
 
         # Unsubscribe from LOG events
         try:
-            self._pubsub.unsubscribe(EventType.LOG_ENTRY, self._handle_log_event)  # Removed await
+            self._pubsub.unsubscribe(EventType.LOG_ENTRY, self._handle_log_event)
             self.info("Unsubscribed from LOG_ENTRY events.", source_module="LoggerService")
         except Exception as e:
             self.error(
@@ -968,59 +1127,97 @@ class LoggerService(Generic[PoolType]):
                 exc_info=True,
             )
 
-        # Close the custom handler first to allow queue processing
+        # Close the custom SQLAlchemy handler first
         if self._async_handler:
-            self.info("Closing database log handler...", source_module="LoggerService")
+            self.info("Closing SQLAlchemy database log handler...", source_module="LoggerService")
             self._async_handler.close()
             try:
-                # Check if handler has the wait_closed method (our custom
-                # AsyncPostgresHandler does)
                 if hasattr(self._async_handler, "wait_closed"):
-                    await asyncio.wait_for(
-                        self._async_handler.wait_closed(),
-                        timeout=5.0,
-                    )  # Wait for queue to empty
+                    await asyncio.wait_for(self._async_handler.wait_closed(), timeout=10.0) # Increased timeout
                     self.info(
-                        "Database log handler closed gracefully.",
+                        "SQLAlchemy database log handler closed gracefully.",
                         source_module="LoggerService",
                     )
             except TimeoutError:
                 self.warning(
-                    "Timeout waiting for database log handler queue to empty.",
+                    "Timeout waiting for SQLAlchemy database log handler queue to empty.",
                     source_module="LoggerService",
                 )
             except Exception as e:
                 self.error(
-                    "Error waiting for database log handler closure: %s",
+                    "Error waiting for SQLAlchemy database log handler closure: %s",
                     e,
                     source_module="LoggerService",
                     exc_info=True,
                 )
 
-        # Close the pool (No longer needed as session_maker is managed externally)
-        # await self._close_db_pool() # Removed
-
         # Signal the log processing thread to stop (This thread is for the python logging queue, keep it)
         self._stop_event.set()
-        self._thread.join(timeout=2.0)  # Wait briefly for thread to exit
+        self._thread.join(timeout=2.0)
         if self._thread.is_alive():
             self.warning(
-                "Log processing thread did not exit cleanly.",
+                "Main log processing thread did not exit cleanly.",
                 source_module="LoggerService",
             )
 
-    async def _initialize_db_pool(self) -> None:
-        """Initialize the asyncpg connection pool for database logging.
+    async def _initialize_sqlalchemy(self) -> None:
+        """Initialize the SQLAlchemy engine and session factory for database logging."""
+        if not self._db_enabled:
+            self.info("Database logging is disabled. SQLAlchemy setup skipped.", source_module="LoggerService")
+            return
 
-        Creates a new connection pool if database logging is enabled in the configuration.
-        """
-        # This method is no longer needed as the session_maker is passed in.
-        # If specific pool management were still required for some reason, it would be handled externally.
-        pass
+        db_url = self._config_manager.get("logging.database.connection_string")
+        if not db_url:
+            self.error(
+                "Database logging enabled but connection_string is missing. SQLAlchemy setup failed.",
+                source_module="LoggerService",
+            )
+            self._db_enabled = False # Disable DB logging if URL is missing
+            return
 
-    async def _close_db_pool(self) -> None:
-        # This method is no longer needed.
-        pass
+        try:
+            self.info(
+                "Initializing SQLAlchemy async engine for logging...",
+                source_module="LoggerService",
+                context={"database_url": str(db_url)[:str(db_url).find("@")] + "@********" if "@" in str(db_url) else str(db_url)} # Mask credentials
+            )
+            pool_size = self._config_manager.get_int("logging.database.pool_size", 5)
+            max_overflow = self._config_manager.get_int("logging.database.max_overflow", 10)
+            echo_sql = self._config_manager.get("logging.database.echo_sql", False)
+
+            self._sqlalchemy_engine = create_async_engine(
+                str(db_url), # Ensure db_url is a string
+                pool_size=pool_size,
+                max_overflow=max_overflow,
+                echo=echo_sql,
+            )
+            self._sqlalchemy_session_factory = sessionmaker(
+                self._sqlalchemy_engine, class_=AsyncSession, expire_on_commit=False
+            )
+            self.info(
+                "SQLAlchemy async engine and session factory initialized successfully.",
+                source_module="LoggerService",
+            )
+        except SQLAlchemyError as e: # Catch SQLAlchemy specific errors
+            self.critical(
+                "Failed to initialize SQLAlchemy engine: %s. Disabling DB logging.",
+                e,
+                source_module="LoggerService",
+                exc_info=True,
+            )
+            self._sqlalchemy_engine = None
+            self._sqlalchemy_session_factory = None
+            self._db_enabled = False # Disable DB logging on error
+        except Exception as e: # Catch any other unexpected errors
+            self.critical(
+                "An unexpected error occurred during SQLAlchemy engine initialization: %s. Disabling DB logging.",
+                e,
+                source_module="LoggerService",
+                exc_info=True,
+            )
+            self._sqlalchemy_engine = None
+            self._sqlalchemy_session_factory = None
+            self._db_enabled = False # Disable DB logging on error
 
     async def _handle_log_event(self, event: LogEvent) -> None:
         """Handle a LogEvent received from the event bus.
@@ -1053,9 +1250,3 @@ class LoggerService(Generic[PoolType]):
             context=event.context if hasattr(event, "context") else None,
             exc_info=None,  # Or derive from context/level if needed
         )
-
-
-# AsyncpgConnectionAdapter, AsyncpgPoolAdapter, PoolProtocol, DBConnection can be removed
-# if they are no longer used elsewhere and were only for the previous asyncpg implementation.
-# For now, they are left in case other parts of the system might still use them,
-# but LoggerService itself does not require them for SQLAlchemy-based logging.
