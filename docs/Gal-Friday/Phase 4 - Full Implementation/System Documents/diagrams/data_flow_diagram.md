@@ -8,25 +8,40 @@ This diagram illustrates the primary data flows and component interactions withi
 
 ```mermaid
 graph LR
+    %% Style definitions (optional for better readability)
+    classDef databases fill:#f9d,stroke:#333,stroke-width:2px
+    classDef tradingsystem fill:#d3d3d3,stroke:#333,stroke-width:2px
+    classDef external fill:#add8e6,stroke:#333,stroke-width:2px
+    classDef mlops fill:#e6ffe6,stroke:#333,stroke-width:1px
+    classDef dal fill:#f5f5f5,stroke:#333,stroke-width:1px
+    classDef service fill:#dae8fc,stroke:#666,stroke-width:1px,color:#000
+    classDef eventbus fill:#fffacd,stroke:#8B4513,stroke-width:2px,color:#000
+    classDef database fill:#ffddc1,stroke:#B8860B,stroke-width:2px,color:#000
+    classDef executor fill:#d8bfd8,stroke:#4B0082,stroke-width:1px,color:#000
+
     %% External World
     subgraph External
-        KrakenAPI[Kraken Exchange API<br/>(REST & WebSocket)]
+        KrakenAPI["Kraken Exchange API\n(REST & WebSocket)"]
     end
 
     %% Core Data Flow & Trading Logic
     subgraph TradingSystem[Gal-Friday Trading System]
-
         %% Configuration
-        ConfigManager["ConfigManager<br/>(config.yaml)"]
+        ConfigManager["ConfigManager\n(config.yaml)"]
 
         %% Databases
         subgraph Databases
-            PostgreSQL["PostgreSQL DB<br/>(SQLAlchemy ORM)"]
-            InfluxDB["InfluxDB<br/>(Time-Series Data)"]
+            PostgreSQL["PostgreSQL DB\n(SQLAlchemy ORM)"]
+            InfluxDB["InfluxDB\n(Time-Series Data)"]
+            OrderRepository["OrderRepository"]
+            PositionRepository["PositionRepository"]
+            LogRepository["LogRepository"]
+            EventLogRepository["EventLogRepository"]
+            ModelMetadataRepository["ModelMetadataRepository"]
         end
 
         %% Core Services & Event Bus
-        PubSubManager["PubSubManager<br/>(Event Bus)"]
+        PubSubManager["PubSubManager\n(Event Bus)"]
         LoggerService["LoggerService"]
         MonitoringService["MonitoringService"]
         HaltCoordinator["HaltCoordinator"]
@@ -36,17 +51,17 @@ graph LR
         subgraph IngestionAndFeatures["Data Ingestion & Features"]
             DataIngestor["DataIngestor"]
             FeatureEngine["FeatureEngine"]
-            HistoricalDataService["HistoricalDataService<br/>(e.g., KrakenHistorical)"]
+            HistoricalDataService["HistoricalDataService\n(e.g., KrakenHistorical)"]
         end
 
         %% Prediction
         subgraph Prediction["Prediction"]
             PredictionService["PredictionService"]
-            ProcessPool["ProcessPoolExecutor<br/>(for Model Inference)"]
+            ProcessPool["ProcessPoolExecutor\n(for Model Inference)"]
             ModelRegistry["ModelLifecycle::Registry"]
-            ModelArtifacts["Model Artifacts<br/>(Local/Cloud Storage)"]
+            ModelArtifacts["Model Artifacts\n(Local/Cloud Storage)"]
         end
-
+        
         %% Trading Strategy & Risk
         subgraph StrategyAndRisk["Strategy & Risk"]
             StrategyArbitrator["StrategyArbitrator"]
@@ -55,13 +70,13 @@ graph LR
 
         %% Execution & Portfolio
         subgraph ExecutionAndPortfolio["Execution & Portfolio"]
-            ExecutionHandler["ExecutionHandler<br/>(e.g., KrakenExecutionHandler)"]
+            ExecutionHandler["ExecutionHandler\n(e.g., KrakenExecutionHandler)"]
             PortfolioManager["PortfolioManager"]
             subgraph PortfolioSubComponents["Portfolio Sub-Components"]
                 FundsManager["FundsManager"]
                 PositionManager["PositionManager"]
                 ValuationService["ValuationService"]
-                MarketPriceService["MarketPriceService<br/>(e.g., KrakenMarketPrice)"]
+                MarketPriceService["MarketPriceService\n(e.g., KrakenMarketPrice)"]
             end
         end
 
@@ -72,18 +87,11 @@ graph LR
             RetrainingPipeline["ModelLifecycle::RetrainingPipeline"]
             DriftDetector["ModelLifecycle::DriftDetector"]
         end
-
+        
         %% DAL - Data Access Layer (conceptual, repositories use DBs)
         subgraph DAL["Data Access Layer (Repositories)"]
-            OrderRepository["OrderRepository"]
-            PositionRepository["PositionRepository"]
-            LogRepository["LogRepository"]
-            EventLogRepository["EventLogRepository"]
-            ModelMetadataRepository["ModelMetadataRepository"]
         end
-
-    end
-
+    
     %% == Interactions ==
 
     %% Configuration Loading
@@ -101,25 +109,27 @@ graph LR
     ConfigManager --> RetrainingPipeline;
     ConfigManager --> HistoricalDataService;
     ConfigManager --> MarketPriceService;
-    ConfigManager --> Databases; %% For DB URLs
 
     %% Data Ingestion Flow
     KrakenAPI -- "Real-time Market Data (WebSocket)" --> DataIngestor;
-    DataIngestor -- "MarketDataOHLCVEvent<br/>MarketDataL2Event<br/>MarketDataTradeEvent" --> PubSubManager;
-    HistoricalDataService -- "Historical OHLCV" --> FeatureEngine; %% For bootstrapping/backtesting
+    DataIngestor -- "MarketDataOHLCVEvent\nMarketDataL2Event\nMarketDataTradeEvent" --> PubSubManager;
+    %% For bootstrapping/backtesting
+    HistoricalDataService -- "Historical OHLCV" --> FeatureEngine;
     KrakenAPI -- "Historical Data (REST)" --> HistoricalDataService;
-
+    
     %% Feature Engineering
     PubSubManager -- "MarketData Events" --> FeatureEngine;
     FeatureEngine -- "FeatureEvent" --> PubSubManager;
-    FeatureEngine -- "OHLCV History, L2 Books, Trades" --> Databases; %% (Conceptual, might store processed data)
+    %% Store processed data
+    FeatureEngine -- "OHLCV History, L2 Books, Trades" --> PostgreSQL;
 
     %% Prediction Flow
     PubSubManager -- "FeatureEvent" --> PredictionService;
     PredictionService -- "Loads Model Details" --> ModelRegistry;
     ModelRegistry -- "Fetches Artifact Path" --> ModelArtifacts;
     PredictionService -- "Submits Inference Task (Features, Model Path)" --> ProcessPool;
-    ProcessPool -- "Executes model.predict()" --> PredictionService; %% (Result via Future)
+    %% Result via Future
+    ProcessPool -- "Executes model.predict()" --> PredictionService;
     PredictionService -- "PredictionEvent" --> PubSubManager;
     PredictionService -- "Active Experiments Info" --> ExperimentManager;
     ExperimentManager -- "Routes to Variants (Conceptual)" --> PredictionService;
@@ -133,14 +143,17 @@ graph LR
     PubSubManager -- "TradeSignalProposedEvent" --> RiskManager;
     RiskManager -- "Queries Portfolio State (Equity, Positions, Drawdown)" --> PortfolioManager;
     RiskManager -- "Queries Current Price" --> MarketPriceService;
-    RiskManager -- "TradeSignalApprovedEvent<br/>TradeSignalRejectedEvent" --> PubSubManager;
+    %% Trade signal events
+    RiskManager -- "TradeSignalApprovedEvent\nTradeSignalRejectedEvent" --> PubSubManager;
 
     %% Execution Flow
-    PubSubManager -- "TradeSignalApprovedEvent" --> ExecutionHandler; %% (via OrderExecutionManager if exists)
+    %% Via OrderExecutionManager if exists
+    PubSubManager -- "TradeSignalApprovedEvent" --> ExecutionHandler;
     ExecutionHandler -- "Submit/Cancel Order (REST)" --> KrakenAPI;
     KrakenAPI -- "Order Ack/Fill (REST/WebSocket)" --> ExecutionHandler;
     ExecutionHandler -- "ExecutionReportEvent" --> PubSubManager;
-    ExecutionHandler -- "Queries Account Balances/Positions (REST)" --> KrakenAPI; %% For reconciliation or direct queries
+    %% For reconciliation or direct queries
+    ExecutionHandler -- "Queries Account Balances/Positions (REST)" --> KrakenAPI;
 
     %% Portfolio Management
     PubSubManager -- "ExecutionReportEvent" --> PortfolioManager;
@@ -150,9 +163,10 @@ graph LR
     ValuationService -- "Queries Current Prices" --> MarketPriceService;
     ValuationService -- "Gets Balances/Positions" --> FundsManager;
     ValuationService -- "Gets Balances/Positions" --> PositionManager;
-    PortfolioManager -- "Persists Snapshots/Trades" --> PostgreSQL; %% Via Repositories
-    FundsManager -- "Persists Balances" --> PostgreSQL; %% Via Repositories
-    PositionManager -- "Persists Positions/Trades" --> PostgreSQL; %% Via Repositories
+    %% Via Repositories
+    PortfolioManager -- "Persists Snapshots/Trades" --> PostgreSQL;
+    FundsManager -- "Persists Balances" --> PostgreSQL;
+    PositionManager -- "Persists Positions/Trades" --> PostgreSQL;
 
     %% Logging
     DataIngestor -- "Log Messages" --> LoggerService;
@@ -163,7 +177,8 @@ graph LR
     ExecutionHandler -- "Log Messages" --> LoggerService;
     PortfolioManager -- "Log Messages" --> LoggerService;
     MonitoringService -- "Log Messages" --> LoggerService;
-    PubSubManager -- "LogEvent (from other services)" --> LoggerService; %% Centralized logging
+    %% Centralized logging
+    PubSubManager -- "LogEvent (from other services)" --> LoggerService;
     LoggerService -- "Console Output" --> operator>"Operator/Console"];
     LoggerService -- "File Logs" --> file[("Log Files")];
     LoggerService -- "DB Logs (AsyncPostgresHandler)" --> LogRepository;
@@ -174,13 +189,14 @@ graph LR
     %% Monitoring & Control
     MonitoringService -- "Queries Portfolio State" --> PortfolioManager;
     MonitoringService -- "SystemStateEvent (RUNNING/HALTED)" --> PubSubManager;
-    PubSubManager -- "PotentialHaltTriggerEvent<br/>SystemErrorEvent" --> MonitoringService;
+    PubSubManager -- "PotentialHaltTriggerEvent\nSystemErrorEvent" --> MonitoringService;
     MonitoringService -- "Interacts with" --> HaltCoordinator;
     HaltCoordinator -- "Manages Halt Conditions" --> MonitoringService;
     CLIService -- "User Commands (Halt/Resume/Status)" --> MonitoringService;
     CLIService -- "User Commands (Shutdown)" --> main_app[MainAppController];
     CLIService -- "Queries Status/Portfolio" --> PortfolioManager;
-    CLIService -- "Interacts with" --> HaltCoordinator; %% For recovery checklist
+    %% For recovery checklist
+    CLIService -- "Interacts with" --> HaltCoordinator;
 
     %% MLOps Interactions
     RetrainingPipeline -- "Fetches Training Data" --> HistoricalDataService;
@@ -188,38 +204,31 @@ graph LR
     model_training_scripts -- "Registers New Model" --> ModelRegistry;
     ModelRegistry -- "Persists Metadata" --> ModelMetadataRepository;
     ModelMetadataRepository -- "Writes Metadata" --> PostgreSQL;
-    DriftDetector -- "Monitors Production Predictions/Features" --> PredictionService; %% (Conceptually, or via logged data)
+    %% Conceptually, or via logged data
+    DriftDetector -- "Monitors Production Predictions/Features" --> PredictionService;
     DriftDetector -- "Signals Drift" --> RetrainingPipeline;
-    ExperimentManager -- "Updates Model Stages in" --> ModelRegistry; %% For promoting models
-    ExperimentManager -- "Persists Experiment Data" --> PostgreSQL; %% Via ExperimentRepository
+    %% For promoting models
+    ExperimentManager -- "Updates Model Stages in" --> ModelRegistry;
+    %% Via ExperimentRepository
+    ExperimentManager -- "Persists Experiment Data" --> PostgreSQL;
 
     %% General Database Interactions (via Repositories)
     EventLogRepository -- "Persists All System Events" --> PostgreSQL;
-    PubSubManager -- "All Events" --> EventLogRepository; %% If EventStore is active
+    %% If EventStore is active
+    PubSubManager -- "All Events" --> EventLogRepository;
 
     %% Market Price Service Interaction with Exchange
     MarketPriceService -- "Fetches Ticker/OHLC (REST)" --> KrakenAPI;
-
-    %% Style definitions (optional for better readability)
-    style Databases fill:#f9d,stroke:#333,stroke-width:2px
-    style TradingSystem fill:#lightgrey,stroke:#333,stroke-width:2px
-    style External fill:#lightblue,stroke:#333,stroke-width:2px
-    style MLOps fill:#e6ffe6,stroke:#333,stroke-width:1px
-    style DAL fill:#whitesmoke,stroke:#333,stroke-width:1px
-    classDef service fill:#dae8fc,stroke:#666,stroke-width:1px,color:#000
-    classDef eventbus fill:#fffacd,stroke:#8B4513,stroke-width:2px,color:#000
-    classDef database fill:#ffddc1,stroke:#B8860B,stroke-width:2px,color:#000
-    classDef external fill:#c1ffc1,stroke:#2E8B57,stroke-width:2px,color:#000
-    classDef executor fill:#thistle,stroke:#4B0082,stroke-width:1px,color:#000
-
+    
+    %% Apply styles to nodes
     class PubSubManager eventbus;
     class KrakenAPI external;
     class PostgreSQL,InfluxDB database;
     class ConfigManager,LoggerService,MonitoringService,HaltCoordinator,CLIService,DataIngestor,FeatureEngine,HistoricalDataService,PredictionService,StrategyArbitrator,RiskManager,ExecutionHandler,PortfolioManager,FundsManager,PositionManager,ValuationService,MarketPriceService,ModelRegistry,ExperimentManager,RetrainingPipeline,DriftDetector,OrderRepository,PositionRepository,LogRepository,EventLogRepository,ModelMetadataRepository service;
     class ProcessPool executor;
     class ModelArtifacts database;
-
 end
+
 ```
 
 ## Key Flows and Interactions
