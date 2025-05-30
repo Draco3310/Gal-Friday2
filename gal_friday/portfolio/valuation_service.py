@@ -3,7 +3,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Protocol, Union
+from typing import Any, Protocol
 
 from ..exceptions import PriceNotAvailableError
 from ..interfaces import MarketPriceService
@@ -23,7 +23,7 @@ class PositionLike(Protocol):
     quote_asset: str | None  # Made optional as it's not always used by all consumers
 
 
-PositionInput = Union[PositionLike, dict[str, Any]]
+PositionInput = PositionLike | dict[str, Any]
 
 
 class ValuationService:

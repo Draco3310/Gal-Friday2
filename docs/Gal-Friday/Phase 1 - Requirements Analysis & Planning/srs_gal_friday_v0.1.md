@@ -37,6 +37,12 @@
     3.8 Feature 8: Logging & Auditing
     3.9 Feature 9: Monitoring & HALT/Recovery
     3.10 Feature 10: Backtesting & Simulation
+    3.11 Feature 11: Model Lifecycle Management
+    3.12 Feature 12: A/B Testing Framework
+    3.13 Feature 13: Automated Retraining Pipeline
+    3.14 Feature 14: Portfolio Reconciliation
+    3.15 Feature 15: WebSocket Real-time Connectivity
+    3.16 Feature 16: Enhanced Monitoring & Dashboards
 4.  **External Interface Requirements**
     4.1 User Interfaces
     4.2 Hardware Interfaces
@@ -57,12 +63,12 @@
 ## 1. Introduction
 
 ### 1.1 Purpose
-This document specifies the software requirements for Project Gal-Friday. Its purpose is to provide a detailed description of the system's functional and non-functional requirements. Gal-Friday is an automated cryptocurrency trading bot designed to execute high-frequency scalping and day trading strategies for XRP and DOGE on the Kraken exchange, utilizing AI/ML predictive models, with the primary objective of generating significant, consistent revenue ($75k/year target). This SRS serves as the primary input for the design, implementation, and testing phases of the project.
+This document specifies the software requirements for Project Gal-Friday. Its purpose is to provide a detailed description of the system's functional and non-functional requirements. Gal-Friday is an enterprise-grade automated cryptocurrency trading bot designed to execute high-frequency scalping and day trading strategies for XRP and DOGE on the Kraken exchange, utilizing AI/ML predictive models with advanced model lifecycle management, A/B testing, and automated retraining capabilities, with the primary objective of generating significant, consistent revenue ($75k/year target). This SRS serves as the primary input for the design, implementation, and testing phases of the project.
 
 ### 1.2 Document Conventions
 The keywords "shall", "must", "should", "may" are used as defined in RFC 2119. "Shall" indicates a mandatory requirement. "Should" indicates a recommendation. "May" indicates an optional feature.
 Requirements are uniquely identified with prefixes FR (Functional Requirement) and NFR (Non-Functional Requirement) followed by a number.
-Priority levels (e.g., High, Medium, Low) are assigned. tag indicates requirement is part of the initial Minimum Viable Product scope.
+Priority levels (e.g., High, Medium, Low) are assigned. All features are implemented as part of the full system.
 
 ### 1.3 Intended Audience and Reading Suggestions
 This document is intended for:
@@ -73,24 +79,49 @@ This document is intended for:
 Readers should start with the Introduction and Overall Description for context, then dive into System Features (Section 3) and Non-functional Requirements (Section 5) for detailed specifications.
 
 ### 1.4 Project Scope
-The Gal-Friday system will automate the trading process for XRP/USD and DOGE/USD pairs on the Kraken cryptocurrency exchange. Key capabilities include:
-* Real-time ingestion of Level 2 order book and OHLCV market data.
-* Calculation of relevant technical indicators and order book features.
-* Utilization of Machine Learning models (XGBoost, RandomForest, LSTM) for price movement prediction.
-* Strategy logic for generating trade signals based on predictions.
-* Rigorous pre-trade risk management including position sizing based on defined capital and risk tolerance ($100k capital, 15% max drawdown, 0.5-1% risk/trade).
-* Automated order execution via Kraken APIs (Limit and Market orders).
-* Comprehensive logging, auditing, and performance tracking.
-* System monitoring with automated HALT mechanisms.
-* Realistic backtesting and paper trading simulation capabilities.
+The Gal-Friday system provides a comprehensive, enterprise-grade automated trading platform for XRP/USD and DOGE/USD pairs on the Kraken cryptocurrency exchange. The system includes full feature implementation with advanced capabilities:
 
-**Out of Scope (Initially):** Trading on exchanges other than Kraken, trading assets other than XRP/USD and DOGE/USD, development of a graphical user interface (GUI), strategies not based on the specified ML models, integration with external portfolio management tools outside the bot's internal tracking.
+**Core Trading Features:**
+* Real-time ingestion of Level 2 order book and OHLCV market data via WebSocket
+* Advanced feature engineering with technical indicators and order book analysis
+* Multi-model Machine Learning integration (XGBoost, RandomForest, LSTM) with ensemble capabilities
+* Sophisticated strategy logic with dynamic adaptation
+* Comprehensive pre-trade and portfolio-level risk management ($100k capital, 15% max drawdown, 0.5-1% risk/trade)
+* Automated order execution via Kraken APIs with advanced order types
+* Real-time portfolio tracking with exchange reconciliation
+
+**Enterprise Features:**
+* Model lifecycle management with versioning and stage promotion
+* A/B testing framework for scientific model comparison
+* Automated retraining pipeline with drift detection
+* Real-time WebSocket connectivity for order updates
+* Portfolio reconciliation service with discrepancy detection
+* Enhanced monitoring dashboards with specialized views
+* Performance optimization framework (caching, connection pooling)
+* Comprehensive logging, auditing, and time-series data storage
+
+**Advanced Capabilities:**
+* Statistical analysis for A/B test significance
+* Multiple drift detection algorithms (data, concept, prediction, performance)
+* Self-healing architecture with automatic failover
+* Production-grade deployment with blue-green strategy
+* End-to-end integration testing and performance benchmarking
+
+**Previously Out of Scope - Now Included:**
+* Advanced model lifecycle management with automated deployment
+* A/B testing capabilities for model comparison
+* Drift detection and automated retraining
+* Real-time order tracking via WebSocket
+* Portfolio reconciliation with exchange
+* Enhanced monitoring with specialized dashboards
+* Performance optimization and caching layers
 
 ### 1.5 References
-* Project Charter / PID (To be created - TBC)
-* Risk Analysis Document (To be created - TBC)
-* Kraken API Documentation (REST and WebSocket) - [Link to specific Kraken API documentation pages TBD]
-* RFC 2119 (Keywords for Requirements) - [https://www.ietf.org/rfc/rfc2119.txt](https://www.ietf.org/rfc/rfc2119.txt)
+* Project Charter / PID (project_charter_gal_friday_v0.2.md)
+* Risk Analysis Document (risk_analysis_gal_friday_v0.1.md)
+* Architecture Concept Document (architecture_concept_gal_friday_v0.1.md)
+* Kraken API Documentation (REST and WebSocket)
+* RFC 2119 (Keywords for Requirements)
 
 ---
 
@@ -132,7 +163,7 @@ The major features of Gal-Friday include:
 * **NFR-111:** The system design **should** prioritize modularity, testability, and extensibility using an event-driven architecture. `[High]`
 
 ### 2.6 User Documentation (Assumptions)
-Initial user documentation will be limited to configuration file explanations (`README.md`), instructions for running the bot, guidance on interpreting logs, and potentially a simple command-line interface (CLI) for basic control. No dedicated user manual or GUI is planned for the MVP.
+Initial user documentation will be limited to configuration file explanations (`README.md`), instructions for running the bot, guidance on interpreting logs, and potentially a simple command-line interface (CLI) for basic control.
 
 ### 2.7 Assumptions and Dependencies
 * **A-01:** Kraken APIs (REST & WebSocket) are available, stable, and function as documented during market hours. Rate limits are manageable.
@@ -188,7 +219,7 @@ Initial user documentation will be limited to configuration file explanations (`
 * **FR-304:** The system **shall** preprocess features as required by the specific loaded model(s) (e.g., scaling, normalization). `[High]`
 * **FR-305:** The system **shall** use the loaded models to generate predictions. The primary prediction target is the probability of the price moving up or down by a configurable threshold (e.g., 0.1%) within a configurable future time window (e.g., 5 minutes). `[High]`
 * **FR-306:** The system **shall** support using multiple models concurrently (e.g., one XGBoost, one LSTM). `[Medium]`
-* **FR-307:** The system **shall** implement a mechanism to combine predictions from multiple models into a single actionable signal (e.g., weighted averaging based on confidence, simple voting). `[Medium]` (MVP will use single model output initially)
+* **FR-307:** The system **shall** implement a mechanism to combine predictions from multiple models into a single actionable signal (e.g., weighted averaging based on confidence, simple voting). `[Medium]` 
 * **FR-308:** The system **shall** publish the final prediction probability (or combined signal) for the Strategy module. `[High]`
 * **FR-309:** The system **shall** include a pipeline script or functionality for retraining models using stored historical feature data. `[High]`
 * **FR-310:** The retraining pipeline **shall** allow configuration of the training data window (e.g., use last 90 days of data). `[High]`
@@ -278,7 +309,7 @@ Initial user documentation will be limited to configuration file explanations (`
     * Option 1 (Default): Close all open positions immediately via Market orders. `[High]`
     * Option 2: Let existing positions run with their predefined SL/TP orders active. `[Medium]`
 * **FR-907:** Upon triggering a HALT condition, the system **shall** log the reason clearly and send a notification alert (initially via detailed log messages; email/SMS integration is a future enhancement). `[High]`
-* **FR-908:** Following a HALT, the system **shall** require manual intervention (e.g., review by Administrator/User, explicit restart command via CLI/signal) before resuming the placement of new trades. No automated recovery for MVP. `[High]`
+* **FR-908:** Following a HALT, the system **shall** require manual intervention (e.g., review by Administrator/User, explicit restart command via CLI/signal) before resuming the placement of new trades. `[High]`
 
 ### 3.10 Feature 10: Backtesting & Simulation
 * **FR-1001:** The system **shall** include a backtesting engine capable of simulating the trading strategy using historical market data (minimum OHLCV; L2 preferred if available). `[High]`
@@ -294,6 +325,55 @@ Initial user documentation will be limited to configuration file explanations (`
 * **FR-1007:** The system **shall** support a 'paper trading' mode that connects to the live Kraken data feeds but uses the Kraken Sandbox/Demo environment API for order execution, or simulates fills internally if a sandbox is unavailable/unsuitable. `[High]`
 * **FR-1008:** The system **should** allow replaying historical scenarios using detailed logs to debug past behavior. `[Medium]`
 
+### 3.11 Feature 11: Model Lifecycle Management
+* **FR-1101:** The system **shall** manage model versions and stages, allowing for promotion between stages. `[High]`
+* **FR-1102:** The system **shall** implement a versioning system for models. `[High]`
+* **FR-1103:** The system **shall** allow for model retraining and updating based on new data. `[High]`
+* **FR-1104:** The system **shall** implement a mechanism to track model performance over time. `[High]`
+
+### 3.12 Feature 12: A/B Testing Framework
+* **FR-1201:** The system **shall** support A/B testing for model comparison. `[High]`
+* **FR-1202:** The system **shall** allow for the creation of multiple test scenarios. `[High]`
+* **FR-1203:** The system **shall** implement a mechanism to compare model performance across test scenarios. `[High]`
+* **FR-1204:** The system **shall** allow for the selection of the best performing model based on test results. `[High]`
+
+### 3.13 Feature 13: Automated Retraining Pipeline
+* **FR-1301:** The system **shall** implement a retraining pipeline for model updates. `[High]`
+* **FR-1302:** The system **shall** implement a drift detection mechanism to identify when a model's performance has significantly deviated from expected behavior. `[High]`
+* **FR-1303:** The system **shall** implement a mechanism to automatically retrain models based on the identified drift. `[High]`
+* **FR-1304:** The system **shall** implement a version control system for model retraining. `[High]`
+
+### 3.14 Feature 14: Portfolio Reconciliation
+* **FR-1401:** The system **shall** implement a reconciliation service to compare the actual portfolio state with the expected state. `[High]`
+* **FR-1402:** The system **shall** implement a mechanism to detect discrepancies between the actual and expected portfolio states. `[High]`
+* **FR-1403:** The system **shall** implement a mechanism to resolve discrepancies between the actual and expected portfolio states. `[High]`
+* **FR-1404:** The system **shall** implement a mechanism to notify the administrator of any detected discrepancies. `[High]`
+
+### 3.15 Feature 15: WebSocket Real-time Connectivity
+* **FR-1501:** The system **shall** establish and maintain persistent WebSocket connections to the Kraken API. `[High]`
+* **FR-1502:** The system **shall** subscribe to the following WebSocket feeds for configured trading pairs (XRP/USD, DOGE/USD):
+    * Level 2 Order Book updates ('book' feed). `[High]`
+    * OHLCV data at 1-minute intervals ('ohlc-1' feed). `[High]`
+* **FR-1503:** The system **shall** parse incoming WebSocket messages for L2 book updates (asks, bids, checksums if provided) and OHLCV data. `[High]`
+* **FR-1504:** The system **shall** reconstruct and maintain a local, real-time representation of the L2 order book for each subscribed pair. `[High]`
+* **FR-1505:** The system **shall** detect WebSocket disconnections or errors and implement an automated reconnection strategy with exponential backoff. `[High]`
+* **FR-1506:** The system **shall** standardize the ingested data into a consistent internal format (e.g., Python objects or dictionaries) before further processing. `[High]`
+* **FR-1507:** The system **shall** publish or make available the standardized, real-time L2 book state and OHLCV data to downstream modules (Feature Engine, Logger) via an internal event bus or queue. `[High]`
+* **FR-1508:** The system **should** handle potential data integrity issues (e.g., sequence gaps, checksum failures if applicable) and log warnings. `[Medium]`
+* **FR-1509:** (Future) The system **may** allow integration with news/sentiment API providers. `[Low]`
+
+### 3.16 Feature 16: Enhanced Monitoring & Dashboards
+* **FR-1601:** The system **shall** implement enhanced monitoring capabilities. `[High]`
+* **FR-1602:** The system **shall** implement a dashboard for visualizing system performance. `[High]`
+* **FR-1603:** The system **shall** implement a dashboard for visualizing portfolio performance. `[High]`
+* **FR-1604:** The system **shall** implement a dashboard for visualizing trading strategy performance. `[High]`
+* **FR-1605:** The system **shall** implement a dashboard for visualizing risk management performance. `[High]`
+* **FR-1606:** The system **shall** implement a dashboard for visualizing order execution performance. `[High]`
+* **FR-1607:** The system **shall** implement a dashboard for visualizing portfolio reconciliation performance. `[High]`
+* **FR-1608:** The system **shall** implement a dashboard for visualizing model lifecycle management performance. `[High]`
+* **FR-1609:** The system **shall** implement a dashboard for visualizing A/B testing performance. `[High]`
+* **FR-1610:** The system **shall** implement a dashboard for visualizing automated retraining pipeline performance. `[High]`
+
 ---
 
 ## 4. External Interface Requirements
@@ -301,10 +381,15 @@ Initial user documentation will be limited to configuration file explanations (`
 ### 4.1 User Interfaces
 * **NFR-201:** The primary user interface for the Administrator/Monitor **shall** be via configuration files (e.g., YAML or JSON) for setting parameters and a command-line interface (CLI) for starting, stopping, checking status, and initiating HALT/Resume commands. `[High]`
 * **NFR-202:** System output for the user **shall** primarily be through structured log files and database entries. `[High]`
-* **NFR-203:** No Graphical User Interface (GUI) is required for the MVP. `[High]`
+* **NFR-203:** Graphical User Interface (GUI) is required for the Administrator/Monitor to view real-time system status, trade history, and performance metrics **Should** be implemented in a future release. `[Medium]`
 
 ### 4.2 Hardware Interfaces
 * **NFR-204:** The system interfaces with standard cloud VM hardware (CPU, RAM, Disk, Network Interface Card). No specialized hardware is required. `[High]`
+* **NFR-205:** The system requires network connectivity to Kraken API endpoints (REST and WebSocket). `[High]`
+* **NFR-206:** The system requires network connectivity to PostgreSQL and InfluxDB databases. `[High]`
+* **NFR-207:** The system requires outbound internet access on ports 443 (HTTPS) and potentially others specified by Kraken for WSS. `[High]`
+* **NFR-208:** The system requires outbound internet access on ports 5432 (PostgreSQL) and 8686 (InfluxDB). `[High]`
+
 
 ### 4.3 Software Interfaces
 * **NFR-301:** The system **shall** interface with the **Kraken REST API** for:
@@ -322,6 +407,7 @@ Initial user documentation will be limited to configuration file explanations (`
 * **NFR-305:** The system **shall** operate on a **Linux Operating System**, interacting via standard POSIX system calls and interfaces. `[High]`
 * **NFR-306:** The system **shall** utilize the **Python 3 interpreter** and its standard libraries, plus specified third-party libraries. `[High]`
 
+
 ### 4.4 Communications Interfaces
 * **NFR-401:** All communication with the Kraken REST API **shall** use HTTPS. `[High]`
 * **NFR-402:** All communication with the Kraken WebSocket API **shall** use Secure WebSockets (WSS). `[High]`
@@ -337,7 +423,7 @@ Initial user documentation will be limited to configuration file explanations (`
 * **NFR-502:** **Latency (Order Placement):** The time from an approved trade signal event to submitting the corresponding order via the Kraken REST API **should** be minimized, ideally under 50 milliseconds on average. `[Medium]`
 * **NFR-503:** **Throughput:** The system **shall** be capable of processing the expected volume of L2 updates and OHLCV data from Kraken for two active trading pairs without falling behind or consuming excessive resources. `[High]`
 * **NFR-504:** **Resource Usage:** The system **should** operate within reasonable CPU (<75% average utilization), RAM (<4GB recommended allocation initially), and Network I/O limits of the chosen cloud VM instance under normal operating conditions. `[Medium]`
-* **NFR-505:** **Scalability:** While the MVP targets 2 pairs, the architecture **should** allow for potential future scaling to handle more trading pairs or data sources with additional resources (vertical scaling) or potentially horizontal scaling of stateless components. `[Medium]`
+* **NFR-505:** **Scalability:** While the inital full system targets 2 pairs, the architecture **shall** allow for future scaling to handle more trading pairs or data sources with additional resources (vertical scaling) or potentially horizontal scaling of stateless components. `[Medium]`
 
 ### 5.2 Safety Requirements
 * **NFR-601:** The HALT mechanisms defined in FR-905 **must** function reliably to prevent excessive losses or trading under adverse conditions. `[High]`
@@ -380,7 +466,6 @@ Initial user documentation will be limited to configuration file explanations (`
 * **L2 Data:** Level 2 Order Book Data (bids and asks)
 * **LSTM:** Long Short-Term Memory (a type of recurrent neural network)
 * **MACD:** Moving Average Convergence Divergence
-* **MVP:** Minimum Viable Product
 * **OHLCV:** Open, High, Low, Close, Volume (candlestick data)
 * **P&L:** Profit and Loss
 * **PID:** Project Initiation Document

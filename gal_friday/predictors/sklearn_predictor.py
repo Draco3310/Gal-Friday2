@@ -30,23 +30,72 @@ class InferenceRequest:
 
 # Define protocol classes for type checking
 class ModelWithProba(Protocol):
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    """Protocol for models that implement predict_proba method."""
+
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+        """Predict class probabilities for samples.
+
+        Args:
+            x: Input samples.
+
+        Returns:
+            Array of class probabilities.
+        """
         ...
 
 
 class ModelWithPredict(Protocol):
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    """Protocol for models that implement the predict method.
+
+    This protocol defines the interface for models that provide prediction
+    capabilities through a `predict` method, which is common in scikit-learn
+    compatible models.
+    """
+    def predict(self, x: np.ndarray) -> np.ndarray:
+        """Predict target values for the input data.
+
+        Args:
+            x: Input samples as a numpy array of shape (n_samples, n_features).
+
+        Returns:
+            Predicted target values as a numpy array.
+        """
         ...
 
 
-# Model is a combination of both protocols
 class Model(ModelWithPredict, Protocol):
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    """Protocol combining both predict and predict_proba methods.
+
+    This protocol extends ModelWithPredict to include the predict_proba method,
+    which is used by classifiers that can predict class probabilities.
+    """
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+        """Predict class probabilities for the input data.
+
+        Args:
+            x: Input samples as a numpy array of shape (n_samples, n_features).
+
+        Returns:
+            Array of class probabilities with shape (n_samples, n_classes).
+        """
         ...
 
 
 class Transformer(Protocol):
-    def transform(self, X: np.ndarray) -> np.ndarray:
+    """Protocol for data transformers.
+
+    This protocol defines the interface for transformers that can transform
+    input data, typically used for feature scaling or other preprocessing steps.
+    """
+    def transform(self, x: np.ndarray) -> np.ndarray:
+        """Transform input data.
+
+        Args:
+            x: Input data to transform as a numpy array.
+
+        Returns:
+            Transformed data as a numpy array.
+        """
         ...
 
 
@@ -405,7 +454,7 @@ class SKLearnPredictor(PredictorInterface):
         prediction_output = model.predict(processed_features)
         if isinstance(prediction_output, np.ndarray) and prediction_output.size == 1:
             return float(prediction_output.item()), None, None
-        if isinstance(prediction_output, (float, int, np.floating, np.integer)):
+        if isinstance(prediction_output, float | int | np.floating | np.integer):
             return float(prediction_output), None, None
 
         return (

@@ -8,7 +8,7 @@ from typing import Any
 class ExchangeInfoService:
     """Service for retrieving exchange information."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: object, **kwargs: str) -> None:
         """Initialize the exchange info service."""
 
     def get_exchange_info(self) -> dict[str, Any]:

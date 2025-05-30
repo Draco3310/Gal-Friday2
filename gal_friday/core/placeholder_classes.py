@@ -5,113 +5,7 @@ create circular imports when not being used for actual type checking.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
-from enum import Enum, auto
-
-
-# --- Event System ---
-class EventType(Enum):
-    """Enumeration of event types in the system."""
-
-    MARKET_DATA_L2 = auto()
-    MARKET_DATA_TRADE = auto()
-    MARKET_DATA_OHLCV = auto()
-    PREDICTION_GENERATED = auto()
-    TRADE_SIGNAL_PROPOSED = auto()
-    TRADE_SIGNAL_APPROVED = auto()
-    TRADE_SIGNAL_REJECTED = auto()
-    EXECUTION_REPORT = auto()
-    SYSTEM_HALT_TRIGGERED = auto()
-    SYSTEM_RESUME_TRIGGERED = auto()
-    SYSTEM_STATE_CHANGED = auto()
-    SYSTEM_ERROR = auto()
-
-
-class Event:
-    """Base class for all events in the system."""
-
-    def __init__(
-        self,
-        source_module: str = "",
-        event_id: object = None,
-        timestamp: datetime | None = None,
-    ) -> None:
-        """Initialize a base Event.
-
-        Args:
-        ----
-            source_module: The module that created this event
-            event_id: Unique identifier for this event
-            timestamp: When the event was created, defaults to current time
-        """
-        self.source_module = source_module
-        self.event_id = event_id
-        self.timestamp = timestamp or datetime.utcnow()
-
-
-@dataclass
-class ExecutionReportDetails:
-    """Details specific to an execution report."""
-
-    signal_id: object | None = None
-    exchange_order_id: str = ""
-    client_order_id: str = ""
-    trading_pair: str = ""
-    exchange: str = ""
-    order_status: str = ""
-    order_type: str = ""
-    side: str = ""
-    quantity_ordered: Decimal = Decimal(0)
-    quantity_filled: Decimal = Decimal(0)
-    average_fill_price: Decimal | None = None
-    limit_price: Decimal | None = None
-    stop_price: Decimal | None = None
-    commission: Decimal | None = None
-    commission_asset: str | None = None
-    timestamp_exchange: datetime | None = None
-    error_message: str | None = None
-
-
-class ExecutionReportEvent(Event):
-    """Event representing an execution report from an exchange."""
-
-    def __init__(
-        self,
-        *,
-        source_module: str = "",
-        event_id: object = None,
-        timestamp: datetime | None = None,
-        details: ExecutionReportDetails,
-    ) -> None:
-        """Initialize an execution report event.
-
-        Args:
-        ----
-            source_module: Module that created this event
-            event_id: Unique identifier for this event
-            timestamp: When the event was created
-            details: An object containing detailed information about the execution report.
-        """
-        super().__init__(source_module, event_id, timestamp)
-        self.signal_id = details.signal_id
-        self.exchange_order_id = details.exchange_order_id
-        self.client_order_id = details.client_order_id
-        self.trading_pair = details.trading_pair
-        self.exchange = details.exchange
-        self.order_status = details.order_status
-        self.order_type = details.order_type
-        self.side = details.side
-        self.quantity_ordered = details.quantity_ordered
-        self.quantity_filled = details.quantity_filled
-        self.average_fill_price = details.average_fill_price
-        self.limit_price = details.limit_price
-        self.stop_price = details.stop_price
-        self.commission = details.commission
-        self.commission_asset = details.commission_asset
-        self.timestamp_exchange = details.timestamp_exchange or self.timestamp
-        self.error_message = details.error_message
 
 
 # --- Config Manager ---
@@ -161,13 +55,13 @@ class LoggerService:
 class PubSubManager:
     """Placeholder for PubSubManager to avoid circular imports."""
 
-    def subscribe(self, event_type: EventType, handler: Callable) -> None:
+    def subscribe(self, event_type: object, handler: Callable) -> None:
         """Subscribe to an event type."""
 
-    def unsubscribe(self, event_type: EventType, handler: Callable) -> None:
+    def unsubscribe(self, event_type: object, handler: Callable) -> None:
         """Unsubscribe from an event type."""
 
-    async def publish(self, event: Event) -> None:
+    async def publish(self, event: object) -> None:
         """Publish an event."""
 
 

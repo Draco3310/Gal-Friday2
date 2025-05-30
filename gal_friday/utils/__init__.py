@@ -5,6 +5,14 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Generic, Optional, TypeVar
 
+# Import Kraken API utilities for convenience
+from .kraken_api import (
+    InvalidAPISecretError,
+    KrakenAPIError,
+    generate_kraken_signature,
+    prepare_kraken_request_data,
+)
+
 T = TypeVar("T")
 
 

@@ -1,64 +1,96 @@
-"""Exchange execution handler for interacting with the Kraken API to execute trades."""
+"""Execution handler implementation for managing trade execution and order lifecycle.
 
-# Execution Handler Module
+This module provides the core ExecutionHandler class that manages the complete
+lifecycle of trade orders, from signal processing through execution reporting.
+"""
 
 import asyncio
-import base64
-import binascii  # Add missing import for binascii
-import hashlib
-import hmac
-import random  # Add import for random (needed for jitter)
+import secrets
 import time
-import urllib.parse
-from collections.abc import Callable, Coroutine
-from dataclasses import dataclass  # Add dataclass import
-from datetime import UTC, datetime  # Modified import
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
-
-# Added Callable, Coroutine
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
 
 import aiohttp
 
 from gal_friday.config_manager import ConfigManager
-from gal_friday.core.events import EventType, ExecutionReportEvent, TradeSignalApprovedEvent
+from gal_friday.core.events import (
+    ClosePositionCommand,
+    EventType,
+    ExecutionReportEvent,
+    TradeSignalApprovedEvent,
+)
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
 from gal_friday.monitoring_service import MonitoringService
 
-# TODO: Replace debug print with proper logging
-print("Execution Handler Loaded")
+from .utils.kraken_api import generate_kraken_signature
 
-KRAKEN_API_URL = "https://api.kraken.com"
+# Remove hardcoded URL - will be loaded from configuration
 
 
 class InvalidAPICredentialFormatError(ValueError):
-    """Raised when an API credential is not in the expected format."""
+    """Raised when an API credential is not in the expected format.
 
+    Args:
+        message: Custom error message. Defaults to API secret format error.
+        *args: Additional arguments to pass to the parent class.
+    """
     def __init__(self, message: str = "API secret must be base64 encoded.", *args: object) -> None:
+        """Initialize the error with a custom message.
+
+        Args:
+            message: Custom error message. Defaults to API secret format error.
+            *args: Additional arguments to pass to the parent class.
+        """
         super().__init__(message, *args)
 
 
 @dataclass
 class ContingentOrderParamsRequest:
-    """Parameters for preparing a contingent order (SL/TP)."""
+    """Parameters for preparing a contingent order (SL/TP).
 
-    pair_name: str  # Kraken pair name (e.g., XXBTZUSD)
-    order_side: str  # "buy" or "sell"
-    contingent_order_type: str  # e.g., "stop-loss", "take-profit"
-    trigger_price: Decimal  # The price at which the order triggers
+    Attributes:
+        pair_name: Kraken pair name (e.g., XXBTZUSD)
+        order_side: "buy" or "sell"
+        contingent_order_type: e.g., "stop-loss", "take-profit"
+        trigger_price: The price at which the order triggers
+        volume: The volume of the order
+        pair_details: Exchange-provided info for the pair
+        originating_signal_id: The ID of the originating signal
+        log_marker: "SL" or "TP" for logging
+        limit_price: For stop-loss-limit / take-profit-limit (optional)
+    """
+    pair_name: str
+    order_side: str
+    contingent_order_type: str
+    trigger_price: Decimal
     volume: Decimal
-    pair_details: dict | None  # Exchange-provided info for the pair
+    pair_details: dict | None
     originating_signal_id: UUID
-    log_marker: str  # "SL" or "TP" for logging
-    limit_price: Decimal | None = None  # For stop-loss-limit / take-profit-limit
+    log_marker: str
+    limit_price: Decimal | None = None
 
 
 @dataclass
 class OrderStatusReportParameters:
-    """Parameters for handling and reporting order status."""
+    """Parameters for handling and reporting order status.
 
+    Attributes:
+        exchange_order_id: The ID of the order on the exchange
+        client_order_id: The client-side ID of the order
+        signal_id: The ID of the signal that triggered the order (optional)
+        order_data: The data of the order
+        current_status: The current status of the order
+        current_filled_qty: The currently filled quantity of the order
+        avg_fill_price: The average fill price of the order (optional)
+        commission: The commission of the order (optional)
+    """
     exchange_order_id: str
     client_order_id: str
     signal_id: UUID | None
@@ -70,7 +102,17 @@ class OrderStatusReportParameters:
 
 
 class RateLimitTracker:
-    """Tracks and enforces API rate limits to prevent exceeding exchange limits."""
+    """Tracks and enforces API rate limits to prevent exceeding exchange limits.
+
+    Attributes:
+        config: The configuration manager
+        logger: The logger service
+        private_calls_per_second: The number of private calls allowed per second
+        public_calls_per_second: The number of public calls allowed per second
+        window_size: The size of the rate limit window in seconds
+        _private_call_timestamps: The timestamps of recent private calls
+        _public_call_timestamps: The timestamps of recent public calls
+    """
 
     def __init__(
         self,
@@ -175,7 +217,7 @@ class ExecutionHandler:
 
         self.api_key = self.config.get("kraken.api_key", default=None)
         self.api_secret = self.config.get("kraken.secret_key", default=None)
-        self.api_base_url = self.config.get("exchange.api_url", KRAKEN_API_URL)
+        self.api_base_url = self.config.get("exchange.api_url", "https://api.kraken.com")
 
         if not self.api_key or not self.api_secret:
             self.logger.critical(
@@ -184,7 +226,7 @@ class ExecutionHandler:
             )
 
         self._session: aiohttp.ClientSession | None = None
-        # TODO: Add state for managing WebSocket connection if used
+        # TODO: Add state for managing WebSocket connection if used for MVP
         # TODO: Add mapping for internal IDs to exchange IDs (cl_ord_id ->
         # txid)
         self._order_map: dict[str, str] = {}  # cl_ord_id -> txid
@@ -193,6 +235,9 @@ class ExecutionHandler:
         # Add type hint for the handler attribute
         self._trade_signal_handler: None | (
             Callable[[TradeSignalApprovedEvent], Coroutine[Any, Any, None]]
+        ) = None
+        self._close_position_handler: None | (
+            Callable[[ClosePositionCommand], Coroutine[Any, Any, None]]
         ) = None
 
         # Store active monitoring tasks
@@ -241,8 +286,13 @@ class ExecutionHandler:
         # Store the handler for unsubscribing
         self._trade_signal_handler = self.handle_trade_signal_approved
         self.pubsub.subscribe(EventType.TRADE_SIGNAL_APPROVED, self._trade_signal_handler)
+
+        # Subscribe to close position commands for emergency HALT
+        self._close_position_handler = self.handle_close_position_command
+        self.pubsub.subscribe(EventType.TRADE_SIGNAL_APPROVED, self._close_position_handler)
+
         self.logger.info(
-            "ExecutionHandler started. Subscribed to TRADE_SIGNAL_APPROVED.",
+            "ExecutionHandler started. Subscribed to TRADE_SIGNAL_APPROVED and close position commands.",  # noqa: E501
             source_module=self.__class__.__name__,
         )
         # TODO: Implement WebSocket connection logic here if used for MVP
@@ -266,6 +316,17 @@ class ExecutionHandler:
                 self._trade_signal_handler = None
             except Exception:
                 self.logger.exception("Error unsubscribing")
+
+        if self._close_position_handler is not None:
+            try:
+                self.pubsub.unsubscribe(
+                    EventType.TRADE_SIGNAL_APPROVED,
+                    self._close_position_handler,
+                )
+                self.logger.info("Unsubscribed from close position commands.")
+                self._close_position_handler = None
+            except Exception:
+                self.logger.exception("Error unsubscribing from close position handler")
 
         # Cancel ongoing monitoring tasks
         try:
@@ -326,7 +387,7 @@ class ExecutionHandler:
                         error_str = str(data["error"])
                         if self._is_retryable_error(error_str) and attempt < max_retries:
                             delay = min(base_delay * (2**attempt), 30.0)
-                            jitter = random.uniform(0, delay * 0.1)
+                            jitter = secrets.SystemRandom().uniform(0, delay * 0.1)
                             total_delay = delay + jitter
                             self.logger.warning(
                                 "Retryable API error for %s: %s. "
@@ -353,7 +414,7 @@ class ExecutionHandler:
             except (aiohttp.ClientResponseError, aiohttp.ClientConnectionError, TimeoutError) as e:
                 if attempt < max_retries:
                     delay = min(base_delay * (2**attempt), 30.0)
-                    jitter = random.uniform(0, delay * 0.1)
+                    jitter = secrets.SystemRandom().uniform(0, delay * 0.1)
                     total_delay = delay + jitter
                     self.logger.warning(
                         (
@@ -531,22 +592,7 @@ class ExecutionHandler:
         nonce: int,
     ) -> str:
         """Generate the API-Sign header required by Kraken private endpoints."""
-        postdata = urllib.parse.urlencode(data)
-        encoded = (str(nonce) + postdata).encode()
-        message = uri_path.encode() + hashlib.sha256(encoded).digest()
-
-        try:
-            secret_decoded = base64.b64decode(self.api_secret)
-        except binascii.Error as e:
-            self.logger.exception(
-                "Invalid base64 API secret",
-                source_module=self.__class__.__name__,
-            )
-            raise InvalidAPICredentialFormatError from e
-
-        mac = hmac.new(secret_decoded, message, hashlib.sha512)
-        sigdigest = base64.b64encode(mac.digest())
-        return sigdigest.decode()
+        return generate_kraken_signature(uri_path, data, nonce, self.api_secret)
 
     def _format_decimal(self, value: Decimal, precision: int) -> str:
         """Format a Decimal value to a string with a specific precision."""
@@ -708,7 +754,7 @@ class ExecutionHandler:
 
                 if self._is_retryable_error(error_str) and attempt < max_retries:
                     delay = min(base_delay * (2**attempt), 30.0)  # Cap delay at 30s
-                    jitter = random.uniform(0, delay * 0.1)
+                    jitter = secrets.SystemRandom().uniform(0, delay * 0.1)
                     total_delay = delay + jitter
                     self.logger.warning(
                         "Retryable API error for %s: %s. Retrying in %.2fs (Attempt %d/%d)",
@@ -743,11 +789,11 @@ class ExecutionHandler:
                 )
 
                 if (
-                    isinstance(e, (aiohttp.ClientConnectionError, asyncio.TimeoutError))
+                    isinstance(e, aiohttp.ClientConnectionError | asyncio.TimeoutError)
                     and attempt < max_retries
                 ):
                     delay = min(base_delay * (2**attempt), 30.0)
-                    jitter = random.uniform(0, delay * 0.1)
+                    jitter = secrets.SystemRandom().uniform(0, delay * 0.1)
                     total_delay = delay + jitter
                     self.logger.warning(
                         "Network error for %s (%s). Retrying in %.2fs (Attempt %d/%d): %s",
@@ -1989,3 +2035,81 @@ class ExecutionHandler:
                 source_module=self.__class__.__name__,
             )
         return name
+
+    async def handle_close_position_command(self, event: ClosePositionCommand) -> None:
+        """Handle emergency position closure during HALT.
+
+        Args:
+            event: ClosePositionCommand containing position details to close
+        """
+        try:
+            self.logger.warning(
+                f"Processing emergency position closure for {event.trading_pair}",
+                source_module=self.__class__.__name__,
+                context={
+                    "quantity": str(event.quantity),
+                    "side": event.side,
+                    "reason": "HALT triggered",
+                },
+            )
+
+            # Get Kraken pair name
+            pair_name = self._get_kraken_pair_name(event.trading_pair)
+            if not pair_name:
+                self.logger.critical(
+                    f"Cannot close position: Unknown pair {event.trading_pair}",
+                    source_module=self.__class__.__name__,
+                )
+                return
+
+            # Create market order for immediate execution
+            order_params = {
+                "pair": pair_name,
+                "type": event.side.lower(),
+                "ordertype": "market",
+                "volume": str(event.quantity),
+                "validate": False,  # Skip validation for emergency orders
+            }
+
+            # Add emergency flag for special handling
+            order_params["userref"] = "HALT_CLOSE"
+
+            # Execute order with priority handling
+            result = await self._place_order_with_priority(order_params)
+
+            if result and not result.get("error"):
+                self.logger.info(
+                    "Emergency close order placed successfully",
+                    source_module=self.__class__.__name__,
+                    context={"order_id": result.get("result", {}).get("txid")},
+                )
+            else:
+                self.logger.critical(
+                    "Failed to place emergency close order",
+                    source_module=self.__class__.__name__,
+                    context={"error": result.get("error") if result else "No response"},
+                )
+
+        except Exception:
+            self.logger.critical(
+                "Critical error during emergency position closure",
+                source_module=self.__class__.__name__,
+                exc_info=True,
+            )
+
+    async def _place_order_with_priority(self, params: dict) -> dict:
+        """Place order with priority handling for emergencies.
+
+        Args:
+            params: Order parameters
+
+        Returns:
+            API response dict
+        """
+        # Bypass normal rate limiting for emergency orders
+        if params.get("userref") == "HALT_CLOSE":
+            # Direct placement without rate limit wait
+            return await self._make_private_request("/0/private/AddOrder", params)
+        # Normal rate-limited placement
+        await self.rate_limiter.wait_for_private_capacity()
+        return await self._make_private_request("/0/private/AddOrder", params)

@@ -277,7 +277,7 @@ class XGBoostPredictor(PredictorInterface):
 
             if isinstance(prediction_val, np.ndarray) and prediction_val.size == 1:
                 prediction_float = float(prediction_val.item())
-            elif isinstance(prediction_val, (float, np.floating)):
+            elif isinstance(prediction_val, float | np.floating):
                 prediction_float = float(prediction_val)
             else:
                 error_message = (
@@ -334,21 +334,27 @@ class XGBoostPredictor(PredictorInterface):
         logger = logging.getLogger(__name__)
         logger.debug("Starting inference for model: %s", model_id)
 
-        # 1. Load Model
-        model, error = cls._load_model(model_path, model_id, logger)
-        if error:
-            return error
-
-        # 2. Load Scaler if path is provided
+        # Initialize result with model_id and default error state
+        result: dict[str, Any] = {"model_id": model_id, "error": None}
+        model = None
         scaler = None
-        if scaler_path:
-            scaler, error = cls._load_scaler(scaler_path, model_id, logger)
-            if error:
-                return error
+        processed_features = None
 
-        # 3. Process features
         try:
-            # 3.1 Scale features if scaler is available
+            # 1. Load Model
+            model, error = cls._load_model(model_path, model_id, logger)
+            if error:
+                result["error"] = error.get("error", "Failed to load model")
+                return result
+
+            # 2. Load Scaler if path is provided
+            if scaler_path:
+                scaler, error = cls._load_scaler(scaler_path, model_id, logger)
+                if error:
+                    result["error"] = error.get("error", "Failed to load scaler")
+                    return result
+
+            # 3. Process features
             if scaler is not None:
                 processed_features, error = XGBoostPredictor._prepare_features(
                     feature_vector=feature_vector,
@@ -357,30 +363,35 @@ class XGBoostPredictor(PredictorInterface):
                     logger=logger,
                 )
                 if error:
-                    return error
+                    result["error"] = error.get("error", "Failed to prepare features")
             else:
                 processed_features = feature_vector.reshape(1, -1)
 
-            # 3.2 Make prediction with processed features
-            if processed_features is None:
-                return {"error": "Failed to process features", "model_id": model_id}
-
-            # Add type checking to ensure model is not None
-            if model is None:
-                return {"error": "Model is None", "model_id": model_id}
-
-            return cls._make_prediction(
-                model=model,
-                features=processed_features,  # Renamed to match method definition
-                feature_names=model_feature_names,
-                model_id=model_id,
-                logger=logger,
-            )
+            # 4. Make prediction if no errors so far
+            if not result["error"] and processed_features is not None:
+                prediction_result = cls._make_prediction(
+                    model=model,
+                    features=processed_features,
+                    feature_names=model_feature_names,
+                    model_id=model_id,
+                    logger=logger,
+                )
+                # If _make_prediction returned an error, use it
+                if "error" in prediction_result:
+                    result["error"] = prediction_result["error"]
+                else:
+                    # If no error, return the prediction result directly
+                    return prediction_result
+            elif not result["error"]:
+                result["error"] = "Failed to process features"
 
         except Exception as e:
             error_msg = f"Unexpected error during inference: {e!s}"
             logger.exception(error_msg)
-            return {"error": error_msg, "model_id": model_id}
+            result["error"] = error_msg
+
+        # If we reach here, there was an error or we need to return the error result
+        return result
 
 
 # Example of how it might be used (for illustration, not part of the class)

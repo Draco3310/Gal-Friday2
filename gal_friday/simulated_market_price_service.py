@@ -1442,6 +1442,14 @@ async def main() -> None:  # Made async
 
 
 if __name__ == "__main__":
+    # Set up basic logging configuration
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    logger = logging.getLogger(__name__)
+
     # Note: Need pandas installed (`pip install pandas`)
     # No longer need pytz directly if using timezone.utc and pd.to_datetime with utc=True
     try:
@@ -1450,7 +1458,7 @@ if __name__ == "__main__":
 
         # import pandas_ta # - ensure this is also handled if used directly in main
         asyncio.run(main())  # Run the async main function
-    except ImportError:
-        print("Could not run example: pandas not installed.")
-    except Exception as e:
-        print(f"An error occurred during example execution: {e!r}")
+    except ImportError as e:
+        logger.error("Could not run example: %s", e)
+    except Exception:
+        logger.exception("An error occurred during example execution")

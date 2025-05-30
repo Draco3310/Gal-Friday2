@@ -1,44 +1,49 @@
-"""Simulator for order execution during backtesting using historical OHLCV data.
+"""Simulated execution handler for backtesting and paper trading."""
 
-This module provides a simulated execution environment for backtesting trading strategies.
-It handles market and limit orders, slippage simulation, and SL/TP order processing
-without requiring a connection to an actual exchange.
-"""
+import decimal
+import uuid
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from typing import Any
 
-import decimal  # Used in error handling
-import uuid  # Used for generating unique identifiers
-from collections import defaultdict  # Added for _active_sl_tp
-from dataclasses import dataclass, field  # noqa: F401 # Used in placeholder classes
-from datetime import UTC, datetime, timedelta  # Added timezone for DTZ003
-from decimal import Decimal, getcontext
-from typing import (
-    TYPE_CHECKING,  # Used in type hints and conditional imports
-    Any,
+import pandas as pd
+
+from gal_friday.config_manager import ConfigManager
+from gal_friday.core.events import (
+    ExecutionReportEvent,
+    PotentialHaltTriggerEvent,
+    TradeSignalApprovedEvent,
 )
+from gal_friday.core.pubsub import PubSubManager
+from gal_friday.logger_service import LoggerService
 
-import pandas as pd  # Used in type hints for pd.Series
 
-# Set Decimal precision
-getcontext().prec = 28
+class ValidationError(ValueError):
+    """Raised when validation fails."""
 
-if TYPE_CHECKING:
-    from .config_manager import ConfigManager
-    from .core.events import (
-        ExecutionReportEvent,
-        TradeSignalApprovedEvent,
-    )
-    from .core.pubsub import PubSubManager
-    from .historical_data_service import HistoricalDataService
-    from .logger_service import LoggerService
-else:
-    # Import Event-related classes from core placeholders
-    from .core.placeholder_classes import (  # Required for event system
-        ConfigManager,
-        ExecutionReportEvent,
-        HistoricalDataService,
-        PubSubManager,
-        TradeSignalApprovedEvent,
-    )
+
+@dataclass
+class PortfolioState:
+    """Portfolio state information."""
+
+
+@dataclass
+class Position:
+    """Position information."""
+
+
+class HistoricalDataService:
+    """Service for providing historical market data."""
+
+    def get_next_bar(self, trading_pair: str, timestamp: datetime) -> pd.Series | None:
+        """Get the next bar after the given timestamp."""
+        return None
+
+    def get_atr(self, trading_pair: str, timestamp: datetime) -> float | None:
+        """Get Average True Range for the given trading pair and timestamp."""
+        return None
 
 
 @dataclass
@@ -95,11 +100,11 @@ class SimulatedExecutionHandler:
 
     def __init__(
         self,
-        config_manager: "ConfigManager",
-        pubsub_manager: "PubSubManager",
-        data_service: "HistoricalDataService",
-        logger_service: "LoggerService",
-    ) -> None:  # Added logger_service
+        config_manager: ConfigManager,
+        pubsub_manager: PubSubManager,
+        data_service: HistoricalDataService,
+        logger_service: LoggerService,
+    ) -> None:
         """Initialize the simulation execution handler with required services.
 
         Args:
@@ -112,81 +117,78 @@ class SimulatedExecutionHandler:
         self.config = config_manager
         self.pubsub = pubsub_manager
         self.data_service = data_service
-        self.logger = logger_service  # Assigned injected logger
+        self.logger = logger_service
 
-        # Load configuration
-        self.taker_fee_pct = self.config.get_decimal(
-            "backtest.commission_taker_pct",
-            Decimal("0.0026"),
-        )
-        self.maker_fee_pct = self.config.get_decimal(
-            "backtest.commission_maker_pct",
-            Decimal("0.0016"),
-        )
-        self.slippage_model = self.config.get("backtest.slippage_model", "volatility")
-        self.slip_atr_multiplier = self.config.get_decimal(
-            "backtest.slippage_atr_multiplier",
-            Decimal("0.1"),
-        )
-        self.slip_fixed_pct = self.config.get_decimal(
-            "backtest.slippage_fixed_pct",
-            Decimal("0.0005"),
-        )
-        self.valuation_currency = self.config.get("portfolio.valuation_currency", "USD").upper()
+        # Load all configuration values to eliminate hardcoding
+        self._load_configuration()
 
-        # New configurations based on whiteboard
+        # Initialize state tracking
         self._active_sl_tp: dict[str, dict[str, Any]] = defaultdict(dict)
-        self._active_limit_orders: dict[str, dict[str, Any]] = {}  # For persistent limit orders
-        self._fill_liquidity_ratio = self.config.get_decimal(
-            "backtest.fill_liquidity_ratio",
-            Decimal("0.1"),  # Default 10% of bar volume
+        self._active_limit_orders: dict[str, dict[str, Any]] = {}
+
+        # Log initialization details
+        self._log_initialization_summary()
+
+    def _load_configuration(self) -> None:
+        """Load all configuration values from ConfigManager to eliminate hardcoding."""
+        # Load backtesting configuration
+        backtest_config = self.config.get("backtest", {})
+        portfolio_config = self.config.get("portfolio", {})
+
+        # Commission configuration
+        self.taker_fee_pct = Decimal(str(backtest_config.get("commission_taker_pct", 0.0026)))
+        self.maker_fee_pct = Decimal(str(backtest_config.get("commission_maker_pct", 0.0016)))
+
+        # Slippage configuration
+        self.slippage_model = backtest_config.get("slippage_model", "volatility")
+        self.slip_atr_multiplier = Decimal(
+            str(backtest_config.get("slippage_atr_multiplier", 0.1)),
         )
-        self.limit_order_timeout_bars = self.config.get_int(
-            "backtest.limit_order_timeout_bars",
-            3,  # Example: check up to 3 future bars
+        self.slip_fixed_pct = Decimal(str(backtest_config.get("slippage_fixed_pct", 0.0005)))
+
+        # Market impact slippage parameters
+        self.slip_market_impact_base_pct = Decimal(
+            str(backtest_config.get("slippage_market_impact_base_pct", 0.0001)),
         )
-        self.limit_order_timeout_action = self.config.get(  # 'CANCEL' or 'MARKET'
-            "backtest.limit_order_timeout_action",
-            "CANCEL",
+        self.slip_market_impact_factor = Decimal(
+            str(backtest_config.get("slippage_market_impact_factor", 0.1)),
         )
-        self.processing_delay_bars = self.config.get_int(  # For configurable latency
-            "backtest.processing_delay_bars",
-            0,  # Default to no additional delay beyond next bar
-        )
-        # Slippage model: market_impact parameters
-        self.slip_market_impact_base_pct = self.config.get_decimal(
-            "backtest.slippage_market_impact_base_pct",
-            Decimal("0.0001"),  # 0.01% base
-        )
-        self.slip_market_impact_factor = self.config.get_decimal(
-            "backtest.slippage_market_impact_factor",
-            Decimal("0.1"),
-        )
-        self.slip_market_impact_exponent = self.config.get_decimal(
-            "backtest.slippage_market_impact_exponent",
-            Decimal("1.0"),  # Linear impact initially
+        self.slip_market_impact_exponent = Decimal(
+            str(backtest_config.get("slippage_market_impact_exponent", 1.0)),
         )
 
-        # TODO: Implement min/max order sizes when config keys are established
-        # (min_order_sizes and max_order_sizes will use get_dict() from config)
+        # Portfolio configuration
+        self.valuation_currency = portfolio_config.get("valuation_currency", "USD").upper()
 
+        # Order execution configuration
+        self._fill_liquidity_ratio = Decimal(str(backtest_config.get("fill_liquidity_ratio", 0.1)))
+        self.limit_order_timeout_bars = backtest_config.get("limit_order_timeout_bars", 3)
+        self.limit_order_timeout_action = backtest_config.get(
+            "limit_order_timeout_action", "CANCEL",
+        )
+        self.processing_delay_bars = backtest_config.get("processing_delay_bars", 0)
+
+        # Data requirements configuration
+        self._min_data_points = backtest_config.get("min_data_points", 100)
+
+        # Error handling configuration
+        self._max_consecutive_errors = 3  # Could be made configurable
+        self._consecutive_errors = 0
+
+    def _log_initialization_summary(self) -> None:
+        """Log initialization summary with all configuration values."""
         self.logger.info(
-            "SimulatedExecutionHandler initialized.",
+            "SimulatedExecutionHandler initialized with full configuration",
             source_module=self.__class__.__name__,
         )
         self.logger.info(
-            (" Fees: Taker=%.4f%%, Maker=%.4f%% (Maker not used in MVP)"),  # G004 fix
+            "Fees: Taker=%.4f%%, Maker=%.4f%%",
             self.taker_fee_pct * 100,
             self.maker_fee_pct * 100,
             source_module=self.__class__.__name__,
         )
         self.logger.info(
-            (
-                " Slippage: Model=%s, "
-                "ATR Mult=%s, "
-                "Fixed Pct=%.4f%%, "
-                "Market Impact Base Pct: %.4f%%"
-            ),  # G004 fix
+            "Slippage: Model=%s, ATR Mult=%s, Fixed Pct=%.4f%%, Market Impact Base Pct: %.4f%%",
             self.slippage_model,
             self.slip_atr_multiplier,
             self.slip_fixed_pct * 100,
@@ -194,19 +196,13 @@ class SimulatedExecutionHandler:
             source_module=self.__class__.__name__,
         )
         self.logger.info(
-            " Partial Fills: Liquidity Ratio=%s",
-            self._fill_liquidity_ratio,  # G004 fix
-            source_module=self.__class__.__name__,
-        )
-        self.logger.info(
-            " Limit Order Timeout: Bars=%s, Action=%s",
+            "Execution: Liquidity Ratio=%s, "
+            "Limit Timeout: %s bars (%s), "
+            "Processing Delay: %s bars",
+            self._fill_liquidity_ratio,
             self.limit_order_timeout_bars,
-            self.limit_order_timeout_action,  # G004 fix
-            source_module=self.__class__.__name__,
-        )
-        self.logger.info(
-            " Processing Delay: Bars=%s",
-            self.processing_delay_bars,  # G004 fix
+            self.limit_order_timeout_action,
+            self.processing_delay_bars,
             source_module=self.__class__.__name__,
         )
 
@@ -236,109 +232,132 @@ class SimulatedExecutionHandler:
 
     async def handle_trade_signal_approved(self, event: "TradeSignalApprovedEvent") -> None:
         """Process an approved signal and simulate fill based on next bar data."""
-        self.logger.debug(
-            "SimExec received approved signal: %s at %s",
-            event.signal_id,
-            event.timestamp,  # G004 fix
-            source_module=self.__class__.__name__,
-        )
-
-        # Validate order parameters
-        if not await self._validate_order_parameters(event):
-            return  # Validation failed, report already published
-
-        # Get next bar data
-        next_bar = await self._get_next_bar_data(event)
-        if next_bar is None:
-            return
-
         try:
-            # Initialize simulation parameters
-            # For limit orders, _simulate_order_fill might now add to _active_limit_orders
-            # instead of returning an immediate fill_result.
+            self.logger.debug(
+                "SimExec received approved signal: %s at %s",
+                event.signal_id,
+                event.timestamp,
+                source_module=self.__class__.__name__,
+            )
+
+            # Validate order parameters
+            if not await self._validate_order_parameters(event):
+                return  # Validation failed, report already published
+
+            # Get next bar data
+            next_bar = await self._get_next_bar_data(event)
+            if next_bar is None:
+                return
+
+            # Reset consecutive errors on successful processing start
+            self._consecutive_errors = 0
+
+            # Simulate order execution
             fill_result = await self._simulate_order_fill(event, next_bar)
 
             if fill_result:  # Market order fill or immediate limit fill
-                # Store SL/TP if entry order is filled
-                if fill_result["status"] in ["FILLED", "PARTIALLY_FILLED"] and fill_result[
-                    "quantity"
-                ] > Decimal(0):
-                    # Determine the correct position_id for SL/TP tracking.
-                    pos_id_for_sl_tp = str(event.signal_id)  # Default
-                    if event.risk_parameters and event.risk_parameters.get(
-                        "original_signal_id_for_sl_tp",
-                    ):
-                        orig_id = event.risk_parameters["original_signal_id_for_sl_tp"]
-                        pos_id_for_sl_tp = str(orig_id)
-                        self.logger.info(
-                            (
-                                "Using original signal ID %s from risk_parameters for SL/TP "
-                                "tracking of converted market order."
-                            ),  # E501: Shortened
-                            pos_id_for_sl_tp,
-                        )
+                await self._handle_successful_fill(event, fill_result)
 
-                    self._register_or_update_sl_tp(
-                        initial_event_signal_id_str=pos_id_for_sl_tp,
-                        fill_details=FillDetails(
-                            qty_increment=fill_result["quantity"],
-                            timestamp=fill_result["timestamp"],
-                            trading_pair=event.trading_pair,
-                            side=event.side,
-                            exchange=event.exchange,
-                            order_type=event.order_type,
-                            event=event,  # Pass the original event
-                        ),
+            # If fill_result is None, limit order was added to _active_limit_orders
+            # and will be processed by check_active_limit_orders in subsequent calls
+
+        except Exception as e:
+            await self._handle_execution_error(event, e)
+
+    async def _handle_successful_fill(
+        self, event: "TradeSignalApprovedEvent", fill_result: dict,
+    ) -> None:
+        """Handle successful order fill processing."""
+        try:
+            # Store SL/TP if entry order is filled
+            if (fill_result["status"] in ["FILLED", "PARTIALLY_FILLED"] and
+                    fill_result["quantity"] > Decimal(0)):
+                pos_id_for_sl_tp = str(event.signal_id)
+                if (event.risk_parameters and
+                        event.risk_parameters.get("original_signal_id_for_sl_tp")):
+                    orig_id = event.risk_parameters["original_signal_id_for_sl_tp"]
+                    pos_id_for_sl_tp = str(orig_id)
+                    self.logger.info(
+                        "Using original signal ID %s for SL/TP tracking of converted market order",
+                        pos_id_for_sl_tp,
+                        source_module=self.__class__.__name__,
                     )
 
-                # Publish the execution report
-                # Create a SimulatedReportParams instance with the fill details
-                report_params = SimulatedReportParams(
-                    status=fill_result["status"],
-                    qty_filled=fill_result["quantity"],
-                    avg_price=fill_result["fill_price"],
-                    commission=fill_result["commission"],
-                    commission_asset=fill_result["commission_asset"],
-                    error_msg=fill_result.get("error_msg"),
-                    fill_timestamp=fill_result["timestamp"],
-                    liquidity_type=fill_result.get("liquidity_type"),
+                self._register_or_update_sl_tp(
+                    initial_event_signal_id_str=pos_id_for_sl_tp,
+                    fill_details=FillDetails(
+                        qty_increment=fill_result["quantity"],
+                        timestamp=fill_result["timestamp"],
+                        trading_pair=event.trading_pair,
+                        side=event.side,
+                        exchange=event.exchange,
+                        order_type=event.order_type,
+                        event=event,
+                    ),
                 )
 
-                await self._publish_simulated_report(
-                    originating_event=event,
-                    params=report_params,
-                    overrides=None,
-                )
-            # If fill_result is None, it implies a limit order was added to _active_limit_orders
-            # and will be processed by check_active_limit_orders in subsequent calls.
-
-        except Exception:  # Removed 'as e'
-            error_msg = (
-                # G004: f-string ok for constructing error_msg
-                f"Error during fill simulation for signal {event.signal_id}. "
-                f"Event: {event}, Next Bar: {next_bar}"
-            )
-            self.logger.exception(
-                error_msg,
-                source_module=self.__class__.__name__,
-                # exc_info provided automatically by exception method
-            )
-            # Create a SimulatedReportParams instance for the error report
-            error_params = SimulatedReportParams(
-                status="ERROR",
-                qty_filled=Decimal(0),
-                avg_price=None,
-                commission=Decimal(0),
-                commission_asset=None,
-                error_msg="Simulation error",
-                fill_timestamp=None,
+            # Publish the execution report
+            report_params = SimulatedReportParams(
+                status=fill_result["status"],
+                qty_filled=fill_result["quantity"],
+                avg_price=fill_result["fill_price"],
+                commission=fill_result["commission"],
+                commission_asset=fill_result["commission_asset"],
+                error_msg=fill_result.get("error_msg"),
+                fill_timestamp=fill_result["timestamp"],
+                liquidity_type=fill_result.get("liquidity_type"),
             )
 
             await self._publish_simulated_report(
                 originating_event=event,
-                params=error_params,
+                params=report_params,
                 overrides=None,
             )
+
+        except Exception as e:
+            await self._handle_execution_error(event, e)
+
+    async def _handle_execution_error(
+        self, event: "TradeSignalApprovedEvent", error: Exception,
+    ) -> None:
+        """Handle execution errors and publish error reports."""
+        self._consecutive_errors += 1
+
+        error_msg = f"Error during fill simulation for signal {event.signal_id}: {error!s}"
+        self.logger.exception(
+            error_msg,
+            source_module=self.__class__.__name__,
+        )
+
+        # Trigger HALT if too many consecutive errors
+        if self._consecutive_errors >= self._max_consecutive_errors:
+            halt_event = PotentialHaltTriggerEvent(
+                source_module=self.__class__.__name__,
+                event_id=uuid.uuid4(),
+                timestamp=datetime.now(UTC),
+                reason=(
+                    f"Too many consecutive execution simulation errors: "
+                    f"{self._consecutive_errors}"
+                ),
+            )
+            await self.pubsub.publish(halt_event)
+
+        # Publish error report
+        error_params = SimulatedReportParams(
+            status="ERROR",
+            qty_filled=Decimal(0),
+            avg_price=None,
+            commission=Decimal(0),
+            commission_asset=None,
+            error_msg="Simulation error",
+            fill_timestamp=None,
+        )
+
+        await self._publish_simulated_report(
+            originating_event=event,
+            params=error_params,
+            overrides=None,
+        )
 
     async def _validate_order_parameters(self, event: "TradeSignalApprovedEvent") -> bool:
         """Validate incoming order parameters."""
@@ -1132,7 +1151,7 @@ class SimulatedExecutionHandler:
                 # Get ATR for the bar the signal was generated on
                 atr = self.data_service.get_atr(trading_pair, signal_timestamp)
                 if atr is not None and atr > 0:
-                    slippage = atr * self.slip_atr_multiplier
+                    slippage = Decimal(str(atr)) * self.slip_atr_multiplier
                 else:
                     self.logger.warning(
                         (

@@ -432,6 +432,109 @@ class KrakenMarketPriceService(MarketPriceService):
         )
         return None
 
+    async def _process_ohlc_response(
+        self,
+        data: dict[str, Any],
+        kraken_pair: str,
+        trading_pair: str,
+        timeframe: str,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]] | None:
+        """Process the OHLC response from Kraken API."""
+        if "result" not in data or kraken_pair not in data["result"]:
+            self.logger.warning(
+                "Unexpected response format or pair not found in result for "
+                f"OHLC {trading_pair} ({kraken_pair}). Data: {str(data)[:500]}",
+                source_module=self._source_module,
+            )
+            return None
+
+        ohlcv_data = []
+        raw_candles = data["result"][kraken_pair]
+        for candle in raw_candles:
+            # Kraken candle format:
+            # [<time>, <open>, <high>, <low>, <close>, <vwap>, <volume>, <count>]
+            # We need: timestamp, open, high, low, close, volume
+            ohlcv_data.append(
+                {
+                    "timestamp": datetime.fromtimestamp(int(candle[0]), tz=UTC),
+                    "open": Decimal(str(candle[1])),
+                    "high": Decimal(str(candle[2])),
+                    "low": Decimal(str(candle[3])),
+                    "close": Decimal(str(candle[4])),
+                    "volume": Decimal(str(candle[6])),  # volume is at index 6
+                },
+            )
+
+        # Apply limit if specified
+        if limit is not None and len(ohlcv_data) > limit:
+            ohlcv_data = ohlcv_data[:limit]
+
+        self.logger.info(
+            f"Fetched {len(ohlcv_data)} OHLCV candles for {trading_pair} "
+            f"({kraken_pair}) timeframe {timeframe}",
+            source_module=self._source_module,
+        )
+        return ohlcv_data
+
+    def _get_timeframe_map(self) -> dict[str, int]:
+        """Return the mapping of timeframes to Kraken interval values."""
+        return {
+            "1m": 1,
+            "5m": 5,
+            "15m": 15,
+            "30m": 30,
+            "1h": 60,
+            "4h": 240,
+            "1d": 1440,  # 1 day
+            "7d": 10080,  # 1 week
+            "15d": 21600,  # 15 days (Kraken actually has 21600 for this, not 14d)
+        }
+
+    def _get_kraken_pair(self, trading_pair: str) -> str | None:
+        """Convert internal trading pair to Kraken's format for OHLC."""
+        try:
+            base, quote = trading_pair.split("/")
+            kraken_ohlc_pair_map = {
+                "BTC": "XBT",
+                "DOGE": "XDG",  # Kraken uses XDG for Dogecoin
+            }
+            mapped_base = kraken_ohlc_pair_map.get(base.upper(), base.upper())
+            return mapped_base + quote.upper()
+        except ValueError:
+            self.logger.error(
+                f"Invalid trading pair format: {trading_pair}",
+                source_module=self._source_module,
+            )
+            return None
+
+    async def _fetch_ohlc_data(
+        self, url: str, trading_pair: str, kraken_pair: str,
+    ) -> dict[str, Any] | None:
+        """Fetch OHLC data from Kraken API."""
+        try:
+            async with self._session.get(url) as response:
+                if response.status != self.HTTP_OK:
+                    self.logger.error(
+                        f"Error fetching OHLC for {trading_pair} ({kraken_pair}): "
+                        f"HTTP {response.status} - {await response.text()}",
+                        source_module=self._source_module,
+                    )
+                    return None
+                return await response.json()
+        except aiohttp.ClientError as e:
+            self.logger.exception(
+                f"HTTP Client error fetching OHLC for {trading_pair} "
+                f"({kraken_pair}): {e}",
+                source_module=self._source_module,
+            )
+        except Exception as e:
+            self.logger.exception(
+                f"Error fetching OHLC data: {e}",
+                source_module=self._source_module,
+            )
+        return None
+
     async def get_historical_ohlcv(
         self,
         trading_pair: str,
@@ -447,126 +550,48 @@ class KrakenMarketPriceService(MarketPriceService):
             )
             return None
 
-        # Map internal timeframe to Kraken's interval values (in minutes)
-        timeframe_map = {
-            "1m": 1,
-            "5m": 5,
-            "15m": 15,
-            "30m": 30,
-            "1h": 60,
-            "4h": 240,
-            "1d": 1440,  # 1 day
-            "7d": 10080,  # 1 week
-            "15d": 21600,  # 15 days (Kraken actually has 21600 for this, not 14d)
-        }
+        # Get timeframe mapping and validate
+        timeframe_map = self._get_timeframe_map()
         kraken_interval = timeframe_map.get(timeframe.lower())
         if not kraken_interval:
             self.logger.error(
-                f"Invalid timeframe '{timeframe}' for Kraken. Supported: {list(timeframe_map.keys())}",
+                f"Invalid timeframe '{timeframe}' for Kraken. "
+                f"Supported: {list(timeframe_map.keys())}",
                 source_module=self._source_module,
             )
             return None
 
-        # Kraken's 'since' is a Unix timestamp in seconds. It's exclusive (data *after* this time).
-        # Our 'since' is a datetime object. We usually want data inclusive of the start of the period.
-        # For simplicity, we'll pass the direct timestamp. If 'since' is midnight, we get candles from that day onwards.
+        # Convert trading pair to Kraken format
+        kraken_pair_for_ohlc = self._get_kraken_pair(trading_pair)
+        if not kraken_pair_for_ohlc:
+            return None
+
+        # Prepare request parameters
         since_timestamp = int(since.timestamp())
-
-        # Map internal pair to Kraken's format for OHLC (might be different from Ticker)
-        # Kraken's OHLC endpoint typically uses concatenated pairs like 'XBTUSD', 'ETHUSD'.
-        # The existing _map_internal_to_kraken_pair might produce XXBTZUSD, which could be an issue.
-        # Let's try a simpler mapping for OHLC first, then refine if needed.
-        base, quote = trading_pair.split("/")
-        # Kraken typically expects X for crypto (XBT for BTC), Z for fiat (USD, EUR)
-        # but for OHLC, it often just concatenates them, sometimes without Z.
-        # Example: BTC/USD -> XBTUSD, ETH/USD -> ETHUSD, XRP/USD -> XRPUSD
-        kraken_ohlc_pair_map = {
-            "BTC": "XBT",
-            "DOGE": "XDG",  # Kraken uses XDG for Dogecoin
-        }
-        mapped_base = kraken_ohlc_pair_map.get(base.upper(), base.upper())
-        mapped_quote = quote.upper()  # Quote typically doesn't get a Z for OHLC, e.g. XBTUSD
-
-        kraken_pair_for_ohlc = mapped_base + mapped_quote
-        # A common alternative is for Kraken to use its X/Z notation, e.g. XXBTZUSD
-        # kraken_pair_for_ohlc_alt = self._map_internal_to_kraken_pair(trading_pair)
-        # We might need to try `kraken_pair_for_ohlc_alt` if `kraken_pair_for_ohlc` fails.
-
-        url = f"{self._api_url}/0/public/OHLC?pair={kraken_pair_for_ohlc}&interval={kraken_interval}&since={since_timestamp}"
+        url = (
+            f"{self._api_url}/0/public/OHLC?"
+            f"pair={kraken_pair_for_ohlc}&interval={kraken_interval}&since={since_timestamp}"
+        )
 
         self.logger.debug(
-            f"Requesting OHLC for {kraken_pair_for_ohlc} (from {trading_pair}) with interval {kraken_interval}, since {since_timestamp} (URL: {url})",
+            f"Requesting OHLC for {kraken_pair_for_ohlc} (from {trading_pair}) "
+            f"with interval {kraken_interval}, since {since_timestamp}",
             source_module=self._source_module,
         )
 
-        ohlcv_data: list[dict[str, Any]] = []
-        try:
-            async with self._session.get(url) as response:
-                if response.status != self.HTTP_OK:
-                    self.logger.error(
-                        f"Error fetching OHLC for {trading_pair} ({kraken_pair_for_ohlc}): HTTP {response.status} - {await response.text()}",
-                        source_module=self._source_module,
-                    )
-                    return None
+        # Fetch and process data
+        data = await self._fetch_ohlc_data(url, trading_pair, kraken_pair_for_ohlc)
+        if not data:
+            return None
 
-                data = await response.json()
-
-                if data.get("error") and len(data["error"]) > 0:
-                    self.logger.error(
-                        f"Kraken API error for OHLC {trading_pair} ({kraken_pair_for_ohlc}): {data['error']}",
-                        source_module=self._source_module,
-                    )
-                    # Potential fallback: try the alternative pair naming convention if primary fails
-                    # This simple check might not be robust enough for all error types.
-                    # For instance, if the error is ['EQuery:Unknown asset pair']
-                    # if kraken_pair_for_ohlc_alt and kraken_pair_for_ohlc != kraken_pair_for_ohlc_alt:
-                    #    self.logger.info(f"Retrying OHLC fetch for {trading_pair} with alternative pair format {kraken_pair_for_ohlc_alt}", source_module=self._source_module)
-                    #    return await self.get_historical_ohlcv(trading_pair, timeframe, since, limit) # Recursive call with alt pair - careful with this
-                    return None
-
-                # The actual OHLC data is under a key that matches the kraken_pair_for_ohlc string
-                # and 'last' gives the timestamp of the last candle, useful for pagination if needed
-                if "result" in data and kraken_pair_for_ohlc in data["result"]:
-                    raw_candles = data["result"][kraken_pair_for_ohlc]
-                    for candle in raw_candles:
-                        # Kraken candle format: [<time>, <open>, <high>, <low>, <close>, <vwap>, <volume>, <count>]
-                        # We need: timestamp, open, high, low, close, volume
-                        ohlcv_data.append(
-                            {
-                                "timestamp": datetime.fromtimestamp(int(candle[0]), tz=UTC),
-                                "open": Decimal(str(candle[1])),
-                                "high": Decimal(str(candle[2])),
-                                "low": Decimal(str(candle[3])),
-                                "close": Decimal(str(candle[4])),
-                                "volume": Decimal(str(candle[6])),  # volume is at index 6
-                            },
-                        )
-
-                    # Kraken's limit is on returned data points (max 720).
-                    # If user requested a smaller limit, we truncate here.
-                    if limit is not None and len(ohlcv_data) > limit:
-                        ohlcv_data = ohlcv_data[:limit]
-
-                    self.logger.info(
-                        f"Fetched {len(ohlcv_data)} OHLCV candles for {trading_pair} ({kraken_pair_for_ohlc}) timeframe {timeframe}",
-                        source_module=self._source_module,
-                    )
-                    return ohlcv_data
-                self.logger.warning(
-                    f"Unexpected response format or pair not found in result for OHLC {trading_pair} ({kraken_pair_for_ohlc}). Data: {str(data)[:500]}",
-                    source_module=self._source_module,
-                )
-                return None
-
-        except aiohttp.ClientError as e:
-            self.logger.exception(
-                f"HTTP Client error fetching OHLC for {trading_pair} ({kraken_pair_for_ohlc}): {e}",
+        if data.get("error") and len(data["error"]) > 0:
+            self.logger.error(
+                f"Kraken API error for OHLC {trading_pair} "
+                f"({kraken_pair_for_ohlc}): {data['error']}",
                 source_module=self._source_module,
             )
-        except Exception as e:
-            self.logger.exception(
-                f"Generic error fetching OHLC for {trading_pair} ({kraken_pair_for_ohlc}): {e}",
-                source_module=self._source_module,
-            )
+            return None
 
-        return None  # Should only be reached on unhandled exception or if logic dictates
+        return await self._process_ohlc_response(
+            data, kraken_pair_for_ohlc, trading_pair, timeframe, limit,
+        )

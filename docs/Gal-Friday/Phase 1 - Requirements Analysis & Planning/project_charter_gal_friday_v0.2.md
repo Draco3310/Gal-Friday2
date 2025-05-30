@@ -44,7 +44,7 @@ Project Gal-Friday aims to develop and deploy a sophisticated automated cryptocu
 ### 1.2 Project Purpose & Vision
 
 **Project Purpose**
-To create a reliable, automated trading system (Gal-Friday) capable of generating a target income of $75k/year by algorithmically trading XRP/USD and DOGE/USD on the Kraken exchange. The system will solve the need for automated, data-driven trading decisions and execution, operating 24/7 within defined risk parameters. Key objectives include achieving consistent profitability, managing risk effectively according to predefined limits (15% max drawdown, 0.5-1% risk/trade), and ensuring operational stability. The scope encompasses the full lifecycle from data acquisition to trade execution and monitoring, focusing initially on an MVP for validation. Deliverables include the operational trading bot software, supporting documentation (SRS, Design Docs, Test Reports), and performance logs.
+To create a reliable, automated trading system (Gal-Friday) capable of generating a target income of $75k/year by algorithmically trading XRP/USD and DOGE/USD on the Kraken exchange. The system will solve the need for automated, data-driven trading decisions and execution, operating 24/7 within defined risk parameters. Key objectives include achieving consistent profitability, managing risk effectively according to predefined limits (15% max drawdown, 0.5-1% risk/trade), and ensuring operational stability. The scope encompasses the full lifecycle from data acquisition to trade execution and monitoring. Deliverables include the operational trading bot software, supporting documentation (SRS, Design Docs, Test Reports), and performance logs.
 
 **Vision**
 To establish Gal-Friday as a dependable, intelligent, and profitable automated trading system that serves as a primary income source through disciplined, AI-driven cryptocurrency trading.
@@ -59,9 +59,9 @@ To establish Gal-Friday as a dependable, intelligent, and profitable automated t
 * **BO4:** Ensure risk per trade does not exceed 1% of current account equity. (Specific, Measurable, Achievable, Realistic, Time-bound [Ongoing])
 
 **Technology Objectives:**
-* **TO1:** Develop and deploy a functional MVP of the Gal-Friday trading bot capable of executing the core trading loop (Data -> Predict -> Risk Check -> Execute) on the Kraken Sandbox environment within the timeline defined in the Project Plan [R2]. (Specific, Measurable, Achievable, Realistic, Time-bound)
+* **TO1:** Develop and deploy a functional full version implementation of the Gal-Friday trading bot capable of executing the core trading loop (Data -> Predict -> Risk Check -> Execute) on the Kraken Sandbox environment within the timeline defined in the Project Plan [R2]. (Specific, Measurable, Achievable, Realistic, Time-bound)
 * **TO2:** Implement robust connectivity to Kraken WebSocket (for L2/OHLCV data) and REST APIs (for execution) with automated reconnection logic. (Specific, Measurable, Achievable, Realistic, Time-bound [Implementation Phase])
-* **TO3:** Integrate at least one ML model (XGBoost for MVP) capable of generating price movement probability predictions. (Specific, Measurable, Achievable, Realistic, Time-bound [Implementation Phase])
+* **TO3:** Integrate 3 ML models (XGBoost, RandomForest, LSTM) capable of generating price movement probability predictions. (Specific, Measurable, Achievable, Realistic, Time-bound [Implementation Phase])
 * **TO4:** Implement all specified pre-trade risk checks and HALT conditions defined in the SRS [R1]. (Specific, Measurable, Achievable, Realistic, Time-bound [Implementation Phase])
 * **TO5:** Achieve operational stability with >99.5% uptime during active trading periods post-deployment. (Specific, Measurable, Achievable, Realistic, Time-bound [Post-Deployment])
 
@@ -69,7 +69,7 @@ To establish Gal-Friday as a dependable, intelligent, and profitable automated t
 The success of Project Gal-Friday will be measured against the following criteria:
 * **Profitability:** Meeting or exceeding the net profit target (BO1) consistently over time.
 * **Risk Management:** Adherence to all defined drawdown and risk-per-trade limits (BO2, BO3, BO4).
-* **Functionality:** Successful implementation and operation of all features defined in the SRS [R1] for the target phase (MVP initially, then full scope).
+* **Functionality:** Successful implementation and operation of all features defined in the SRS [R1] for the target phase (Full scope).
 * **Reliability:** Achieving operational uptime targets (TO5) and demonstrating robust error handling and recovery.
 * **Scope Completion:** Delivering the defined scope within the agreed-upon timeline and budget framework (as outlined in Project Plan [R2]).
 * **Stakeholder Satisfaction:** Meeting the expectations of the Project Lead regarding system performance, reporting, and manageability.
@@ -85,7 +85,7 @@ The scope includes the design, development, testing, deployment, and maintenance
 **In Scope:**
 * Real-time market data ingestion (L2, OHLCV) via WebSocket.
 * Feature engineering (technical indicators, order book features).
-* Predictive modeling using ML (XGBoost, RF, LSTM - XGBoost for MVP).
+* Predictive modeling using ML (XGBoost, RF, LSTM).
 * Strategy arbitration and signal generation logic.
 * Comprehensive risk management (drawdown limits, risk per trade, position sizing, pre-trade checks, HALT conditions).
 * Automated order execution via Kraken REST/WebSocket APIs (Limit/Market orders).
@@ -104,7 +104,7 @@ The scope includes the design, development, testing, deployment, and maintenance
 * Strategies not based on the specified ML models.
 * Integration with external portfolio management tools.
 * Advanced alerting mechanisms (e.g., SMS/email - potential future enhancement).
-* Fully automated recovery from HALT conditions (requires manual intervention for MVP).
+* Fully automated recovery from HALT conditions (requires manual intervention).
 
 **Exclusions, Assumptions and Constraints:** (Ref: SRS 2.7, Risk Analysis 2.4)
 * **Exclusions:** See "Out of Scope" above.
@@ -117,12 +117,11 @@ The scope includes the design, development, testing, deployment, and maintenance
 | :------------------------------ | :---------------------------------------------- | :---------------------- |
 | Phase 1 Complete                | Requirements & Planning Docs Approved           | Q2 2025                 |
 | Phase 2 Complete                | System Design Docs Approved                     | Q2 2025                 |
-| MVP Implementation Complete     | Core MVP modules coded                          | Q3 2025                 |
-| MVP Testing Complete            | Unit, Integration, System, Backtest, Paper Test | Q3 2025                 |
-| MVP UAT Complete                | User sign-off on MVP functionality              | Q3 2025                 |
-| MVP Deployment (Sandbox/Live)   | Initial controlled deployment                   | Q4 2025                 |
-| Full Feature Implementation     | Post-MVP features developed                     | TBD Post-MVP            |
-| Full System Testing & Deployment| Testing and deployment of full features         | TBD Post-MVP            |
+| Full Implementation Complete    | Full system modules coded                       | Q3 2025                 |
+| Full Testing Complete           | Unit, Integration, System, Backtest, Paper Test | Q3 2025                 |
+| Full UAT Complete               | User sign-off on full functionality             | Q3 2025                 |
+| Full Deployment (Sandbox/Live)  | Initial controlled deployment                   | Q4 2025                 |
+| Full System Testing & Deployment| Testing and deployment of full features         | Q4 2025                 |
 
 *(Note: Specific dates depend on project start and task durations)*
 
@@ -132,7 +131,7 @@ The scope includes the design, development, testing, deployment, and maintenance
 * **Quality Control Procedures:** Execution of unit tests, integration tests, system tests, backtests, paper trading simulations; tracking test results; bug tracking and resolution; User Acceptance Testing (UAT); monitoring of live performance against benchmarks and risk limits.
 
 ### 2.3 Project Timeline
-A high-level overview of the project schedule is provided by the Milestones table (Section 2.1) and the detailed task list in the Project Plan [R2]. The initial focus is on delivering the MVP by Q4 2025, followed by subsequent phases for full feature implementation.
+A high-level overview of the project schedule is provided by the Milestones table (Section 2.1) and the detailed task list in the Project Plan [R2]. The initial focus is on delivering the full system by Q4 2025.
 
 ---
 
@@ -142,7 +141,7 @@ A high-level overview of the project schedule is provided by the Milestones tabl
 * **Project Lead / Sponsor (User):** Provides direction, requirements, domain expertise, reviews/approvals, capital, monitors performance. (Effort: Part-time, variable)
 * **Development Team (AI - Gemini):** Responsible for design, implementation, testing, documentation drafting, deployment support, maintenance. (Effort: Dedicated as per project plan tasks)
 * **Infrastructure:** Cloud VM (Linux), PostgreSQL Database, InfluxDB Database, Network Bandwidth.
-* **Software:** Python environment, required libraries (open source), potential future costs for premium data feeds (news/sentiment - out of scope for MVP).
+* **Software:** Python environment, required libraries (open source), potential future costs for premium data feeds (news/sentiment - out of scope for full system).
 * **Trading Capital:** $100,000 USD allocated by Project Lead.
 
 ### 3.2 Estimated Costs and Project Budget
@@ -151,7 +150,7 @@ A high-level overview of the project schedule is provided by the Milestones tabl
 * **Data Fees:** $0 initially (using standard Kraken feeds). Potential future costs ($50-$200+/month) if premium news/sentiment APIs are added.
 * **Trading Fees:** Transaction costs imposed by Kraken, variable based on volume and order types (accounted for in P&L calculations).
 * **Contingency:** Recommended buffer (e.g., 10-15%) for unforeseen infrastructure needs or extended testing phases.
-* **Total Estimated Operational Cost (MVP):** ~$100-200/month (excluding trading fees and capital).
+* **Total Estimated Operational Cost (Full System):** ~$100-200/month (excluding trading fees and capital).
 
 ### 3.3 Cost-Benefit Analysis
 * **Costs:** Initial trading capital ($100k), ongoing operational infrastructure costs (~$1.2k - $2.4k / year initially), Project Lead time investment, potential trading losses within risk limits.

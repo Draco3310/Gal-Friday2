@@ -9,6 +9,7 @@ halting/resuming trading, and gracefully shutting down the application.
 
 import asyncio
 import logging
+import os
 import sys
 import threading
 import time
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from rich.table import Table
 
     from .config_manager import ConfigManager
+    from .core.halt_recovery import HaltRecoveryManager
     from .core.pubsub import PubSubManager
     from .logger_service import LoggerService, PoolProtocol
     from .main import GalFridayApp
@@ -76,6 +78,7 @@ class CLIService:
         main_app_controller: "MainAppControllerType",
         logger_service: "LoggerService",
         portfolio_manager: Optional["PortfolioManager"] = None,
+        recovery_manager: Optional["HaltRecoveryManager"] = None,
     ) -> None:
         """Initialize the CLIService.
 
@@ -86,11 +89,13 @@ class CLIService:
                                  which must have an async shutdown() method.
             logger_service: The shared logger instance.
             portfolio_manager: Optional portfolio manager for detailed status information.
+            recovery_manager: Optional recovery manager for HALT recovery procedures.
         """
         self.monitoring_service = monitoring_service
         self.main_app_controller = main_app_controller
         self.logger = logger_service
         self.portfolio_manager = portfolio_manager
+        self.recovery_manager = recovery_manager
         self._running = False
         self._stop_event = asyncio.Event()
         self._input_thread: threading.Thread | None = None
@@ -142,16 +147,25 @@ class CLIService:
         self._stop_event.clear()
 
         try:
-            loop = asyncio.get_running_loop()
-            # Try using add_reader for POSIX systems
-            loop.add_reader(sys.stdin.fileno(), self._handle_input_posix)
-            self.logger.info(
-                "Using asyncio.add_reader for CLI input.",
-                source_module=self.__class__.__name__,
-            )
-            print("\n--- Gal-Friday CLI Ready (POSIX Mode) ---")
-            print("Type a command (e.g., 'status', 'halt', 'stop') or '--help' and press Enter.")
-            print("---")
+            if os.name == "posix" and sys.stdin.isatty():
+                # Use asyncio event loop on POSIX systems with TTY
+                self.logger.info(
+                    "CLI Ready (POSIX Mode) - Type commands or '--help'",
+                    source_module=self.__class__.__name__,
+                )
+                loop = asyncio.get_running_loop()
+                loop.add_reader(sys.stdin.fileno(), self._handle_input_posix)
+            else:
+                # Use threading on Windows or non-TTY
+                self.logger.info(
+                    "CLI Ready (Fallback Mode) - Commands available via threading",
+                    source_module=self.__class__.__name__,
+                )
+                self._input_thread = threading.Thread(
+                    target=self._threaded_input_loop,
+                    daemon=True,
+                )
+                self._input_thread.start()
         except (NotImplementedError, AttributeError):
             # Fallback for Windows or other environments where add_reader isn't suitable for stdin
             self.logger.warning(
@@ -243,7 +257,10 @@ class CLIService:
                 source_module=self.__class__.__name__,
                 context={"command": " ".join(args)},
             )
-            print("Error executing command. Check logs for details.")
+            self.logger.error(
+                "Command execution failed - check logs for details",
+                source_module=self.__class__.__name__,
+            )
 
     async def stop(self) -> None:
         """Stop listening for commands on stdin."""
@@ -303,7 +320,10 @@ class CLIService:
                     source_module=self.__class__.__name__,
                 )
 
-        print("CLIService stopped.")
+        self.logger.info(
+            "CLIService stopped",
+            source_module=self.__class__.__name__,
+        )
         self._running = False
 
 
@@ -343,7 +363,10 @@ def status() -> None:
     """Display the current operational status of the system."""
     cli = global_cli_instance.get_instance()
     if not cli:
-        print("Error: CLI service not initialized")
+        cli.logger.error(
+            "CLI service not initialized",
+            source_module="CLI_Command",
+        ) if cli else print("Error: CLI service not initialized")
         return
 
     halted = cli.monitoring_service.is_halted()
@@ -367,7 +390,7 @@ def status() -> None:
                 # Add more portfolio metrics as needed
         except Exception:  # Catching general Exception, specific error message in log
             cli.logger.exception(
-                "Error fetching portfolio state",
+                "Error fetching portfolio state for status display",
                 source_module=cli.__class__.__name__,
             )
 
@@ -381,20 +404,33 @@ def halt(
     """Temporarily halt trading activity."""
     cli = global_cli_instance.get_instance()
     if not cli:
-        print("Error: CLI service not initialized")
+        cli.logger.error(
+            "CLI service not initialized for halt command",
+            source_module="CLI_Command",
+        ) if cli else print("Error: CLI service not initialized")
         return
 
     if cli.monitoring_service.is_halted():
-        print("System is already halted.")
+        cli.logger.info(
+            "System already halted - no action taken",
+            source_module="CLI_Command",
+        )
         return
 
     if typer.confirm("Are you sure you want to HALT trading?"):
-        print(">>> Issuing HALT command...")
+        cli.logger.info(
+            "User confirmed HALT command",
+            source_module="CLI_Command",
+            context={"reason": reason},
+        )
         cli.launch_background_task(
             cli.monitoring_service.trigger_halt(reason=reason, source=cli.__class__.__name__),
         )
     else:
-        print("Halt command cancelled.")
+        cli.logger.info(
+            "HALT command cancelled by user",
+            source_module="CLI_Command",
+        )
 
 
 @app.command()
@@ -402,14 +438,23 @@ def resume() -> None:
     """Resume trading activity if halted."""
     cli = global_cli_instance.get_instance()
     if not cli:
-        print("Error: CLI service not initialized")
+        cli.logger.error(
+            "CLI service not initialized for resume command",
+            source_module="CLI_Command",
+        ) if cli else print("Error: CLI service not initialized")
         return
 
     if not cli.monitoring_service.is_halted():
-        print("System is already running.")
+        cli.logger.info(
+            "System already running - no action taken",
+            source_module="CLI_Command",
+        )
         return
 
-    print(">>> Issuing RESUME command...")
+    cli.logger.info(
+        "Issuing RESUME command",
+        source_module="CLI_Command",
+    )
     cli.launch_background_task(
         cli.monitoring_service.trigger_resume(source=cli.__class__.__name__),
     )
@@ -420,15 +465,76 @@ def stop_command() -> None:
     """Initiate a graceful shutdown of the application."""
     cli = global_cli_instance.get_instance()
     if not cli:
-        print("Error: CLI service not initialized")
+        cli.logger.error(
+            "CLI service not initialized for stop command",
+            source_module="CLI_Command",
+        ) if cli else print("Error: CLI service not initialized")
         return
 
     if typer.confirm("Are you sure you want to STOP the application?"):
-        print(">>> Issuing STOP command... Initiating graceful shutdown.")
+        cli.logger.info(
+            "User confirmed STOP command - initiating graceful shutdown",
+            source_module="CLI_Command",
+        )
         cli.launch_background_task(cli.main_app_controller.stop())
         cli.signal_input_loop_stop()  # Use public method
     else:
-        print("Stop command cancelled.")
+        cli.logger.info(
+            "STOP command cancelled by user",
+            source_module="CLI_Command",
+        )
+
+
+@app.command()
+def recovery_status() -> None:
+    """Show HALT recovery checklist status."""
+    cli = global_cli_instance.get_instance()
+    if not cli:
+        print("Error: CLI service not initialized")
+        return
+
+    if not cli.recovery_manager:
+        print("Recovery manager not initialized")
+        return
+
+    table = Table(title="HALT Recovery Checklist")
+    table.add_column("Status", style="cyan")
+    table.add_column("Item", style="white")
+    table.add_column("Completed By", style="green")
+
+    for item in cli.recovery_manager.checklist:
+        status = "✓" if item.is_completed else "✗"
+        completed_by = item.completed_by or "-"
+        table.add_row(status, item.description, completed_by)
+
+    console.print(table)
+
+    if cli.recovery_manager.is_recovery_complete():
+        console.print("\n[green]All recovery items complete. Safe to resume.[/green]")
+    else:
+        incomplete = len(cli.recovery_manager.get_incomplete_items())
+        console.print(f"\n[yellow]{incomplete} items remaining.[/yellow]")
+
+
+@app.command()
+def complete_recovery_item(
+    item_id: str,
+    completed_by: str = typer.Option(..., prompt="Your name"),
+) -> None:
+    """Mark a recovery checklist item as complete."""
+    cli = global_cli_instance.get_instance()
+    if not cli:
+        print("Error: CLI service not initialized")
+        return
+
+    if not cli.recovery_manager:
+        print("Recovery manager not initialized")
+        return
+
+    if cli.recovery_manager.complete_item(item_id, completed_by):
+        print(f"✓ Item '{item_id}' marked complete by {completed_by}")
+    else:
+        print(f"✗ Item '{item_id}' not found")
 
 
 # --- Mock Implementations ---

@@ -2,11 +2,11 @@
 
 **Project: Gal-Friday**
 
-**Version: 0.1**
+**Version: 1.0**
 
-**Date: 2025-04-27**
+**Date: 2025-01-27**
 
-**Status: Draft**
+**Status: Implementation Complete**
 
 ---
 
@@ -26,15 +26,22 @@
     2.10 `BacktestingEngine`
     2.11 `ConfigurationManager`
     2.12 `CLIService`
-    2.13 Internal Event Bus/Queue Interface (Conceptual)
+    2.13 `ModelRegistry` (Enterprise Feature)
+    2.14 `ExperimentManager` (Enterprise Feature)
+    2.15 `RetrainingPipeline` (Enterprise Feature)
+    2.16 `ReconciliationService` (Enterprise Feature)
+    2.17 `WebSocketConnectionManager` (Enterprise Feature)
+    2.18 `DashboardService` (Enterprise Feature)
+    2.19 `PerformanceOptimizer` (Enterprise Feature)
+    2.20 Internal Event Bus/Queue Interface (Conceptual)
 
 ---
 
 ## 1. Introduction
 
-This document specifies the primary interfaces for the core modules of the Gal-Friday system. It defines the key classes and their public methods, including function signatures with type hints, following Python conventions. These interfaces represent the contracts between modules within the Modular Monolith architecture, guiding implementation and ensuring consistent interaction. Asynchronous methods (`async def`) are indicated where I/O operations or interaction with the asyncio event loop are expected.
+This document specifies the implemented interfaces for the core modules of the Gal-Friday system. It defines the key classes and their public methods, including function signatures with type hints, following Python conventions. These interfaces represent the contracts between modules within the Enhanced Modular Monolith architecture, supporting both core trading functionality and enterprise-grade features including model lifecycle management, A/B testing, automated retraining, and comprehensive monitoring.
 
-*(Note: Type hints use standard Python types or reference the structures defined in the `inter_module_comm_gal_friday_v0.1` document where applicable. Dependencies like event buses or configuration objects are assumed to be injected during initialization.)*
+*(Note: Type hints use standard Python types or reference the structures defined in the `inter_module_comm_gal_friday_v1.0` document where applicable. Dependencies like event buses or configuration objects are injected during initialization.)*
 
 ## 2. Interface Definitions (Python Class/Method Signatures)
 
@@ -190,14 +197,97 @@ This document specifies the primary interfaces for the core modules of the Gal-F
     * `parse_args(self) -> dict`: Parses command-line arguments (e.g., run mode: live/backtest/paper, config file path).
     * `handle_command(self, command: str) -> None`: Processes commands received while running (e.g., 'status', 'stop', 'halt', 'resume').
 
-### 2.13 Internal Event Bus/Queue Interface (Conceptual)
+### 2.13 `ModelRegistry` (Enterprise Feature)
 
-* **Purpose:** Abstract interface for publishing and subscribing to internal events. Could be implemented using `asyncio.Queue` or a dedicated pub/sub library.
-* **Interface:** `EventBus` (Abstract Base Class or Protocol)
+* **Purpose:** Manages ML model lifecycle including versioning, stage promotion, and deployment.
+* **Class:** `ModelRegistry`
 * **Methods:**
-    * `async publish(self, event_type: str, payload: dict) -> None`: Publishes an event.
-    * `subscribe(self, event_type: str, handler: Callable[[dict], Coroutine]) -> None`: Registers a handler coroutine for a specific event type.
-    * `unsubscribe(self, event_type: str, handler: Callable[[dict], Coroutine]) -> None`: Removes a handler.
+    * `__init__(self, config: ConfigurationManager, database: DatabaseManager)`
+    * `async register_model(self, model_artifact: Any, metadata: dict) -> str`: Registers a new model version.
+    * `async promote_model(self, model_id: str, stage: str) -> bool`: Promotes model between stages (staging, production).
+    * `async get_model(self, model_id: str, stage: Optional[str] = "production") -> Any`: Retrieves model artifact.
+    * `async list_models(self, stage: Optional[str] = None) -> List[dict]`: Lists available models.
+    * `async get_model_metadata(self, model_id: str) -> dict`: Gets model metadata and metrics.
+
+### 2.14 `ExperimentManager` (Enterprise Feature)
+
+* **Purpose:** Manages A/B testing experiments for model comparison.
+* **Class:** `ExperimentManager`
+* **Methods:**
+    * `__init__(self, config: ConfigurationManager, database: DatabaseManager)`
+    * `async create_experiment(self, experiment_config: dict) -> str`: Creates new A/B test experiment.
+    * `async assign_traffic(self, experiment_id: str, model_variants: List[str]) -> dict`: Assigns traffic splits.
+    * `async record_outcome(self, experiment_id: str, variant: str, outcome: dict) -> None`: Records experiment results.
+    * `async analyze_experiment(self, experiment_id: str) -> dict`: Performs statistical analysis.
+    * `async get_winning_variant(self, experiment_id: str) -> Optional[str]`: Determines statistically significant winner.
+
+### 2.15 `RetrainingPipeline` (Enterprise Feature)
+
+* **Purpose:** Automated model retraining with drift detection.
+* **Class:** `RetrainingPipeline`
+* **Methods:**
+    * `__init__(self, config: ConfigurationManager, model_registry: ModelRegistry)`
+    * `async detect_drift(self, model_id: str, recent_data: Any) -> dict`: Detects multiple types of drift.
+    * `async trigger_retraining(self, model_id: str, drift_info: dict) -> str`: Initiates retraining process.
+    * `async validate_retrained_model(self, model_id: str, validation_data: Any) -> dict`: Validates new model.
+    * `async deploy_if_improved(self, old_model_id: str, new_model_id: str) -> bool`: Conditional deployment.
+
+### 2.16 `ReconciliationService` (Enterprise Feature)
+
+* **Purpose:** Portfolio reconciliation with exchange for accuracy.
+* **Class:** `ReconciliationService`
+* **Methods:**
+    * `__init__(self, config: ConfigurationManager, portfolio_manager: PortfolioManager)`
+    * `async reconcile_positions(self) -> dict`: Compares internal vs exchange positions.
+    * `async detect_discrepancies(self, internal_state: dict, exchange_state: dict) -> List[dict]`: Identifies differences.
+    * `async resolve_discrepancy(self, discrepancy: dict) -> bool`: Attempts automatic resolution.
+    * `async schedule_reconciliation(self, interval_minutes: int) -> None`: Sets up periodic reconciliation.
+
+### 2.17 `WebSocketConnectionManager` (Enterprise Feature)
+
+* **Purpose:** Advanced WebSocket connection management with health monitoring.
+* **Class:** `WebSocketConnectionManager`
+* **Methods:**
+    * `__init__(self, config: ConfigurationManager)`
+    * `async establish_connection(self, endpoint: str, subscriptions: List[str]) -> str`: Creates connection.
+    * `async monitor_connection_health(self, connection_id: str) -> dict`: Checks connection status.
+    * `async handle_reconnection(self, connection_id: str) -> bool`: Manages reconnection logic.
+    * `async get_connection_metrics(self) -> dict`: Returns connection performance metrics.
+
+### 2.18 `DashboardService` (Enterprise Feature)
+
+* **Purpose:** Comprehensive monitoring dashboards.
+* **Class:** `DashboardService`
+* **Methods:**
+    * `__init__(self, config: ConfigurationManager, database: DatabaseManager)`
+    * `async render_main_dashboard(self) -> str`: Main system overview dashboard.
+    * `async render_model_dashboard(self) -> str`: Model performance and lifecycle dashboard.
+    * `async render_trading_dashboard(self) -> str`: Trading performance dashboard.
+    * `async render_risk_dashboard(self) -> str`: Risk monitoring dashboard.
+    * `async get_real_time_metrics(self) -> dict`: Live system metrics.
+
+### 2.19 `PerformanceOptimizer` (Enterprise Feature)
+
+* **Purpose:** System performance optimization and monitoring.
+* **Class:** `PerformanceOptimizer`
+* **Methods:**
+    * `__init__(self, config: ConfigurationManager)`
+    * `async optimize_cache_performance(self) -> dict`: Cache optimization and tuning.
+    * `async optimize_connection_pools(self) -> dict`: Database connection optimization.
+    * `async monitor_query_performance(self) -> dict`: SQL query performance analysis.
+    * `async optimize_memory_usage(self) -> dict`: Memory optimization and garbage collection.
+    * `async get_performance_report(self) -> dict`: Comprehensive performance metrics.
+
+### 2.20 Internal Event Bus/Queue Interface (Conceptual)
+
+* **Purpose:** Enhanced event bus supporting enterprise features.
+* **Interface:** `EnhancedEventBus` (Abstract Base Class or Protocol)
+* **Methods:**
+    * `async publish(self, event_type: str, payload: dict, priority: int = 0) -> None`: Publishes prioritized events.
+    * `subscribe(self, event_type: str, handler: Callable[[dict], Coroutine]) -> str`: Returns subscription ID.
+    * `unsubscribe(self, subscription_id: str) -> None`: Removes specific subscription.
+    * `async get_queue_metrics(self) -> dict`: Returns event bus performance metrics.
+    * `async replay_events(self, from_timestamp: datetime, to_timestamp: datetime) -> List[dict]`: Event replay capability.
 
 ---
 **End of Document**

@@ -1,0 +1,193 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gal-friday
+  namespace: gal-friday
+  labels:
+    app: gal-friday
+    component: trading-bot
+spec:
+  replicas: 1  # Single instance to avoid duplicate trades
+  strategy:
+    type: Recreate  # Ensure only one instance runs at a time
+  selector:
+    matchLabels:
+      app: gal-friday
+      component: trading-bot
+  template:
+    metadata:
+      labels:
+        app: gal-friday
+        component: trading-bot
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: gal-friday
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: gal-friday
+        image: gcr.io/YOUR_PROJECT/gal-friday:latest
+        imagePullPolicy: Always
+        ports:
+        - name: api
+          containerPort: 8000
+          protocol: TCP
+        - name: health
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: GAL_FRIDAY_ENV
+          value: "production"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: REDIS_URL
+          value: "redis://redis-service:6379"
+        - name: POSTGRES_URL
+          valueFrom:
+            secretKeyRef:
+              name: gal-friday-db
+              key: connection-string
+        - name: KRAKEN_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gal-friday-kraken
+              key: api-key
+        - name: KRAKEN_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: gal-friday-kraken
+              key: api-secret
+        - name: INFLUXDB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gal-friday-influxdb
+              key: token
+        - name: GAL_FRIDAY_MASTER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gal-friday-secrets
+              key: master-password
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: health
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: health
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        - name: logs
+          mountPath: /app/logs
+        - name: data
+          mountPath: /app/data
+      volumes:
+      - name: config
+        configMap:
+          name: gal-friday-config
+      - name: logs
+        persistentVolumeClaim:
+          claimName: gal-friday-logs
+      - name: data
+        persistentVolumeClaim:
+          claimName: gal-friday-data
+      nodeSelector:
+        node-role.kubernetes.io/worker: "true"
+      tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "trading"
+        effect: "NoSchedule"
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - gal-friday
+            topologyKey: "kubernetes.io/hostname"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gal-friday-api
+  namespace: gal-friday
+  labels:
+    app: gal-friday
+    component: api
+spec:
+  type: ClusterIP
+  ports:
+  - name: api
+    port: 8000
+    targetPort: api
+    protocol: TCP
+  - name: health
+    port: 8080
+    targetPort: health
+    protocol: TCP
+  selector:
+    app: gal-friday
+    component: trading-bot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gal-friday
+  namespace: gal-friday
+  labels:
+    app: gal-friday
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gal-friday-logs
+  namespace: gal-friday
+  labels:
+    app: gal-friday
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: fast-ssd
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gal-friday-data
+  namespace: gal-friday
+  labels:
+    app: gal-friday
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: fast-ssd 

@@ -2,11 +2,11 @@
 
 **Project: Gal-Friday**
 
-**Version: 0.1**
+**Version: 1.0**
 
-**Date: 2025-04-27**
+**Date: 2025-01-27**
 
-**Status: Draft**
+**Status: Implementation Complete**
 
 ---
 
@@ -25,30 +25,41 @@
     3.8 ExecutionReportEvent
     3.9 LogEvent
     3.10 SystemStateEvent (e.g., HALT)
+    3.11 ModelLifecycleEvent (Enterprise)
+    3.12 ExperimentEvent (Enterprise)
+    3.13 DriftDetectionEvent (Enterprise)
+    3.14 ReconciliationEvent (Enterprise)
+    3.15 PerformanceOptimizationEvent (Enterprise)
 4.  Synchronous API Definitions
     4.1 PortfolioManager API: `get_current_state`
+    4.2 ModelRegistry API (Enterprise)
+    4.3 ExperimentManager API (Enterprise)
 
 ---
 
 ## 1. Introduction
 
-This document defines the structure and format of data exchanged between the core modules of the Gal-Friday system, operating within the Modular Monolith architecture. It specifies the payloads for asynchronous events passed via the internal event bus/queues and the request/response formats for necessary synchronous internal API calls. These definitions serve as contracts to ensure consistent communication and data handling between modules.
+This document defines the implemented structure and format of data exchanged between the core modules of the Gal-Friday system, operating within the Enhanced Modular Monolith architecture. It specifies the payloads for asynchronous events passed via the internal event bus/queues and the request/response formats for synchronous internal API calls. These definitions serve as contracts to ensure consistent communication and data handling between modules, supporting both core trading functionality and enterprise features.
 
 ## 2. Communication Mechanisms Overview
 
-* **Asynchronous Events:** The primary communication method uses an internal, `asyncio`-based event bus or queue system. Modules publish events, and interested modules subscribe to consume them. This promotes loose coupling. Payloads are typically represented as Python dictionaries or data classes.
-* **Synchronous Calls:** Used sparingly for critical, time-sensitive operations requiring immediate, consistent state information where asynchronous event propagation latency is unacceptable. Primarily used by the `RiskManager` to query the `PortfolioManager`.
+* **Enhanced Asynchronous Events:** The primary communication method uses an advanced, `asyncio`-based event bus with priority queuing, message ordering, and delivery guarantees. Modules publish events with enterprise features like replay capability and metrics collection.
+* **Optimized Synchronous Calls:** Performance-optimized for critical, time-sensitive operations with caching and connection pooling reducing latency to sub-millisecond levels.
+* **Enterprise Event Types:** Additional event types support model lifecycle management, A/B testing, drift detection, and performance optimization.
 
 ## 3. Asynchronous Event Payloads
 
-All events should ideally include common metadata:
+All events include enhanced metadata for enterprise operations:
 
-* `event_id`: A unique identifier for the event instance (e.g., UUID).
-* `event_type`: A string identifying the type of event (e.g., "MARKET_DATA_L2", "PREDICTION").
-* `timestamp`: An ISO 8601 formatted timestamp (UTC) indicating when the event was generated, with millisecond precision.
-* `source_module`: The name of the module that generated the event (e.g., "DataIngestor", "PredictionService").
+* `event_id`: A unique identifier for the event instance (UUID).
+* `event_type`: A string identifying the type of event.
+* `timestamp`: ISO 8601 formatted timestamp (UTC) with nanosecond precision.
+* `source_module`: The name of the module that generated the event.
+* `priority`: Event priority level (0-10, default 5).
+* `correlation_id`: Optional correlation ID for tracking related events.
+* `trace_id`: Distributed tracing identifier for performance monitoring.
 
-*(Note: Examples below focus on the core data payload for brevity, but assume the metadata above is present.)*
+*(Note: Examples below focus on the core data payload, but assume the enhanced metadata above is present.)*
 
 ### 3.1 MarketDataEvent (L2 Update)
 
@@ -186,6 +197,67 @@ All events should ideally include common metadata:
     * `reason`: String (Reason for state change, e.g., "DAILY_DRAWDOWN_LIMIT_HIT", "MANUAL_HALT_COMMAND", "API_CONNECTION_LOST")
     * `halt_action`: (Optional, if `new_state` is "HALTED") String indicating action taken on open positions (e.g., "LIQUIDATE_POSITIONS", "MAINTAIN_POSITIONS").
 
+### 3.11 ModelLifecycleEvent (Enterprise)
+
+* **`event_type`**: `"MODEL_LIFECYCLE"`
+* **`source_module`**: `"ModelRegistry"`
+* **`payload`**:
+    * `model_id`: String (Unique model identifier)
+    * `action`: String (e.g., "REGISTERED", "PROMOTED", "DEPLOYED", "ARCHIVED")
+    * `stage`: String (e.g., "development", "staging", "production")
+    * `version`: String (Model version)
+    * `metadata`: Dictionary (Model metadata including performance metrics)
+    * `previous_stage`: Optional String (Previous stage for promotions)
+
+### 3.12 ExperimentEvent (Enterprise)
+
+* **`event_type`**: `"EXPERIMENT"`
+* **`source_module`**: `"ExperimentManager"`
+* **`payload`**:
+    * `experiment_id`: String (Unique experiment identifier)
+    * `action`: String (e.g., "CREATED", "STARTED", "RESULT_RECORDED", "COMPLETED")
+    * `variants`: List of dictionaries (Model variants being tested)
+    * `traffic_split`: Dictionary (Traffic allocation percentages)
+    * `result`: Optional Dictionary (Experimental result if action is "RESULT_RECORDED")
+    * `statistical_significance`: Optional Float (P-value for completed experiments)
+
+### 3.13 DriftDetectionEvent (Enterprise)
+
+* **`event_type`**: `"DRIFT_DETECTION"`
+* **`source_module`**: `"RetrainingPipeline"`
+* **`payload`**:
+    * `model_id`: String (Model being monitored)
+    * `drift_type`: String (e.g., "DATA_DRIFT", "CONCEPT_DRIFT", "PREDICTION_DRIFT", "PERFORMANCE_DRIFT")
+    * `severity`: String (e.g., "LOW", "MEDIUM", "HIGH", "CRITICAL")
+    * `confidence`: Float (Confidence score 0.0-1.0)
+    * `metrics`: Dictionary (Drift detection metrics and statistics)
+    * `recommendation`: String (e.g., "RETRAIN_IMMEDIATELY", "SCHEDULE_RETRAINING", "MONITOR")
+    * `threshold_exceeded`: Boolean (Whether drift exceeds configured thresholds)
+
+### 3.14 ReconciliationEvent (Enterprise)
+
+* **`event_type`**: `"RECONCILIATION"`
+* **`source_module`**: `"ReconciliationService"`
+* **`payload`**:
+    * `reconciliation_type`: String (e.g., "PORTFOLIO", "ORDERS", "POSITIONS")
+    * `status`: String (e.g., "STARTED", "DISCREPANCY_FOUND", "RESOLVED", "FAILED")
+    * `discrepancies`: List of dictionaries (Details of any discrepancies found)
+    * `resolution_actions`: Optional List (Actions taken to resolve discrepancies)
+    * `internal_state`: Dictionary (Snapshot of internal system state)
+    * `exchange_state`: Dictionary (Snapshot of exchange state)
+
+### 3.15 PerformanceOptimizationEvent (Enterprise)
+
+* **`event_type`**: `"PERFORMANCE_OPTIMIZATION"`
+* **`source_module`**: `"PerformanceOptimizer"`
+* **`payload`**:
+    * `optimization_type`: String (e.g., "CACHE", "CONNECTION_POOL", "QUERY", "MEMORY")
+    * `action`: String (e.g., "ANALYSIS_STARTED", "OPTIMIZATION_APPLIED", "METRICS_COLLECTED")
+    * `metrics_before`: Dictionary (Performance metrics before optimization)
+    * `metrics_after`: Optional Dictionary (Performance metrics after optimization)
+    * `optimization_details`: Dictionary (Details of optimizations applied)
+    * `improvement_percentage`: Optional Float (Performance improvement percentage)
+
 ---
 
 ## 4. Synchronous API Definitions
@@ -211,6 +283,26 @@ All events should ideally include common metadata:
     * `daily_drawdown_pct`: String
     * `weekly_drawdown_pct`: String
     * `total_drawdown_pct`: String
+
+### 4.2 ModelRegistry API (Enterprise)
+
+* **Caller:** `PredictionService`, `RetrainingPipeline`, `ExperimentManager`
+* **Purpose:** Model lifecycle management operations.
+* **Key Methods:**
+    * `get_production_model(model_type: str) -> ModelArtifact`: Returns current production model.
+    * `register_model(artifact: Any, metadata: dict) -> str`: Registers new model version.
+    * `promote_model(model_id: str, stage: str) -> bool`: Promotes model between stages.
+    * `get_model_metrics(model_id: str) -> dict`: Returns model performance metrics.
+
+### 4.3 ExperimentManager API (Enterprise)
+
+* **Caller:** `PredictionService`, `StrategyArbitrator`
+* **Purpose:** A/B testing experiment management.
+* **Key Methods:**
+    * `get_active_experiments() -> List[dict]`: Returns currently running experiments.
+    * `assign_variant(user_context: dict) -> str`: Assigns variant for A/B test.
+    * `record_outcome(experiment_id: str, variant: str, outcome: dict) -> None`: Records experimental result.
+    * `check_significance(experiment_id: str) -> dict`: Returns statistical significance analysis.
 
 ---
 **End of Document**

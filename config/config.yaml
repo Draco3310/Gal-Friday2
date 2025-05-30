@@ -13,8 +13,18 @@ exchange:
 
 # Trading Parameters
 trading:
-  pairs: ["XRP/USD", "DOGE/USD"]
-  # strategy_threshold: 0.65 # Example strategy param
+  pairs:
+    - "XRP/USD"
+    - "BTC/USD"
+    - "ETH/USD"
+  
+  # Order execution settings
+  order:
+    default_order_type: "LIMIT"
+    default_time_in_force: "GTC"
+    limit_order_timeout_s: 300.0  # 5 minutes
+    status_poll_interval_s: 5.0
+    max_poll_duration_s: 3600.0  # 1 hour
 
 # Portfolio Configuration
 portfolio:
@@ -29,22 +39,52 @@ portfolio:
 # Risk Management Settings
 risk:
   limits:
-    max_total_drawdown_pct: 15.0 # Overall stop loss %
-    max_daily_drawdown_pct: 2.0
-    max_weekly_drawdown_pct: 5.0
-    max_consecutive_losses: 5
-    risk_per_trade_pct: 0.5 # e.g., 0.5% of equity
-    max_position_size_pct_equity: 10.0 # Max % of equity in one asset
-    max_total_exposure_pct_equity: 25.0 # Max % of equity across all assets
+    max_total_drawdown_pct: 10.0
+    max_daily_drawdown_pct: 5.0
+    max_weekly_drawdown_pct: 8.0
+    max_position_size_pct: 20.0
+    max_correlation_limit: 0.8
+    
+  # Position management
+  position:
+    min_position_value: 10.0
+    max_leverage: 1.0
+    enable_stop_loss: true
+    enable_take_profit: true
+    default_stop_loss_pct: 2.0
+    default_take_profit_pct: 4.0
+    
+  # Cache and validation
+  cache_expiry_seconds: 300
+  min_symbol_parts: 2
+  min_symbol_length_for_split: 3
+  
+  # Historical analysis
+  volatility_lookback_days: 60
+  min_data_points_for_stddev: 10
 
 # Monitoring Service Settings
 monitoring:
   check_interval_seconds: 60
-  halt_on_drawdown_breach: true
-  halt_on_consecutive_losses: true
-  halt_on_api_errors: true
-  halt_on_stale_data: true
-  # halt_action: "LIQUIDATE_POSITIONS" # Or "MAINTAIN_POSITIONS"
+  
+  # API monitoring
+  api_failure_threshold: 3
+  api_error_threshold_count: 5
+  api_error_threshold_period_s: 60.0
+  
+  # Data freshness monitoring
+  data_staleness_threshold_s: 120.0
+  
+  # System resource monitoring
+  cpu_threshold_pct: 90.0
+  memory_threshold_pct: 90.0
+  
+  # Trading performance monitoring
+  consecutive_loss_limit: 5
+  
+  # HALT behavior
+  halt:
+    position_behavior: "maintain"  # Options: "maintain", "close", "liquidate"
 
 # Logging Configuration
 logging:

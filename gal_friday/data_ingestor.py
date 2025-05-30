@@ -11,7 +11,6 @@ import asyncio
 import contextlib  # Added for SIM105 fix
 import json
 import logging
-import random  # Add random for jitter in backoff
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -25,6 +24,7 @@ from sortedcontainers import SortedDict
 # Import necessary event classes from core module
 from .core.events import (
     MarketDataL2Event,
+    PotentialHaltTriggerEvent,
     SystemStateEvent,
 )
 from .logger_service import LoggerService
@@ -89,7 +89,6 @@ class DataIngestor:
     checksum validation, and publishes standardized market data events.
     """
 
-    KRAKEN_WS_URL = "wss://ws.kraken.com/v2"
     # Map Kraken interval integers to readable strings
     INTERVAL_MAP: ClassVar[dict[int, str]] = {
         1: "1m",
@@ -104,8 +103,6 @@ class DataIngestor:
     }
     # Map readable strings back to integers for context lookups
     INTERVAL_INT_MAP: ClassVar[dict[str, int]] = {v: k for k, v in INTERVAL_MAP.items()}
-    _EXPECTED_OHLC_ITEM_LENGTH = 7  # PLR2004: For OHLC item validation
-    _MIN_QTY_THRESHOLD = 1e-12  # PLR2004: For minimum quantity checks
 
     def __init__(
         self,
@@ -127,13 +124,7 @@ class DataIngestor:
         self._source_module = self.__class__.__name__
 
         # Load configuration
-        self._websocket_url = config.get("kraken_ws_url", self.KRAKEN_WS_URL)
-        self._trading_pairs = config.get("trading_pairs", ["XRP/USD"])
-        self._book_depth = config.get("book_depth", 10)
-        self._ohlc_intervals = config.get("ohlc_intervals", [1])
-        self._reconnect_delay = config.get("reconnect_delay_s", 5)
-        self._connection_timeout = config.get("connection_timeout_s", 15)
-        self._max_heartbeat_interval = config.get("max_heartbeat_interval_s", 60)
+        self._load_configuration()
 
         # Initialize state
         self._connection: Any | None = None
@@ -157,16 +148,46 @@ class DataIngestor:
         # Validate configuration
         self._validate_initial_config()
 
+    def _load_configuration(self) -> None:
+        """Load configuration values from ConfigManager."""
+        data_config = self._config.get("data_ingestor", {})
+        kraken_config = self._config.get("kraken", {})
+
+        # WebSocket configuration
+        self._websocket_url = data_config.get("kraken_ws_url",
+            kraken_config.get("websocket", {}).get("url", "wss://ws.kraken.com/v2"))
+        self._connection_timeout = data_config.get("connection_timeout_s", 15)
+        self._max_heartbeat_interval = data_config.get("max_heartbeat_interval_s", 60)
+        self._reconnect_delay = data_config.get("reconnect_delay_s", 5)
+        self._max_reconnect_attempts = data_config.get("max_reconnect_attempts", 5)
+        self._max_reconnect_delay = data_config.get("max_reconnect_delay_s", 60)
+
+        # Data processing configuration
+        self._book_depth = data_config.get("book_depth", 10)
+        self._ohlc_intervals = data_config.get("ohlc_intervals", [1, 5, 15, 60])
+        self._expected_ohlc_item_length = data_config.get("expected_ohlc_item_length", 7)
+        self._min_qty_threshold = data_config.get("min_qty_threshold", 1e-12)
+
+        # Error handling configuration
+        self._critical_error_threshold = data_config.get("critical_error_threshold", 3)
+
+        # Trading pairs configuration
+        self._trading_pairs = self._config.get("trading", {}).get("pairs", ["XRP/USD"])
+
+        # Initialize error tracking for HALT conditions
+        self._consecutive_errors = 0
+
     def _validate_initial_config(self) -> None:
         """Validate initial configuration settings."""
         if not self._trading_pairs:
             raise ValueError("DataIngestor: 'trading_pairs' configuration cannot be empty.")
 
-        if self._book_depth not in [0, 10, 25, 100, 500, 1000]:
+        valid_book_depths = [0, 10, 25, 100, 500, 1000]
+        if self._book_depth not in valid_book_depths:
             self.logger.warning(
                 "Invalid book_depth, defaulting to 10.",
                 source_module=self._source_module,
-                context={"book_depth": self._book_depth},
+                context={"book_depth": self._book_depth, "valid_depths": valid_book_depths},
             )
             self._book_depth = 10
 
@@ -182,6 +203,10 @@ class DataIngestor:
                 },
             )
         self._ohlc_intervals = valid_intervals
+
+        # Validate WebSocket URL format
+        if not self._websocket_url.startswith(("ws://", "wss://")):
+            raise ValueError(f"Invalid WebSocket URL format: {self._websocket_url}")
 
     def _build_subscription_message(self) -> str | None:
         """Build the Kraken WebSocket v2 subscription message.
@@ -474,38 +499,56 @@ class DataIngestor:
 
         # Start with initial delay and increase exponentially
         delay = self._reconnect_delay
-        max_delay = 60  # Maximum delay between reconnection attempts (1 minute)
-        max_retries = 5  # Maximum number of reconnection attempts
 
-        for attempt in range(1, max_retries + 1):
-            self.logger.info(
-                "Reconnection attempt %d/%d (delay: %ds)",
-                attempt,
-                max_retries,
-                delay,
-                source_module=self._source_module,
-            )
+        for attempt in range(1, self._max_reconnect_attempts + 1):
+            try:
+                self.logger.info(
+                    "Reconnection attempt %d/%d (delay: %ds)",
+                    attempt,
+                    self._max_reconnect_attempts,
+                    delay,
+                    source_module=self._source_module,
+                )
 
-            # Wait before retrying
-            await asyncio.sleep(delay)
+                # Wait before retrying
+                await asyncio.sleep(delay)
 
-            # Attempt to establish connection
-            if await self._establish_connection():
-                subscription_msg = self._build_subscription_message()
-                if subscription_msg and await self._setup_connection(subscription_msg):
-                    self.logger.info(
-                        "Successfully reconnected on attempt %d",
-                        attempt,
-                        source_module=self._source_module,
-                    )
-                    return True
+                # Attempt to establish connection
+                if await self._establish_connection():
+                    subscription_msg = self._build_subscription_message()
+                    if subscription_msg and await self._setup_connection(subscription_msg):
+                        self.logger.info(
+                            "Successfully reconnected on attempt %d",
+                            attempt,
+                            source_module=self._source_module,
+                        )
+                        self._consecutive_errors = 0  # Reset error counter on success
+                        return True
 
-            # Increase delay with exponential backoff (cap at max_delay)
-            delay = min(delay * 2, max_delay)
+                # Increase delay with exponential backoff (cap at max_delay)
+                delay = min(delay * 2, self._max_reconnect_delay)
+
+            except Exception as e:
+                # Log the specific reconnection error
+                self.logger.error(
+                    "Error during reconnection attempt %d: %s",
+                    attempt,
+                    str(e),
+                    source_module=self._source_module,
+                    exc_info=True,
+                )
+
+                # If this is the last attempt, trigger HALT consideration
+                if attempt == self._max_reconnect_attempts:
+                    context = {
+                        "reconnection_attempts": attempt,
+                        "last_error": str(e),
+                    }
+                    await self._trigger_halt_if_needed(e, context)
 
         self.logger.error(
             "Failed to reconnect after %d attempts",
-            max_retries,
+            self._max_reconnect_attempts,
             source_module=self._source_module,
         )
         return False
@@ -539,7 +582,8 @@ class DataIngestor:
                         "No messages received for a period. Assuming connection loss.",
                         source_module=self.__class__.__name__,
                         context={
-                            "time_since_last_message_seconds": f"{time_since_last.total_seconds():.1f}",
+                            "time_since_last_message_seconds":
+                                f"{time_since_last.total_seconds():.1f}",
                             "timeout_seconds": self._connection_timeout,
                         },
                     )
@@ -552,7 +596,8 @@ class DataIngestor:
                         "No messages received since connecting. Triggering reconnect.",
                         source_module=self.__class__.__name__,
                         context={
-                            "time_since_connect_seconds": f"{time_since_connect.total_seconds():.1f}",
+                            "time_since_connect_seconds":
+                                f"{time_since_connect.total_seconds():.1f}",
                             "timeout_seconds": self._connection_timeout,
                         },
                     )
@@ -566,7 +611,8 @@ class DataIngestor:
                         "No heartbeat received recently. Assuming connection issue.",
                         source_module=self.__class__.__name__,
                         context={
-                            "time_since_last_hb_seconds": f"{time_since_last_hb.total_seconds():.1f}",
+                            "time_since_last_hb_seconds":
+                                f"{time_since_last_hb.total_seconds():.1f}",
                             "max_heartbeat_interval_seconds": self._max_heartbeat_interval,
                         },
                     )
@@ -670,7 +716,7 @@ class DataIngestor:
             elif channel == "ohlc" and msg_type in ["snapshot", "update"]:
                 # Explicitly cast data to Dict[str, Any] to satisfy mypy
                 typed_data: dict[str, Any] = data
-                await self._handle_book_data(typed_data)  # Reuse book data handler for now
+                await self._handle_ohlc_data(typed_data)
             # Kraken trade messages are typically of type 'update'
             elif channel == "trade" and msg_type == "update":
                 await self._handle_book_data(data)  # Reuse book data handler for now
@@ -865,7 +911,7 @@ class DataIngestor:
         return True
 
     def _validate_book_item(self, book_item: dict) -> bool:
-        """Validate an individual book item.
+        """Validate that a book item has the expected structure.
 
         Args:
         ----
@@ -875,51 +921,29 @@ class DataIngestor:
         -------
             bool: True if valid, False otherwise
         """
-        if not isinstance(book_item, dict):
+        required_fields = ["symbol", "bids", "asks"]
+
+        for field_name in required_fields:
+            if field_name not in book_item:
+                self.logger.warning(
+                    "Book item missing required field: %s",
+                    field,
+                    source_module=self._source_module,
+                    context={"book_item_keys": list(book_item.keys())},
+                )
+                return False
+
+        # Validate bids and asks are lists
+        if not isinstance(book_item["bids"], list) or not isinstance(book_item["asks"], list):
             self.logger.warning(
-                "Invalid book item: not a dict.",
+                "Book item bids/asks must be lists",
                 source_module=self._source_module,
-                context={"item_snippet": str(book_item)[:200]},
+                context={
+                    "bids_type": type(book_item["bids"]).__name__,
+                    "asks_type": type(book_item["asks"]).__name__,
+                },
             )
             return False
-
-        symbol = book_item.get("symbol")
-        if not isinstance(symbol, str) or not symbol:
-            self.logger.warning(
-                "Book item missing/invalid symbol.",
-                source_module=self._source_module,
-                context={"item_snippet": str(book_item)[:200]},
-            )
-            return False
-
-        # Validate bids/asks structure (list of dicts with price/qty)
-        for side_key in ["asks", "bids"]:
-            side_data = book_item.get(side_key)
-            if side_data is not None:  # It's okay if a side is missing in an update
-                if not isinstance(side_data, list):
-                    self.logger.warning(
-                        "Book item side is not a list.",
-                        source_module=self._source_module,
-                        context={
-                            "side_key": side_key,
-                            "symbol": symbol,
-                            "item_snippet": str(book_item)[:200],
-                        },
-                    )
-                    return False
-
-                for level in side_data:
-                    if not isinstance(level, dict) or "price" not in level or "qty" not in level:
-                        self.logger.warning(
-                            "Invalid level in book side.",
-                            source_module=self._source_module,
-                            context={
-                                "side_key": side_key,
-                                "symbol": symbol,
-                                "level_snippet": str(level)[:100],
-                            },
-                        )
-                        return False
 
         return True
 
@@ -1003,14 +1027,14 @@ class DataIngestor:
         for level in book_item.get("asks", []):
             price_str = str(level["price"])
             qty_str = str(level["qty"])
-            if float(qty_str) > self._MIN_QTY_THRESHOLD:
+            if float(qty_str) > self._min_qty_threshold:
                 book_state["asks"][price_str] = qty_str
 
         # Process bids
         for level in book_item.get("bids", []):
             price_str = str(level["price"])
             qty_str = str(level["qty"])
-            if float(qty_str) > self._MIN_QTY_THRESHOLD:
+            if float(qty_str) > self._min_qty_threshold:
                 book_state["bids"][price_str] = qty_str
 
         self.logger.info(
@@ -1086,7 +1110,7 @@ class DataIngestor:
         for level in updates:
             price_str = str(level["price"])
             qty_str = str(level["qty"])
-            if float(qty_str) < self._MIN_QTY_THRESHOLD:  # Remove level
+            if float(qty_str) < self._min_qty_threshold:  # Remove level
                 if book_side.pop(price_str, None):
                     updated = True
                     self.logger.debug(
@@ -1387,206 +1411,118 @@ class DataIngestor:
                 source_module=self._source_module,
             )
 
+    def _validate_ohlc_item(self, ohlc_item: list) -> bool:
+        """Validate OHLC item structure.
 
-def _handle_checksum_mismatch(
-    self: "DataIngestor",
-    book_state: dict,
-    symbol: str,
-    local_checksum: int,
-    received_checksum: int,
-) -> None:
-    """Handle checksum mismatch case.
-
-    Args:
-    ----
-        book_state: Current book state
-        symbol: Trading pair symbol
-        local_checksum: Locally calculated checksum
-        received_checksum: Checksum from exchange
-    """
-    self.logger.error(
-        "Checksum mismatch. Book is potentially corrupt.",
-        source_module=self.__class__.__name__,
-        context={
-            "symbol": symbol,
-            "local_checksum": local_checksum,
-            "received_checksum": received_checksum,
-        },
-    )
-    self.logger.error(
-        "Bids (Top 3).",
-        source_module=self.__class__.__name__,
-        context={"bids_top_3": list(reversed(book_state["bids"].items()))[:3]},
-    )
-    self.logger.error(
-        "Asks (Top 3).",
-        source_module=self.__class__.__name__,
-        context={"asks_top_3": list(book_state["asks"].items())[:3]},
-    )
-    book_state["checksum"] = None
-
-
-def _handle_no_updates_case(
-    self: "DataIngestor",
-    book_state: dict,
-    symbol: str,
-    received_checksum: int | None,
-) -> bool:
-    """Handle case where no updates were applied.
-
-    Args:
-    ----
-        book_state: Current book state
-        symbol: Trading pair symbol
-        received_checksum: Checksum from exchange
-
-    Returns:
-    -------
-        bool: True if state is valid
-    """
-    if book_state["checksum"] == received_checksum:
-        self.logger.debug(
-            "No book changes, checksum still matches.",
-            source_module=self.__class__.__name__,
-            context={"symbol": symbol, "checksum": received_checksum},
-        )
-        return True
-
-    if received_checksum is not None:
-        self.logger.warning(
-            "Book checksum changed but no updates applied locally. Recalculating.",
-            source_module=self.__class__.__name__,
-            context={
-                "symbol": symbol,
-                "previous_checksum": book_state["checksum"],
-                "new_checksum": received_checksum,
-            },
-        )
-        local_checksum = self._calculate_book_checksum(book_state)
-        if local_checksum == received_checksum:
-            self.logger.info(
-                "Recalculated checksum matches received.",
-                source_module=self.__class__.__name__,
-                context={
-                    "symbol": symbol,
-                    "checksum": local_checksum,
-                },
-            )
-            book_state["checksum"] = received_checksum
-            return True
-
-        error_msg = (
-            f"Recalculated checksum {local_checksum} still does not match "
-            f"received {received_checksum} for {symbol} despite no updates."
-        )
-        self.logger.error(error_msg, source_module=self.__class__.__name__)
-        book_state["checksum"] = None
-        return False
-
-    return True
-
-
-async def _publish_book_event(
-    self: "DataIngestor",
-    symbol: str,
-    book_state: dict,
-    is_snapshot: bool,
-    update_timestamp: str | None,  # Timestamp from message if available
-) -> None:
-    """Create and publish a MarketDataL2Event."""
-    try:
-        # Extract bids and asks from the book_state (SortedDict)
-        # Ensure they are formatted as List[Tuple[str, str]]
-        bids_list = [(str(price), str(vol)) for price, vol in book_state["bids"].items()]
-        asks_list = [(str(price), str(vol)) for price, vol in book_state["asks"].items()]
-
-        # Parse the exchange timestamp if provided
-        exchange_ts = None
-        if update_timestamp:
-            try:
-                # Kraken v2 uses float seconds with nanosecond precision
-                exchange_ts = datetime.fromtimestamp(float(update_timestamp), tz=UTC)
-            except (ValueError, TypeError):
-                self.logger.warning(
-                    "Invalid timestamp format: %s",
-                    update_timestamp,
-                    source_module=self._source_module,
-                    context={"timestamp": str(update_timestamp)},
-                )
-                exchange_ts = datetime.utcnow()
-
-        # Create and publish the market data event
-        event_id = uuid.uuid4()
-        event = MarketDataL2Event(
-            event_id=event_id,
-            source_module=self._source_module,
-            timestamp=datetime.utcnow(),  # Event creation time
-            trading_pair=symbol,
-            exchange="kraken",
-            bids=bids_list,
-            asks=asks_list,
-            is_snapshot=is_snapshot,
-            timestamp_exchange=exchange_ts,
-        )
-        await self.pubsub.publish(event)
-    except Exception:
-        self.logger.exception(
-            "Unexpected error publishing book event",
-            source_module=self._source_module,
-            context={"symbol": symbol, "is_snapshot": is_snapshot},
-        )
-
-    async def _reconnect_with_backoff(self: "DataIngestor") -> bool:
-        """Attempt reconnection with exponential backoff and jitter.
+        Args:
+        ----
+            ohlc_item: OHLC data item to validate
 
         Returns:
         -------
-            bool: True if reconnection was successful, False if max retries exceeded
+            bool: True if valid, False otherwise
         """
-        retry_count = 0
-        # Get reconnection parameters (could be from config in the future)
-        max_retries = 5  # self._config.get("websocket.max_retries", 5)
-        base_delay = 2.0  # self._config.get("websocket.base_delay_seconds", 2.0)
-        max_delay = 60.0  # self._config.get("websocket.max_delay_seconds", 60.0)
-
-        while self._is_running and retry_count < max_retries:
-            retry_count += 1
-            delay = min(base_delay * (2 ** (retry_count - 1)), max_delay)
-            jitter = random.uniform(0, delay * 0.1)  # Add up to 10% jitter
-            total_delay = delay + jitter
-
+        if not isinstance(ohlc_item, list):
             self.logger.warning(
-                "WebSocket disconnected. Attempting reconnect.",
-                source_module=self.__class__.__name__,
+                "OHLC item must be a list",
+                source_module=self._source_module,
+                context={"item_type": type(ohlc_item).__name__},
+            )
+            return False
+
+        if len(ohlc_item) != self._expected_ohlc_item_length:
+            self.logger.warning(
+                "OHLC item has unexpected length",
+                source_module=self._source_module,
                 context={
-                    "attempt": f"{retry_count}/{max_retries}",
-                    "delay_seconds": f"{total_delay:.2f}",
+                    "expected_length": self._expected_ohlc_item_length,
+                    "actual_length": len(ohlc_item),
                 },
             )
-            await asyncio.sleep(total_delay)
+            return False
 
-            if not self._is_running:
-                break  # Check if stop was called during sleep
+        return True
 
-            # Try to establish connection again
-            if await self._establish_connection():
-                # If successful, try to setup (subscribe, etc.)
-                subscription_msg = self._build_subscription_message()
-                if subscription_msg and await self._setup_connection(subscription_msg):
-                    self.logger.info(
-                        "WebSocket reconnected and setup successfully.",
-                        source_module=self.__class__.__name__,
-                    )
-                    return True  # Reconnect successful
-                await self._cleanup_connection()  # Setup failed
+    async def _handle_ohlc_data(self, data: dict) -> None:
+        """Handle OHLC data messages and validate them properly.
 
-        self.logger.error(
-            "Failed to reconnect WebSocket after attempts. Stopping.",
-            source_module=self.__class__.__name__,
-            context={"max_retries": max_retries},
+        Args:
+        ----
+            data: OHLC data from WebSocket
+        """
+        try:
+            if "data" not in data:
+                self.logger.warning(
+                    "OHLC message missing data field",
+                    source_module=self._source_module,
+                )
+                return
+
+            ohlc_data = data["data"]
+
+            # Validate each OHLC item
+            if isinstance(ohlc_data, list):
+                for item in ohlc_data:
+                    if not self._validate_ohlc_item(item):
+                        self.logger.warning(
+                            "Skipping invalid OHLC item",
+                            source_module=self._source_module,
+                            context={"item_preview": str(item)[:100]},
+                        )
+                        continue
+
+                    # Process valid OHLC item
+                    # (Existing OHLC processing logic would go here)
+
+        except Exception as e:
+            context = {"data_preview": str(data)[:200]}
+            await self._trigger_halt_if_needed(e, context)
+            self.logger.error(
+                "Critical error processing OHLC data",
+                source_module=self._source_module,
+                exc_info=True,
+                context=context,
+            )
+
+    async def _trigger_halt_if_needed(self, error: Exception, context: dict[str, Any]) -> None:
+        """Trigger system HALT if error conditions warrant it.
+
+        Args:
+            error: The exception that occurred
+            context: Additional context about the error
+        """
+        self._consecutive_errors += 1
+
+        # Trigger HALT for critical errors or too many consecutive errors
+        should_halt = (
+            isinstance(error, ConnectionError | TimeoutError | OSError) and
+            self._consecutive_errors >= self.MAX_CONSECUTIVE_ERRORS
         )
-        self._is_running = False  # Stop the main loop
-        return False
+
+        if should_halt:
+            # Create halt event with formatted reason
+            reason = f"Critical data ingestor error: {error!s}"
+            if context:
+                reason += f" | Context: {context}"
+
+            halt_event = PotentialHaltTriggerEvent(
+                source_module=self._source_module,
+                event_id=uuid.uuid4(),
+                timestamp=datetime.utcnow(),
+                reason=reason,
+            )
+
+            await self.pubsub.publish(halt_event)
+
+            self.logger.critical(
+                "Triggered potential system HALT due to data ingestor errors",
+                source_module=self._source_module,
+                context={
+                    "error_type": type(error).__name__,
+                    "consecutive_errors": self._consecutive_errors,
+                    **context,
+                },
+            )
 
 
 # Example Usage (for testing purposes - requires libraries installed)
@@ -1600,12 +1536,23 @@ async def main() -> None:
     try:
         await _run_test(config, event_bus, logger_service)
     except KeyboardInterrupt:
-        print("\nShutdown requested...")
+        logger_service.info(
+            "KeyboardInterrupt received, shutting down data ingestor",
+            source_module="DataIngestorMain",
+        )
     except Exception as e:
-        print(f"Error in main: {e}")
-        raise
+        logger_service.exception(
+            "Critical error in main data ingestor loop",
+            source_module="DataIngestorMain",
+            context={"error": str(e)},
+        )
+        # For critical errors in the main test loop, just log them
+        # Can't publish events here since we don't have access to pubsub in this context
     finally:
-        print("Exiting...")
+        logger_service.info(
+            "Data ingestor shutdown complete",
+            source_module="DataIngestorMain",
+        )
 
 
 def _create_test_config() -> dict:
@@ -1674,7 +1621,16 @@ async def _run_test(
     try:
         await data_ingestor.start()
     except asyncio.CancelledError:
-        print("Test cancelled.")
+        logger_service.info(
+            "Test cancelled by user",
+            source_module="DataIngestorTest",
+        )
+    except Exception as e:
+        logger_service.exception(
+            "Uncaught exception in test consumer",
+            source_module="DataIngestorTest",
+            context={"error": str(e)},
+        )
     finally:
         await data_ingestor.stop()
         test_consumer_task.cancel()
@@ -1689,15 +1645,19 @@ async def _run_event_consumer(event_bus: asyncio.Queue) -> None:
     ----
         event_bus: Event bus to consume from
     """
+    # Create a simple logger for this function
+    logger = logging.getLogger("EventConsumer")
+
     while True:
         try:
             event = await event_bus.get()
-            print(f"Received event: {event}")
+            logger.info(f"Received event: {event}")
             event_bus.task_done()
         except asyncio.CancelledError:
+            logger.info("Event consumer cancelled")
             break
         except Exception as e:
-            print(f"Error in consumer: {e}")
+            logger.error(f"Error in event consumer: {e}")
             break
 
 
@@ -1715,7 +1675,7 @@ class MockLoggerService(LoggerService[Any]):
         self,
         level: int,
         message: str,
-        *args: Any,
+        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
         source_module: str | None = None,
         context: dict[Any, Any] | None = None,
         exc_info: bool
@@ -1724,69 +1684,100 @@ class MockLoggerService(LoggerService[Any]):
         | None = None,
     ) -> None:
         """Log a message."""
-        level_name = {50: "CRITICAL", 40: "ERROR", 30: "WARNING", 20: "INFO", 10: "DEBUG"}.get(
-            level,
-            "UNKNOWN",
-        )
-        print(f"[{level_name}] {message}")
+        extra = {"source_module": source_module}
+        if context is not None:
+            extra["context"] = context
+        self._logger.log(level, message, *args, extra=extra)
+
+    def _log(
+        self,
+        level: int,
+        message: str,
+        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
+    ) -> None:
+        """Log a message with the specified level.
+
+        Args:
+            level: Logging level
+            message: Message to log
+            *args: Format arguments for the message
+            source_module: Name of the module generating the log
+            context: Additional context for the log message
+        """
+        if not hasattr(self, "_logger"):
+            return
+
+        extra = {"source_module": source_module}
+        if context is not None:
+            extra["context"] = context
+
+        self._logger.log(level, message, *args, extra=extra)
 
     def debug(
         self,
         message: str,
-        *args: Any,
+        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
         source_module: str | None = None,
         context: dict[Any, Any] | None = None,
     ) -> None:
         """Log a debug message."""
-        print(f"[DEBUG] {message}")
+        self._log(logging.DEBUG, message, *args, source_module=source_module, context=context)
 
     def info(
         self,
         message: str,
-        *args: Any,
+        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
         source_module: str | None = None,
         context: dict[Any, Any] | None = None,
     ) -> None:
         """Log an info message."""
-        print(f"[INFO] {message}")
+        self._log(logging.INFO, message, *args, source_module=source_module, context=context)
 
     def warning(
         self,
         message: str,
-        *args: Any,
+        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
         source_module: str | None = None,
         context: dict[Any, Any] | None = None,
     ) -> None:
         """Log a warning message."""
-        print(f"[WARNING] {message}")
+        self._log(logging.WARNING, message, *args, source_module=source_module, context=context)
 
     def error(
         self,
         message: str,
-        *args: Any,
+        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
         source_module: str | None = None,
         context: dict[Any, Any] | None = None,
-        exc_info: bool
-        | tuple[type[BaseException], BaseException, TracebackType]
-        | BaseException
-        | None = None,
     ) -> None:
         """Log an error message."""
-        print(f"[ERROR] {message}")
+        self._log(logging.ERROR, message, *args, source_module=source_module, context=context)
 
     def critical(
         self,
         message: str,
-        *args: Any,
+        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
         source_module: str | None = None,
         context: dict[Any, Any] | None = None,
-        exc_info: bool
-        | tuple[type[BaseException], BaseException, TracebackType]
-        | BaseException
-        | None = None,
     ) -> None:
         """Log a critical message."""
-        print(f"[CRITICAL] {message}")
+        self._log(logging.CRITICAL, message, *args, source_module=source_module, context=context)
+
+    def exception(
+        self,
+        message: str,
+        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
+        source_module: str | None = None,
+        context: dict[Any, Any] | None = None,
+    ) -> None:
+        """Log an exception message."""
+        self._logger.exception(
+            message,
+            *args,
+            extra={"source_module": source_module, "context": context},
+        )
 
 
 if __name__ == "__main__":

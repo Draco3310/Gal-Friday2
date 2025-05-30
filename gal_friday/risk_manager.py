@@ -5,7 +5,6 @@ This module provides risk management functionality for trading operations,
 including position sizing, drawdown limits, and trade validation.
 """
 
-import asyncio
 import math
 import statistics
 import uuid
@@ -13,6 +12,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import asyncio
 
 # Event Definitions
 from .core.events import (
@@ -41,6 +43,12 @@ class SignalValidationStageError(RiskManagerError):
     """Custom exception for failures during specific trade signal validation stages."""
 
     def __init__(self, reason: str, stage_name: str) -> None:
+        """Initialize the SignalValidationStageError with reason and stage name.
+
+        Args:
+            reason: The reason for the validation failure
+            stage_name: The name of the validation stage that failed
+        """
         super().__init__(f"Validation failed at {stage_name}: {reason}")
         self.reason = reason
         self.stage_name = stage_name
@@ -388,18 +396,18 @@ class RiskManager:
         self._default_tp_rr_ratio = Decimal(
             str(self._config.get("sizing", {}).get("default_tp_rr_ratio", "2.0")),
         )
-        self._check_interval_s = int(self._config.get("check_interval_s", 60))
-        self._min_sl_distance_pct = Decimal(str(self._config.get("min_sl_distance_pct", 0.01)))
-        self._max_single_position_pct = Decimal(
-            str(self._config.get("max_single_position_pct", 100.0)),
+        self._check_interval_s = self._config.get_int("check_interval_s", 60)
+        self._min_sl_distance_pct = self._config.get_decimal("min_sl_distance_pct", "0.01")
+        self._max_single_position_pct = self._config.get_decimal(
+            "max_single_position_pct", "100.0",
         )
         # New config values for pre-trade checks
-        self._fat_finger_max_deviation_pct = Decimal(
-            str(self._config.get("fat_finger_max_deviation_pct", "5.0")),
+        self._fat_finger_max_deviation_pct = self._config.get_decimal(
+            "fat_finger_max_deviation_pct", "5.0",
         )
-        self._exchange_taker_fee_pct = Decimal(  # General exchange fee
-            str(self._config.get("exchange", {}).get("taker_fee_pct", "0.26")),
-        )
+        self._taker_fee_pct = self._config.get_decimal(
+            "exchange.taker_fee_pct", "0.26",
+        ) / Decimal("100")  # Convert percentage to decimal
         # Portfolio valuation currency (e.g., "USD")
         self._valuation_currency = str(self._config.get("portfolio_valuation_currency", "USD"))
 
@@ -871,7 +879,11 @@ class RiskManager:
                 log_message="Final effective entry price is None for signal %(signal_id)s.",
                 log_context={"signal_id": str(event.signal_id)},
             )
-            assert final_effective_entry_price is not None  # Ensure it's not None for DataContext
+            if final_effective_entry_price is None:
+                raise SignalValidationStageError(
+                    "Final effective entry price is None",
+                    "final_validation",
+                )
 
             final_validation_ctx = FinalValidationDataContext(
                 event=event,
@@ -1010,7 +1022,7 @@ class RiskManager:
             return False, "Available balance missing in portfolio state for fund check."
 
         estimated_order_cost_usd = ctx.initial_rounded_calculated_qty * ctx.effective_entry_price
-        taker_fee_multiplier = self._exchange_taker_fee_pct / Decimal("100")
+        taker_fee_multiplier = self._taker_fee_pct
         estimated_fee_usd = estimated_order_cost_usd * taker_fee_multiplier
         total_estimated_cost_with_fee_usd = estimated_order_cost_usd + estimated_fee_usd
 
@@ -1414,8 +1426,8 @@ class RiskManager:
                     self.logger.info(
                         (
                             f"Successfully calibrated normal daily volatility for {trading_pair}: "
-                            f"{daily_volatility:.8f}. (Based on {len(log_returns)} log returns from "
-                            f"{len(closing_prices)} prices over approx. {lookback_days} days)."
+                        f"{daily_volatility:.8f}. (Based on {len(log_returns)} log returns "
+                        f"from {len(closing_prices)} prices over approx. {lookback_days} days)."
                         ),
                         source_module=self._source_module,
                         context={

@@ -4,7 +4,7 @@
 import importlib
 import logging
 from pathlib import Path
-from typing import Any, NoReturn, TypeVar
+from typing import Any, NoReturn, Protocol, TypeAlias, TypeVar, runtime_checkable
 
 # Third-party imports
 import joblib
@@ -32,6 +32,42 @@ class UnsupportedFrameworkError(LSTMPredictorError):
 
 class PredictionError(LSTMPredictorError):
     """Raised when a prediction fails."""
+
+
+@runtime_checkable
+class PredictorModel(Protocol):
+    """Protocol defining the interface for prediction models."""
+
+    def predict(self, x: np.ndarray, verbose: int = 0) -> np.ndarray:
+        """Make predictions on input data.
+
+        Args:
+            x: Input data for prediction
+            verbose: Verbosity mode (0 = silent, 1 = progress bar, 2 = one line per epoch)
+
+        Returns:
+            Numpy array of predictions.
+        """
+        ...
+
+
+@runtime_checkable
+class TorchModel(Protocol):
+    """Protocol for PyTorch model inference."""
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        """Forward pass for PyTorch model.
+
+        Args:
+            x: Input tensor
+        Returns:
+            Model output tensor
+        """
+        ...
+
+
+# Type alias for model assets
+ModelAsset: TypeAlias = PredictorModel | TorchModel
 
 
 class LSTMPredictor(PredictorInterface):
@@ -63,6 +99,8 @@ class LSTMPredictor(PredictorInterface):
 
     # Class constants
     BINARY_OUTPUTS = 2  # Number of outputs for binary classification
+    # Expected number of dimensions for LSTM input (timesteps, features)
+    EXPECTED_INPUT_DIMENSIONS = 2
 
     def __init__(
         self,
@@ -231,11 +269,13 @@ class LSTMPredictor(PredictorInterface):
             self.logger.error(f"LSTM model {self.model_id} is not loaded. Cannot predict.")
             raise TypeError(f"LSTM model {self.model_id} is not loaded")
 
-        # Validate input dimensions
-        if features.ndim != 2:  # Expecting (timesteps, features_per_step)
-            self.logger.error(
-                f"Input features must be a 2D array for LSTMPredictor.predict, got {features.ndim}D.",
+        # Validate input dimensions - expecting (timesteps, features_per_step)
+        if features.ndim != self.EXPECTED_INPUT_DIMENSIONS:
+            error_msg = (
+                f"Input features must be a {self.EXPECTED_INPUT_DIMENSIONS}D array for "
+                f"LSTMPredictor.predict, got {features.ndim}D."
             )
+            self.logger.error(error_msg)
             raise InvalidDimensionsError("Invalid input dimensions")
 
         # Apply scaling if available
@@ -243,7 +283,7 @@ class LSTMPredictor(PredictorInterface):
             scaled_sequence = self.scaler.transform(features) if self.scaler else features
         except Exception as e:
             self.logger.exception("Error applying scaler transform in LSTMPredictor.predict")
-            raise ValueError(f"Scaling failed: {e}")
+            raise ValueError(f"Scaling failed: {e}") from e
 
         # Reshape for model input: (batch_size, timesteps, features_per_timestep)
         model_input = scaled_sequence.reshape(1, *scaled_sequence.shape)
@@ -278,7 +318,7 @@ class LSTMPredictor(PredictorInterface):
                 )
             return model_output
         except Exception as e:
-            if isinstance(e, (InvalidDimensionsError, UnsupportedFrameworkError)):
+            if isinstance(e, InvalidDimensionsError | UnsupportedFrameworkError):
                 raise
             self.logger.exception(f"Error during prediction for model {self.model_id}")
             raise PredictionError(f"Failed to generate prediction: {e}") from e
@@ -378,16 +418,16 @@ class LSTMPredictor(PredictorInterface):
     def _process_features(
         cls,
         feature_sequence: np.ndarray,
-        scaler_asset: Any,  # Type hint for scaler object
+        scaler_asset: object | joblib.scaler.StandardScaler | None,
         model_id: str,
         logger: logging.Logger,
     ) -> tuple[np.ndarray, str] | dict[str, str]:
         """Process and scale the input features."""
-        # Constants for feature dimensions
-        expected_feature_dim = 2  # Expected number of dimensions for LSTM input
-
-        if feature_sequence.ndim != expected_feature_dim:
-            error_msg = f"Feature sequence must be 2D for LSTM, got {feature_sequence.ndim}D."
+        if feature_sequence.ndim != cls.EXPECTED_INPUT_DIMENSIONS:
+            error_msg = (
+                f"Feature sequence must be {cls.EXPECTED_INPUT_DIMENSIONS}D "
+                f"for LSTM, got {feature_sequence.ndim}D."
+            )
             logger.error(error_msg)
             return {"error": error_msg, "model_id": model_id}
 
@@ -416,7 +456,7 @@ class LSTMPredictor(PredictorInterface):
     @classmethod
     def _make_prediction(
         cls,
-        model_asset: Any,  # Type hint for model object
+        model_asset: ModelAsset,
         model_input: np.ndarray,
         model_framework: str,
         predictor_config: dict[str, Any],
@@ -425,11 +465,10 @@ class LSTMPredictor(PredictorInterface):
         is_binary_sigmoid = predictor_config.get("binary_sigmoid_output", False)
 
         if model_framework == "tf":
-            # Check if model has predict method
-            if hasattr(model_asset, "predict"):
+            if isinstance(model_asset, PredictorModel):
                 prediction_output = model_asset.predict(model_input, verbose=0)
             else:
-                raise AttributeError("TensorFlow model does not have predict method")
+                raise AttributeError("Model does not implement the PredictorModel protocol")
         else:  # PyTorch
             import torch
 

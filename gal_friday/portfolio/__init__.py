@@ -6,12 +6,24 @@ funds management, and portfolio valuation.
 
 from .funds_manager import FundsManager
 from .position_manager import PositionInfo, PositionManager, TradeInfo
+from .reconciliation_service import (
+    DiscrepancyType,
+    PositionDiscrepancy,
+    ReconciliationReport,
+    ReconciliationService,
+    ReconciliationStatus,
+)
 from .valuation_service import ValuationService
 
 __all__ = [
+    "DiscrepancyType",
     "FundsManager",
+    "PositionDiscrepancy",
     "PositionInfo",
     "PositionManager",
+    "ReconciliationReport",
+    "ReconciliationService",
+    "ReconciliationStatus",
     "TradeInfo",
     "ValuationService",
 ]
