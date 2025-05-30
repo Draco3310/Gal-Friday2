@@ -310,6 +310,7 @@ class EventType(Enum):
     # Additional Events
     MARKET_DATA_RAW = auto()  # Raw market data before processing
     FEATURE_CALCULATED = auto()  # Alias for FEATURES_CALCULATED (for backward compatibility)
+    MARKET_DATA_TICKER = auto()  # Event carrying ticker/quote data with best bid/ask and 24h statistics
 
 
 # --- Base Event ---
@@ -327,6 +328,71 @@ class Event:
     source_module: str
     event_id: uuid.UUID
     timestamp: datetime
+    
+    def to_dict(self) -> dict[str, Any]:
+        """Convert event to dictionary for serialization."""
+        from dataclasses import asdict
+        
+        # Convert dataclass to dict
+        data = asdict(self)
+        
+        # Convert special types to strings
+        if 'event_id' in data:
+            data['event_id'] = str(data['event_id'])
+        if 'timestamp' in data:
+            data['timestamp'] = data['timestamp'].isoformat()
+        if 'event_type' in data:
+            data['event_type'] = data['event_type'].value
+            
+        # Convert UUID fields
+        for key, value in data.items():
+            if isinstance(value, uuid.UUID):
+                data[key] = str(value)
+            elif isinstance(value, datetime):
+                data[key] = value.isoformat()
+            elif isinstance(value, Decimal):
+                data[key] = str(value)
+            elif isinstance(value, Enum):
+                data[key] = value.value
+                
+        return data
+    
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Event":
+        """Create event from dictionary."""
+        # Convert string UUIDs back to UUID objects
+        if 'event_id' in data:
+            data['event_id'] = uuid.UUID(data['event_id'])
+            
+        # Convert ISO strings back to datetime
+        if 'timestamp' in data:
+            data['timestamp'] = datetime.fromisoformat(data['timestamp'])
+            
+        # Handle specific field conversions based on event type
+        for key, value in data.items():
+            if key.endswith('_id') and isinstance(value, str) and value:
+                try:
+                    data[key] = uuid.UUID(value)
+                except ValueError:
+                    pass
+            elif 'timestamp' in key and isinstance(value, str):
+                try:
+                    data[key] = datetime.fromisoformat(value)
+                except ValueError:
+                    pass
+            elif key in ['price', 'volume', 'quantity', 'sl_price', 'tp_price', 
+                         'limit_price', 'bid', 'ask', 'bid_size', 'ask_size',
+                         'last_price', 'last_size', 'volume_24h', 'vwap_24h',
+                         'high_24h', 'low_24h', 'quantity_ordered', 'quantity_filled',
+                         'average_fill_price', 'stop_price', 'commission',
+                         'proposed_sl_price', 'proposed_tp_price', 'proposed_entry_price']:
+                if value is not None and value != 'None':
+                    data[key] = Decimal(str(value))
+                    
+        # Remove event_type if present (it's set by the class)
+        data.pop('event_type', None)
+        
+        return cls(**data)
 
 
 # --- Specific Event Definitions ---
@@ -408,6 +474,68 @@ class MarketDataTradeEvent(Event):
             raise ValueError(self._NON_POSITIVE_PRICE_MSG.format(price=self.price))
         if self.volume <= Decimal("0"):
             raise ValueError(self._NON_POSITIVE_VOLUME_MSG.format(volume=self.volume))
+
+
+@dataclass(frozen=True)
+class MarketDataTickerEvent(Event):
+    """Event carrying ticker/quote data with best bid/ask and 24h statistics."""
+
+    trading_pair: str
+    exchange: str
+    timestamp_exchange: datetime  # Timestamp from the exchange
+    bid: Decimal  # Best bid price
+    bid_size: Decimal  # Best bid size
+    ask: Decimal  # Best ask price
+    ask_size: Decimal  # Best ask size
+    last_price: Decimal  # Last traded price
+    last_size: Decimal  # Last traded size
+    volume_24h: Decimal  # 24-hour volume
+    vwap_24h: Decimal  # 24-hour VWAP
+    high_24h: Decimal  # 24-hour high
+    low_24h: Decimal  # 24-hour low
+    trades_24h: int  # Number of trades in 24h
+    event_type: EventType = field(default=EventType.MARKET_DATA_TICKER, init=False)
+
+    # Error messages
+    _NON_POSITIVE_PRICE_MSG = "Price must be positive: {field}={price}"
+    _NON_POSITIVE_SIZE_MSG = "Size must be positive: {field}={size}"
+    _NEGATIVE_COUNT_MSG = "Trade count cannot be negative: {count}"
+
+    def __post_init__(self) -> None:
+        """Validate ticker data after initialization."""
+        # Validate prices
+        price_fields = [
+            ("bid", self.bid),
+            ("ask", self.ask),
+            ("last_price", self.last_price),
+            ("vwap_24h", self.vwap_24h),
+            ("high_24h", self.high_24h),
+            ("low_24h", self.low_24h)
+        ]
+        
+        for field_name, price in price_fields:
+            if price <= Decimal("0"):
+                raise ValueError(self._NON_POSITIVE_PRICE_MSG.format(field=field_name, price=price))
+        
+        # Validate sizes
+        size_fields = [
+            ("bid_size", self.bid_size),
+            ("ask_size", self.ask_size),
+            ("last_size", self.last_size),
+            ("volume_24h", self.volume_24h)
+        ]
+        
+        for field_name, size in size_fields:
+            if size < Decimal("0"):
+                raise ValueError(self._NON_POSITIVE_SIZE_MSG.format(field=field_name, size=size))
+        
+        # Validate trade count
+        if self.trades_24h < 0:
+            raise ValueError(self._NEGATIVE_COUNT_MSG.format(count=self.trades_24h))
+        
+        # Validate bid/ask spread
+        if self.bid >= self.ask:
+            raise ValueError(f"Invalid bid/ask spread: bid={self.bid} >= ask={self.ask}")
 
 
 @dataclass(frozen=True)

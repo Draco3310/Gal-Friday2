@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from collections.abc import Callable, Coroutine
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from decimal import Decimal
 from typing import Any, ParamSpec, TypeVar
 
@@ -11,6 +11,7 @@ import pandas as pd
 import pandas_ta as ta
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
+import aiohttp
 
 from .historical_data_service import HistoricalDataService
 from .logger_service import LoggerService
@@ -173,6 +174,9 @@ class KrakenHistoricalDataService(HistoricalDataService):
             reset_timeout=config.get("reset_timeout", 60),
             logger=logger_service,
         )
+        
+        # API base URL
+        self.api_base_url = config.get("api_base_url", "https://api.kraken.com")
 
         # Cache for frequently accessed data
         self._ohlcv_cache: dict[Any, pd.DataFrame] = {}  # Simple cache for OHLCV data
@@ -869,3 +873,187 @@ class KrakenHistoricalDataService(HistoricalDataService):
             # and we didn't return a timestamp from the loop,
             # it means no data was found or an unexpected structure was encountered.
             return None
+
+    async def fetch_trades(
+        self,
+        trading_pair: str,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int | None = None
+    ) -> list[dict[str, Any]] | None:
+        """Fetch historical trade data from Kraken.
+        
+        Args:
+            trading_pair: Trading pair (e.g., "XRP/USD")
+            since: Start time (inclusive)
+            until: End time (exclusive)
+            limit: Maximum number of trades to fetch
+            
+        Returns:
+            List of trade dictionaries or None on error
+        """
+        try:
+            kraken_pair = self._get_kraken_pair_name(trading_pair)
+            if not kraken_pair:
+                return None
+            
+            all_trades = []
+            last_id = None
+            
+            # Kraken returns max 1000 trades per request
+            batch_size = min(limit or 1000, 1000)
+            
+            while True:
+                # Prepare request parameters
+                params = {
+                    "pair": kraken_pair,
+                    "count": batch_size
+                }
+                
+                if since and not last_id:
+                    # Use timestamp for first request
+                    params["since"] = str(int(since.timestamp() * 1_000_000_000))
+                elif last_id:
+                    # Use last trade ID for pagination
+                    params["since"] = str(last_id)
+                
+                # Make API request
+                endpoint = "/0/public/Trades"
+                result = await self._make_public_request(endpoint, params)
+                
+                if not result or result.get("error"):
+                    self.logger.error(
+                        f"Error fetching trades: {result.get('error') if result else 'No response'}",
+                        source_module=self._source_module
+                    )
+                    break
+                
+                trades_data = result.get("result", {}).get(kraken_pair, [])
+                if not trades_data:
+                    break
+                
+                # Process trades
+                for trade in trades_data:
+                    trade_time = datetime.fromtimestamp(float(trade[2]), tz=UTC)
+                    
+                    # Check time bounds
+                    if until and trade_time >= until:
+                        return all_trades
+                    
+                    trade_dict = {
+                        "timestamp": trade_time,
+                        "price": Decimal(trade[0]),
+                        "volume": Decimal(trade[1]),
+                        "side": "buy" if trade[3] == "b" else "sell",
+                        "order_type": "market" if trade[4] == "m" else "limit",
+                        "misc": trade[5] if len(trade) > 5 else ""
+                    }
+                    
+                    all_trades.append(trade_dict)
+                
+                # Update last ID for pagination
+                last_id = result.get("result", {}).get("last")
+                
+                # Check if we've fetched enough
+                if limit and len(all_trades) >= limit:
+                    return all_trades[:limit]
+                
+                # Check if there are more trades
+                if len(trades_data) < batch_size:
+                    break
+                
+                # Rate limiting
+                await asyncio.sleep(0.5)
+            
+            self.logger.info(
+                f"Fetched {len(all_trades)} trades for {trading_pair}",
+                source_module=self._source_module,
+                context={
+                    "since": since.isoformat() if since else None,
+                    "until": until.isoformat() if until else None
+                }
+            )
+            
+            return all_trades
+            
+        except Exception:
+            self.logger.exception(
+                f"Failed to fetch trades for {trading_pair}",
+                source_module=self._source_module
+            )
+            return None
+
+    async def _make_public_request(
+        self,
+        endpoint: str,
+        params: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        """Make a public API request to Kraken.
+        
+        Args:
+            endpoint: API endpoint
+            params: Request parameters
+            
+        Returns:
+            API response or None on error
+        """
+        try:
+            url = f"{self.api_base_url}{endpoint}"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params) as response:
+                    if response.status != 200:
+                        self.logger.error(
+                            f"API request failed with status {response.status}",
+                            source_module=self._source_module,
+                            context={"endpoint": endpoint}
+                        )
+                        return None
+                    
+                    return await response.json()
+                    
+        except Exception:
+            self.logger.exception(
+                f"Error making API request to {endpoint}",
+                source_module=self._source_module
+            )
+            return None
+
+    def _get_kraken_pair_name(self, trading_pair: str) -> str | None:
+        """Convert internal pair format to Kraken format.
+        
+        Args:
+            trading_pair: Internal format (e.g., "XRP/USD")
+            
+        Returns:
+            Kraken format (e.g., "XXRPZUSD") or None if not found
+        """
+        # Common mappings
+        mappings = {
+            "BTC": "XBT",
+            "XRP": "XXRP",
+            "DOGE": "XDOGE",
+            "USD": "ZUSD"
+        }
+        
+        # Split pair
+        if "/" in trading_pair:
+            base, quote = trading_pair.split("/")
+            
+            # Apply mappings
+            kraken_base = mappings.get(base, base)
+            kraken_quote = mappings.get(quote, quote)
+            
+            # Try different formats
+            formats = [
+                f"{kraken_base}{kraken_quote}",
+                f"{base}{quote}",
+                f"{kraken_base}/{kraken_quote}",
+                f"{base}/{quote}"
+            ]
+            
+            # Return the first valid format
+            # In a real implementation, we'd check against known pairs
+            return formats[0]
+        
+        return None

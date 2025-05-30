@@ -5,22 +5,22 @@ This module provides risk management functionality for trading operations,
 including position sizing, drawdown limits, and trade validation.
 """
 
+import asyncio
 import math
 import statistics
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_UP
 from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    import asyncio
 
 # Event Definitions
 from .core.events import (
     ExecutionReportEvent,
     PotentialHaltTriggerEvent,
     TradeSignalProposedEvent,
+    TradeSignalApprovedEvent,
+    TradeSignalRejectedEvent,
 )
 
 # Import PubSubManager
@@ -315,6 +315,17 @@ class SystemHaltPayload:
     details: dict[str, Any]
 
 
+@dataclass
+class SizingResult:
+    """Result of position sizing calculation."""
+
+    is_valid: bool
+    quantity: Decimal | None = None
+    rejection_reason: str | None = None
+    risk_amount: Decimal | None = None
+    position_value: Decimal | None = None
+
+
 # --- RiskManager Class ---
 class RiskManager:
     """Assess trade signals against risk parameters and portfolio state.
@@ -361,6 +372,7 @@ class RiskManager:
 
         # State for consecutive losses
         self._consecutive_loss_count: int = 0
+        self._recent_trades: list[dict[str, Any]] = []  # Track recent trades for loss counting
 
         # Cache for currency conversion rates
         self._cached_conversion_rates: dict[str, Decimal] = {}
@@ -396,17 +408,17 @@ class RiskManager:
         self._default_tp_rr_ratio = Decimal(
             str(self._config.get("sizing", {}).get("default_tp_rr_ratio", "2.0")),
         )
-        self._check_interval_s = self._config.get_int("check_interval_s", 60)
-        self._min_sl_distance_pct = self._config.get_decimal("min_sl_distance_pct", "0.01")
-        self._max_single_position_pct = self._config.get_decimal(
-            "max_single_position_pct", "100.0",
+        self._check_interval_s = self._config.get("check_interval_s", 60)
+        self._min_sl_distance_pct = Decimal(str(self._config.get("min_sl_distance_pct", "0.01")))
+        self._max_single_position_pct = Decimal(
+            str(self._config.get("max_single_position_pct", "100.0")),
         )
         # New config values for pre-trade checks
-        self._fat_finger_max_deviation_pct = self._config.get_decimal(
-            "fat_finger_max_deviation_pct", "5.0",
+        self._fat_finger_max_deviation_pct = Decimal(
+            str(self._config.get("fat_finger_max_deviation_pct", "5.0")),
         )
-        self._taker_fee_pct = self._config.get_decimal(
-            "exchange.taker_fee_pct", "0.26",
+        self._taker_fee_pct = Decimal(
+            str(self._config.get("exchange", {}).get("taker_fee_pct", "0.26")),
         ) / Decimal("100")  # Convert percentage to decimal
         # Portfolio valuation currency (e.g., "USD")
         self._valuation_currency = str(self._config.get("portfolio_valuation_currency", "USD"))
@@ -491,7 +503,42 @@ class RiskManager:
                 source_module=self._source_module,
             )
 
+    async def start(self) -> None:
+        """Start the risk manager and subscribe to events."""
+        self.logger.info("Starting RiskManager...", source_module=self._source_module)
+        
+        # Subscribe to events
+        self.pubsub.subscribe("TRADE_SIGNAL_PROPOSED", self._signal_proposal_handler)
+        self.pubsub.subscribe("EXECUTION_REPORT", self._exec_report_handler)
+        
+        # Calibrate normal volatility for dynamic risk adjustment
+        if self._enable_dynamic_risk_adjustment:
+            await self._calibrate_normal_volatility()
+            
+            # Start dynamic risk adjustment task
+            self._dynamic_risk_adjustment_task = asyncio.create_task(
+                self._dynamic_risk_adjustment_loop()
+            )
+        
+        # Start periodic risk check task
+        self._periodic_check_task = asyncio.create_task(self._periodic_risk_check_loop())
+        
+        # Start risk metrics calculation task
+        self._risk_metrics_task = asyncio.create_task(self._risk_metrics_loop())
+        
+        self._is_running = True
+        self.logger.info("RiskManager started.", source_module=self._source_module)
+
+    async def stop(self) -> None:
+        """Stop the risk manager and unsubscribe from events."""
+        self.logger.info("Stopping RiskManager...", source_module=self._source_module)
+        
+        self._is_running = False
+        
+        # Unsubscribe from events
         try:
+            self.pubsub.unsubscribe("TRADE_SIGNAL_PROPOSED", self._signal_proposal_handler)
+            self.pubsub.unsubscribe("EXECUTION_REPORT", self._exec_report_handler)
             self.logger.info(
                 "Unsubscribed from TRADE_SIGNAL_PROPOSED and EXECUTION_REPORT.",
                 source_module=self._source_module,
@@ -505,11 +552,109 @@ class RiskManager:
         # Stop periodic checks
         if self._periodic_check_task and not self._periodic_check_task.done():
             self._periodic_check_task.cancel()
+            
+        if self._dynamic_risk_adjustment_task and not self._dynamic_risk_adjustment_task.done():
+            self._dynamic_risk_adjustment_task.cancel()
+            
+        if self._risk_metrics_task and not self._risk_metrics_task.done():
+            self._risk_metrics_task.cancel()
 
         self.logger.info(
-            "Stopped periodic risk metrics calculation.",
+            "Stopped periodic risk checks and tasks.",
             source_module=self._source_module,
         )
+
+    async def _periodic_risk_check_loop(self) -> None:
+        """Periodically check portfolio risk metrics."""
+        while self._is_running:
+            try:
+                await asyncio.sleep(self._check_interval_s)
+                
+                # Check drawdown limits
+                portfolio_state = self._portfolio_manager.get_current_state()
+                await self._check_drawdown_limits(portfolio_state, is_pre_trade_check=False)
+                
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                self.logger.exception(
+                    "Error in periodic risk check",
+                    source_module=self._source_module,
+                )
+
+    async def _dynamic_risk_adjustment_loop(self) -> None:
+        """Periodically adjust risk parameters based on market conditions."""
+        while self._is_running:
+            try:
+                await asyncio.sleep(self._risk_adjustment_interval_s)
+                
+                # Adjust risk for each trading pair
+                for trading_pair in ["XRP/USD", "DOGE/USD"]:
+                    volatility = await self._market_price_service.get_volatility(
+                        trading_pair, 
+                        self._volatility_window_size
+                    )
+                    if volatility:
+                        await self._update_risk_parameters_based_on_volatility(
+                            trading_pair,
+                            Decimal(str(volatility))
+                        )
+                        
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                self.logger.exception(
+                    "Error in dynamic risk adjustment",
+                    source_module=self._source_module,
+                )
+
+    async def _risk_metrics_loop(self) -> None:
+        """Calculate and log risk metrics periodically."""
+        while self._is_running:
+            try:
+                await asyncio.sleep(self._risk_metrics_interval_s)
+                
+                portfolio_state = self._portfolio_manager.get_current_state()
+                metrics = self._calculate_risk_metrics(portfolio_state)
+                
+                self.logger.info(
+                    "Risk metrics calculated",
+                    source_module=self._source_module,
+                    context=metrics
+                )
+                
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                self.logger.exception(
+                    "Error calculating risk metrics",
+                    source_module=self._source_module,
+                )
+
+    def _calculate_risk_metrics(self, portfolio_state: dict[str, Any]) -> dict[str, Any]:
+        """Calculate current risk metrics."""
+        state_values = self._extract_relevant_portfolio_values(portfolio_state)
+        
+        metrics = {
+            "current_equity": float(state_values.get("current_equity_usd", 0)),
+            "available_balance": float(state_values.get("available_balance_usd", 0)),
+            "total_exposure": float(state_values.get("total_exposure_usd", 0)),
+            "exposure_pct": 0.0,
+            "drawdown_pct": 0.0,
+            "consecutive_losses": self._consecutive_loss_count,
+            "risk_per_trade_pct": float(self._risk_per_trade_pct),
+        }
+        
+        # Calculate exposure percentage
+        if metrics["current_equity"] > 0:
+            metrics["exposure_pct"] = (metrics["total_exposure"] / metrics["current_equity"]) * 100
+            
+        # Calculate drawdown
+        initial_equity = float(state_values.get("initial_equity_usd", metrics["current_equity"]))
+        if initial_equity > 0:
+            metrics["drawdown_pct"] = ((initial_equity - metrics["current_equity"]) / initial_equity) * 100
+            
+        return metrics
 
     def _validate_and_raise_if_error(
         self,
@@ -543,7 +688,7 @@ class RiskManager:
         """
         stage_name = "Stage1: Initial Validation & Price Rounding"
         effective_entry_price_for_rounding = ctx.proposed_entry_price_decimal
-        if effective_entry_price_for_rounding is None:
+        if ctx.event.entry_type == "LIMIT" and effective_entry_price_for_rounding is None:
             reason = "LIMIT price missing."
             raise SignalValidationStageError(reason, stage_name)
 
@@ -924,6 +1069,16 @@ class RiskManager:
                 "Trade signal %(signal_id)s passed all risk checks.",
                 source_module=self._source_module,
                 context={"signal_id": str(event.signal_id)},
+            )
+            
+            # Approve the signal
+            await self._approve_signal(
+                event,
+                current_qty_to_trade,
+                final_rounded_entry_price,
+                rounded_sl_price,
+                rounded_tp_price,
+                final_trade_action or event.order_type
             )
 
         except SignalValidationStageError as e:
@@ -1468,21 +1623,65 @@ class RiskManager:
         )
 
     def _handle_execution_report_for_losses(self, event: "ExecutionReportEvent") -> None:
-        self.logger.debug(
-            "_handle_execution_report_for_losses called, not implemented",
-            context={"event": event},
-        )
+        """Track execution reports to count consecutive losses."""
+        if event.order_status in ["FILLED", "PARTIALLY_FILLED"]:
+            # Track the trade
+            trade_info = {
+                "timestamp": event.timestamp,
+                "trading_pair": event.trading_pair,
+                "side": event.side,
+                "quantity": event.quantity_filled,
+                "price": event.average_fill_price,
+                "signal_id": event.signal_id,
+            }
+            self._recent_trades.append(trade_info)
+            
+            # Keep only recent trades (last 100)
+            if len(self._recent_trades) > 100:
+                self._recent_trades = self._recent_trades[-100:]
+            
+            # Check if this is a loss (simplified - would need P&L calculation)
+            # This is a placeholder - actual implementation would track entry/exit
+            # and calculate realized P&L
+            self.logger.debug(
+                "Execution report processed for loss tracking",
+                source_module=self._source_module,
+                context={"signal_id": str(event.signal_id)},
+            )
 
     def _calculate_lot_size_with_fallback(
         self,
         trading_pair: str,
         base_amount: Decimal,
     ) -> Decimal | None:
-        self.logger.debug(
-            "_calculate_lot_size_with_fallback called, not implemented",
-            context={"trading_pair": trading_pair, "base_amount": base_amount},
-        )
-        return None  # Placeholder
+        """Calculate lot size with exchange-specific constraints."""
+        # Get step size from exchange info
+        step_size = self._exchange_info_service.get_step_size(trading_pair)
+        if not step_size:
+            self.logger.warning(
+                f"Step size not found for {trading_pair}, using default",
+                source_module=self._source_module,
+            )
+            step_size = Decimal("0.00001")  # Default fallback
+        
+        # Round down to nearest step size
+        if step_size > 0:
+            lot_size = (base_amount // step_size) * step_size
+        else:
+            lot_size = base_amount
+            
+        # Get minimum order size
+        symbol_info = self._exchange_info_service.get_symbol_info(trading_pair)
+        if symbol_info:
+            min_qty = Decimal(str(symbol_info.get("min_quantity", "0")))
+            if lot_size < min_qty:
+                self.logger.warning(
+                    f"Calculated lot size {lot_size} below minimum {min_qty} for {trading_pair}",
+                    source_module=self._source_module,
+                )
+                return None
+                
+        return lot_size
 
     def _calculate_and_validate_prices(
         self,
@@ -1494,15 +1693,48 @@ class RiskManager:
         Decimal | None,
         Decimal | None,
     ]:
-        self.logger.debug(
-            "_calculate_and_validate_prices called, not implemented",
-            context={"ctx": ctx},
-        )
-        # Ensure SL is non-None in the return if logic demands
-        sl_price_placeholder = (
-            ctx.sl_price if ctx.sl_price is not None else Decimal("0")
-        )  # Example placeholder
-        return False, "Not implemented", None, sl_price_placeholder, None
+        """Calculate and validate prices with proper rounding."""
+        # Round entry price if provided
+        rounded_entry_price = None
+        if ctx.effective_entry_price is not None:
+            rounded_entry_price = self._round_price_to_tick_size(
+                ctx.effective_entry_price,
+                ctx.trading_pair
+            )
+            
+        # Validate and calculate SL price
+        if ctx.sl_price is None:
+            # Calculate default SL based on minimum distance
+            if rounded_entry_price is not None:
+                if ctx.side == "BUY":
+                    ctx.sl_price = rounded_entry_price * (Decimal("1") - self._min_sl_distance_pct / Decimal("100"))
+                else:  # SELL
+                    ctx.sl_price = rounded_entry_price * (Decimal("1") + self._min_sl_distance_pct / Decimal("100"))
+            else:
+                return False, "Cannot calculate SL without entry price", None, None, None
+                
+        rounded_sl_price = self._round_price_to_tick_size(ctx.sl_price, ctx.trading_pair)
+        
+        # Validate SL distance
+        if rounded_entry_price is not None and rounded_sl_price is not None:
+            sl_distance_pct = abs((rounded_sl_price - rounded_entry_price) / rounded_entry_price) * Decimal("100")
+            if sl_distance_pct < self._min_sl_distance_pct:
+                return False, f"SL distance {sl_distance_pct:.2f}% below minimum {self._min_sl_distance_pct}%"
+                
+        # Calculate TP if not provided
+        rounded_tp_price = None
+        if ctx.tp_price is not None:
+            rounded_tp_price = self._round_price_to_tick_size(ctx.tp_price, ctx.trading_pair)
+        elif rounded_entry_price is not None and rounded_sl_price is not None:
+            # Calculate TP based on risk/reward ratio
+            risk = abs(rounded_entry_price - rounded_sl_price)
+            if ctx.side == "BUY":
+                rounded_tp_price = rounded_entry_price + (risk * self._default_tp_rr_ratio)
+            else:  # SELL
+                rounded_tp_price = rounded_entry_price - (risk * self._default_tp_rr_ratio)
+            rounded_tp_price = self._round_price_to_tick_size(rounded_tp_price, ctx.trading_pair)
+            
+        return True, None, rounded_entry_price, rounded_sl_price, rounded_tp_price
 
     async def _reject_signal(
         self,
@@ -1510,22 +1742,84 @@ class RiskManager:
         event: TradeSignalProposedEvent,
         reason: str,
     ) -> None:
+        """Reject a trade signal and publish rejection event."""
         self.logger.info(
             f"Signal rejected: {reason}",
+            source_module=self._source_module,
             context={
                 "signal_id": str(signal_id),
                 "reason": reason,
-                "event_data": str(event),  # Or a more structured representation
+                "trading_pair": event.trading_pair,
+                "side": event.side,
             },
         )
-        # Actual event publishing logic would go here
+        
+        # Create and publish rejection event
+        rejection_event = TradeSignalRejectedEvent(
+            source_module=self._source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.now(UTC),
+            signal_id=signal_id,
+            trading_pair=event.trading_pair,
+            exchange=event.exchange,
+            side=event.side,
+            reason=reason,
+        )
+        
+        await self.pubsub.publish(rejection_event)
+
+    async def _approve_signal(
+        self,
+        event: TradeSignalProposedEvent,
+        quantity: Decimal,
+        limit_price: Decimal | None,
+        sl_price: Decimal,
+        tp_price: Decimal | None,
+        order_type: str,
+    ) -> None:
+        """Approve a trade signal and publish approval event."""
+        self.logger.info(
+            f"Signal approved",
+            source_module=self._source_module,
+            context={
+                "signal_id": str(event.signal_id),
+                "trading_pair": event.trading_pair,
+                "side": event.side,
+                "quantity": str(quantity),
+                "order_type": order_type,
+            },
+        )
+        
+        # Create risk parameters dict
+        risk_parameters = {
+            "risk_per_trade_pct": float(self._risk_per_trade_pct),
+            "max_exposure_per_asset_pct": float(self._max_exposure_per_asset_pct),
+            "max_total_exposure_pct": float(self._max_total_exposure_pct),
+            "sl_distance_pct": float(abs((sl_price - (limit_price or sl_price)) / (limit_price or sl_price)) * 100),
+            "tp_rr_ratio": float(self._default_tp_rr_ratio) if tp_price else None,
+        }
+        
+        # Create and publish approval event
+        approval_event = TradeSignalApprovedEvent(
+            source_module=self._source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.now(UTC),
+            signal_id=event.signal_id,
+            trading_pair=event.trading_pair,
+            exchange=event.exchange,
+            side=event.side,
+            order_type=order_type,
+            quantity=quantity,
+            sl_price=sl_price,
+            tp_price=tp_price or sl_price,  # Use SL as TP if not provided
+            risk_parameters=risk_parameters,
+            limit_price=limit_price,
+        )
+        
+        await self.pubsub.publish(approval_event)
 
     async def _get_current_market_price(self, trading_pair: str) -> Decimal | None:
-        self.logger.debug(
-            "_get_current_market_price called, not implemented",
-            context={"trading_pair": trading_pair},
-        )
-        # This should ideally use self._market_price_service.get_latest_price()
+        """Get current market price for a trading pair."""
         return await self._market_price_service.get_latest_price(trading_pair)
 
     def _round_price_to_tick_size(
@@ -1533,30 +1827,43 @@ class RiskManager:
         price: Decimal | None,
         trading_pair: str,
     ) -> Decimal | None:
-        self.logger.debug(
-            "_round_price_to_tick_size called, not implemented",
-            context={"price": price, "trading_pair": trading_pair},
-        )
-        return price  # Placeholder
+        """Round price to exchange tick size."""
+        if price is None:
+            return None
+            
+        tick_size = self._exchange_info_service.get_tick_size(trading_pair)
+        if not tick_size or tick_size <= 0:
+            # Default tick size if not found
+            tick_size = Decimal("0.00001")
+            
+        # Round to nearest tick
+        return (price / tick_size).quantize(Decimal("1"), rounding=ROUND_DOWN) * tick_size
 
     def _validate_prices_fat_finger_and_sl_distance(
         self,
         ctx: PriceValidationContext,
     ) -> tuple[bool, str | None]:
-        self.logger.debug(
-            "_validate_prices_fat_finger_and_sl_distance called, not implemented",
-            context={"ctx": ctx},
-        )
-        return False, "Not implemented"
-
-    # Define a placeholder for SizingResult or use a tuple/dict if it's simple
-    @dataclass
-    class SizingResultPlaceholder:
-        """Placeholder for position sizing results."""
-
-        is_valid: bool
-        quantity: Decimal | None = None
-        rejection_reason: str | None = None
+        """Validate prices for fat finger and stop loss distance."""
+        # Fat finger check for limit orders
+        if ctx.entry_type == "LIMIT" and ctx.current_market_price is not None and ctx.rounded_entry_price is not None:
+            deviation_pct = abs((ctx.rounded_entry_price - ctx.current_market_price) / ctx.current_market_price) * Decimal("100")
+            if deviation_pct > self._fat_finger_max_deviation_pct:
+                return False, f"Entry price deviates {deviation_pct:.2f}% from market (max {self._fat_finger_max_deviation_pct}%)"
+                
+        # Validate SL distance
+        effective_entry = ctx.rounded_entry_price or ctx.effective_entry_price_for_non_limit
+        if effective_entry is not None:
+            sl_distance_pct = abs((ctx.rounded_sl_price - effective_entry) / effective_entry) * Decimal("100")
+            if sl_distance_pct < self._min_sl_distance_pct:
+                return False, f"SL distance {sl_distance_pct:.2f}% below minimum {self._min_sl_distance_pct}%"
+                
+            # Validate SL is on correct side
+            if ctx.side == "BUY" and ctx.rounded_sl_price >= effective_entry:
+                return False, "BUY order SL must be below entry price"
+            elif ctx.side == "SELL" and ctx.rounded_sl_price <= effective_entry:
+                return False, "SELL order SL must be above entry price"
+                
+        return True, None
 
     def _calculate_and_validate_position_size(
         self,
@@ -1565,52 +1872,175 @@ class RiskManager:
         ref_entry_price: Decimal,
         rounded_sl_price: Decimal,
         portfolio_state: dict[str, Any],
-    ) -> SizingResultPlaceholder:  # Returning placeholder
-        self.logger.debug(
-            "_calculate_and_validate_position_size called, not implemented",
-            context={
-                "event": event,
-                "current_equity": current_equity,
-                "ref_entry_price": ref_entry_price,
-                "rounded_sl_price": rounded_sl_price,
-                "portfolio_state": "(omitted)",
-            },
-        )
-        return self.SizingResultPlaceholder(is_valid=False, rejection_reason="Not implemented")
+    ) -> SizingResult:
+        """Calculate position size based on risk parameters."""
+        try:
+            # Calculate risk amount
+            risk_amount = current_equity * (self._risk_per_trade_pct / Decimal("100"))
+            
+            # Calculate risk per unit
+            risk_per_unit = abs(ref_entry_price - rounded_sl_price)
+            if risk_per_unit <= 0:
+                return SizingResult(
+                    is_valid=False,
+                    rejection_reason="Invalid risk per unit (SL too close to entry)"
+                )
+            
+            # Calculate raw position size
+            raw_quantity = risk_amount / risk_per_unit
+            
+            # Apply lot size constraints
+            rounded_quantity = self._calculate_lot_size_with_fallback(
+                event.trading_pair,
+                raw_quantity
+            )
+            
+            if rounded_quantity is None or rounded_quantity <= 0:
+                return SizingResult(
+                    is_valid=False,
+                    rejection_reason="Position size below minimum tradeable amount"
+                )
+            
+            # Calculate position value
+            position_value = rounded_quantity * ref_entry_price
+            
+            # Check against max order size
+            if position_value > self._max_order_size_usd:
+                # Scale down to max order size
+                rounded_quantity = self._max_order_size_usd / ref_entry_price
+                rounded_quantity = self._calculate_lot_size_with_fallback(
+                    event.trading_pair,
+                    rounded_quantity
+                )
+                
+                if rounded_quantity is None or rounded_quantity <= 0:
+                    return SizingResult(
+                        is_valid=False,
+                        rejection_reason=f"Position value exceeds max order size ${self._max_order_size_usd}"
+                    )
+                position_value = rounded_quantity * ref_entry_price
+            
+            # Check against max single position percentage
+            position_pct = (position_value / current_equity) * Decimal("100")
+            if position_pct > self._max_single_position_pct:
+                return SizingResult(
+                    is_valid=False,
+                    rejection_reason=f"Position size {position_pct:.2f}% exceeds max {self._max_single_position_pct}%"
+                )
+            
+            return SizingResult(
+                is_valid=True,
+                quantity=rounded_quantity,
+                risk_amount=risk_amount,
+                position_value=position_value
+            )
+            
+        except Exception as e:
+            self.logger.exception(
+                "Error calculating position size",
+                source_module=self._source_module,
+                context={"signal_id": str(event.signal_id)}
+            )
+            return SizingResult(
+                is_valid=False,
+                rejection_reason=f"Position sizing error: {str(e)}"
+            )
 
     def _check_position_scaling(
         self,
         ctx: PositionScalingContext,
     ) -> tuple[bool, str | None, str | None, Decimal | None]:
-        self.logger.debug(
-            "_check_position_scaling called, not implemented",
-            context={"ctx": ctx},
-        )
-        return False, "Not implemented", None, None
+        """Check if position needs scaling based on existing positions."""
+        # Check if we already have a position in this pair
+        existing_position = None
+        if "positions" in ctx.portfolio_state:
+            existing_position = ctx.portfolio_state["positions"].get(ctx.trading_pair)
+            
+        if existing_position:
+            existing_qty = Decimal(str(existing_position.get("quantity", "0")))
+            existing_side = existing_position.get("side", "").upper()
+            
+            # Check if this is adding to position or reducing
+            if existing_side == ctx.side:
+                # Adding to position - check if total would exceed limits
+                total_qty = existing_qty + ctx.initial_calculated_qty
+                total_value = total_qty * ctx.ref_entry_price
+                
+                # Check against portfolio equity
+                portfolio_equity = Decimal(str(ctx.portfolio_state.get("total_equity_usd", "0")))
+                if portfolio_equity > 0:
+                    position_pct = (total_value / portfolio_equity) * Decimal("100")
+                    if position_pct > self._max_exposure_per_asset_pct:
+                        # Scale down the new quantity
+                        max_additional_value = (portfolio_equity * self._max_exposure_per_asset_pct / Decimal("100")) - (existing_qty * ctx.ref_entry_price)
+                        if max_additional_value <= 0:
+                            return False, "Position already at maximum exposure", None, None
+                        
+                        scaled_qty = max_additional_value / ctx.ref_entry_price
+                        scaled_qty = self._calculate_lot_size_with_fallback(ctx.trading_pair, scaled_qty)
+                        
+                        if scaled_qty is None or scaled_qty <= 0:
+                            return False, "Scaled position size below minimum", None, None
+                            
+                        return True, None, "ADD_TO_POSITION", scaled_qty
+                        
+                return True, None, "ADD_TO_POSITION", ctx.initial_calculated_qty
+            else:
+                # Opposite side - this would close/reduce position
+                if existing_qty <= ctx.initial_calculated_qty:
+                    # This would close the position entirely
+                    return True, None, "CLOSE_POSITION", existing_qty
+                else:
+                    # This would partially close
+                    return True, None, "REDUCE_POSITION", ctx.initial_calculated_qty
+        
+        # No existing position
+        return True, None, "NEW_POSITION", ctx.initial_calculated_qty
 
     def _extract_relevant_portfolio_values(
         self,
         portfolio_state: dict[str, Any],
     ) -> dict[str, Decimal]:
-        self.logger.debug(
-            "_extract_relevant_portfolio_values called, not implemented",
-            context={"portfolio_state": "(omitted)"},
-        )
-        # Example: Extract and convert relevant fields to Decimal
-        return {
-            "available_balance_usd": Decimal(
-                str(portfolio_state.get("available_balance_usd", "0")),
-            ),
-            "current_equity_usd": Decimal(
-                str(portfolio_state.get("current_equity_usd", "0")),
-            ),
-            "initial_equity_usd": Decimal(
-                str(portfolio_state.get("initial_equity_usd", "0")),
-            ),
-            "daily_initial_equity_usd": Decimal(
-                str(portfolio_state.get("daily_initial_equity_usd", "0")),
-            ),
-            "weekly_initial_equity_usd": Decimal(
-                str(portfolio_state.get("weekly_initial_equity_usd", "0")),
-            ),
-        }  # Basic placeholder
+        """Extract and convert relevant portfolio values to Decimal."""
+        extracted = {}
+        
+        # Define fields to extract with defaults
+        fields = {
+            "available_balance_usd": "0",
+            "current_equity_usd": "0",
+            "total_equity_usd": "0",
+            "initial_equity_usd": "0",
+            "daily_initial_equity_usd": "0",
+            "weekly_initial_equity_usd": "0",
+            "total_exposure_usd": "0",
+        }
+        
+        for field, default in fields.items():
+            value = portfolio_state.get(field, default)
+            try:
+                extracted[field] = Decimal(str(value))
+            except (InvalidOperation, ValueError):
+                self.logger.warning(
+                    f"Invalid value for {field}: {value}, using default {default}",
+                    source_module=self._source_module
+                )
+                extracted[field] = Decimal(default)
+        
+        # Handle special cases
+        if "current_equity_usd" not in portfolio_state and "equity" in portfolio_state:
+            try:
+                extracted["current_equity_usd"] = Decimal(str(portfolio_state["equity"]))
+            except (InvalidOperation, ValueError):
+                pass
+                
+        # Calculate total exposure if not provided
+        if extracted["total_exposure_usd"] == Decimal("0") and "positions" in portfolio_state:
+            total_exposure = Decimal("0")
+            for position in portfolio_state["positions"].values():
+                try:
+                    market_value = Decimal(str(position.get("current_market_value", "0")))
+                    total_exposure += market_value
+                except (InvalidOperation, ValueError):
+                    pass
+
+        return extracted

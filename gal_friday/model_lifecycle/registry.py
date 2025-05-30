@@ -386,12 +386,27 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
 
         # Cloud storage backend (optional)
         self.use_cloud_storage = config.get_bool("model_registry.use_cloud_storage", False)
+        self.cloud_storage = None
         if self.use_cloud_storage:
             self._init_cloud_storage()
 
     def _init_cloud_storage(self) -> None:
-        """Initialize cloud storage backend (GCS, S3, etc.)."""
-        # Implementation depends on cloud provider
+        """Initialize cloud storage backend."""
+        provider = self.config.get("model_registry.cloud_provider", "").lower()
+        
+        if provider == "gcs":
+            from .cloud_storage import GCSBackend
+            self.cloud_storage = GCSBackend(self.config, self.logger)
+        elif provider == "s3":
+            from .cloud_storage import S3Backend
+            self.cloud_storage = S3Backend(self.config, self.logger)
+        else:
+            raise ValueError(f"Unsupported cloud provider: {provider}")
+        
+        self.logger.info(
+            f"Initialized {provider.upper()} cloud storage",
+            source_module=self._source_module
+        )
 
     async def register_model(
         self,
@@ -807,14 +822,37 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         )
 
 
-    async def _upload_to_cloud(self, local_path: Path, model_name: str, version: str) -> None: # No change needed
+    async def _upload_to_cloud(self, local_path: Path, model_name: str, version: str) -> None:
         """Upload model artifacts to cloud storage."""
-        # Implementation depends on cloud provider
-        # Example for GCS:
-        # bucket_name = self.config.get("model_registry.gcs_bucket")
-        # blob_name = f"models/{model_name}/{version}"
-        # ... upload logic ...
+        if not self.cloud_storage:
+            return
+        
+        remote_path = f"models/{model_name}/{version}"
+        
+        success = await self.cloud_storage.upload(local_path, remote_path)
+        if success:
+            self.logger.info(
+                f"Uploaded model to cloud: {remote_path}",
+                source_module=self._source_module
+            )
+        else:
+            self.logger.error(
+                f"Failed to upload model to cloud: {remote_path}",
+                source_module=self._source_module
+            )
 
     async def _download_from_cloud(self, local_path: Path, model_name: str, version: str) -> None:
         """Download model artifacts from cloud storage."""
-        # Implementation depends on cloud provider
+        if not self.cloud_storage:
+            return
+        
+        remote_path = f"models/{model_name}/{version}"
+        
+        success = await self.cloud_storage.download(remote_path, local_path)
+        if success:
+            self.logger.info(
+                f"Downloaded model from cloud: {remote_path}",
+                source_module=self._source_module
+            )
+        else:
+            raise RuntimeError(f"Failed to download model from cloud: {remote_path}")

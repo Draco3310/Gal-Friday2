@@ -1,24 +1,24 @@
-"""Execution handler implementation for managing trade execution and order lifecycle.
+"""Execution handler for managing order placement and lifecycle with Kraken exchange."""
 
-This module provides the core ExecutionHandler class that manages the complete
-lifecycle of trade orders, from signal processing through execution reporting.
-"""
+from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import secrets
 import time
+import urllib.parse
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, cast
 from uuid import UUID
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
 
 import aiohttp
 
 from gal_friday.config_manager import ConfigManager
+from gal_friday.core.errors import ExecutionHandlerAuthenticationError
 from gal_friday.core.events import (
     ClosePositionCommand,
     EventType,
@@ -28,8 +28,10 @@ from gal_friday.core.events import (
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
 from gal_friday.monitoring_service import MonitoringService
+from gal_friday.utils.kraken_api import generate_kraken_signature
 
-from .utils.kraken_api import generate_kraken_signature
+if TYPE_CHECKING:
+    from gal_friday.core.event_store import EventStore
 
 # Remove hardcoded URL - will be loaded from configuration
 
@@ -208,12 +210,14 @@ class ExecutionHandler:
         pubsub_manager: PubSubManager,
         monitoring_service: MonitoringService,
         logger_service: LoggerService,
+        event_store: "EventStore | None" = None,
     ) -> None:
         """Initialize the execution handler with required services and configuration."""
         self.logger = logger_service
         self.config = config_manager
         self.pubsub = pubsub_manager
         self.monitoring = monitoring_service
+        self.event_store = event_store
 
         self.api_key = self.config.get("kraken.api_key", default=None)
         self.api_secret = self.config.get("kraken.secret_key", default=None)
@@ -1613,19 +1617,35 @@ class ExecutionHandler:
         signal_id: UUID | None,
     ) -> TradeSignalApprovedEvent | None:
         """Retrieve the original signal event that led to an order.
-
-        In a full implementation, this would fetch from an event store or cache.
-        For now, this is a placeholder that returns None.
+        
+        Uses the event store to fetch historical events.
         """
-        # TODO: Implement event retrieval from cache or storage
-        # For MVP, we might need to store original events in memory
-        self.logger.warning(
-            "_get_originating_signal_event not fully implemented. "
-            "Unable to retrieve event for signal %s",
-            signal_id,
-            source_module=self.__class__.__name__,
-        )
-        return None
+        if not signal_id:
+            return None
+        
+        try:
+            # Get the approved signal event
+            events = await self.event_store.get_events_by_correlation(
+                correlation_id=signal_id,
+                event_types=[TradeSignalApprovedEvent]
+            )
+            
+            if events:
+                # Return the most recent approved signal
+                return events[-1]  # type: ignore
+            
+            self.logger.warning(
+                f"No approved signal event found for signal_id: {signal_id}",
+                source_module=self.__class__.__name__
+            )
+            return None
+            
+        except Exception:
+            self.logger.exception(
+                f"Error retrieving signal event for {signal_id}",
+                source_module=self.__class__.__name__
+            )
+            return None
 
     async def _publish_error_execution_report(
         self,
