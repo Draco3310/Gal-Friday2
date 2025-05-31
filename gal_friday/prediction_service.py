@@ -25,6 +25,7 @@ from gal_friday.core.events import (
     PredictionConfigUpdatedEvent,
     PredictionEvent,
 )
+from gal_friday.core.feature_models import PublishedFeaturesV1 # Added for Pydantic model
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.interfaces.predictor_interface import PredictorInterface  # Added
 from gal_friday.logger_service import LoggerService
@@ -94,9 +95,12 @@ class CriticalModelError(PredictionServiceError):
 class PredictionService:
     """Consume feature events and run ML model inference.
 
-    This class handles feature events, runs ML model inference for multiple
-    configured models, and publishes prediction events. Preprocessing
-    (e.g., scaling) is handled by individual predictor implementations.
+    This class handles feature events (which contain feature data structured as
+    `PublishedFeaturesV1.model_dump()`), runs ML model inference for multiple
+    configured models, and publishes prediction events.
+    Predictor implementations (e.g., XGBoostPredictor, SKLearnPredictor) now expect
+    pre-scaled, numerical features directly from the FeatureEngine, as scaling is
+    centralized upstream.
     """
 
     def __init__(
@@ -559,10 +563,26 @@ class PredictionService:
         )
 
     async def _handle_feature_event(self, event: FeatureEvent) -> None:
-        """Handle incoming feature event, update LSTM buffers, and trigger pipeline.
+        """
+        Handles incoming `FeatureEvent` objects.
 
-        Updates LSTM buffers if needed and triggers the prediction pipeline for any
-        models that are ready for prediction.
+        The method performs the following actions:
+        1.  Validates the event type.
+        2.  Checks if the service is running and if the `ProcessPoolExecutor` is available.
+        3.  If the event contains features from a Pydantic model (i.e., `event.features`
+            is a dictionary of feature names to float values):
+            a.  For LSTM models, it prepares the 1D feature vector for the current timestep
+                using `_prepare_features_for_model` and appends it to the respective
+                model's sequence buffer (`self._lstm_feature_buffers`).
+            b.  It then calls `_trigger_predictions_if_ready` to check which models
+                (LSTM or non-LSTM) have sufficient data/are ready for inference.
+        4.  If `event.features` is not in the expected format, logs a warning.
+
+        Args:
+            event: The `FeatureEvent` containing the calculated features. The
+                   `event.features` attribute is expected to be a dictionary
+                   mapping feature names (strings) to their float values, typically
+                   derived from `PublishedFeaturesV1.model_dump()`.
         """
         if not isinstance(event, FeatureEvent):
             event_type = type(event).__name__
@@ -1137,27 +1157,69 @@ class PredictionService:
 
     def _prepare_features_for_model(
         self,
-        event_features: dict[str, str],
+        event_features: dict[str, float],
         expected_model_features: list[str],
     ) -> np.ndarray | None:
-        """Convert feature dictionary to a 1D numpy array."""
+        """
+        Converts a feature dictionary from a `FeatureEvent` into a 1D numpy array.
+
+        The input `event_features` is expected to be a dictionary mapping feature names
+        to their float values, as produced by `PublishedFeaturesV1.model_dump()` in the
+        `FeatureEngine`. This method aligns these features with the
+        `expected_model_features` list provided by a specific predictor.
+
+        Features are already scaled by `FeatureEngine`; this method focuses on ordering
+        and handling any missing features (which should be rare if configurations
+        are aligned).
+
+        Args:
+            event_features: A dictionary where keys are feature names (strings) and
+                            values are their corresponding float values. This comes from
+                            the `features` payload of a `FeatureEvent`.
+            expected_model_features: A list of strings defining the order of feature
+                                     names that the target model expects.
+
+        Returns:
+            A 1D `np.ndarray` of float32 type containing the feature values in the
+            order specified by `expected_model_features`. If a feature expected by
+            the model is missing in `event_features`, `np.nan` is used for that
+            position. Returns `None` if no features could be processed or if all
+            processed features result in NaN.
+        """
         ordered_feature_values: list[float] = []
         missing_features_log: list[str] = []
+        # Type errors are less likely now as Pydantic handles validation in FeatureEngine
+        # but keeping the log list in case of unexpected issues or if event_features bypasses Pydantic.
         type_errors_log: list[str] = []
 
         for feature_name in expected_model_features:
-            if feature_name not in event_features:
+            value = event_features.get(feature_name) # Value is already float or None
+
+            if value is None: # Feature missing from the validated Pydantic model's output
                 missing_features_log.append(str(feature_name))
-                ordered_feature_values.append(float("nan"))
+                ordered_feature_values.append(np.nan) # Use np.nan for missing features
                 continue
 
-            try:
-                # Explicitly convert to Python float first to catch any conversion issues
-                value = float(str(event_features[feature_name]))
-                ordered_feature_values.append(value)
-            except (ValueError, TypeError) as e:
-                type_errors_log.append(f"{feature_name}: {e!s}")
-                ordered_feature_values.append(float("nan"))
+            # Check for NaN explicitly, as Pydantic allows NaN for float if not otherwise restricted
+            if np.isnan(value):
+                # This case means the feature was present but its value was NaN.
+                # Depending on policy, this might be an error or acceptable.
+                # For now, we pass it as np.nan.
+                self.logger.debug("Feature '%s' has NaN value.", feature_name)
+                ordered_feature_values.append(np.nan)
+                continue
+
+            # Value should be a float if it's not None and not NaN
+            # No explicit float() conversion needed here as it comes from Pydantic model dump.
+            ordered_feature_values.append(value)
+            # try:
+            #     # value = float(str(event_features[feature_name])) # Old way
+            #     # No conversion needed, it's already float
+            #     ordered_feature_values.append(value)
+            # except (ValueError, TypeError) as e: # Should be rare now
+            #     type_errors_log.append(f"{feature_name}: {e!s}")
+            #     ordered_feature_values.append(np.nan)
+
 
         # Log any issues
         if missing_features_log:
