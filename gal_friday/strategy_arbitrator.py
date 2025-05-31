@@ -26,13 +26,17 @@ from .logger_service import LoggerService
 # Import MarketPriceService
 from .market_price_service import MarketPriceService
 
+# Import FeatureRegistryClient
+from .core.feature_registry_client import FeatureRegistryClient
+
 
 # --- StrategyArbitrator Class ---
 class StrategyArbitrator:
-    """Consume prediction events and generate trade signals.
-
-    Consumes prediction events, applies configurable trading strategy logic,
-    and publishes proposed trade signal events.
+    """
+    Consumes prediction events, applies trading strategy logic (including secondary
+    confirmation using features from the PredictionEvent), and produces proposed
+    trade signals. It can use FeatureRegistryClient for more advanced validation
+    of features named in confirmation rules.
     """
 
     def __init__(
@@ -45,24 +49,16 @@ class StrategyArbitrator:
         """Initialize the StrategyArbitrator.
 
         Args:
-        ----
             config (dict): Configuration settings. Expected structure:
                 strategy_arbitrator:
                   strategies:
                     - id: "mvp_threshold_v1"
                       buy_threshold: 0.65
-                      sell_threshold: 0.35
-                      entry_type: "MARKET"
-                      sl_pct: 0.2
-                      tp_pct: 0.4
-                      # Example for new configs:
-                      # confirmation_rules:
-                      #   - feature: "momentum_5"
-                      #     condition: "gt"
-                      #     threshold: 0
-                      # limit_offset_pct: 0.01
-                      # prediction_interpretation: "prob_up"
-                      # default_reward_risk_ratio: 2.0
+                      # ... other strategy params ...
+                      confirmation_rules: # Rules use feature names from Feature Registry
+                        - feature: "rsi_14_default"
+                          condition: "lt"
+                          threshold: 30
             pubsub_manager (PubSubManager): For subscribing/publishing events.
             logger_service (LoggerService): The shared logger instance.
             market_price_service (MarketPriceService): Service to get market prices.
@@ -71,6 +67,7 @@ class StrategyArbitrator:
         self.pubsub = pubsub_manager
         self.logger = logger_service
         self.market_price_service = market_price_service
+        self.feature_registry_client = FeatureRegistryClient() # Initialize client
         self._is_running = False
         self._main_task = None
         self._source_module = self.__class__.__name__
@@ -529,33 +526,43 @@ class StrategyArbitrator:
         trading_pair: str,
         primary_side: str,
     ) -> bool:
-        """Validate a single confirmation rule against event features."""
+        """
+        Validate a single confirmation rule against the provided features.
+        Features are expected to be a dictionary of float values.
+        """
         feature_name = rule.get("feature")
-        condition_key = rule.get("condition")  # Renamed to avoid conflict with operator.condition
+        condition_key = rule.get("condition")
         threshold_str = rule.get("threshold")
 
-        if not all([feature_name, condition_key, threshold_str]):
+        if not all([feature_name, condition_key, threshold_str is not None]): # threshold can be 0
             self.logger.warning(
                 "Skipping invalid confirmation rule (missing component): %s for %s",
                 rule,
                 trading_pair,
                 source_module=self._source_module,
             )
-            return True  # Early exit: Skip invalid rule
+            return True # Skip invalid rule, effectively passing it by not blocking
 
-        if feature_name not in features:
+        # Optional: Validate feature_name against registry if desired for stricter checks
+        # if not self.feature_registry_client.get_feature_definition(feature_name):
+        #     self.logger.warning(f"Feature '{feature_name}' in rule not found in registry. Rule may fail.")
+
+        feature_value_float = features.get(feature_name)
+
+        if feature_value_float is None:
             self.logger.info(
-                "Sec confirm failed for %s on %s: Feat '%s' not in event.",
+                "Sec confirm failed for %s on %s: Feature '%s' not in triggering_features.",
                 primary_side,
                 trading_pair,
                 feature_name,
                 source_module=self._source_module,
             )
-            return False  # Early exit: Required feature missing
+            return False
 
-        rule_passes = False  # Default to False
+        rule_passes = False
         try:
-            feature_value = Decimal(str(features[feature_name]))
+            # Convert feature (float) and threshold (str) to Decimal for precise comparison
+            feature_value_decimal = Decimal(str(feature_value_float))
             threshold = Decimal(str(threshold_str))
 
             op = self._CONDITION_OPERATORS.get(str(condition_key))
@@ -602,29 +609,36 @@ class StrategyArbitrator:
         prediction_event: PredictionEvent,
         primary_side: str,
     ) -> bool:
-        """Check if secondary confirmation rules pass."""
+        """
+        Check if secondary confirmation rules pass using features from the PredictionEvent.
+        Features are expected in `prediction_event.associated_features['triggering_features']`.
+        """
         if not self._confirmation_rules:
             return True  # No rules defined, confirmation passes by default
 
-        features = getattr(prediction_event, "associated_features", None)
-        if not features:
+        associated_payload = getattr(prediction_event, "associated_features", None)
+        raw_features: Optional[Dict[str, float]] = None
+        if isinstance(associated_payload, dict):
+            raw_features = associated_payload.get("triggering_features")
+
+        if not raw_features or not isinstance(raw_features, dict): # Check if raw_features is None, empty or not a dict
             self.logger.warning(
-                "No associated features in PredEvent %s for %s on %s.",
+                "No valid 'triggering_features' (dict[str, float]) found in PredictionEvent %s for %s on %s.",
                 prediction_event.event_id,
                 primary_side,
                 prediction_event.trading_pair,
                 source_module=self._source_module,
             )
-            return False  # Cannot confirm without features
+            return False # Cannot confirm without features
 
         for rule in self._confirmation_rules:
             if not self._validate_confirmation_rule(
                 rule,
-                features,
+                raw_features, # Pass the dict[str, float]
                 prediction_event.trading_pair,
                 primary_side,
             ):
-                return False
+                return False # Rule failed
 
         self.logger.debug(
             "All secondary confirmation rules passed for %s signal on %s.",

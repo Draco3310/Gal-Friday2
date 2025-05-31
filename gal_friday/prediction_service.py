@@ -1052,8 +1052,11 @@ class PredictionService:
                     else None
                 ),
                 associated_features={
-                    "source_event_id": str(event.event_id),
-                    "ensemble_strategy": ensemble_strategy,
+                    "triggering_features": event.features, # dict[str, float] from PublishedFeaturesV1.model_dump()
+                    "metadata": {
+                        "source_feature_event_id": str(event.event_id),
+                        "ensemble_strategy_used": ensemble_strategy,
+                    }
                 },
             )
             # Await the async _publish_prediction method

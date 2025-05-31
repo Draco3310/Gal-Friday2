@@ -21,7 +21,11 @@ from .core.events import (
     TradeSignalProposedEvent,
     TradeSignalApprovedEvent,
     TradeSignalRejectedEvent,
+    EventType, # Added for subscription
+    FeatureEvent # Added for type hint
 )
+from gal_friday.core.feature_models import PublishedFeaturesV1 # For type hint reference
+from gal_friday.core.feature_registry_client import FeatureRegistryClient # Added
 
 # Import PubSubManager
 from .core.pubsub import PubSubManager
@@ -330,8 +334,25 @@ class SizingResult:
 class RiskManager:
     """Assess trade signals against risk parameters and portfolio state.
 
-    Consumes proposed trade signals, performs pre-trade risk checks against
-    portfolio state, and publishes approved/rejected signals or triggers HALT.
+    Assesses trade signals against risk parameters and current portfolio state.
+
+    Key responsibilities include:
+    - Validating proposed trade signals based on configured risk limits (e.g., max drawdown,
+      exposure per asset, total exposure).
+    - Calculating appropriate position sizes based on risk per trade percentages.
+    - Performing pre-trade checks like fat-finger validation and ensuring sufficient balance.
+    - Optionally, dynamically adjusting `risk_per_trade_pct` based on market volatility.
+      This dynamic adjustment is driven by a configured volatility feature (e.g., ATR)
+      received from `FeatureEngine` via `FeatureEvent`s. A baseline "normal" volatility
+      is calibrated on startup using historical OHLCV data. See `_calibrate_normal_volatility`
+      and `_update_risk_parameters_based_on_volatility`.
+    - Monitoring for excessive consecutive losses and triggering system alerts or halts.
+    - Publishing `TradeSignalApprovedEvent` or `TradeSignalRejectedEvent`.
+    - Publishing `PotentialHaltTriggerEvent` if critical risk limits are breached.
+
+    It instantiates a `FeatureRegistryClient` to potentially query feature definitions,
+    though its direct use in current logic is minimal, it's available for future enhancements
+    (e.g., validating that configured feature keys exist in the registry).
     """
 
     def __init__(  # - Multiple dependencies are required
@@ -346,19 +367,29 @@ class RiskManager:
         """Initialize the RiskManager with configuration and dependencies.
 
         Args:
-            config: Configuration settings.
-            pubsub_manager: The application PubSubManager instance.
-            portfolio_manager: The PortfolioManager instance.
-            logger_service: Shared logger instance.
-            market_price_service: MarketPriceService instance.
-            exchange_info_service: ExchangeInfoService instance.
+            config: Overall application configuration dictionary. `RiskManager` uses the
+                "risk_manager" section for its settings, including static limits,
+                position sizing rules, and parameters for dynamic risk adjustment
+                (e.g., `enable_dynamic_risk_adjustment`,
+                `dynamic_risk_volatility_feature_key`, `dynamic_risk_target_pairs`).
+            pubsub_manager: The application PubSubManager instance for event communication.
+            portfolio_manager: The PortfolioManager instance to access portfolio state.
+            logger_service: Shared logger instance for consistent logging.
+            market_price_service: MarketPriceService instance for price and volatility data.
+            exchange_info_service: ExchangeInfoService instance for exchange-specific details.
+
+        Initializes `FeatureRegistryClient`, loads specific risk configurations via
+        `_load_risk_config`, and sets up handlers for `TradeSignalProposedEvent`,
+        `ExecutionReportEvent`, and `FeatureEvent` (if dynamic risk is enabled).
         """
-        self._config = config.get("risk_manager", {})
+        self._config = config.get("risk_manager", {}) # Service specific config
         self.pubsub = pubsub_manager
         self._portfolio_manager = portfolio_manager
         self._market_price_service = market_price_service
         self._exchange_info_service = exchange_info_service
         self.logger = logger_service
+        self.feature_registry_client = FeatureRegistryClient()
+
         self._is_running = False
         self._main_task: asyncio.Task | None = None
         self._periodic_check_task: asyncio.Task | None = None
@@ -366,30 +397,38 @@ class RiskManager:
         self._risk_metrics_task: asyncio.Task | None = None
         self._source_module = self.__class__.__name__
 
-        # Store handler for unsubscribing
+        # Event Handlers
         self._signal_proposal_handler = self._handle_trade_signal_proposed
-        self._exec_report_handler = self._handle_execution_report_for_losses # Explicitly re-set
+        self._exec_report_handler = self._handle_execution_report_for_losses
+        self._feature_event_handler = self._handle_feature_event # For dynamic risk
 
-        # State for consecutive losses
+        # State variables
         self._consecutive_loss_count: int = 0
-        self._recent_trades: list[dict[str, Any]] = []  # Track recent trades for loss counting
-
-        # Cache for currency conversion rates
+        self._recent_trades: list[dict[str, Any]] = []
         self._cached_conversion_rates: dict[str, Decimal] = {}
         self._cached_conversion_timestamps: dict[str, datetime] = {}
-
-        # Normal volatility levels for risk adjustment (calibrated during startup)
-        self._normal_volatility: dict[str, Decimal] = {}
+        self._normal_volatility: Dict[str, Decimal] = {} # Type hint Dict
         self._normal_volatility_logged_missing: dict[str, bool] = {}
 
-        # Load configuration
-        self._load_config()
+        # For dynamic risk based on FeatureEngine features
+        self._dynamic_risk_volatility_feature_key: Optional[str] = None
+        self._dynamic_risk_target_pairs: List[str] = [] # Type hint List
+        self._latest_volatility_features: Dict[str, float] = {} # Type hint Dict
 
-    def _load_config(self) -> None:
-        """Load risk parameters from configuration.
 
-        Extracts and initializes risk limits, position sizing parameters,
-        and other configuration settings used for risk checks.
+        # Load configuration (including new dynamic risk params)
+        self._load_risk_config()
+
+    def _load_risk_config(self) -> None:
+        """Load risk parameters from the 'risk_manager' section of the application configuration.
+
+        Extracts and initializes static risk limits (e.g., drawdown, exposure),
+        position sizing parameters (e.g., `risk_per_trade_pct`), and settings for
+        dynamic risk adjustment. This includes `enable_dynamic_risk_adjustment`,
+        the `dynamic_risk_volatility_feature_key` (which specifies the feature from
+        FeatureEngine to monitor, e.g., "atr_14_default"), and
+        `dynamic_risk_target_pairs` for applying these adjustments.
+        Logs warnings if dynamic adjustment is enabled but necessary keys are missing.
         """
         limits = self._config.get("limits", {})
         self._max_total_drawdown_pct = Decimal(str(limits.get("max_total_drawdown_pct", 15.0)))
@@ -429,16 +468,31 @@ class RiskManager:
         )
         self._risk_adjustment_interval_s = int(
             self._config.get("risk_adjustment_interval_s", 900),
-        )  # 15 minutes default
+        )
         self._volatility_window_size = int(
             self._config.get("volatility_window_size", 24),
-        )  # Hours of lookback for volatility
+        )
         self._risk_metrics_interval_s = int(
             self._config.get("risk_metrics_interval_s", 60),
-        )  # 1 minute default
+        )
+
+        # New: Config for dynamic risk adjustment via FeatureEngine features
+        self._dynamic_risk_volatility_feature_key = self._config.get("dynamic_risk_volatility_feature_key")
+        self._dynamic_risk_target_pairs = self._config.get("dynamic_risk_target_pairs", [])
+
+        if self._enable_dynamic_risk_adjustment and not self._dynamic_risk_volatility_feature_key:
+            self.logger.warning(
+                "Dynamic risk adjustment is enabled, but no 'dynamic_risk_volatility_feature_key' "
+                "is configured. Dynamic adjustments based on FeatureEngine features will not occur."
+            )
+        if self._enable_dynamic_risk_adjustment and not self._dynamic_risk_target_pairs:
+            self.logger.warning(
+                "Dynamic risk adjustment is enabled, but 'dynamic_risk_target_pairs' is empty. "
+                "Adjustments will not apply to any specific pair via FeatureEngine features."
+            )
 
         self.logger.info("RiskManager configured.", source_module=self._source_module)
-        self._validate_config()  # Added call to validate_config
+        self._validate_config()
 
     def _validate_config(self) -> None:
         """Validate risk parameters from configuration.
@@ -504,21 +558,47 @@ class RiskManager:
             )
 
     async def start(self) -> None:
-        """Start the risk manager and subscribe to events."""
+        """
+        Starts the RiskManager service.
+
+        Subscribes to:
+        - `EventType.TRADE_SIGNAL_PROPOSED` for assessing new trade signals.
+        - `EventType.EXECUTION_REPORT` for tracking trade outcomes (e.g., losses).
+        - `EventType.FEATURES_CALCULATED` via `_feature_event_handler` if dynamic risk
+          adjustment based on FeatureEngine features is enabled. This allows the
+          RiskManager to receive live volatility metrics.
+
+        If dynamic risk adjustment is enabled:
+        - Calls `_calibrate_normal_volatility` to establish baseline volatility.
+        - If a specific `dynamic_risk_volatility_feature_key` is NOT configured, it may
+          start a fallback `_dynamic_risk_adjustment_loop_fallback` that uses
+          `MarketPriceService.get_volatility()`. (Note: This fallback's direct update
+          mechanism is currently simplified and may need further refinement if used).
+
+        Starts periodic tasks for overall risk checks (`_periodic_risk_check_loop`)
+        and risk metrics calculation (`_risk_metrics_loop`).
+        """
         self.logger.info("Starting RiskManager...", source_module=self._source_module)
         
         # Subscribe to events
         self.pubsub.subscribe(EventType.TRADE_SIGNAL_PROPOSED, self._signal_proposal_handler)
         self.pubsub.subscribe(EventType.EXECUTION_REPORT, self._exec_report_handler)
+        self.pubsub.subscribe(EventType.FEATURES_CALCULATED, self._feature_event_handler)
         
-        # Calibrate normal volatility for dynamic risk adjustment
+        # Calibrate normal volatility for dynamic risk adjustment (baseline from market data)
         if self._enable_dynamic_risk_adjustment:
             await self._calibrate_normal_volatility()
             
-            # Start dynamic risk adjustment task
-            self._dynamic_risk_adjustment_task = asyncio.create_task(
-                self._dynamic_risk_adjustment_loop()
-            )
+            # If a specific feature key for volatility is NOT defined for dynamic adjustment,
+            # start the fallback loop that uses MarketPriceService.get_volatility.
+            # Otherwise, dynamic adjustments are primarily event-driven by _handle_feature_event.
+            if not self._dynamic_risk_volatility_feature_key:
+                self.logger.info("No dynamic_risk_volatility_feature_key configured. Starting fallback dynamic risk adjustment loop.")
+                self._dynamic_risk_adjustment_task = asyncio.create_task(
+                    self._dynamic_risk_adjustment_loop_fallback()
+                )
+            else:
+                self.logger.info(f"Dynamic risk adjustment configured with feature key: {self._dynamic_risk_volatility_feature_key}. Adjustments will be event-driven.")
         
         # Start periodic risk check task
         self._periodic_check_task = asyncio.create_task(self._periodic_risk_check_loop())
@@ -530,7 +610,14 @@ class RiskManager:
         self.logger.info("RiskManager started.", source_module=self._source_module)
 
     async def stop(self) -> None:
-        """Stop the risk manager and unsubscribe from events."""
+        """
+        Stops the RiskManager service.
+
+        Unsubscribes from `TRADE_SIGNAL_PROPOSED`, `EXECUTION_REPORT`, and
+        `FEATURES_CALCULATED` events.
+        Cancels any running asynchronous tasks like periodic risk checks and
+        dynamic risk adjustment loops.
+        """
         self.logger.info("Stopping RiskManager...", source_module=self._source_module)
         
         self._is_running = False
@@ -539,13 +626,14 @@ class RiskManager:
         try:
             self.pubsub.unsubscribe(EventType.TRADE_SIGNAL_PROPOSED, self._signal_proposal_handler)
             self.pubsub.unsubscribe(EventType.EXECUTION_REPORT, self._exec_report_handler)
+            self.pubsub.unsubscribe(EventType.FEATURES_CALCULATED, self._feature_event_handler)
             self.logger.info(
-                "Unsubscribed from TRADE_SIGNAL_PROPOSED and EXECUTION_REPORT.",
+                "Unsubscribed from TRADE_SIGNAL_PROPOSED, EXECUTION_REPORT, and FEATURES_CALCULATED.",
                 source_module=self._source_module,
             )
         except Exception:
             self.logger.exception(
-                "Error unsubscribing RiskManager",
+                "Error unsubscribing RiskManager handlers",
                 source_module=self._source_module,
             )
 
@@ -582,38 +670,95 @@ class RiskManager:
                     source_module=self._source_module,
                 )
 
-    async def _dynamic_risk_adjustment_loop(self) -> None:
-        """Periodically adjust risk parameters based on market conditions."""
+    async def _handle_feature_event(self, event_dict: Dict[str, Any]) -> None:
+        """
+        Handles incoming `FeatureEvent`s to update latest volatility data.
+        If dynamic risk adjustment is enabled and the event is for a target pair
+        and contains the configured volatility feature, it updates the stored
+        volatility for that pair and triggers a risk parameter update.
+        """
+        if not self._is_running or not self._enable_dynamic_risk_adjustment or \
+           not self._dynamic_risk_volatility_feature_key:
+            return
+
+        if event_dict.get('event_type') == EventType.FEATURES_CALCULATED.name:
+            payload = event_dict.get('payload')
+            if not payload or not isinstance(payload, dict):
+                self.logger.warning("Received FEATURES_CALCULATED event with invalid payload.")
+                return
+
+            trading_pair = payload.get('trading_pair')
+            # Features are expected as dict[str, float] from PublishedFeaturesV1.model_dump()
+            features_data = payload.get('features')
+
+            if not trading_pair or not features_data or not isinstance(features_data, dict):
+                self.logger.warning("FEATURES_CALCULATED event missing trading_pair or valid features dict.")
+                return
+
+            if trading_pair in self._dynamic_risk_target_pairs:
+                volatility_value = features_data.get(self._dynamic_risk_volatility_feature_key)
+
+                if volatility_value is not None and isinstance(volatility_value, (float, int)): # Check type
+                    if np.isnan(volatility_value):
+                        self.logger.debug(
+                            f"Volatility feature '{self._dynamic_risk_volatility_feature_key}' "
+                            f"is NaN for {trading_pair}. Skipping update."
+                        )
+                        return
+
+                    self.logger.debug(
+                        f"Received volatility feature '{self._dynamic_risk_volatility_feature_key}' "
+                        f"value {volatility_value:.4f} for {trading_pair}."
+                    )
+                    self._latest_volatility_features[trading_pair] = float(volatility_value)
+                    await self._update_risk_parameters_based_on_volatility(trading_pair)
+                else:
+                    self.logger.debug(
+                        f"Volatility feature '{self._dynamic_risk_volatility_feature_key}' "
+                        f"not found or invalid type ({type(volatility_value)}) in event for {trading_pair}."
+                    )
+
+    async def _dynamic_risk_adjustment_loop_fallback(self) -> None:
+        """
+        Fallback loop for dynamic risk adjustment if FeatureEngine-based feature
+        is not configured. This uses MarketPriceService.get_volatility directly.
+        This method might be deprecated or removed if feature-based adjustment is primary.
+        """
+        self.logger.info("Using fallback dynamic risk adjustment loop (MarketPriceService.get_volatility).")
         while self._is_running:
             try:
                 await asyncio.sleep(self._risk_adjustment_interval_s)
                 
-                # Adjust risk for each trading pair
-                for trading_pair in ["XRP/USD", "DOGE/USD"]:
-                    # Assuming MarketPriceService might not implement get_volatility yet
+                for trading_pair in self._dynamic_risk_target_pairs:
                     try:
-                        volatility = await self._market_price_service.get_volatility(
+                        volatility_raw = await self._market_price_service.get_volatility(
                             trading_pair, 
-                            self._volatility_window_size
+                            self._volatility_window_size # type: ignore
                         )
-                        if volatility:
-                            await self._update_risk_parameters_based_on_volatility(
-                                trading_pair,
-                                Decimal(str(volatility))
-                            )
+                        if volatility_raw is not None:
+                            # This fallback loop's purpose is to populate the same
+                            # self._latest_volatility_features that _handle_feature_event would,
+                            # so that _update_risk_parameters_based_on_volatility can use it.
+                            if np.isnan(volatility_raw):
+                                self.logger.debug(f"Fallback: MarketPriceService returned NaN volatility for {trading_pair}. Skipping.")
+                                continue
+
+                            self._latest_volatility_features[trading_pair] = float(volatility_raw)
+                            self.logger.debug(f"Fallback: Updated latest volatility for {trading_pair} to {volatility_raw:.4f} from MarketPriceService.")
+                            await self._update_risk_parameters_based_on_volatility(trading_pair)
+                        else:
+                            self.logger.debug(f"Fallback: MarketPriceService returned None volatility for {trading_pair}.")
+
                     except AttributeError:
-                        self.logger.warning(
-                            "MarketPriceService does not implement get_volatility method",
-                            source_module=self._source_module
-                        )
-                        
+                        self.logger.warning("MarketPriceService does not implement get_volatility method (fallback loop).")
+                        return # Stop this loop if service doesn't support it
+                    except Exception:
+                        self.logger.exception(f"Error fetching/processing volatility in fallback loop for {trading_pair}.")
             except asyncio.CancelledError:
                 break
             except Exception:
-                self.logger.exception(
-                    "Error in dynamic risk adjustment",
-                    source_module=self._source_module,
-                )
+                self.logger.exception("Error in fallback dynamic risk adjustment loop")
+
 
     async def _handle_trade_signal_proposed(
         self,
@@ -636,7 +781,7 @@ class RiskManager:
                     Decimal(event.proposed_tp_price) if event.proposed_tp_price else None
                 )
             except InvalidOperation as e:
-                await self._reject_signal( # Re-set line
+                await self._reject_signal(
                     event.signal_id,
                     event,
                     f"Invalid proposed price format: {e}",
@@ -1121,13 +1266,40 @@ class RiskManager:
     async def _update_risk_parameters_based_on_volatility(
         self,
         trading_pair: str,
-        current_volatility: Decimal,
+        # current_volatility: Decimal, # No longer a direct arg
     ) -> None:
-        """Dynamically adjust risk_per_trade_pct based on volatility levels."""
+        """
+        Dynamically adjusts `_risk_per_trade_pct` based on the latest volatility feature
+        value received for the `trading_pair` (from `self._latest_volatility_features`).
+
+        Compares the current feature-based volatility against a pre-calibrated "normal"
+        volatility (from `self._normal_volatility`, typically based on historical daily
+        log return standard deviation).
+        - If current volatility is significantly higher, risk per trade is reduced.
+        - If current volatility is significantly lower, risk per trade is increased (up to the static config max).
+        - Otherwise, it reverts to the statically configured risk per trade.
+        """
         if not self._enable_dynamic_risk_adjustment:
             return
 
-        normal_vol = self._normal_volatility.get(trading_pair)
+        current_volatility_float = self._latest_volatility_features.get(trading_pair)
+        if current_volatility_float is None:
+            self.logger.debug(
+                "No live volatility feature value available for %s to perform dynamic risk adjustment.",
+                trading_pair
+            )
+            return
+
+        try:
+            current_volatility = Decimal(str(current_volatility_float))
+        except InvalidOperation:
+            self.logger.warning(
+                "Invalid volatility feature value '%s' for %s. Cannot perform dynamic risk adjustment.",
+                current_volatility_float, trading_pair
+            )
+            return
+
+        normal_vol = self._normal_volatility.get(trading_pair) # This is Decimal
         current_risk_setting_before_adj = self._risk_per_trade_pct
 
         if normal_vol and normal_vol > Decimal(0):
@@ -1145,7 +1317,7 @@ class RiskManager:
                             f"{current_risk_setting_before_adj:.3f}% "
                             f"to {new_risk_pct:.3f}% "
                             f"for {trading_pair} due to high volatility "
-                            f"({current_volatility:.4f} vs normal ~{normal_vol:.4f})."
+                            f"({current_volatility:.4f} vs normal ~{normal_vol:.4f}). Volatility feature: {self._dynamic_risk_volatility_feature_key}"
                         ),
                         source_module=self._source_module,
                     )
@@ -1154,7 +1326,7 @@ class RiskManager:
             elif current_volatility < normal_vol * Decimal("0.75"):  # Low volatility
                 new_risk_pct = min(
                     current_risk_setting_before_adj * Decimal("1.5"),
-                    static_configured_risk_pct,
+                    static_configured_risk_pct, # Cap at the original config value
                 )
                 if new_risk_pct != current_risk_setting_before_adj:
                     self.logger.info(
@@ -1164,19 +1336,19 @@ class RiskManager:
                             f"to {new_risk_pct:.3f}% "
                             f"for {trading_pair} due to low volatility "
                             f"({current_volatility:.4f} vs normal ~{normal_vol:.4f}). "
-                            f"Capped at {static_configured_risk_pct:.3f}%."
+                            f"Capped at {static_configured_risk_pct:.3f}%. Volatility feature: {self._dynamic_risk_volatility_feature_key}"
                         ),
                         source_module=self._source_module,
                     )
                     self._risk_per_trade_pct = new_risk_pct
 
-            elif self._risk_per_trade_pct != static_configured_risk_pct:
+            elif self._risk_per_trade_pct != static_configured_risk_pct: # Volatility is normal, ensure risk is at static config
                 self.logger.info(
                     (
                         f"DYNAMIC RISK: Volatility normal for {trading_pair} "
                         f"({current_volatility:.4f} vs normal ~{normal_vol:.4f}). "
                         f"Reverting risk per trade from {self._risk_per_trade_pct:.3f}% "
-                        f"to static configured {static_configured_risk_pct:.3f}%."
+                        f"to static configured {static_configured_risk_pct:.3f}%. Volatility feature: {self._dynamic_risk_volatility_feature_key}"
                     ),
                     source_module=self._source_module,
                 )
@@ -1216,13 +1388,31 @@ class RiskManager:
                 self._risk_per_trade_pct = static_configured_risk_pct
 
     async def _calibrate_normal_volatility(self) -> None:
-        """Calibrate and store normal historical volatility for key trading pairs.
-
-        This method is called during startup to establish baseline volatility levels.
-        It fetches historical daily OHLCV data for a defined period (e.g., last 60 days)
-        and calculates the standard deviation of daily logarithmic returns for configured pairs.
         """
-        if not hasattr(self, "_normal_volatility_logged_missing"):
+        Calibrates and stores a baseline "normal" historical volatility for configured trading pairs.
+
+        This method is typically called during startup if dynamic risk adjustment is enabled.
+        It fetches historical daily OHLCV data (e.g., for the last 60 days, as defined
+        by `self._volatility_window_size`) via the `MarketPriceService`. It then
+        calculates the standard deviation of daily logarithmic returns for these pairs.
+        This calculated standard deviation is stored in `self._normal_volatility` for
+        each pair and serves as a baseline.
+
+        The `_update_risk_parameters_based_on_volatility` method later compares a live
+        volatility metric (e.g., ATR, sourced from `FeatureEngine` via
+        `self._dynamic_risk_volatility_feature_key`) against this calibrated baseline
+        to make risk adjustments.
+
+        **Note on Comparability:**
+        The user/configurator must be mindful that the baseline volatility calculated here
+        (std dev of log returns) might differ in scale and nature from the live
+        volatility feature provided by `FeatureEngine` (e.g., an ATR value).
+        The thresholds for dynamic risk adjustment (e.g., "current > normal * 1.5")
+        need to be set with this potential difference in mind to ensure sensible behavior.
+        Future enhancements could involve calibrating normal levels for the *specific*
+        `FeatureEngine` feature if historical values of that feature were available.
+        """
+        if not hasattr(self, "_normal_volatility_logged_missing"): # Ensure attribute exists
             self._normal_volatility_logged_missing = {}
 
         # Define pairs and parameters for calibration
