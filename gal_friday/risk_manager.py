@@ -16,12 +16,18 @@ from typing import TYPE_CHECKING, Any
 
 # Event Definitions
 from .core.events import (
+    Event,
     EventType,
     ExecutionReportEvent,
+    MarketDataOHLCVEvent,
+    MarketDataTickerEvent,
     PotentialHaltTriggerEvent,
-    TradeSignalProposedEvent,
+    SystemStateEvent,
     TradeSignalApprovedEvent,
+    TradeSignalApprovedParams,
+    TradeSignalProposedEvent,
     TradeSignalRejectedEvent,
+    TradeSignalRejectedParams,
 )
 
 # Import PubSubManager
@@ -43,7 +49,7 @@ class RiskManagerError(Exception):
 class SignalValidationStageError(RiskManagerError):
     """Custom exception for failures during specific trade signal validation stages."""
 
-    def __init__(self, reason: str, stage_name: str) -> None:
+    def __init__(self, reason: str | None, stage_name: str) -> None:
         """Initialize the SignalValidationStageError with reason and stage name.
 
         Args:
@@ -364,7 +370,7 @@ class RiskManager:
         self._main_task: asyncio.Task | None = None
         self._periodic_check_task: asyncio.Task | None = None
         self._dynamic_risk_adjustment_task: asyncio.Task | None = None
-        self._risk_metrics_task: asyncio.Task | None = None
+        self._risk_metrics_task_obj: asyncio.Task | None = None
         self._source_module = self.__class__.__name__
 
         # Store handler for unsubscribing
@@ -525,7 +531,7 @@ class RiskManager:
         self._periodic_check_task = asyncio.create_task(self._periodic_risk_check_loop())
         
         # Start risk metrics calculation task
-        self._risk_metrics_task = asyncio.create_task(self._risk_metrics_loop()) # Explicitly re-set
+        self._risk_metrics_task_obj = asyncio.create_task(self._risk_metrics_task()) # Fixed reference
         
         self._is_running = True
         self.logger.info("RiskManager started.", source_module=self._source_module)
@@ -557,8 +563,8 @@ class RiskManager:
         if self._dynamic_risk_adjustment_task and not self._dynamic_risk_adjustment_task.done():
             self._dynamic_risk_adjustment_task.cancel()
             
-        if self._risk_metrics_task and not self._risk_metrics_task.done():
-            self._risk_metrics_task.cancel()
+        if self._risk_metrics_task_obj and not self._risk_metrics_task_obj.done():
+            self._risk_metrics_task_obj.cancel()
 
         self.logger.info(
             "Stopped periodic risk checks and tasks.",
@@ -848,15 +854,28 @@ class RiskManager:
                 context={"signal_id": str(event.signal_id)},
             )
             
-            # Approve the signal
-            await self._approve_signal(
-                event,
-                current_qty_to_trade,
-                final_rounded_entry_price,
-                rounded_sl_price,
-                rounded_tp_price,
-                final_trade_action or "MARKET"  # Default to MARKET if order_type is not available on event
+            # Prepare final validation context for approval
+            final_validation_ctx = FinalValidationDataContext(
+                event=event,
+                signal_id=event.signal_id,
+                trading_pair=event.trading_pair,
+                side=event.side,
+                entry_type=event.entry_type,
+                exchange=event.exchange,
+                strategy_id=event.strategy_id,
+                current_equity=current_equity_decimal,
+                portfolio_state=portfolio_state,
+                state_values=self._extract_relevant_portfolio_values(portfolio_state),
+                initial_rounded_calculated_qty=current_qty_to_trade,
+                rounded_entry_price=final_rounded_entry_price,
+                rounded_sl_price=rounded_sl_price,
+                rounded_tp_price=rounded_tp_price,
+                effective_entry_price=ref_entry_for_calculation,
+                ref_entry_for_calculation=ref_entry_for_calculation
             )
+            
+            # Approve the signal
+            await self._approve_signal(final_validation_ctx)
 
         except SignalValidationStageError as e:
             await self._reject_signal(event.signal_id, event, e.reason)
@@ -1628,7 +1647,8 @@ class RiskManager:
                             return False, "Position already at maximum exposure", None, None
                         
                         scaled_qty = max_additional_value / ctx.ref_entry_price
-                        scaled_qty = self._calculate_lot_size_with_fallback(ctx.trading_pair, scaled_qty)
+                        scaled_qty_result = self._calculate_lot_size_with_fallback(ctx.trading_pair, scaled_qty)
+                        scaled_qty = scaled_qty_result if scaled_qty_result is not None else Decimal("0")
                         
                         if scaled_qty is None or scaled_qty <= 0:
                             return False, "Scaled position size below minimum", None, None
@@ -1653,30 +1673,25 @@ class RiskManager:
         portfolio_state: dict[str, Any],
     ) -> dict[str, Decimal]:
         """Extract and convert relevant portfolio values to Decimal."""
-        extracted = {}
-        
-        # Define fields to extract with defaults
-        fields = {
-            "available_balance_usd": "0",
-            "current_equity_usd": "0",
-            "total_equity_usd": "0",
-            "initial_equity_usd": "0",
-            "daily_initial_equity_usd": "0",
-            "weekly_initial_equity_usd": "0",
-            "total_exposure_usd": "0",
+        extracted: dict[str, Decimal] = {
+            "current_equity_usd": Decimal("0"),
+            "daily_equity_change": Decimal("0"),
+            "weekly_equity_change": Decimal("0"),
+            "monthly_equity_change": Decimal("0"),
+            "max_drawdown_pct": Decimal("0"),
+            "current_margin_utilization_pct": Decimal("0"),
+            "total_exposure_usd": Decimal("0"),
         }
         
-        for field, default in fields.items():
-            value = portfolio_state.get(field, default)
+        for field, default in extracted.items():
             try:
-                extracted[field] = Decimal(str(value))
+                if field in portfolio_state:
+                    value: Decimal | None = Decimal(str(portfolio_state[field]))
+                    if value is not None:
+                        extracted[field] = value
             except (InvalidOperation, ValueError):
-                self.logger.warning(
-                    f"Invalid value for {field}: {value}, using default {default}",
-                    source_module=self._source_module
-                )
-                extracted[field] = Decimal(default)
-        
+                pass
+                
         # Handle special cases
         if "current_equity_usd" not in portfolio_state and "equity" in portfolio_state:
             try:
@@ -1695,3 +1710,208 @@ class RiskManager:
                     pass
 
         return extracted
+        
+    async def _handle_execution_report_for_losses(self, event: ExecutionReportEvent) -> None:
+        """Handle execution reports to track consecutive losses for dynamic risk adjustment.
+        
+        Args:
+            event: The execution report event to process
+        """
+        # Only process final fills
+        if event.order_status.upper() != "FILLED":
+            return
+            
+        # Calculate P&L if possible
+        # Track in recent trades list
+        # Update consecutive loss counter if needed
+        # If consecutive losses exceed threshold, reduce risk parameters
+        pass
+        
+    async def _risk_metrics_task(self) -> None:
+        """Periodically calculate and update risk metrics."""
+        # Risk metrics calculation loop
+        while self._is_running:
+            try:
+                # Calculate risk metrics here
+                pass
+            except Exception as e:
+                self.logger.exception(
+                    "Error in risk metrics calculation",
+                    source_module=self._source_module,
+                    context={"error": str(e)},
+                )
+            finally:
+                await asyncio.sleep(self._risk_metrics_interval_s)
+                
+    async def _reject_signal(self, signal_id: uuid.UUID, event: TradeSignalProposedEvent, reason: str | None) -> None:
+        """Reject a trade signal with a given reason.
+        
+        Args:
+            signal_id: The ID of the signal to reject
+            event: The original trade signal event
+            reason: The reason for rejection
+        """
+        self.logger.info(
+            "Rejecting signal %(signal_id)s: %(reason)s",
+            source_module=self._source_module,
+            context={
+                "signal_id": str(signal_id),
+                "reason": reason,
+                "trading_pair": event.trading_pair,
+                "side": event.side,
+            },
+        )
+        
+        # Create and publish rejection event
+        rejection_params = TradeSignalRejectedParams(
+            source_module=self._source_module,
+            signal_id=signal_id,
+            trading_pair=event.trading_pair,
+            exchange=event.exchange,
+            side=event.side,
+            reason=reason,
+        )
+        
+        rejection_event = TradeSignalRejectedEvent.create(rejection_params)
+        await self.pubsub.publish(rejection_event)
+        
+    async def _approve_signal(self, ctx: FinalValidationDataContext) -> None:
+        """Approve a trade signal with calculated risk parameters.
+        
+        Args:
+            ctx: Final validation context
+        """
+        self.logger.info(
+            "Approving signal %(signal_id)s",
+            source_module=self._source_module,
+            context={
+                "signal_id": str(ctx.signal_id),
+                "trading_pair": ctx.trading_pair,
+                "side": ctx.side,
+                "entry_type": ctx.entry_type,
+                "exchange": ctx.exchange,
+                "strategy_id": ctx.strategy_id,
+            },
+        )
+        
+        # Create and publish approval event
+        # Ensure tp_price is a Decimal by providing default of 0 if None
+        tp_price_decimal = ctx.rounded_tp_price if ctx.rounded_tp_price is not None else Decimal("0")
+        
+        approval_params = TradeSignalApprovedParams(
+            source_module=self._source_module,
+            signal_id=ctx.signal_id,
+            trading_pair=ctx.trading_pair,
+            exchange=ctx.exchange,
+            side=ctx.side,
+            order_type=ctx.entry_type,
+            quantity=ctx.initial_rounded_calculated_qty,
+            sl_price=ctx.rounded_sl_price,
+            tp_price=tp_price_decimal,
+            risk_parameters={
+                "risk_per_trade_pct": self._risk_per_trade_pct,
+                "max_order_size_usd": self._max_order_size_usd,
+                "max_exposure_per_asset_pct": self._max_exposure_per_asset_pct,
+                "max_total_exposure_pct": self._max_total_exposure_pct,
+            },
+            limit_price=ctx.rounded_entry_price if ctx.entry_type == "LIMIT" else None,
+        )
+        
+        approval_event = TradeSignalApprovedEvent.create(approval_params)
+        await self.pubsub.publish(approval_event)
+        
+    def _stage3_position_sizing_and_portfolio_checks(self, ctx: Stage3Context) -> Decimal:
+        """Calculate position size and perform portfolio checks.
+        
+        Args:
+            ctx: Context containing event and price information
+            
+        Returns:
+            Decimal: Calculated position size
+        """
+        sizing_result = self._calculate_and_validate_position_size(
+            ctx.event,
+            ctx.current_equity_decimal,
+            ctx.ref_entry_for_calculation,
+            ctx.rounded_sl_price,
+            ctx.portfolio_state,
+        )
+        
+        if not sizing_result.is_valid or sizing_result.quantity is None:
+            raise SignalValidationStageError(
+                sizing_result.rejection_reason or "Position sizing failed",
+                "Stage3: Position Sizing",
+            )
+        
+        return sizing_result.quantity
+        
+    async def _stage2_market_price_dependent_checks(self, ctx: Stage2Context) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+        """Perform market price dependent checks (fat finger, SL distance).
+        
+        Args:
+            ctx: Context containing event and price information
+            
+        Returns:
+            tuple: (effective_entry_price_for_non_limit, ref_entry_for_calculation, final_rounded_entry_price)
+        """
+        # Implementation would check for fat finger errors and SL distance validations
+        event = ctx.event
+        
+        # For market orders, use current market price as reference
+        effective_entry_price_for_non_limit = None
+        if event.entry_type.upper() == "MARKET" and ctx.current_market_price_for_validation is not None:
+            effective_entry_price_for_non_limit = ctx.current_market_price_for_validation
+        
+        # Reference price for calculations (entry or current market price)
+        ref_entry_for_calculation = ctx.rounded_entry_price
+        if ref_entry_for_calculation is None:
+            ref_entry_for_calculation = effective_entry_price_for_non_limit
+            
+        # Validate prices
+        price_validation_ctx = PriceValidationContext(
+            event=event,
+            entry_type=event.entry_type,
+            side=event.side,
+            rounded_entry_price=ctx.rounded_entry_price,
+            rounded_sl_price=ctx.rounded_sl_price,
+            effective_entry_price_for_non_limit=effective_entry_price_for_non_limit,
+            current_market_price=ctx.current_market_price_for_validation,
+        )
+        
+        is_valid, reason = self._validate_prices_fat_finger_and_sl_distance(price_validation_ctx)
+        if not is_valid:
+            raise SignalValidationStageError(reason or "Unknown validation error", "Stage2: Fat Finger & SL Distance")
+            
+        return effective_entry_price_for_non_limit, ref_entry_for_calculation, ctx.rounded_entry_price
+    
+    def _calculate_lot_size_with_fallback(self, trading_pair: str, quantity: Decimal) -> Decimal | None:
+        """Round quantity to exchange step size with fallback mechanisms.
+        
+        Args:
+            trading_pair: The trading pair to calculate for
+            quantity: The raw quantity to round
+            
+        Returns:
+            Rounded quantity or None if below minimum
+        """
+        # Try to get step size from exchange info service
+        step_size = self._exchange_info_service.get_step_size(trading_pair)
+        
+        if step_size is None:
+            # Fallback to some reasonable defaults based on asset type
+            # This is a simplified approach - in production you'd want more robust fallbacks
+            if trading_pair.endswith("BTC"):
+                step_size = Decimal("0.00001")
+            elif trading_pair.endswith("ETH"):
+                step_size = Decimal("0.0001")
+            else:
+                step_size = Decimal("1")
+                
+        # Round down to step size
+        rounded_qty = (quantity / step_size).quantize(Decimal("1"), rounding=ROUND_DOWN) * step_size
+        
+        # Check if below minimum
+        if rounded_qty <= 0:
+            return None
+            
+        return rounded_qty

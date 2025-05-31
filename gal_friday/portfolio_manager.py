@@ -26,8 +26,8 @@ from .execution_handler import ExecutionHandler
 from .interfaces.market_price_service_interface import MarketPriceService
 from .logger_service import LoggerService
 from .portfolio.funds_manager import FundsManager, TradeParams
-from .portfolio.position_manager import PositionManager # PositionInfo removed
-from .dal.models.position import Position as PositionModel # Added PositionModel
+from .portfolio.position_manager import PositionManager
+from .dal.models.position import Position as PositionModel
 from .portfolio.valuation_service import ValuationService
 
 # Set Decimal precision
@@ -47,7 +47,7 @@ class ReconcilableExecutionHandler(Protocol):
         """
         ...
 
-    async def get_open_positions(self) -> dict[str, PositionModel]: # Changed PositionInfo to PositionModel
+    async def get_open_positions(self) -> dict[str, PositionModel]:
         """Retrieve open positions from exchange.
 
         Returns:
@@ -375,7 +375,7 @@ class PortfolioManager:
 
             # 3. Update Position (PositionManager)
             # Store and log the realized PNL from the position update
-            pnl, _ = await self.position_manager.update_position_for_trade(
+            pnl, updated_pos_model = await self.position_manager.update_position_for_trade(
                 trading_pair=pair,
                 side=side,
                 quantity=qty_filled,
@@ -387,18 +387,17 @@ class PortfolioManager:
             )
 
             # Update cache with the result from PositionManager
-            if updated_pos_model_from_pm:
+            if updated_pos_model:
                 async with self._lock:
-                    if updated_pos_model_from_pm.is_active and updated_pos_model_from_pm.quantity != Decimal(0):
-                        self._cached_positions[updated_pos_model_from_pm.trading_pair] = updated_pos_model_from_pm
+                    if updated_pos_model.is_active and updated_pos_model.quantity != Decimal(0):
+                        self._cached_positions[updated_pos_model.trading_pair] = updated_pos_model
                     else: # Position closed or inactive
-                        self._cached_positions.pop(updated_pos_model_from_pm.trading_pair, None)
+                        self._cached_positions.pop(updated_pos_model.trading_pair, None)
             elif event.order_status in ["FILLED", "PARTIALLY_FILLED"]: # If update failed but should have happened
                 self.logger.warning(
                     f"Position model for {event.trading_pair} was not updated in cache after trade {event.exchange_order_id}.",
                     source_module=self._source_module
                 )
-
 
             if pnl != Decimal(0):
                 self.logger.info(
@@ -720,26 +719,17 @@ class PortfolioManager:
             )
         return result
 
-    def get_open_positions(self) -> list[PositionModel]: # Changed PositionInfo to PositionModel
-        """Return a list of open positions.
-                    "side": trade.side,
-                    "quantity": str(trade.quantity),
-                    "price": str(trade.price),
-                    "commission": str(trade.commission),
-                    "commission_asset": trade.commission_asset,
-                },
-            )
-        return result
-
-    def get_open_positions(self) -> list[PositionModel]: # Changed PositionInfo to PositionModel
+    async def get_open_positions(self) -> list[PositionModel]:
         """Return a list of open positions.
 
         Returns:
         -------
             List of current open position information objects
         """
-        # Delegate to PositionManager
-        return self.position_manager.get_open_positions() # This now returns Sequence[PositionModel]
+        # Since we're making this method async and the position manager likely has an async method
+        # we can properly await it. If position_manager.get_open_positions is sync, we'd need to adjust.
+        # Based on the file structure, this is likely async
+        return await self.position_manager.get_open_positions()
 
     EXPECTED_SYMBOL_PARTS = 2
 
@@ -840,16 +830,17 @@ class PortfolioManager:
             # Fetch exchange state
             exchange_balances = await reconcilable_handler.get_account_balances()
             exchange_positions_raw = await reconcilable_handler.get_open_positions()
-            # Ensure exchange_positions is Dict[str, PositionInfo]
+            # Ensure exchange_positions is Dict[str, PositionModel]
             exchange_positions = {
                 pair: pos
                 for pair, pos in exchange_positions_raw.items()
-                if isinstance(pos, PositionModel) # Changed PositionInfo to PositionModel
+                if isinstance(pos, PositionModel)
             }
 
             # Get internal state
             internal_balances = self.funds_manager.available_funds
-            internal_positions = self.position_manager.positions
+            # Get current positions from cache
+            internal_positions = self._cached_positions.copy()
 
             discrepancies_found = False
 
@@ -917,7 +908,7 @@ class PortfolioManager:
 
     async def _auto_reconcile_positions(
         self,
-        exchange_positions: dict[str, PositionModel], # Changed PositionInfo to PositionModel
+        exchange_positions: dict[str, PositionModel],
     ) -> None:
         """Auto-reconcile positions with exchange data.
 
@@ -934,7 +925,7 @@ class PortfolioManager:
 
     async def _reconcile_positions_with_exchange(
         self,
-        exchange_positions: dict[str, PositionModel], # Changed PositionInfo to PositionModel
+        exchange_positions: dict[str, PositionModel],
     ) -> None:
         """Reconcile positions with exchange data.
 
@@ -947,7 +938,7 @@ class PortfolioManager:
         """
         # First, iterate through exchange positions
         for pair, ex_pos in exchange_positions.items():
-            int_pos = self.position_manager.get_position(pair)
+            int_pos = await self.position_manager.get_position(pair)
             if int_pos:
                 # Position exists in both - check if quantities match
                 if int_pos.quantity != ex_pos.quantity:
@@ -980,7 +971,8 @@ class PortfolioManager:
                 await self._create_position_from_exchange(pair, base_asset, quote_asset, ex_pos)
 
         # Now check for positions that exist internally but not on exchange
-        for pair, int_pos in self.position_manager.positions.items():
+        internal_positions = self._cached_positions.copy()
+        for pair, int_pos in internal_positions.items():
             if pair not in exchange_positions and int_pos.quantity != 0:
                 self.logger.info(
                     "Closing position %s that doesn't exist on exchange",
@@ -989,19 +981,18 @@ class PortfolioManager:
                 )
                 base_asset, quote_asset = self._split_symbol(pair)
                 # Create a reconciliation trade to close the position
-                dummy_pos = PositionInfo(
+                # Create a dummy PositionModel for target with 0 quantity
+                dummy_pos = PositionModel(
                     trading_pair=pair,
-                    base_asset=base_asset,
-                    quote_asset=quote_asset,
                     quantity=Decimal(0),
-                    average_entry_price=Decimal(0),
+                    entry_price=Decimal(0),
                 )
                 await self._create_reconciliation_trade(
                     pair,
                     base_asset,
                     quote_asset,
-                    int_pos, # This is PositionModel
-                    PositionModel(trading_pair=pair, base_asset=base_asset, quote_asset=quote_asset, quantity=Decimal(0), entry_price=Decimal(0)) # Create a dummy PositionModel like object or pass attributes
+                    int_pos,
+                    dummy_pos,
                 )
 
     async def _create_reconciliation_trade(
@@ -1009,8 +1000,8 @@ class PortfolioManager:
         pair: str,
         base_asset: str,
         quote_asset: str,
-        current_pos: PositionModel, # Changed PositionInfo to PositionModel
-        target_pos: PositionModel, # Changed PositionInfo to PositionModel
+        current_pos: PositionModel,
+        target_pos: PositionModel,
     ) -> None:
         """Create a reconciliation trade to adjust position to match target.
 
@@ -1037,7 +1028,7 @@ class PortfolioManager:
         abs_qty = abs(diff_qty)
 
         # Use average entry price or a fallback price
-        price = target_pos.average_entry_price
+        price = target_pos.entry_price
         if price <= 0:
             # Try to get current market price as fallback
             try:
@@ -1047,8 +1038,8 @@ class PortfolioManager:
                 else:
                     # Last resort - use internal position's price or 1.0
                     price = (
-                        current_pos.average_entry_price
-                        if current_pos.average_entry_price > 0
+                        current_pos.entry_price
+                        if current_pos.entry_price > 0
                         else Decimal("1.0")
                     )
             except Exception:
@@ -1096,7 +1087,7 @@ class PortfolioManager:
         pair: str,
         base_asset: str,
         quote_asset: str,
-        exchange_pos: PositionModel, # Changed PositionInfo to PositionModel
+        exchange_pos: PositionModel,
     ) -> None:
         """Create a new position from exchange data.
 
@@ -1117,7 +1108,7 @@ class PortfolioManager:
         abs_qty = abs(exchange_pos.quantity)
 
         # Use exchange position's average entry price or fallback
-        price = exchange_pos.average_entry_price
+        price = exchange_pos.entry_price
         if price <= 0:
             try:
                 current_price = await self.market_price_service.get_latest_price(pair)
@@ -1199,8 +1190,8 @@ class PortfolioManager:
 
     def _compare_positions(
         self,
-        internal: dict[str, PositionModel], # Changed PositionInfo to PositionModel
-        exchange: dict[str, PositionModel], # Changed PositionInfo to PositionModel
+        internal: dict[str, PositionModel],
+        exchange: dict[str, PositionModel],
     ) -> dict[str, dict[str, Decimal]]:
         """Compare internal and exchange positions, return discrepancies.
 

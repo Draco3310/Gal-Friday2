@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict, NotRequired, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,6 +43,12 @@ class ConnectionState(Enum):
     AUTHENTICATED = "authenticated"
     RECONNECTING = "reconnecting"
     ERROR = "error"
+
+
+class TokenCache(TypedDict):
+    """Type for WebSocket token cache."""
+    token: str
+    expires_at: float
 
 
 @dataclass
@@ -98,8 +104,8 @@ class KrakenWebSocketClient:
         self.api_base_url = config.get("kraken.api_url", "https://api.kraken.com")
         
         # Cache for WebSocket token with expiry
-        self._ws_token_cache: dict[str, Any] = {
-            "token": None,
+        self._ws_token_cache: TokenCache = {
+            "token": "",
             "expires_at": 0
         }
 
@@ -268,7 +274,7 @@ class KrakenWebSocketClient:
                 source_module=self._source_module,
                 context={"expires_in": self._ws_token_cache["expires_at"] - current_time}
             )
-            return self._ws_token_cache["token"]
+            return self._ws_token_cache["token"]  # This is definitely a string based on our TokenCache type
         
         # Generate new token
         try:
@@ -278,12 +284,12 @@ class KrakenWebSocketClient:
             
             # Create signature
             post_data = f"nonce={nonce}"
-            message = (endpoint + hashlib.sha256(
-                (nonce + post_data).encode()
-            ).digest())
+            message = endpoint.encode() + hashlib.sha256(
+                f"{nonce}{post_data}".encode()
+            ).digest()
             signature = hmac.new(
                 self.api_secret,
-                message.encode(),
+                message,  # message is already bytes
                 hashlib.sha512
             ).digest()
             
@@ -308,7 +314,7 @@ class KrakenWebSocketClient:
                     f"Failed to get WebSocket token: {result['error']}"
                 )
             
-            token = result["result"]["token"]
+            token = cast(str, result["result"]["token"])
             
             # Cache token (valid for 900 seconds)
             self._ws_token_cache = {
@@ -326,9 +332,10 @@ class KrakenWebSocketClient:
             
         except Exception as e:
             self.logger.error(
-                "Failed to retrieve WebSocket token",
+                "Failed to retrieve WebSocket token: %s",
+                str(e),
                 source_module=self._source_module,
-                error=str(e)
+                context={"error_type": type(e).__name__}
             )
             raise ExecutionHandlerAuthenticationError(
                 f"WebSocket token retrieval failed: {e}"
