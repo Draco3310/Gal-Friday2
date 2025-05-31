@@ -21,7 +21,7 @@ from ..core.pubsub import PubSubManager
 # Import custom exceptions
 from ..exceptions import (
     ExecutionHandlerAuthenticationError,
-    ExecutionHandlerCriticalFailure,
+    ExecutionHandlerCriticalError,
     ExecutionHandlerNetworkError,
 )
 
@@ -40,7 +40,7 @@ from ..monitoring_service import MonitoringService
 from ..utils.kraken_api import generate_kraken_signature
 
 
-class KrakenExecutionError(ExecutionHandlerCriticalFailure):
+class KrakenExecutionError(ExecutionHandlerCriticalError):
     """Base exception for Kraken execution errors."""
 
 
@@ -789,7 +789,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         should_halt = (
             isinstance(
                 error,
-                ExecutionHandlerCriticalFailure | ExecutionHandlerAuthenticationError,
+                ExecutionHandlerCriticalError | ExecutionHandlerAuthenticationError,
             ) or
             self._consecutive_errors >= self._max_consecutive_errors
         )

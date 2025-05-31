@@ -220,8 +220,8 @@ metrics_collector = MetricsCollector()
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application lifecycle."""
     # Startup
-    logger = LoggerService.get_logger("dashboard")
-    logger.info("Starting dashboard backend...")
+    logger = app.state.logger
+    logger.info("Starting dashboard backend...", source_module="dashboard")
 
     # Initialize Redis connection if configured
     redis_url = app.state.config.get("redis.url")
@@ -472,8 +472,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         manager.disconnect(websocket)
 
     except Exception as e:
-        logger = LoggerService.get_logger("websocket")
-        logger.error(f"WebSocket error: {e}")
+        logger = app.state.logger
+        logger.error(f"WebSocket error: {e}", source_module="websocket")
         manager.disconnect(websocket)
 
 

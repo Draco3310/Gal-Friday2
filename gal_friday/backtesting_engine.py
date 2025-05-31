@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from gal_friday.strategy_arbitrator import StrategyArbitrator as _StrategyArbitrator
 
     # Define type aliases that use the implementation types
-    LoggerServiceType = _LoggerService[Any]
+    LoggerServiceType = _LoggerService
     SimulatedMarketPriceServiceType = _SimulatedMarketPriceService
     PortfolioManagerType = _PortfolioManager
     FeatureEngineType = _FeatureEngine

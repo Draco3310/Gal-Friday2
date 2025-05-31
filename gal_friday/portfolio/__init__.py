@@ -5,7 +5,7 @@ funds management, and portfolio valuation.
 """
 
 from .funds_manager import FundsManager
-from .position_manager import PositionInfo, PositionManager, TradeInfo
+from .position_manager import PositionManager, TradeInfo
 from .reconciliation_service import (
     DiscrepancyType,
     PositionDiscrepancy,

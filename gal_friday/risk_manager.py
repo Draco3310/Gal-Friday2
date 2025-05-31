@@ -508,8 +508,8 @@ class RiskManager:
         self.logger.info("Starting RiskManager...", source_module=self._source_module)
         
         # Subscribe to events
-        self.pubsub.subscribe("TRADE_SIGNAL_PROPOSED", self._signal_proposal_handler)
-        self.pubsub.subscribe("EXECUTION_REPORT", self._exec_report_handler)
+        self.pubsub.subscribe(EventType.TRADE_SIGNAL_PROPOSED, self._signal_proposal_handler)
+        self.pubsub.subscribe(EventType.EXECUTION_REPORT, self._exec_report_handler)
         
         # Calibrate normal volatility for dynamic risk adjustment
         if self._enable_dynamic_risk_adjustment:
@@ -537,8 +537,8 @@ class RiskManager:
         
         # Unsubscribe from events
         try:
-            self.pubsub.unsubscribe("TRADE_SIGNAL_PROPOSED", self._signal_proposal_handler)
-            self.pubsub.unsubscribe("EXECUTION_REPORT", self._exec_report_handler)
+            self.pubsub.unsubscribe(EventType.TRADE_SIGNAL_PROPOSED, self._signal_proposal_handler)
+            self.pubsub.unsubscribe(EventType.EXECUTION_REPORT, self._exec_report_handler)
             self.logger.info(
                 "Unsubscribed from TRADE_SIGNAL_PROPOSED and EXECUTION_REPORT.",
                 source_module=self._source_module,
@@ -590,14 +590,21 @@ class RiskManager:
                 
                 # Adjust risk for each trading pair
                 for trading_pair in ["XRP/USD", "DOGE/USD"]:
-                    volatility = await self._market_price_service.get_volatility(
-                        trading_pair, 
-                        self._volatility_window_size
-                    )
-                    if volatility:
-                        await self._update_risk_parameters_based_on_volatility(
-                            trading_pair,
-                            Decimal(str(volatility))
+                    # Assuming MarketPriceService might not implement get_volatility yet
+                    try:
+                        volatility = await self._market_price_service.get_volatility(
+                            trading_pair, 
+                            self._volatility_window_size
+                        )
+                        if volatility:
+                            await self._update_risk_parameters_based_on_volatility(
+                                trading_pair,
+                                Decimal(str(volatility))
+                            )
+                    except AttributeError:
+                        self.logger.warning(
+                            "MarketPriceService does not implement get_volatility method",
+                            source_module=self._source_module
                         )
                         
             except asyncio.CancelledError:
@@ -607,237 +614,6 @@ class RiskManager:
                     "Error in dynamic risk adjustment",
                     source_module=self._source_module,
                 )
-
-    async def _risk_metrics_loop(self) -> None:
-        """Calculate and log risk metrics periodically."""
-        while self._is_running:
-            try:
-                await asyncio.sleep(self._risk_metrics_interval_s)
-                
-                portfolio_state = self._portfolio_manager.get_current_state()
-                metrics = self._calculate_risk_metrics(portfolio_state)
-                
-                self.logger.info(
-                    "Risk metrics calculated",
-                    source_module=self._source_module,
-                    context=metrics
-                )
-                
-            except asyncio.CancelledError:
-                break
-            except Exception:
-                self.logger.exception(
-                    "Error calculating risk metrics",
-                    source_module=self._source_module,
-                )
-
-    def _calculate_risk_metrics(self, portfolio_state: dict[str, Any]) -> dict[str, Any]:
-        """Calculate current risk metrics."""
-        state_values = self._extract_relevant_portfolio_values(portfolio_state)
-        
-        metrics = {
-            "current_equity": float(state_values.get("current_equity_usd", 0)),
-            "available_balance": float(state_values.get("available_balance_usd", 0)),
-            "total_exposure": float(state_values.get("total_exposure_usd", 0)),
-            "exposure_pct": 0.0,
-            "drawdown_pct": 0.0,
-            "consecutive_losses": self._consecutive_loss_count,
-            "risk_per_trade_pct": float(self._risk_per_trade_pct),
-        }
-        
-        # Calculate exposure percentage
-        if metrics["current_equity"] > 0:
-            metrics["exposure_pct"] = (metrics["total_exposure"] / metrics["current_equity"]) * 100
-            
-        # Calculate drawdown
-        initial_equity = float(state_values.get("initial_equity_usd", metrics["current_equity"]))
-        if initial_equity > 0:
-            metrics["drawdown_pct"] = ((initial_equity - metrics["current_equity"]) / initial_equity) * 100
-            
-        return metrics
-
-    def _validate_and_raise_if_error(
-        self,
-        error_condition: bool,
-        failure_reason: str,  # Concise reason for SignalValidationStageError
-        stage_name: str,
-        log_message: str | None = None,  # Optional detailed message for logging
-        log_context: dict[str, Any] | None = None,
-    ) -> None:
-        """Log (optional) and raise SignalValidationStageError if a condition is met."""
-        if error_condition:
-            if log_message:
-                full_log_context = {"failure_reason": failure_reason, **(log_context or {})}
-                # Defaulting to warning; critical errors
-                # can be logged explicitly before calling this
-                self.logger.warning(
-                    log_message,
-                    source_module=self._source_module,
-                    context=full_log_context,
-                )
-            raise SignalValidationStageError(failure_reason, stage_name)
-
-    async def _stage1_initial_validation_and_price_rounding(
-        self,
-        ctx: Stage1Context,
-    ) -> tuple[Decimal | None, Decimal, Decimal | None]:
-        """Perform Stage 1: Initial Validation & Price Rounding.
-
-        Returns tuple: (rounded_entry_price, rounded_sl_price, rounded_tp_price)
-        Raises SignalValidationStageError on failure.
-        """
-        stage_name = "Stage1: Initial Validation & Price Rounding"
-        effective_entry_price_for_rounding = ctx.proposed_entry_price_decimal
-        if ctx.event.entry_type == "LIMIT" and effective_entry_price_for_rounding is None:
-            reason = "LIMIT price missing."
-            raise SignalValidationStageError(reason, stage_name)
-
-        price_rounding_ctx = PriceRoundingContext(
-            entry_type=ctx.event.entry_type,
-            side=ctx.event.side,
-            trading_pair=ctx.event.trading_pair,
-            effective_entry_price=effective_entry_price_for_rounding,
-            sl_price=ctx.proposed_sl_price_decimal,
-            tp_price=ctx.proposed_tp_price_decimal,
-        )
-        (
-            is_valid_initial,
-            initial_rejection_reason,
-            rounded_entry_price,
-            rounded_sl_price,
-            rounded_tp_price,
-        ) = self._calculate_and_validate_prices(price_rounding_ctx)
-
-        if not is_valid_initial:
-            raise SignalValidationStageError(
-                initial_rejection_reason or "Initial price validation failed",
-                stage_name,
-            )
-
-        if rounded_sl_price is None:
-            self.logger.error(
-                "SL price is unexpectedly None after initial validation for signal %(signal_id)s.",
-                source_module=self._source_module,
-                context={"signal_id": str(ctx.event.signal_id)},
-            )
-            reason = "Critical: SL calculation failed."
-            raise SignalValidationStageError(reason, stage_name)
-
-        return rounded_entry_price, rounded_sl_price, rounded_tp_price
-
-    async def _stage2_market_price_dependent_checks(
-        self,
-        ctx: Stage2Context,
-    ) -> tuple[Decimal | None, Decimal, Decimal]:
-        """Perform Stage 2: Fat Finger & Stop-Loss Distance.
-
-        Returns tuple: (effective_entry_price_for_non_limit,
-                        ref_entry_for_calculation,
-                        final_rounded_entry_price)
-        Raises SignalValidationStageError on failure.
-        """
-        stage_name = "Stage2: Market Price Dependent Checks"
-        effective_entry_price_for_non_limit: Decimal | None = None
-        final_rounded_entry_price = ctx.rounded_entry_price
-
-        if ctx.event.entry_type.upper() != "LIMIT":
-            effective_entry_price_for_non_limit = ctx.current_market_price_for_validation
-            if effective_entry_price_for_non_limit is None:
-                self.logger.warning(
-                    (
-                        "Cannot perform fat-finger/SL validation for signal %(signal_id)s "
-                        "due to missing market price."
-                    ),
-                    source_module=self._source_module,
-                    context={"signal_id": str(ctx.event.signal_id)},
-                )
-                reason = "Market price unavailable for validation."
-                raise SignalValidationStageError(reason, stage_name)
-
-            if final_rounded_entry_price is None:
-                final_rounded_entry_price = self._round_price_to_tick_size(
-                    effective_entry_price_for_non_limit,
-                    ctx.event.trading_pair,
-                )
-
-        ref_entry_for_calculation = (
-            final_rounded_entry_price
-            if ctx.event.entry_type.upper() == "LIMIT"
-            else effective_entry_price_for_non_limit
-        )
-
-        if ref_entry_for_calculation is None:
-            self.logger.error(
-                "Internal: Ref entry price missing for signal %(signal_id)s, stage: %(stage)s",
-                context={"signal_id": str(ctx.event.signal_id), "stage": stage_name},
-            )
-            reason = "Internal: Ref. entry missing."
-            raise SignalValidationStageError(reason, stage_name)
-
-        if final_rounded_entry_price is None:  # Should be set for both LIMIT and MARKET by now
-            self.logger.error(
-                "Final rounded entry price is None before price validation for signal "
-                "%(signal_id)s. Type: %(type)s",
-                source_module=self._source_module,
-                context={"signal_id": str(ctx.event.signal_id), "type": ctx.event.entry_type},
-            )
-            reason = "Internal: Final entry missing."
-            raise SignalValidationStageError(reason, stage_name)
-
-        price_validation_ctx = PriceValidationContext(
-            event=ctx.event,
-            entry_type=ctx.event.entry_type,
-            side=ctx.event.side,
-            rounded_entry_price=final_rounded_entry_price,
-            rounded_sl_price=ctx.rounded_sl_price,
-            effective_entry_price_for_non_limit=effective_entry_price_for_non_limit,
-            current_market_price=ctx.current_market_price_for_validation,
-        )
-
-        is_price_valid, price_rejection_reason = self._validate_prices_fat_finger_and_sl_distance(
-            price_validation_ctx,
-        )
-
-        if not is_price_valid:
-            raise SignalValidationStageError(
-                price_rejection_reason or "Price validation failed (fat-finger/SL distance).",
-                stage_name,
-            )
-
-        return (
-            effective_entry_price_for_non_limit,
-            ref_entry_for_calculation,
-            final_rounded_entry_price,
-        )
-
-    def _stage3_position_sizing_and_portfolio_checks(self, ctx: Stage3Context) -> Decimal:
-        """Perform Stage 3: Position Sizing & Portfolio Checks.
-
-        Returns initial_rounded_calculated_qty.
-        Raises SignalValidationStageError on failure.
-        """
-        stage_name = "Stage3: Position Sizing & Portfolio Checks"
-
-        sizing_result = self._calculate_and_validate_position_size(
-            ctx.event,
-            ctx.current_equity_decimal,
-            ctx.ref_entry_for_calculation,
-            ctx.rounded_sl_price,
-            ctx.portfolio_state,
-        )
-        if not sizing_result.is_valid:
-            raise SignalValidationStageError(
-                sizing_result.rejection_reason or "Position sizing/validation failed.",
-                stage_name,
-            )
-
-        initial_rounded_calculated_qty = sizing_result.quantity
-
-        if initial_rounded_calculated_qty is None or initial_rounded_calculated_qty.is_zero():
-            reason = "Qty zero/None post-sizing."
-            raise SignalValidationStageError(reason, stage_name)
-
-        return initial_rounded_calculated_qty
 
     async def _handle_trade_signal_proposed(
         self,
@@ -1078,7 +854,7 @@ class RiskManager:
                 final_rounded_entry_price,
                 rounded_sl_price,
                 rounded_tp_price,
-                final_trade_action or event.order_type
+                final_trade_action or "MARKET"  # Default to MARKET if order_type is not available on event
             )
 
         except SignalValidationStageError as e:
@@ -1393,6 +1169,7 @@ class RiskManager:
                         source_module=self._source_module,
                     )
                     self._risk_per_trade_pct = new_risk_pct
+
             elif self._risk_per_trade_pct != static_configured_risk_pct:
                 self.logger.info(
                     (
@@ -1622,67 +1399,6 @@ class RiskManager:
             source_module=self._source_module,
         )
 
-    def _handle_execution_report_for_losses(self, event: "ExecutionReportEvent") -> None:
-        """Track execution reports to count consecutive losses."""
-        if event.order_status in ["FILLED", "PARTIALLY_FILLED"]:
-            # Track the trade
-            trade_info = {
-                "timestamp": event.timestamp,
-                "trading_pair": event.trading_pair,
-                "side": event.side,
-                "quantity": event.quantity_filled,
-                "price": event.average_fill_price,
-                "signal_id": event.signal_id,
-            }
-            self._recent_trades.append(trade_info)
-            
-            # Keep only recent trades (last 100)
-            if len(self._recent_trades) > 100:
-                self._recent_trades = self._recent_trades[-100:]
-            
-            # Check if this is a loss (simplified - would need P&L calculation)
-            # This is a placeholder - actual implementation would track entry/exit
-            # and calculate realized P&L
-            self.logger.debug(
-                "Execution report processed for loss tracking",
-                source_module=self._source_module,
-                context={"signal_id": str(event.signal_id)},
-            )
-
-    def _calculate_lot_size_with_fallback(
-        self,
-        trading_pair: str,
-        base_amount: Decimal,
-    ) -> Decimal | None:
-        """Calculate lot size with exchange-specific constraints."""
-        # Get step size from exchange info
-        step_size = self._exchange_info_service.get_step_size(trading_pair)
-        if not step_size:
-            self.logger.warning(
-                f"Step size not found for {trading_pair}, using default",
-                source_module=self._source_module,
-            )
-            step_size = Decimal("0.00001")  # Default fallback
-        
-        # Round down to nearest step size
-        if step_size > 0:
-            lot_size = (base_amount // step_size) * step_size
-        else:
-            lot_size = base_amount
-            
-        # Get minimum order size
-        symbol_info = self._exchange_info_service.get_symbol_info(trading_pair)
-        if symbol_info:
-            min_qty = Decimal(str(symbol_info.get("min_quantity", "0")))
-            if lot_size < min_qty:
-                self.logger.warning(
-                    f"Calculated lot size {lot_size} below minimum {min_qty} for {trading_pair}",
-                    source_module=self._source_module,
-                )
-                return None
-                
-        return lot_size
-
     def _calculate_and_validate_prices(
         self,
         ctx: PriceRoundingContext,
@@ -1719,7 +1435,7 @@ class RiskManager:
         if rounded_entry_price is not None and rounded_sl_price is not None:
             sl_distance_pct = abs((rounded_sl_price - rounded_entry_price) / rounded_entry_price) * Decimal("100")
             if sl_distance_pct < self._min_sl_distance_pct:
-                return False, f"SL distance {sl_distance_pct:.2f}% below minimum {self._min_sl_distance_pct}%"
+                return False, f"SL distance {sl_distance_pct:.2f}% below minimum {self._min_sl_distance_pct}%", None, None, None
                 
         # Calculate TP if not provided
         rounded_tp_price = None
@@ -1736,92 +1452,6 @@ class RiskManager:
             
         return True, None, rounded_entry_price, rounded_sl_price, rounded_tp_price
 
-    async def _reject_signal(
-        self,
-        signal_id: uuid.UUID,
-        event: TradeSignalProposedEvent,
-        reason: str,
-    ) -> None:
-        """Reject a trade signal and publish rejection event."""
-        self.logger.info(
-            f"Signal rejected: {reason}",
-            source_module=self._source_module,
-            context={
-                "signal_id": str(signal_id),
-                "reason": reason,
-                "trading_pair": event.trading_pair,
-                "side": event.side,
-            },
-        )
-        
-        # Create and publish rejection event
-        rejection_event = TradeSignalRejectedEvent(
-            source_module=self._source_module,
-            event_id=uuid.uuid4(),
-            timestamp=datetime.now(UTC),
-            signal_id=signal_id,
-            trading_pair=event.trading_pair,
-            exchange=event.exchange,
-            side=event.side,
-            reason=reason,
-        )
-        
-        await self.pubsub.publish(rejection_event)
-
-    async def _approve_signal(
-        self,
-        event: TradeSignalProposedEvent,
-        quantity: Decimal,
-        limit_price: Decimal | None,
-        sl_price: Decimal,
-        tp_price: Decimal | None,
-        order_type: str,
-    ) -> None:
-        """Approve a trade signal and publish approval event."""
-        self.logger.info(
-            f"Signal approved",
-            source_module=self._source_module,
-            context={
-                "signal_id": str(event.signal_id),
-                "trading_pair": event.trading_pair,
-                "side": event.side,
-                "quantity": str(quantity),
-                "order_type": order_type,
-            },
-        )
-        
-        # Create risk parameters dict
-        risk_parameters = {
-            "risk_per_trade_pct": float(self._risk_per_trade_pct),
-            "max_exposure_per_asset_pct": float(self._max_exposure_per_asset_pct),
-            "max_total_exposure_pct": float(self._max_total_exposure_pct),
-            "sl_distance_pct": float(abs((sl_price - (limit_price or sl_price)) / (limit_price or sl_price)) * 100),
-            "tp_rr_ratio": float(self._default_tp_rr_ratio) if tp_price else None,
-        }
-        
-        # Create and publish approval event
-        approval_event = TradeSignalApprovedEvent(
-            source_module=self._source_module,
-            event_id=uuid.uuid4(),
-            timestamp=datetime.now(UTC),
-            signal_id=event.signal_id,
-            trading_pair=event.trading_pair,
-            exchange=event.exchange,
-            side=event.side,
-            order_type=order_type,
-            quantity=quantity,
-            sl_price=sl_price,
-            tp_price=tp_price or sl_price,  # Use SL as TP if not provided
-            risk_parameters=risk_parameters,
-            limit_price=limit_price,
-        )
-        
-        await self.pubsub.publish(approval_event)
-
-    async def _get_current_market_price(self, trading_pair: str) -> Decimal | None:
-        """Get current market price for a trading pair."""
-        return await self._market_price_service.get_latest_price(trading_pair)
-
     def _round_price_to_tick_size(
         self,
         price: Decimal | None,
@@ -1831,13 +1461,33 @@ class RiskManager:
         if price is None:
             return None
             
-        tick_size = self._exchange_info_service.get_tick_size(trading_pair)
+        try:
+            tick_size = self._exchange_info_service.get_tick_size(trading_pair)
+        except AttributeError:
+            # Handle missing method in ExchangeInfoService
+            self.logger.warning(
+                "ExchangeInfoService does not implement get_tick_size method",
+                source_module=self._source_module
+            )
+            tick_size = None
         if not tick_size or tick_size <= 0:
             # Default tick size if not found
             tick_size = Decimal("0.00001")
             
         # Round to nearest tick
-        return (price / tick_size).quantize(Decimal("1"), rounding=ROUND_DOWN) * tick_size
+        try:
+            if tick_size and tick_size > 0:
+                result_price: Decimal = (price / tick_size).quantize(Decimal("1"), rounding=ROUND_DOWN) * tick_size
+                return result_price
+            else:
+                return price
+        except Exception as e:
+            self.logger.exception(
+                f"Error rounding price to tick size for {trading_pair}",
+                source_module=self._source_module,
+                context={"trading_pair": trading_pair, "price": price, "tick_size": tick_size, "error": str(e)},
+            )
+            return None
 
     def _validate_prices_fat_finger_and_sl_distance(
         self,

@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 
 from gal_friday.execution.websocket_connection_manager import WebSocketConnectionManager
 from gal_friday.model_lifecycle.experiment_manager import ExperimentManager
-from gal_friday.model_lifecycle.registry import ModelRegistry
+from gal_friday.model_lifecycle.registry import Registry
 from gal_friday.model_lifecycle.retraining_pipeline import RetrainingPipeline
 from gal_friday.monitoring.auth import verify_api_key
 from gal_friday.monitoring.dashboard_service import DashboardService
@@ -18,11 +18,49 @@ router = APIRouter(prefix="/dashboard", dependencies=[Depends(verify_api_key)])
 
 class EnhancedDashboardPages:
     """Enhanced dashboard pages with all features."""
+    
+    # Dashboard CSS styles
+    DASHBOARD_CSS = """
+    <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: #f5f7fa; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .header { background: #2c3e50; color: white; padding: 1rem; border-radius: 5px 5px 0 0; margin-bottom: 1rem; }
+    .card { background: white; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 1rem; padding: 1rem; }
+    .row { display: flex; flex-wrap: wrap; margin: 0 -10px; }
+    .col { flex: 1; padding: 0 10px; min-width: 250px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #eee; }
+    th { background-color: #f8f9fa; }
+    .alert { padding: 15px; border-radius: 4px; margin-bottom: 15px; }
+    .alert-danger { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .alert-warning { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+    .alert-success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .metric-card { padding: 15px; border-radius: 4px; margin-bottom: 10px; color: white; text-align: center; }
+    .metric-card h3 { margin-top: 0; }
+    .metric-card p { font-size: 1.8rem; font-weight: bold; margin: 10px 0; }
+    .bg-primary { background-color: #4e73df; }
+    .bg-success { background-color: #1cc88a; }
+    .bg-warning { background-color: #f6c23e; }
+    .bg-danger { background-color: #e74a3b; }
+    .bg-info { background-color: #36b9cc; }
+    .refresh-btn { background: #2c3e50; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; }
+    .btn { display: inline-block; font-weight: 400; text-align: center; white-space: nowrap; vertical-align: middle; user-select: none; border: 1px solid transparent; padding: .375rem .75rem; font-size: 1rem; line-height: 1.5; border-radius: .25rem; transition: color .15s ease-in-out,background-color .15s ease-in-out,border-color .15s ease-in-out,box-shadow .15s ease-in-out; }
+    .btn-primary { color: #fff; background-color: #4e73df; border-color: #4e73df; }
+    .btn-danger { color: #fff; background-color: #e74a3b; border-color: #e74a3b; }
+    .btn-success { color: #fff; background-color: #1cc88a; border-color: #1cc88a; }
+    .toggle-switch { position: relative; display: inline-block; width: 60px; height: 34px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+    input:checked + .slider { background-color: #1cc88a; }
+    input:checked + .slider:before { transform: translateX(26px); }
+    </style>
+    """
 
     def __init__(
         self,
         dashboard_service: DashboardService,
-        model_registry: ModelRegistry,
+        model_registry: Registry,
         experiment_manager: ExperimentManager,
         retraining_pipeline: RetrainingPipeline,
         reconciliation_service: ReconciliationService,
@@ -649,7 +687,7 @@ dashboard_pages = None
 
 def get_dashboard_pages(
     dashboard_service: DashboardService,
-    model_registry: ModelRegistry,
+    model_registry: Registry,
     experiment_manager: ExperimentManager,
     retraining_pipeline: RetrainingPipeline,
     reconciliation_service: ReconciliationService,

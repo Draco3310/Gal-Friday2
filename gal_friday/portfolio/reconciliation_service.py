@@ -174,15 +174,15 @@ class ReconciliationService:
         self.reconciliation_repository = ReconciliationRepository(session_maker, logger_service)
 
         # Configuration
-        self.reconciliation_interval = config.get_int(
+        self.reconciliation_interval = self.config.get_int(
             "reconciliation.interval_minutes",
             60,
         )
         self.auto_correct_threshold = Decimal(
-            str(config.get_float("reconciliation.auto_correct_threshold", 0.01)),
+            str(self.config.get_float("reconciliation.auto_correct_threshold", 0.01)),
         )
         self.critical_threshold = Decimal(
-            str(config.get_float("reconciliation.critical_threshold", 0.10)),
+            str(self.config.get_float("reconciliation.critical_threshold", 0.10)),
         )
 
         # State
@@ -267,7 +267,7 @@ class ReconciliationService:
             report.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
 
             # 6. Save report and adjustments
-            await self._save_reconciliation_report_and_adjustments(report)
+            await self._save_reconciliation_event_and_adjustments(report)
 
             # 7. Send alerts if needed
             await self._send_reconciliation_alerts(report)
@@ -296,7 +296,7 @@ class ReconciliationService:
                 source_module=self._source_module,
             )
             # Attempt to save the failed report
-            await self._save_reconciliation_report_and_adjustments(report) # Adjustments might be empty
+            await self._save_reconciliation_event_and_adjustments(report) # Adjustments might be empty
             await self._send_critical_alert(f"Reconciliation failed: {e!s}")
 
             return report
@@ -337,7 +337,8 @@ class ReconciliationService:
                         "internal_qty": str(internal_pos.quantity),
                     })
 
-                elif exchange_pos_data and not internal_pos:
+                elif exchange_pos and not internal_pos:
+                    exchange_pos_data = exchange_pos
                     exchange_qty = Decimal(str(exchange_pos_data.get("quantity", 0)))
                     discrepancy = PositionDiscrepancy(
                         trading_pair=pair,
@@ -356,8 +357,9 @@ class ReconciliationService:
                             "exchange_qty": str(exchange_qty),
                         })
 
-                elif internal_pos and exchange_pos_data:
+                elif internal_pos and exchange_pos:
                     internal_qty = internal_pos.quantity
+                    exchange_pos_data = exchange_pos
                     exchange_qty = Decimal(str(exchange_pos_data.get("quantity", 0)))
                     qty_diff = abs(internal_qty - exchange_qty)
 
@@ -718,7 +720,9 @@ class ReconciliationService:
             # For now, let's assume it can fetch the model or we adapt.
             # This part shows a slight mismatch if get_latest_report still returns Pydantic model.
             # Ideally, repo methods return SQLAlchemy models.
-            latest_event_model = await self.reconciliation_repository.get_latest_reconciliation_event() # New method needed in repo
+            # Get the most recent reconciliation event (limit to 1 day for efficiency)
+            recent_events = await self.reconciliation_repository.get_recent_reconciliation_events(days=1, status=None)
+            latest_event_model = recent_events[0] if recent_events else None
             if latest_event_model:
                 # Convert model to dict for status, or use a Pydantic model constructed from it
                 last_report_data = latest_event_model.report # The JSONB field
