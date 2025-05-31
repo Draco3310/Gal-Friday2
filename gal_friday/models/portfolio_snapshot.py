@@ -19,8 +19,22 @@ class PortfolioSnapshot(Base):
     total_drawdown_pct = Column(Float, nullable=False)
     positions = Column(JSON, nullable=False)  # JSON object detailing current positions
 
-    def __repr__(self):
+    def __repr__(self) -> str: # Added -> str
         return (
             f"<PortfolioSnapshot(snapshot_pk={self.snapshot_pk}, "
             f"snapshot_timestamp='{self.snapshot_timestamp}', total_equity={self.total_equity})>"
         )
+
+    def to_dict(self) -> dict[str, Any]: # Added to_dict method with type hints
+        """Converts the PortfolioSnapshot object to a dictionary."""
+        return {
+            "snapshot_pk": self.snapshot_pk,
+            "snapshot_timestamp": self.snapshot_timestamp.isoformat() if self.snapshot_timestamp else None,
+            "total_equity": float(self.total_equity) if self.total_equity is not None else None,
+            "available_balance": float(self.available_balance) if self.available_balance is not None else None,
+            "total_exposure_pct": self.total_exposure_pct,
+            "daily_drawdown_pct": self.daily_drawdown_pct,
+            "weekly_drawdown_pct": self.weekly_drawdown_pct,
+            "total_drawdown_pct": self.total_drawdown_pct,
+            "positions": self.positions, # Assuming positions is already a dict or JSON-serializable
+        }

@@ -368,7 +368,7 @@ class RiskManager:
 
         # Store handler for unsubscribing
         self._signal_proposal_handler = self._handle_trade_signal_proposed
-        self._exec_report_handler = self._handle_execution_report_for_losses
+        self._exec_report_handler = self._handle_execution_report_for_losses # Explicitly re-set
 
         # State for consecutive losses
         self._consecutive_loss_count: int = 0
@@ -524,7 +524,7 @@ class RiskManager:
         self._periodic_check_task = asyncio.create_task(self._periodic_risk_check_loop())
         
         # Start risk metrics calculation task
-        self._risk_metrics_task = asyncio.create_task(self._risk_metrics_loop())
+        self._risk_metrics_task = asyncio.create_task(self._risk_metrics_loop()) # Explicitly re-set
         
         self._is_running = True
         self.logger.info("RiskManager started.", source_module=self._source_module)
@@ -860,7 +860,7 @@ class RiskManager:
                     Decimal(event.proposed_tp_price) if event.proposed_tp_price else None
                 )
             except InvalidOperation as e:
-                await self._reject_signal(
+                await self._reject_signal( # Re-set line
                     event.signal_id,
                     event,
                     f"Invalid proposed price format: {e}",

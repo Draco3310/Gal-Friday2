@@ -61,7 +61,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
         """Get reconciliation events from the last N days, optionally filtered by status."""
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         
-        filters = {}
+        filters: dict[str, Any] = {} # Added type hint
         # Assuming ReconciliationEvent model has a 'timestamp' field
         # This requires a custom query as BaseRepository.find_all doesn't support date range directly.
         # However, if we only filter by status, find_all could be used. For now, custom:

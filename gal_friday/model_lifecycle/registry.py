@@ -489,13 +489,21 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             if self.use_cloud_storage:
                 await self._upload_to_cloud(artifact_path, model_name, version)
 
+            # Ensure model_id is a uuid.UUID object for type checking and runtime safety
+            model_id_uuid = created_model_version.model_id
+            if not isinstance(model_id_uuid, uuid.UUID):
+                # This case should ideally not be reached if data layer is consistent
+                error_msg = f"Returned model_id is not a UUID instance: {type(model_id_uuid)}"
+                self.logger.error(error_msg, source_module=self._source_module)
+                raise TypeError(error_msg)
+
             self.logger.info(
                 f"Model registered: {model_name} v{version}",
                 source_module=self._source_module,
-                context={"model_id": created_model_version.model_id.hex},
+                context={"model_id": model_id_uuid.hex},
             )
 
-            return created_model_version.model_id.hex # Return hex string of UUID
+            return model_id_uuid.hex # Return hex string of UUID
 
         except Exception:
             self.logger.exception(
@@ -802,10 +810,20 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
 
     # Helper to convert ModelVersion SQLAlchemy model to ModelMetadata DTO
     def _model_version_to_metadata_dto(self, model_version: ModelVersionModel) -> ModelMetadata:
+        # Ensure model_id is a uuid.UUID object
+        model_id_uuid = model_version.model_id
+        if not isinstance(model_id_uuid, uuid.UUID):
+            # This might indicate an issue with data retrieval or the model instance
+            error_msg = f"ModelVersionModel.model_id is not a UUID instance: {type(model_id_uuid)} for model_name {model_version.model_name}"
+            self.logger.error(error_msg, source_module=self._source_module)
+            # Depending on strictness, either raise error or try to handle (e.g. use str(model_id_uuid) if that's acceptable)
+            # For now, raising error as .hex is specifically requested by original code.
+            raise TypeError(error_msg)
+
         # This is a simplified mapping. A more robust one would handle all fields.
         # Also, deployment_history needs to be fetched separately.
         return ModelMetadata(
-            model_id=model_version.model_id.hex,
+            model_id=model_id_uuid.hex,
             model_name=model_version.model_name,
             version=model_version.version,
             # model_type is not in ModelVersionModel, might be part of metrics/hyperparams

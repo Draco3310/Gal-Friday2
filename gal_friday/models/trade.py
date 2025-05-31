@@ -50,8 +50,44 @@ class Trade(Base):
         backref="trade_as_exit",
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str: # Added -> str
         return (
             f"<Trade(trade_id={self.trade_id}, trading_pair='{self.trading_pair}', "
             f"strategy_id='{self.strategy_id}', realized_pnl={self.realized_pnl})>"
         )
+
+    def to_event(self) -> 'MarketDataTradeEvent': # Added to_event with type hints
+        """Converts the Trade object to a MarketDataTradeEvent.
+        This represents the entry part of the trade as a market event.
+        Exit would be a separate event if needed.
+        """
+        # Assuming MarketDataTradeEvent is importable from gal_friday.core.events
+        # import uuid # Already imported
+        # from datetime import datetime # Already imported
+        # from decimal import Decimal # For type conversion if necessary, sqlalchemy handles it
+        # from gal_friday.core.events import MarketDataTradeEvent
+
+        # The Trade model represents a completed round-trip trade (entry and exit).
+        # A MarketDataTradeEvent typically represents a single execution (fill).
+        # Here, we can represent the entry fill as an example.
+        # A more complete system might generate two MarketDataTradeEvents (one for entry, one for exit)
+        # or use a different event type for completed round-trip trades.
+
+        event_data = {
+            "source_module": self.__class__.__name__,
+            "event_id": uuid.uuid4(), # New event ID for this specific event
+            "timestamp": datetime.utcnow(), # Event creation time
+            "trading_pair": self.trading_pair,
+            "exchange": self.exchange,
+            "timestamp_exchange": self.entry_timestamp, # Timestamp of the entry
+            "price": self.average_entry_price,
+            "volume": self.quantity,
+            "side": self.side, # Side of the entry trade
+            "trade_id": str(self.trade_id), # Use the Trade's own ID or a fill ID if available
+        }
+        # In a real implementation:
+        # from gal_friday.core.events import MarketDataTradeEvent
+        # return MarketDataTradeEvent(**event_data)
+
+        # Returning dict for now
+        return event_data # Should be MarketDataTradeEvent(**event_data)

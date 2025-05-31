@@ -32,7 +32,7 @@ from gal_friday.core.events import (
 )
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
-from gal_friday.core.errors import ExecutionHandlerAuthenticationError
+from gal_friday.execution_handler import ExecutionHandlerAuthenticationError
 
 
 class ConnectionState(Enum):
@@ -506,6 +506,22 @@ class KrakenWebSocketClient:
             )
 
             await self.pubsub.publish(event)
+
+    async def _handle_orderbook(self, message: list) -> None:
+        """Handle order book updates. (Placeholder)"""
+        # Placeholder for actual order book handling logic
+        # For now, just log that the message was received
+        pair_info = message[3] if len(message) > 3 else "UnknownPair"
+        self.logger.info(
+            f"Order book update received for {pair_info}. Processing not yet implemented.",
+            source_module=self._source_module,
+            context={"message_snippet": str(message)[:200]}
+        )
+        # TODO: Implement full order book processing logic here, including:
+        # - Parsing snapshot and update messages
+        # - Maintaining local order book state (bids, asks)
+        # - Validating checksums if provided by Kraken
+        # - Publishing MarketDataL2Event to PubSub
 
     async def _handle_own_trades(self, message: list) -> None:
         """Handle own trades updates."""

@@ -1496,7 +1496,7 @@ class DataIngestor:
         # Trigger HALT for critical errors or too many consecutive errors
         should_halt = (
             isinstance(error, ConnectionError | TimeoutError | OSError) and
-            self._consecutive_errors >= self.MAX_CONSECUTIVE_ERRORS
+            self._consecutive_errors >= self._critical_error_threshold # Changed from self.MAX_CONSECUTIVE_ERRORS
         )
 
         if should_halt:
@@ -1670,6 +1670,7 @@ class MockLoggerService(LoggerService[Any]):
         pubsub_manager: Optional["PubSubManager"] = None,
     ) -> None:
         """Initialize the mock logger service."""
+        self._logger = logging.getLogger("MockLoggerService") # Initialize _logger
 
     def log(
         self,

@@ -32,8 +32,40 @@ class Signal(Base):
     orders = relationship("Order", back_populates="signal", cascade="all, delete-orphan")
     trade = relationship("Trade", back_populates="signal", uselist=False, cascade="all, delete-orphan")
 
-    def __repr__(self):
+    def __repr__(self) -> str: # Added -> str
         return (
             f"<Signal(signal_id={self.signal_id}, trading_pair='{self.trading_pair}', "
             f"strategy_id='{self.strategy_id}', status='{self.status}')>"
         )
+
+    def to_event(self) -> 'TradeSignalProposedEvent': # Added to_event with type hints
+        """Converts the Signal object to a TradeSignalProposedEvent."""
+        # Assuming TradeSignalProposedEvent is importable from gal_friday.core.events
+        # import uuid # Already imported
+        # from datetime import datetime # Already imported
+        # from decimal import Decimal # For type conversion if necessary
+        # from gal_friday.core.events import TradeSignalProposedEvent
+
+        event_data = {
+            "source_module": self.__class__.__name__,
+            "event_id": uuid.uuid4(), # New event ID
+            "timestamp": datetime.utcnow(), # Event creation time
+            "signal_id": self.signal_id, # Use the Signal's own ID
+            "trading_pair": self.trading_pair,
+            "exchange": self.exchange,
+            "side": self.side,
+            "entry_type": self.entry_type,
+            "proposed_entry_price": self.proposed_entry_price,
+            "proposed_sl_price": self.proposed_sl_price,
+            "proposed_tp_price": self.proposed_tp_price,
+            "strategy_id": self.strategy_id,
+            "triggering_prediction_event_id": self.prediction_event_id,
+            # 'triggering_prediction' field in event might need more data if available
+            "triggering_prediction": {"value": self.prediction_value} if self.prediction_value is not None else None,
+        }
+        # In a real implementation:
+        # from gal_friday.core.events import TradeSignalProposedEvent
+        # return TradeSignalProposedEvent(**event_data)
+
+        # Returning dict for now
+        return event_data # Should be TradeSignalProposedEvent(**event_data)

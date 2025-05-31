@@ -28,6 +28,29 @@ class MarketPriceService(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
+    async def get_volatility(
+        self,
+        trading_pair: str,
+        lookback_hours: int = 24,
+    ) -> float | None:
+        """Calculate the price volatility for a trading pair.
+
+        Volatility is typically calculated as the standard deviation of
+        logarithmic returns over a given period.
+
+        Args:
+        ----
+            trading_pair: The trading pair symbol (e.g., "XRP/USD").
+            lookback_hours: The number of hours to look back for calculation.
+
+        Returns:
+        -------
+            The calculated volatility as a float (e.g., annualized or period-specific),
+            or None if calculation is not possible.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
     async def stop(self) -> None:
         """Clean up resources, close connections, and stop background tasks.
 

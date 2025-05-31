@@ -48,7 +48,7 @@ class EventStore:
         
         # In-memory cache with TTL
         self._cache: dict[UUID, tuple[Event, datetime]] = {}
-        self._cache_order = deque(maxlen=cache_size)
+        self._cache_order: deque[UUID] = deque(maxlen=cache_size) # Added type hint
         self._cache_ttl = timedelta(seconds=cache_ttl_seconds)
         
         # Event type registry for deserialization
@@ -95,9 +95,19 @@ class EventStore:
             
             # Persist to database
             async with self.session_maker() as session:
+                event_type_attr = getattr(event, "event_type", None)
+                if not isinstance(event_type_attr, EventType):
+                    self.logger.error(
+                        f"Event {event.event_id} (source: {event.source_module}, type: {type(event).__name__}) "
+                        f"is missing a valid 'event_type' attribute of type EventType."
+                    )
+                    # Optionally, raise an error or handle as appropriate
+                    # For now, let's attempt to get a default or raise
+                    raise ValueError(f"Event {event.event_id} is missing a valid event_type.")
+
                 event_log = EventLog(
                     event_id=event.event_id,
-                    event_type=event.event_type.value,
+                    event_type=event_type_attr.value, # Use the validated attribute
                     source_module=event.source_module,
                     timestamp=event.timestamp,
                     data=self._serialize_event(event)

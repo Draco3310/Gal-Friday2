@@ -18,7 +18,7 @@ from uuid import UUID
 import aiohttp
 
 from gal_friday.config_manager import ConfigManager
-from gal_friday.core.errors import ExecutionHandlerAuthenticationError
+# Removed incorrect import: from gal_friday.core.errors import ExecutionHandlerAuthenticationError
 from gal_friday.core.events import (
     ClosePositionCommand,
     EventType,
@@ -36,8 +36,8 @@ if TYPE_CHECKING:
 # Remove hardcoded URL - will be loaded from configuration
 
 
-class InvalidAPICredentialFormatError(ValueError):
-    """Raised when an API credential is not in the expected format.
+class ExecutionHandlerAuthenticationError(ValueError):
+    """Raised when an API credential is not in the expected format or other auth issue.
 
     Args:
         message: Custom error message. Defaults to API secret format error.

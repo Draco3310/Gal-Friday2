@@ -897,7 +897,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
             if not kraken_pair:
                 return None
             
-            all_trades = []
+            all_trades: list[dict[str, Any]] = [] # Added type hint
             last_id = None
             
             # Kraken returns max 1000 trades per request

@@ -214,4 +214,5 @@ class TimeSeriesDB:
 
     def close(self) -> None:
         """Close InfluxDB client."""
-        self.client.close()
+        if self._client:
+            self._client.close()

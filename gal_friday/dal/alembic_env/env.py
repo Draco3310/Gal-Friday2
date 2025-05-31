@@ -51,11 +51,12 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
+from typing import Any # For type hints if needed later for render_item etc.
 # Import ConfigManager to get database URL
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService # For consistency, though not strictly used in template
 
-def get_db_url():
+def get_db_url() -> str: # Added return type
     """Retrieve database URL from ConfigManager."""
     # Assuming ConfigManager can be instantiated without complex dependencies here
     # or that necessary config files are accessible.
@@ -115,7 +116,7 @@ def run_migrations_offline() -> None:
     context.run_migrations()
 
 
-def do_run_migrations(connection: Connection) -> None:
+def do_run_migrations(connection: Connection) -> None: # Added -> None
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -149,7 +150,30 @@ async def run_async_migrations() -> None:
     # Original async connect logic removed for this specific "no connection" autogen scenario
 
 
-def run_migrations_online() -> None:
+async def run_async_migrations() -> None: # Added -> None
+    """In this scenario we need to create an Engine
+    and associate a connection with the context.
+
+    """
+    db_url = get_db_url() # Use helper to get URL
+
+    # For autogenerate without a live DB connection, configure context directly
+    # This provides metadata and dialect info without an active connection.
+    print("Configuring context for metadata-only autogeneration (no actual DB connection attempt).")
+    context.configure(
+        connection=None, # Explicitly no connection
+        url=db_url,      # Still needed for dialect and other settings
+        target_metadata=target_metadata,
+        compare_type=True,
+        include_schemas=True, # Good practice for autogenerate
+        # For autogenerate, we don't want to output SQL to a buffer like in offline DDL generation
+    )
+    # No transaction needed here as we are not executing DDLs, just diffing
+    context.run_migrations()
+    # Original async connect logic removed for this specific "no connection" autogen scenario
+
+
+def run_migrations_online() -> None: # Added -> None
     """Run migrations in 'online' mode.
     Modified to support metadata-only autogeneration if DB is unavailable by not connecting.
     """

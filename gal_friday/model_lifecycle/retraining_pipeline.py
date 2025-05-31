@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from gal_friday.config_manager import ConfigManager
     from gal_friday.dal.repositories.retraining_repository import RetrainingRepository
     from gal_friday.logger_service import LoggerService
-    from gal_friday.model_lifecycle.registry import ModelRegistry
+    from gal_friday.model_lifecycle.registry import Registry as ModelRegistry # Changed ModelRegistry to Registry and aliased
 
 
 class DriftType(Enum):
@@ -64,6 +64,7 @@ class RetrainingJob:
     performance_comparison: dict[str, Any] | None = None
     error_message: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    task: asyncio.Task | None = field(default=None, init=False, repr=False) # Added task field
 
 
 class DriftDetector:

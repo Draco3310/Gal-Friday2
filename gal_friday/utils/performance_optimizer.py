@@ -85,6 +85,7 @@ class ConnectionPool:
     def __init__(
         self,
         create_conn: Callable[[], Any],
+        logger_service: LoggerService, # Added logger_service
         max_connections: int = 10,
         min_connections: int = 2,
         health_check_interval: int = 30,
@@ -93,11 +94,13 @@ class ConnectionPool:
 
         Args:
             create_conn: Factory function to create new connections.
+            logger_service: Instance of LoggerService.
             max_connections: Maximum number of connections in the pool.
             min_connections: Minimum number of connections to maintain.
             health_check_interval: Interval in seconds between health checks.
         """
         self.create_conn = create_conn
+        self.logger = logger_service # Initialize self.logger
         self.max_connections = max_connections
         self.min_connections = min_connections
         self.health_check_interval = health_check_interval

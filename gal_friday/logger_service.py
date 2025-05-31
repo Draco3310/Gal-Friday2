@@ -1166,7 +1166,7 @@ class LoggerService:
             self.info("Database logging is disabled. SQLAlchemy setup skipped.", source_module="LoggerService")
             return
 
-        db_url = self._config_manager.get("logging.database.connection_string")
+        db_url: str | None = self._config_manager.get("logging.database.connection_string")
         if not db_url:
             self.error(
                 "Database logging enabled but connection_string is missing. SQLAlchemy setup failed.",

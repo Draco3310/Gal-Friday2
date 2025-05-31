@@ -51,11 +51,13 @@ class PredictorModel(Protocol):
         ...
 
 
+import torch # Add import for torch.Tensor
+
 @runtime_checkable
 class TorchModel(Protocol):
     """Protocol for PyTorch model inference."""
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
+    def __call__(self, x: torch.Tensor) -> torch.Tensor: # Changed np.ndarray to torch.Tensor
         """Forward pass for PyTorch model.
 
         Args:

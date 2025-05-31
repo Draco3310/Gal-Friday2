@@ -9,13 +9,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any, TypeVar, Sequence # Added Sequence
+from typing import TYPE_CHECKING, Any, TypeVar, Sequence, cast # Added Sequence and cast
 
 import numpy as np
 from scipy import stats
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession # Added
 
 from gal_friday.config_manager import ConfigManager
+from gal_friday.core.events import Event # Added Event for TypeVar bound
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.dal.repositories.experiment_repository import ExperimentRepository
 # Import SQLAlchemy models that this manager might deal with if it transforms data
@@ -27,8 +28,8 @@ from gal_friday.logger_service import LoggerService
 if TYPE_CHECKING:
     from gal_friday.model_lifecycle.registry import Registry as ModelRegistryType # Updated to new Registry
 
-# Type variable for generic event type
-T = TypeVar("T")
+# Type variable for generic event type, bound to base Event
+T = TypeVar("T", bound=Event)
 # Event handler type
 event_handler = Callable[[Any], Coroutine[Any, Any, None]]
 
@@ -269,20 +270,32 @@ class ExperimentManager:
 
             created_experiment_model = await self.experiment_repo.save_experiment(experiment_data_dict)
 
+            # Helper to safely get .hex
+            def safe_hex(val: Any, name: str) -> str:
+                if not isinstance(val, uuid.UUID):
+                    err_msg = f"{name} is not a UUID instance: {type(val)}"
+                    self.logger.error(err_msg, source_module=self._source_module)
+                    raise TypeError(err_msg)
+                return val.hex
+
+            exp_id_hex = safe_hex(created_experiment_model.experiment_id, "created_experiment_model.experiment_id")
+            control_id_hex = safe_hex(created_experiment_model.control_model_id, "created_experiment_model.control_model_id")
+            treatment_id_hex = safe_hex(created_experiment_model.treatment_model_id, "created_experiment_model.treatment_model_id")
+
             # Add to active experiments (still using ExperimentConfig dataclass for now)
-            self.active_experiments[created_experiment_model.experiment_id.hex] = config # Use hex for dict key if UUID
+            self.active_experiments[exp_id_hex] = config # Use hex for dict key if UUID
 
             self.logger.info(
                 f"Created experiment: {created_experiment_model.name}",
                 source_module=self._source_module,
                 context={
-                    "experiment_id": created_experiment_model.experiment_id.hex,
-                    "control": created_experiment_model.control_model_id.hex,
-                    "treatment": created_experiment_model.treatment_model_id.hex,
+                    "experiment_id": exp_id_hex,
+                    "control": control_id_hex,
+                    "treatment": treatment_id_hex,
                 },
             )
 
-            return created_experiment_model.experiment_id.hex # Return UUID as hex string
+            return exp_id_hex # Return UUID as hex string
 
         except Exception:
             self.logger.exception(
@@ -331,7 +344,8 @@ class ExperimentManager:
                 await self._record_assignment(exp_id, variant, event)
 
                 # Update event with selected model
-                event.experiment_info = {
+                # Cast to Any to allow setting a dynamic attribute if T is a frozen dataclass
+                cast(Any, event).experiment_info = {
                     "experiment_id": exp_id,
                     "variant": variant,
                     "model_id": model_id,
@@ -657,12 +671,25 @@ class ExperimentManager:
                 # Map model fields to ExperimentConfig fields
                 # This mapping might be complex if structures differ significantly.
                 # For now, assume a basic mapping or that ExperimentConfig adapts.
+
+                # Helper to safely get .hex
+                def safe_hex(val: Any, name: str) -> str:
+                    if not isinstance(val, uuid.UUID):
+                        err_msg = f"{name} is not a UUID instance: {type(val)}"
+                        self.logger.error(err_msg, source_module=self._source_module)
+                        raise TypeError(err_msg)
+                    return val.hex
+
+                exp_id_hex = safe_hex(exp_model.experiment_id, f"exp_model.experiment_id for {exp_model.name}")
+                control_id_hex = safe_hex(exp_model.control_model_id, f"exp_model.control_model_id for {exp_model.name}")
+                treatment_id_hex = safe_hex(exp_model.treatment_model_id, f"exp_model.treatment_model_id for {exp_model.name}")
+
                 exp_config = ExperimentConfig(
-                    experiment_id=exp_model.experiment_id.hex,
+                    experiment_id=exp_id_hex,
                     name=exp_model.name,
                     description=exp_model.description or "",
-                    control_model_id=exp_model.control_model_id.hex,
-                    treatment_model_id=exp_model.treatment_model_id.hex,
+                    control_model_id=control_id_hex,
+                    treatment_model_id=treatment_id_hex,
                     allocation_strategy=AllocationStrategy(exp_model.allocation_strategy),
                     traffic_split=exp_model.traffic_split, # Already Decimal
                     start_time=exp_model.start_time.replace(tzinfo=UTC if exp_model.start_time.tzinfo is None else None), # Ensure tz-aware
@@ -674,18 +701,19 @@ class ExperimentManager:
                     minimum_detectable_effect=exp_model.minimum_detectable_effect or DEFAULT_MIN_DETECTABLE_EFFECT,
                     max_loss_threshold=exp_model.max_loss_threshold,
                 )
-                self.active_experiments[exp_model.experiment_id.hex] = exp_config
+                self.active_experiments[exp_id_hex] = exp_config
 
                 # Load performance data (repo returns dict)
                 # This part might need adjustment if VariantPerformance objects are stored/retrieved differently
-                perf_data = await self.experiment_repo.get_experiment_performance(exp_model.experiment_id)
+                perf_data = await self.experiment_repo.get_experiment_performance(exp_model.experiment_id) # Pass UUID object
                 
                 # Reconstruct performance objects (if still using VariantPerformance in memory)
                 # This is complex and depends on how performance data is stored/aggregated.
                 # For simplicity, this reconstruction is illustrative.
-                self.experiment_performance[exp_model.experiment_id.hex] = {}
+                self.experiment_performance[exp_id_hex] = {}
                 for variant_name, metrics in perf_data.items():
-                    model_id_for_variant = exp_model.control_model_id.hex if variant_name == "control" else exp_model.treatment_model_id.hex
+                    # Use previously hexed IDs
+                    model_id_for_variant = control_id_hex if variant_name == "control" else treatment_id_hex
                     vp = VariantPerformance(model_id=model_id_for_variant, variant_name=variant_name)
                     vp.sample_count = metrics.get("sample_count", 0)
                     vp.correct_predictions = metrics.get("correct_predictions", 0)

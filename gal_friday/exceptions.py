@@ -61,6 +61,22 @@ class OperationalError(GalFridayError):
     """Base class for errors during application operation."""
 
 
+class PositionNotFoundError(OperationalError):
+    """Exception raised when a trading position is not found."""
+
+    def __init__(self, trading_pair: str | None = None, position_id: str | None = None, message: str | None = None) -> None:
+        if message is None:
+            if trading_pair:
+                message = f"Position not found for trading pair: {trading_pair}"
+            elif position_id:
+                message = f"Position not found with ID: {position_id}"
+            else:
+                message = "Position not found"
+        super().__init__(message)
+        self.trading_pair = trading_pair
+        self.position_id = position_id
+
+
 class UnsupportedModeError(OperationalError, ValueError):
     """Error when an unsupported operational mode is encountered.
 

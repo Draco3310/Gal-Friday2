@@ -1,42 +1,76 @@
-"""Exchange information service implementation."""
+"""Abstract interface for retrieving exchange information."""
 
-from __future__ import annotations
-
+import abc
+from decimal import Decimal
 from typing import Any
 
 
-class ExchangeInfoService:
-    """Service for retrieving exchange information."""
+class ExchangeInfoService(abc.ABC):
+    """Abstract Base Class for components providing exchange information.
 
-    def __init__(self, *args: object, **kwargs: str) -> None:
-        """Initialize the exchange info service."""
+    Implementations should handle fetching and providing details about
+    exchange-level configurations, symbol specifications, trading limits, etc.
+    """
 
+    @abc.abstractmethod
     def get_exchange_info(self) -> dict[str, Any]:
         """Get general exchange information.
 
         Returns:
         -------
-            Dictionary containing exchange information
+            Dictionary containing exchange information.
         """
-        return {}
+        raise NotImplementedError
 
-    def get_symbol_info(self, symbol: str) -> dict[str, Any] | None:
+    @abc.abstractmethod
+    def get_symbol_info(self, trading_pair: str) -> dict[str, Any] | None:
         """Get information for a specific symbol.
 
         Args:
-            symbol: The trading symbol to get info for
+        ----
+            trading_pair: The trading symbol to get info for (e.g., "XRP/USD").
 
         Returns:
         -------
-            Dictionary with symbol information or None if not found
+            Dictionary with symbol information (e.g., lot size, tick size, limits),
+            or None if the pair is not supported.
         """
-        return None
+        raise NotImplementedError
 
+    @abc.abstractmethod
     def get_trading_pairs(self) -> list[str]:
-        """Get list of all available trading pairs.
+        """Get list of all available trading pairs on the exchange.
 
         Returns:
         -------
-            List of trading pair symbols
+            List of trading pair symbols.
         """
-        return []
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def get_tick_size(self, trading_pair: str) -> Decimal | None:
+        """Get the minimum price movement (tick size) for a trading pair.
+
+        Args:
+        ----
+            trading_pair: The trading pair symbol.
+
+        Returns:
+        -------
+            The tick size as a Decimal, or None if not available.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def get_step_size(self, trading_pair: str) -> Decimal | None:
+        """Get the minimum order quantity increment (step size or lot size) for a trading pair.
+
+        Args:
+        ----
+            trading_pair: The trading pair symbol.
+
+        Returns:
+        -------
+            The step size as a Decimal, or None if not available.
+        """
+        raise NotImplementedError
