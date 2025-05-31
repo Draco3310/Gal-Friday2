@@ -5,10 +5,10 @@ import sys
 from typing import Sequence, Tuple # Added Sequence, Tuple
 from io import StringIO # For capturing stdout if needed for command.current
 
-from alembic.config import Config
-from alembic import command
-from alembic.script import ScriptDirectory
-from alembic.runtime.environment import EnvironmentContext
+from alembic.config import Config # type: ignore[import-not-found]
+from alembic import command # type: ignore[import-not-found]
+from alembic.script import ScriptDirectory # type: ignore[import-not-found]
+from alembic.runtime.environment import EnvironmentContext # type: ignore[import-not-found]
 
 from gal_friday.logger_service import LoggerService
 

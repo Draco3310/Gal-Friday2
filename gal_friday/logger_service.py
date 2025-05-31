@@ -34,6 +34,8 @@ from typing import (
     Optional,
     Protocol,
     TypeVar,
+    cast,
+    Mapping,
 )
 
 import pythonjsonlogger.jsonlogger as jsonlogger  # Add missing import for JSON logging
@@ -64,7 +66,7 @@ else:
     AsyncpgPostgresError = Exception
 
 # SQLAlchemy imports for refactored DB logging
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession, AsyncEngine
 from sqlalchemy.exc import SQLAlchemyError
 from gal_friday.dal.models.log import Log # Import the Log model
 
@@ -459,8 +461,10 @@ class LoggerService:
     files, databases and time-series databases with support for context information.
     """
 
-    _influx_client: Optional["InfluxDBClient"] = None # Assuming InfluxDBClient type hint from TYPE_CHECKING
-    _influx_write_api: Optional["WriteApi"] = None # Assuming WriteApi type hint from TYPE_CHECKING
+    _influx_client: Optional["InfluxDBClient"] = None # type: ignore[name-defined]
+    _influx_write_api: Optional["WriteApi"] = None # type: ignore[name-defined]
+    _sqlalchemy_engine: Optional[AsyncEngine] = None # Added
+    _sqlalchemy_session_factory: Optional[async_sessionmaker[AsyncSession]] = None # Added
 
     def __init__(
         self,
@@ -680,7 +684,7 @@ class LoggerService:
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message to the configured handlers.
@@ -718,7 +722,7 @@ class LoggerService:
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log a message with DEBUG level.
 
@@ -738,7 +742,7 @@ class LoggerService:
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log a message with INFO level.
 
@@ -758,7 +762,7 @@ class LoggerService:
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log a message with WARNING level.
 
@@ -778,7 +782,7 @@ class LoggerService:
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message with ERROR level.
@@ -805,7 +809,7 @@ class LoggerService:
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log a message with ERROR level and include exception information.
 
@@ -832,7 +836,7 @@ class LoggerService:
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message with CRITICAL level.
@@ -1192,7 +1196,7 @@ class LoggerService:
                 echo=echo_sql,
             )
             self._sqlalchemy_session_factory = sessionmaker(
-                self._sqlalchemy_engine, class_=AsyncSession, expire_on_commit=False
+                bind=self._sqlalchemy_engine, class_=AsyncSession, expire_on_commit=False
             )
             self.info(
                 "SQLAlchemy async engine and session factory initialized successfully.",

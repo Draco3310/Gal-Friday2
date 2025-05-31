@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import Column, Integer, String, Text, Numeric, DateTime, ForeignKey
+
+from gal_friday.core.events import ExecutionReportEvent
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func

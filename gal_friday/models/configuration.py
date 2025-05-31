@@ -1,6 +1,9 @@
 from datetime import datetime
+import uuid
 
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON
+
+from gal_friday.core.events import LogEvent
 from sqlalchemy.sql import func
 
 from .base import Base

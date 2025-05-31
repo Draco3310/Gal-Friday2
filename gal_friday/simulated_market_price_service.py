@@ -147,6 +147,27 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             extra={"source_module": self._source_module},
         )
 
+    async def get_volatility(
+        self,
+        trading_pair: str,
+        lookback_hours: int = 24,
+    ) -> float | None:
+        """Calculate the price volatility for a trading pair.
+
+        This is a simulated service and does not implement real volatility calculation.
+        """
+        self.logger.warning(
+            "get_volatility is not implemented in SimulatedMarketPriceService. "
+            "Trading Pair: %s, Lookback: %s hours",
+            trading_pair,
+            lookback_hours,
+            extra={"source_module": self._source_module},
+        )
+        # Option 1: Raise NotImplementedError
+        # raise NotImplementedError("get_volatility is not implemented in the simulated service")
+        # Option 2: Return None (as per original plan consideration)
+        return None
+
     def _apply_config_values_from_manager(self) -> None:
         """Apply configuration values from the ConfigManager."""
         if self.config is None:

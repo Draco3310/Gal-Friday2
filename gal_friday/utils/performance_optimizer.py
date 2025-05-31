@@ -208,7 +208,6 @@ class ConnectionPool:
             except Exception as e:
                 self.logger.warning(
                     f"Health check error: {e}",
-                    exc_info=True,
                 )
 
     async def _is_healthy(self, conn: object) -> bool:
@@ -544,7 +543,8 @@ def cached(cache_name: str = "default", ttl: int = 300) -> Callable[[F], F]:
 
             return result
 
-        return wrapper
+        # TODO: Investigate proper generic typing for this decorator
+        return wrapper # type: ignore[return-value]
     return decorator
 
 
@@ -572,7 +572,8 @@ def rate_limited(calls: int = 10, period: int = 60) -> Callable[[F], F]:
             # Execute function
             return await func(*args, **kwargs)
 
-        return wrapper
+        # TODO: Investigate proper generic typing for this decorator
+        return wrapper # type: ignore[return-value]
     return decorator
 
 
@@ -610,5 +611,6 @@ def timed(name: str | None = None) -> Callable[[F], F]:
 
                 raise
 
-        return wrapper
+        # TODO: Investigate proper generic typing for this decorator
+        return wrapper # type: ignore[return-value]
     return decorator

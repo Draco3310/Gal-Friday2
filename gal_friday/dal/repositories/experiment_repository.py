@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Sequence
 
-from sqlalchemy import select, func, update as sqlalchemy_update, cast, Numeric
+from sqlalchemy import select, func, update as sqlalchemy_update, cast, Numeric, Integer
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert # For ON CONFLICT DO UPDATE/NOTHING
 

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Any, Protocol, Unpack
+from typing import Any, Protocol, Unpack, TypedDict
 
 from ..core.asset_registry import AssetSpecification, ExchangeSpecification
 
@@ -141,13 +141,19 @@ class PositionInfo:
     raw_data: dict[str, Any] | None = None
 
 
+class ExecutionHandlerKwargs(TypedDict, total=False):
+    # This TypedDict is initially empty or can include common keys
+    # if they are known. `total=False` makes all keys optional.
+    # Example: config_override: dict[str, Any]
+    pass
+
 class ExecutionHandlerInterface(ABC):
     """Enhanced interface for execution handlers supporting multiple exchanges and asset types."""
 
     def __init__(
         self,
         exchange_spec: ExchangeSpecification,
-        **kwargs: Unpack[dict[str, Any]],
+        **kwargs: Unpack[ExecutionHandlerKwargs],
     ) -> None:
         """Initialize with exchange specification and configuration."""
         self.exchange_spec = exchange_spec
@@ -350,7 +356,7 @@ class ExecutionHandlerFactory(Protocol):
     def create_handler(
         self,
         exchange_id: str,
-        **kwargs: Unpack[dict[str, Any]],
+        **kwargs: Unpack[ExecutionHandlerKwargs],
     ) -> ExecutionHandlerInterface:
         """Create an execution handler for the specified exchange.
 

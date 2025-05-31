@@ -1,6 +1,9 @@
 from datetime import datetime
+import uuid
 
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, UniqueConstraint
+
+from gal_friday.core.events import ExecutionReportEvent
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 

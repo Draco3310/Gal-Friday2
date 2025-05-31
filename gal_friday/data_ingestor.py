@@ -1661,7 +1661,7 @@ async def _run_event_consumer(event_bus: asyncio.Queue) -> None:
             break
 
 
-class MockLoggerService(LoggerService[Any]):
+class MockLoggerService(LoggerService):
     """Provide a mock logger service for testing."""
 
     def __init__(
@@ -1676,9 +1676,9 @@ class MockLoggerService(LoggerService[Any]):
         self,
         level: int,
         message: str,
-        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
+        *args: object,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: dict[str, object] | None = None,
         exc_info: bool
         | tuple[type[BaseException], BaseException, TracebackType]
         | BaseException
@@ -1694,9 +1694,9 @@ class MockLoggerService(LoggerService[Any]):
         self,
         level: int,
         message: str,
-        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
+        *args: object,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log a message with the specified level.
 
@@ -1719,9 +1719,9 @@ class MockLoggerService(LoggerService[Any]):
     def debug(
         self,
         message: str,
-        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
+        *args: object,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log a debug message."""
         self._log(logging.DEBUG, message, *args, source_module=source_module, context=context)
@@ -1729,9 +1729,9 @@ class MockLoggerService(LoggerService[Any]):
     def info(
         self,
         message: str,
-        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
+        *args: object,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log an info message."""
         self._log(logging.INFO, message, *args, source_module=source_module, context=context)
@@ -1739,9 +1739,9 @@ class MockLoggerService(LoggerService[Any]):
     def warning(
         self,
         message: str,
-        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
+        *args: object,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log a warning message."""
         self._log(logging.WARNING, message, *args, source_module=source_module, context=context)
@@ -1749,9 +1749,9 @@ class MockLoggerService(LoggerService[Any]):
     def error(
         self,
         message: str,
-        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
+        *args: object,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log an error message."""
         self._log(logging.ERROR, message, *args, source_module=source_module, context=context)
@@ -1759,9 +1759,9 @@ class MockLoggerService(LoggerService[Any]):
     def critical(
         self,
         message: str,
-        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
+        *args: object,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log a critical message."""
         self._log(logging.CRITICAL, message, *args, source_module=source_module, context=context)
@@ -1769,9 +1769,9 @@ class MockLoggerService(LoggerService[Any]):
     def exception(
         self,
         message: str,
-        *args: Any,  # noqa: ANN401 - Dynamic typing needed for logging compatibility
+        *args: object,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: dict[str, object] | None = None,
     ) -> None:
         """Log an exception message."""
         self._logger.exception(

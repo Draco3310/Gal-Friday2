@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool # Import NullPool
 from sqlalchemy.engine import Connection
 
-from alembic import context
+from alembic import context # type: ignore[import-not-found]
 
 # Ensure the application's root directory is in the Python path
 # This allows importing gal_friday.dal.models etc.

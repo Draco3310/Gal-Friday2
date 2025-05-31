@@ -2,20 +2,20 @@ import datetime
 
 import uuid # For LogEvent
 from typing import Any # For LogEvent context
-from sqlalchemy import Column, BigInteger, String, Integer, Text # DateTime removed as TIMESTAMPTZ is used
-from sqlalchemy.dialects.postgresql import TIMESTAMPTZ
+from sqlalchemy import Column, BigInteger, String, Integer, Text, TIMESTAMP # DateTime removed as TIMESTAMPTZ is used
 from sqlalchemy.types import JSON  # Generic JSON type
 from sqlalchemy.orm import Mapped, mapped_column # For Mapped type hints
 from sqlalchemy.sql import func # For server_default func.now() if needed
 
 from .base import Base
+from gal_friday.core.events import LogEvent
 
 
 class Log(Base):
     __tablename__ = "logs"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True) # Assuming BigInteger maps to int
-    timestamp: Mapped[datetime.datetime] = mapped_column(TIMESTAMPTZ, nullable=False, default=datetime.datetime.utcnow)
+    timestamp: Mapped[datetime.datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, default=datetime.datetime.utcnow)
     logger_name: Mapped[str] = mapped_column(String(255), nullable=False)
     level_name: Mapped[str] = mapped_column(String(50), nullable=False)
     level_no = Column(Integer, nullable=False)

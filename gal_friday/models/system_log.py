@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID # For signal_id
 from sqlalchemy.sql import func
 
 from .base import Base
+from gal_friday.core.events import LogEvent
 
 
 class SystemLog(Base):

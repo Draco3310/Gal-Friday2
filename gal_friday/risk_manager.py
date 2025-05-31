@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 # Event Definitions
 from .core.events import (
+    EventType,
     ExecutionReportEvent,
     PotentialHaltTriggerEvent,
     TradeSignalProposedEvent,

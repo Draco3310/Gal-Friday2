@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, Any, TypeVar, Sequence, cast # Added Sequence and cast
@@ -169,7 +169,7 @@ class ExperimentManager:
             pubsub_manager: PubSub manager for event handling.
             logger_service: Logger instance for logging.
         """
-        self.config = config_manager
+        self.config_manager = config_manager
         self.model_registry = model_registry
         self.session_maker = session_maker # Store session_maker
         self.experiment_repo = ExperimentRepository(session_maker, logger_service) # Instantiate repo
@@ -182,11 +182,11 @@ class ExperimentManager:
         self.experiment_performance: dict[str, dict[str, VariantPerformance]] = {}
 
         # Configuration
-        self.max_concurrent_experiments = config.get_int("experiments.max_concurrent", 3)
-        self.auto_stop_on_significance = config.get_bool(
+        self.max_concurrent_experiments = self.config_manager.get_int("experiments.max_concurrent", 3)
+        self.auto_stop_on_significance = self.config_manager.get_bool(
             "experiments.auto_stop_on_significance", True,
         )
-        self.check_interval_minutes = config.get_int("experiments.check_interval_minutes", 60)
+        self.check_interval_minutes = self.config_manager.get_int("experiments.check_interval_minutes", 60)
 
         # State
         self._monitor_task: asyncio.Task[None] | None = None

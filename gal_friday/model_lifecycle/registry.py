@@ -8,7 +8,7 @@ import shutil
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable, Sequence as TypingSequence
@@ -116,7 +116,7 @@ class ModelStatus(Enum):
 
 
 @dataclass
-class ModelMetadata(BaseEntity):
+class ModelMetadata:
     """Complete model metadata."""
     model_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     model_name: str = ""
@@ -373,7 +373,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             logger_service: Logger instance
             secrets_manager: Secrets manager instance
         """
-        self.config = config_manager
+        self.config_manager = config_manager
         self.session_maker = session_maker # Store session_maker
         self.model_repo = ModelRepository(session_maker, logger_service) # Instantiate repo
         self.logger = logger_service
@@ -381,25 +381,25 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         self._source_module = self.__class__.__name__
 
         # Storage configuration
-        self.storage_path = Path(config.get("model_registry.storage_path", "./models"))
+        self.storage_path = Path(self.config_manager.get("model_registry.storage_path", "./models"))
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
         # Cloud storage backend (optional)
-        self.use_cloud_storage = config.get_bool("model_registry.use_cloud_storage", False)
+        self.use_cloud_storage = self.config_manager.get_bool("model_registry.use_cloud_storage", False)
         self.cloud_storage = None
         if self.use_cloud_storage:
             self._init_cloud_storage()
 
     def _init_cloud_storage(self) -> None:
         """Initialize cloud storage backend."""
-        provider = self.config.get("model_registry.cloud_provider", "").lower()
+        provider = self.config_manager.get("model_registry.cloud_provider", "").lower()
         
         if provider == "gcs":
             from .cloud_storage import GCSBackend
-            self.cloud_storage = GCSBackend(self.config, self.logger)
+            self.cloud_storage = GCSBackend(self.config_manager, self.logger)
         elif provider == "s3":
             from .cloud_storage import S3Backend
-            self.cloud_storage = S3Backend(self.config, self.logger)
+            self.cloud_storage = S3Backend(self.config_manager, self.logger)
         else:
             raise ValueError(f"Unsupported cloud provider: {provider}")
         
@@ -713,7 +713,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                  return False
 
             # Optionally delete artifacts from local storage
-            if self.config.get_bool("model_registry.delete_archived_artifacts", False) and model_version.artifact_path:
+            if self.config_manager.get_bool("model_registry.delete_archived_artifacts", False) and model_version.artifact_path:
                 artifact_path = Path(model_version.artifact_path)
                 if artifact_path.exists() and artifact_path.is_dir(): # Ensure it's a directory as expected
                     try:

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 import asyncio
 from typing import Any
-import aiofiles
+import aiofiles # type: ignore[import-untyped]
 import hashlib
 
 from gal_friday.config_manager import ConfigManager
@@ -59,7 +59,7 @@ class GCSBackend(CloudStorageBackend):
     def _init_client(self) -> None:
         """Initialize GCS client."""
         try:
-            from google.cloud import storage
+            from google.cloud import storage # type: ignore[import-not-found]
             self.client = storage.Client(project=self.project_id)
             self.bucket = self.client.bucket(self.bucket_name)
             
@@ -332,7 +332,7 @@ class S3Backend(CloudStorageBackend):
     def _init_client(self) -> None:
         """Initialize S3 client."""
         try:
-            import aioboto3
+            import aioboto3 # type: ignore[import-untyped]
             self.session = aioboto3.Session()
             
             self.logger.info(
