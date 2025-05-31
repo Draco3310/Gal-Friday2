@@ -122,26 +122,25 @@ class PositionManager:
 
         trading_pair: str
         side: str
-        quantity: Decimal | float | str
-        price: Decimal | float | str
+        quantity: Decimal # Changed to Decimal
+        price: Decimal    # Changed to Decimal
         timestamp: datetime
         trade_id: str
-        fee: Decimal | float | str = field(default_factory=Decimal)
+        fee: Decimal = field(default_factory=Decimal) # Changed to Decimal
         fee_currency: str | None = None
-        commission: Decimal | float | str = field(default_factory=Decimal)
+        commission: Decimal = field(default_factory=Decimal) # Changed to Decimal
         commission_asset: str | None = None
 
-        # This method is used by the dataclass for field initialization
-        def __post_init__(self) -> None:
-            """Validate the parameters after initialization."""
-            # Ensure numeric types are Decimal
-            for field_name in ['quantity', 'price', 'fee', 'commission']:
-                value = getattr(self, field_name)
-                if not isinstance(value, Decimal):
-                    setattr(self, field_name, Decimal(str(value)))
+        # __post_init__ for type conversion is no longer needed here,
+        # as conversion will be done prior to instantiation.
+        # It can be kept for other validations if any.
+        # def __post_init__(self) -> None:
+        #     """Validate the parameters after initialization."""
+        #     pass
 
-    @dataclass
-    class _UpdatePositionKwargs(TypedDict, total=False): # This can also remain
+
+    @dataclass # This TypedDict defines the types for **kwargs, so it must allow broader types
+    class _UpdatePositionKwargs(TypedDict, total=False):
         """Type definition for update_position_for_trade kwargs."""
 
         trading_pair: str
@@ -170,8 +169,33 @@ class PositionManager:
                 - position: The updated PositionModel instance, or None if an error occurred.
         """
         try:
-            params = self._UpdatePositionParams(**kwargs) # Validate and convert inputs
-        except (TypeError, ValueError) as e:
+            # Extract and convert arguments to Decimal before creating _UpdatePositionParams
+            qty_arg = kwargs.get('quantity')
+            price_arg = kwargs.get('price')
+            # Provide defaults for fee and commission if not in kwargs, matching dataclass defaults
+            fee_arg = kwargs.get('fee', Decimal(0))
+            commission_arg = kwargs.get('commission', Decimal(0))
+
+            # Ensure required fields are present (those not in _UpdatePositionKwargs or without defaults in _UpdatePositionParams)
+            # 'trading_pair', 'side', 'timestamp', 'trade_id' are required by _UpdatePositionKwargs if total=True,
+            # or by _UpdatePositionParams if they have no defaults.
+            # Assuming they are always provided as per TypedDict or dataclass requirements.
+            if qty_arg is None or price_arg is None: # Basic check for required numeric fields
+                raise ValueError("Quantity and price must be provided.")
+
+            params = self._UpdatePositionParams(
+                trading_pair=kwargs['trading_pair'], # Assuming this and others are always present
+                side=kwargs['side'],
+                quantity=Decimal(str(qty_arg)) if not isinstance(qty_arg, Decimal) else qty_arg,
+                price=Decimal(str(price_arg)) if not isinstance(price_arg, Decimal) else price_arg,
+                timestamp=kwargs['timestamp'],
+                trade_id=kwargs['trade_id'],
+                fee=Decimal(str(fee_arg)) if not isinstance(fee_arg, Decimal) else fee_arg,
+                fee_currency=kwargs.get('fee_currency'),
+                commission=Decimal(str(commission_arg)) if not isinstance(commission_arg, Decimal) else commission_arg,
+                commission_asset=kwargs.get('commission_asset')
+            )
+        except (TypeError, ValueError, KeyError) as e: # Added KeyError for direct kwargs access
             self.logger.error(f"Invalid parameters for update_position_for_trade: {e}", source_module=self._source_module, context=kwargs)
             return Decimal(0), None
             
@@ -179,7 +203,7 @@ class PositionManager:
 
     async def _update_position_for_trade_impl( # Keep as main logic implementation
         self,
-        params: _UpdatePositionParams,
+        params: _UpdatePositionParams, # params now has fields guaranteed to be Decimal
     ) -> tuple[Decimal, PositionModel | None]: # Returns SQLAlchemy PositionModel
         """Update position based on trade execution. Persists changes to the database.
 
@@ -193,6 +217,7 @@ class PositionManager:
                 - position_model: The updated PositionModel instance from DB, or None if an error.
         """
         try:
+            # Now params.quantity and params.price are Decimal, so this call should be fine.
             self._validate_trade_params(
                 params.trading_pair,
                 params.side,
@@ -200,7 +225,6 @@ class PositionManager:
                 params.price,
             )
 
-            # No further Decimal conversion needed here due to _UpdatePositionParams.__post_init__
         except DataValidationError as e:
             self.logger.error(
                 f"Trade validation failed for {params.trading_pair}: {e}",

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING # For Order type hint
 
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import cast, Optional # Added for casts
 
 from gal_friday.core.events import ExecutionReportEvent
 from sqlalchemy.sql import func
@@ -157,19 +158,19 @@ class Fill(Base):
             source_module=self.__class__.__name__,
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(), # Event's own creation time
-            exchange_order_id=final_exchange_order_id, # Use the adjusted value
-            trading_pair=order_trading_pair,
-            exchange=order_exchange,
+            exchange_order_id=cast(str, final_exchange_order_id),
+            trading_pair=cast(str, order_trading_pair),
+            exchange=cast(str, order_exchange),
             order_status=current_order_status,
-            order_type=order_type,
-            side=order_side,
+            order_type=cast(str, order_type),
+            side=cast(str, order_side),
             quantity_ordered=quantity_ordered, # Ensure this is Decimal
-            signal_id=signal_id_val,
+            signal_id=cast(uuid.UUID, signal_id_val), # Was Column[UUID] | UUID, event expects UUID | None. Value is always UUID.
             client_order_id=client_order_id_val,
             quantity_filled=self.quantity_filled, # Ensure this is Decimal
             average_fill_price=self.fill_price, # Ensure this is Decimal
-            limit_price=self.order.limit_price if self.order and self.order.order_type == "LIMIT" else None, # Ensure Decimal or None
-            stop_price=self.order.stop_price if self.order and "STOP" in self.order.order_type else None, # Ensure Decimal or None
+            limit_price=cast(Optional[Decimal], (self.order.limit_price if self.order and self.order.order_type == "LIMIT" else None)),
+            stop_price=cast(Optional[Decimal], (self.order.stop_price if self.order and "STOP" in self.order.order_type else None)),
             commission=self.commission, # Ensure Decimal or None
             commission_asset=self.commission_asset,
             timestamp_exchange=self.filled_at, # Timestamp of the actual fill

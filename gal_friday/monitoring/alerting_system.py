@@ -592,14 +592,11 @@ class AlertingSystem:
             auth_token = self.secrets.get_secret("TWILIO_AUTH_TOKEN")
             from_number = self.config.get("alerting.sms.from_number")
 
-            if all([account_sid, auth_token, from_number]):
-                # We've already checked they're not None
-                if not all([account_sid, auth_token, from_number]):
-                    self.logger.error(
-                        "Missing required SMS configuration",
-                        source_module=self._source_module,
-                    )
-                    return
+            if account_sid and auth_token and from_number: # Using individual checks for clarity
+                # Assertions to help mypy confirm the types are strings
+                assert isinstance(account_sid, str), "TWILIO_ACCOUNT_SID must be a non-empty string"
+                assert isinstance(auth_token, str), "TWILIO_AUTH_TOKEN must be a non-empty string"
+                assert isinstance(from_number, str), "alerting.sms.from_number must be a non-empty string"
 
                 self.channels[AlertChannel.SMS] = SMSChannel(
                     account_sid, auth_token, from_number, self.logger,
@@ -607,6 +604,13 @@ class AlertingSystem:
                 self.logger.info(
                     "SMS alerting channel initialized",
                     source_module=self._source_module,
+                )
+            else:
+                self.logger.warning(
+                    "SMS alerting enabled but missing one or more required configurations "
+                    "(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or alerting.sms.from_number was empty/None). "
+                    "SMS channel will not be initialized.",
+                    source_module=self._source_module
                 )
 
         # Discord channel

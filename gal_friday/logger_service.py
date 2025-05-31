@@ -885,6 +885,11 @@ class LoggerService:
                 source_module="LoggerService",
             )
             return False
+
+        assert url is not None, "URL should be a string after 'all' check"
+        assert token is not None, "Token should be a string after 'all' check"
+        assert org is not None, "Org should be a string after 'all' check"
+
         try:
             # Import influxdb_client specifics here, only when actually trying to initialize
             from influxdb_client import InfluxDBClient
@@ -910,10 +915,12 @@ class LoggerService:
             return False
         else:
             # Since we've already checked that all([url, token, org]) is True,
-            # we can safely check these are strings
-            if not isinstance(token, str):
+            # and asserted non-None, these isinstance checks are less critical
+            # but don't hurt if config_manager.get could return non-str for some reason.
+            # However, the primary issue for mypy is None vs str.
+            if not isinstance(token, str): # This check might be deemed redundant by mypy now
                 raise TypeError("Token must be a string")
-            if not isinstance(org, str):
+            if not isinstance(org, str): # This check might be deemed redundant by mypy now
                 raise TypeError("Organization must be a string")
             
             # Now use the imported InfluxDBClient
@@ -969,10 +976,10 @@ class LoggerService:
             for key, value in tags.items():
                 point = point.tag(key, str(value))
 
-            valid_fields: dict[str, float | int | bool | str] = {} # Explicitly typed
+            valid_fields: dict[str, Any] = {} # Changed to Any for diagnosis
             for key, value in fields.items():
                 if isinstance(value, float | int | bool | str):
-                    valid_fields[key] = value
+                    valid_fields[key] = str(value)
                 elif isinstance(value, Decimal):
                     valid_fields[key] = float(value)
                 else:
@@ -997,7 +1004,7 @@ class LoggerService:
             # Explicitly annotate the return type if needed, or ensure it matches InfluxDBPoint type hint
             # from influxdb_client import Point # Already imported if TYPE_CHECKING or locally
 
-            return cast(InfluxDBPoint, point)
+            return point
 
     async def log_timeseries(
         self,

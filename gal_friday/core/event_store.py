@@ -181,7 +181,8 @@ class EventStore:
                     return None
                 
                 # Add to cache
-                self._add_to_cache(event)
+                if event is not None:
+                    self._add_to_cache(event)
                 
                 return event  # type: ignore
                 
@@ -308,7 +309,9 @@ class EventStore:
         event_id = event.event_id
         
         # Remove oldest if at capacity
-        if len(self._cache) >= self._cache_order.maxlen:
+        current_maxlen = self._cache_order.maxlen
+        assert current_maxlen is not None, "Deque maxlen should be set during initialization"
+        if len(self._cache) >= current_maxlen:
             oldest_id = self._cache_order[0]
             self._cache.pop(oldest_id, None)
         
@@ -379,7 +382,9 @@ class EventStore:
     def _deserialize_event(self, event_log: EventLog) -> Event | None:
         """Deserialize event from database."""
         try:
-            event_class = self._event_registry.get(event_log.event_type)
+            # Ensure event_log.event_type is treated as str for dict key
+            event_type_str = cast(str, event_log.event_type)
+            event_class = self._event_registry.get(event_type_str)
             if not event_class:
                 self.logger.warning(
                     f"Unknown event type: {event_log.event_type}",
@@ -387,7 +392,10 @@ class EventStore:
                 )
                 return None
             
-            return cast(Event, event_class.from_dict(event_log.data))
+            # Ensure event_log.data is treated as dict for from_dict method
+            event_data_dict = cast(dict[str, Any], event_log.data)
+            # The cast to Event was redundant, event_class.from_dict should return correctly typed event
+            return event_class.from_dict(event_data_dict)
             
         except Exception:
             self.logger.exception(
