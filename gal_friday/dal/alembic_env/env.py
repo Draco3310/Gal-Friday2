@@ -51,7 +51,7 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-from typing import Any # For type hints if needed later for render_item etc.
+from typing import Any, cast # Added cast
 # Import ConfigManager to get database URL
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService # For consistency, though not strictly used in template
@@ -83,10 +83,10 @@ def get_db_url() -> str: # Added return type
             print(f"Warning: Could not get DB URL from ConfigManager, falling back to alembic.ini URL: {db_url}")
         else:
             print(f"Using DB URL from ConfigManager: {db_url}")
-        return db_url
+        return cast(str, db_url)
     except Exception as e:
         print(f"Error getting DB URL from ConfigManager: {e}. Falling back to alembic.ini.")
-        return config.get_main_option("sqlalchemy.url")
+        return cast(str, config.get_main_option("sqlalchemy.url"))
 
 
 def run_migrations_offline() -> None:

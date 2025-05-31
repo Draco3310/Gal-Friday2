@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Any, Protocol
+from typing import Any, Protocol, Dict # Added Dict
 
 import numpy as np
 
@@ -260,7 +260,7 @@ class StrategyInterface(ABC):
 
         # Portfolio-specific validation
         if action.action_type in [ActionType.SELL, ActionType.CLOSE_LONG]:
-            asset_spec_or_default_dict = self.asset_specifications.get(action.symbol, {})
+            asset_spec_or_default_dict: AssetSpecification | dict[str, Any] = self.asset_specifications.get(action.symbol, {})
             if isinstance(asset_spec_or_default_dict, dict):
                 current_position = asset_spec_or_default_dict.get("position", 0)
             else:

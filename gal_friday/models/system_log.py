@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any # Added Any
 
 from sqlalchemy import Column, BigInteger, String, Text, DateTime, JSON, Integer # Added Integer
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID # For signal_id
@@ -41,7 +42,7 @@ class SystemLog(Base):
         # from gal_friday.core.events import LogEvent
 
         # Construct context, including optional fields if they exist
-        event_context = self.context or {}
+        event_context: dict[str, Any] = self.context or {}
         if self.trading_pair:
             event_context['trading_pair'] = self.trading_pair
         if self.signal_id:

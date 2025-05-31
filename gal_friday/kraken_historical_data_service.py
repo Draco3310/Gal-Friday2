@@ -5,7 +5,7 @@ import logging
 from collections.abc import Callable, Coroutine
 from datetime import datetime, timedelta, UTC
 from decimal import Decimal
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar, cast # Added cast
 
 import pandas as pd
 import pandas_ta as ta
@@ -1010,7 +1010,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
                         )
                         return None
                     
-                    return await response.json()
+                    return cast(dict[str, Any], await response.json())
                     
         except Exception:
             self.logger.exception(

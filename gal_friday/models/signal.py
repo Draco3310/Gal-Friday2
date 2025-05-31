@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import Column, String, Text, Numeric, Float, DateTime, JSON
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -69,4 +70,22 @@ class Signal(Base):
         # return TradeSignalProposedEvent(**event_data)
 
         # Returning dict for now
-        return TradeSignalProposedEvent(**event_data) # Should be TradeSignalProposedEvent(**event_data)
+        # return TradeSignalProposedEvent(**event_data) # Old way
+
+        # Explicitly pass arguments
+        return TradeSignalProposedEvent(
+            source_module=self.__class__.__name__,
+            event_id=uuid.uuid4(), # New event_id for this event
+            timestamp=datetime.utcnow(), # Event's own creation time
+            signal_id=self.signal_id, # This is the ID of the signal itself
+            trading_pair=self.trading_pair,
+            exchange=self.exchange,
+            side=self.side,
+            entry_type=self.entry_type,
+            proposed_entry_price=self.proposed_entry_price, # Ensure Decimal | None
+            proposed_sl_price=self.proposed_sl_price, # Ensure Decimal
+            proposed_tp_price=self.proposed_tp_price, # Ensure Decimal
+            strategy_id=self.strategy_id,
+            triggering_prediction_event_id=self.prediction_event_id, # Ensure uuid.UUID | None
+            triggering_prediction={"value": self.prediction_value} if self.prediction_value is not None else None
+        )

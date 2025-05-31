@@ -252,10 +252,12 @@ class GapDetector:
         # Use mode (most common interval)
         mode_interval = intervals.mode()
         if len(mode_interval) > 0:
-            return mode_interval.iloc[0]
+            # Convert pandas.Timedelta to datetime.timedelta
+            return mode_interval.iloc[0].to_pytimedelta()
         
         # Fallback to median
-        return intervals.median()
+        # Convert pandas.Timedelta to datetime.timedelta
+        return intervals.median().to_pytimedelta()
     
     def _detect_frequency(self, timestamps: pd.Series) -> str:
         """Detect pandas frequency string."""

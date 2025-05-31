@@ -36,6 +36,10 @@ from typing import (
     TypeVar,
     cast,
     Mapping,
+    Union,
+    Tuple,
+    Type,
+    TypeAlias as TypingTypeAlias,
 )
 
 import pythonjsonlogger.jsonlogger as jsonlogger  # Add missing import for JSON logging
@@ -80,12 +84,22 @@ if TYPE_CHECKING:
 from .exceptions import DatabaseError, InvalidLoggerTableNameError, UnsupportedParamsTypeError
 
 # SQLAlchemy imports
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.exc import SQLAlchemyError # For error handling
 
 # Type variables for generic protocols
 _T = TypeVar("_T")
 _RT = TypeVar("_RT")
+
+# Define a type alias for exc_info to improve readability and manage line length
+# Moved to module level and updated to use Union, Tuple
+ExcInfoType: TypingTypeAlias = Union[
+    bool,
+    Tuple[Type[BaseException], BaseException, types.TracebackType],
+    BaseException,
+    None
+]
 
 # Define a Protocol for ConfigManager to properly type hint its interface
 
@@ -669,13 +683,7 @@ class LoggerService:
                 filtered[key] = value
         return filtered
 
-    # Define a type alias for exc_info to improve readability and manage line length
-    ExcInfoType = (
-        bool |
-        tuple[type[BaseException], BaseException, types.TracebackType] |
-        BaseException |
-        None
-    )
+    # ExcInfoType is now defined at the module level
 
     def log(
         self,
@@ -989,7 +997,7 @@ class LoggerService:
             # Explicitly annotate the return type if needed, or ensure it matches InfluxDBPoint type hint
             # from influxdb_client import Point # Already imported if TYPE_CHECKING or locally
 
-            return point
+            return cast(InfluxDBPoint, point)
 
     async def log_timeseries(
         self,

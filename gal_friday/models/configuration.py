@@ -52,4 +52,20 @@ class Configuration(Base):
         # return LogEvent(**event_data)
 
         # Returning dict for now to satisfy type hint via forward reference
-        return LogEvent(**event_data) # Should be LogEvent(**event_data)
+        # return LogEvent(**event_data) # Old way
+
+        # Explicitly pass arguments
+        return LogEvent(
+            source_module=self.__class__.__name__,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.utcnow(),
+            level="INFO",  # Or some other appropriate level
+            message=f"Configuration accessed/processed: PK={self.config_pk}, Hash={self.config_hash}",
+            context={
+                "config_pk": self.config_pk,
+                "config_hash": self.config_hash,
+                "is_active": self.is_active,
+                "loaded_at": self.loaded_at.isoformat() if self.loaded_at else None,
+                # "config_content_preview": str(self.config_content)[:100] # Example preview
+            }
+        )

@@ -1,7 +1,7 @@
 """Base repository pattern for data access using SQLAlchemy."""
 
 from datetime import datetime, timezone
-from typing import Any, Generic, TypeVar, Sequence
+from typing import Any, Generic, TypeVar, Sequence, cast # Added cast
 
 from sqlalchemy import select, delete as sqlalchemy_delete, asc, desc
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -59,7 +59,7 @@ class BaseRepository(Generic[T]):
                     f"Created new {self.model_class.__name__} with ID {getattr(instance, 'id', None)}",
                     source_module=self._source_module,
                 )
-                return instance
+                return cast(T, instance)
         except Exception as e: # Catch generic Exception for logging, re-raise specific if needed
             self.logger.exception(
                 f"Error creating in {self.model_class.__name__}: {e}",

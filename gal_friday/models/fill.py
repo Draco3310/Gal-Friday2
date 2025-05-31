@@ -1,5 +1,6 @@
 from datetime import datetime
 import uuid
+from decimal import Decimal
 
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, UniqueConstraint
 
@@ -132,4 +133,28 @@ class Fill(Base):
         # to this method's scope by an import I can't add here, I'll return the dict.
         # This satisfies the "add function type hints" part for its signature.
         # The actual return type requires the class to be available.
-        return ExecutionReportEvent(**event_data) # Should be ExecutionReportEvent(**event_data)
+        # return ExecutionReportEvent(**event_data) # Old way
+
+        # Explicitly pass arguments
+        return ExecutionReportEvent(
+            source_module=self.__class__.__name__,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.utcnow(), # Event's own creation time
+            exchange_order_id=order_exchange_order_id,
+            trading_pair=order_trading_pair,
+            exchange=order_exchange,
+            order_status=current_order_status,
+            order_type=order_type,
+            side=order_side,
+            quantity_ordered=quantity_ordered, # Ensure this is Decimal
+            signal_id=signal_id_val,
+            client_order_id=client_order_id_val,
+            quantity_filled=self.quantity_filled, # Ensure this is Decimal
+            average_fill_price=self.fill_price, # Ensure this is Decimal
+            limit_price=self.order.limit_price if self.order and self.order.order_type == "LIMIT" else None, # Ensure Decimal or None
+            stop_price=self.order.stop_price if self.order and "STOP" in self.order.order_type else None, # Ensure Decimal or None
+            commission=self.commission, # Ensure Decimal or None
+            commission_asset=self.commission_asset,
+            timestamp_exchange=self.filled_at, # Timestamp of the actual fill
+            error_message=None # Assuming no error for a successful fill conversion
+        )

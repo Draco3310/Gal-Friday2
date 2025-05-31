@@ -1,7 +1,7 @@
 """Enterprise-grade event store with persistence and caching."""
 
 from datetime import datetime, timedelta
-from typing import Any, TypeVar, Generic
+from typing import Any, TypeVar, Generic, cast # Added cast
 from collections import deque
 import asyncio
 import json
@@ -119,7 +119,7 @@ class EventStore:
                 f"Stored event {event.event_id}",
                 source_module=self._source_module,
                 context={
-                    "event_type": event.event_type.value,
+                    "event_type": event_type_attr.value, # Use the validated variable
                     "source": event.source_module
                 }
             )
@@ -387,7 +387,7 @@ class EventStore:
                 )
                 return None
             
-            return event_class.from_dict(event_log.data)
+            return cast(Event, event_class.from_dict(event_log.data))
             
         except Exception:
             self.logger.exception(

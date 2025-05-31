@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import Column, Integer, String, Text, Numeric, Float, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -91,4 +92,18 @@ class Trade(Base):
         # return MarketDataTradeEvent(**event_data)
 
         # Returning dict for now
-        return MarketDataTradeEvent(**event_data) # Should be MarketDataTradeEvent(**event_data)
+        # return MarketDataTradeEvent(**event_data) # Old way
+
+        # Explicitly pass arguments
+        return MarketDataTradeEvent(
+            source_module=self.__class__.__name__,
+            event_id=uuid.uuid4(), # New event ID for this specific event
+            timestamp=datetime.utcnow(), # Event creation time
+            trading_pair=self.trading_pair,
+            exchange=self.exchange,
+            timestamp_exchange=self.entry_timestamp, # Timestamp of the entry
+            price=self.average_entry_price, # Ensure this is Decimal
+            volume=self.quantity, # Ensure this is Decimal
+            side=self.side, # Side of the entry trade
+            trade_id=str(self.trade_id) # self.trade_id is non-nullable
+        )

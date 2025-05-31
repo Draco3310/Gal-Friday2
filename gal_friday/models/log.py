@@ -48,17 +48,12 @@ class Log(Base):
         if self.exception_text: # Be cautious with potentially large exception texts in events
             event_context['exception_preview'] = self.exception_text[:200]
 
-        event_data = {
-            "source_module": self.logger_name, # logger_name seems more appropriate for source_module
-            "event_id": uuid.uuid4(),
-            "timestamp": self.timestamp or datetime.datetime.utcnow(), # Use log's timestamp
-            "level": self.level_name.upper(),
-            "message": self.message,
-            "context": event_context,
-        }
-        # In a real implementation:
-        # from gal_friday.core.events import LogEvent
-        # return LogEvent(**event_data)
-
-        # Returning dict for now
-        return LogEvent(**event_data) # Should be LogEvent(**event_data)
+        # Call LogEvent constructor with explicit arguments
+        return LogEvent(
+            source_module=self.logger_name,
+            event_id=uuid.uuid4(),  # Generate a new UUID for the event
+            timestamp=self.timestamp if self.timestamp is not None else datetime.datetime.utcnow(),
+            level=self.level_name.upper(),
+            message=self.message,
+            context=event_context
+        )
