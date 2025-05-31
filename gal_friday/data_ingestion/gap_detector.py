@@ -1,7 +1,7 @@
 """Gap detection for time series data."""
 
 from datetime import datetime, timedelta
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast as typing_cast # Added typing_cast
 import pandas as pd
 import numpy as np
 
@@ -136,10 +136,13 @@ class GapDetector:
         total_duration = sum((g.duration for g in gaps), timedelta())
         durations = [g.duration.total_seconds() for g in gaps]
         
+        durations_seconds = [g.duration.total_seconds() for g in gaps] # ensure list is not empty before np.mean
+        avg_duration_seconds = np.mean(durations_seconds) if durations_seconds else 0.0
+
         stats = {
             "total_gaps": len(gaps),
             "total_duration": total_duration,
-            "average_duration": timedelta(seconds=np.mean(durations)),
+            "average_duration": timedelta(seconds=float(avg_duration_seconds)), # Explicit float cast
             "max_duration": max(g.duration for g in gaps),
             "min_duration": min(g.duration for g in gaps),
             "severity_distribution": {
@@ -244,20 +247,35 @@ class GapDetector:
     def _detect_interval(self, timestamps: pd.Series) -> timedelta:
         """Auto-detect the expected interval between timestamps."""
         if len(timestamps) < 2:
-            return timedelta(minutes=1)  # Default
+            return timedelta(minutes=1)  # Default for insufficient data
         
-        # Calculate intervals
         intervals = timestamps.diff().dropna()
         
+        if intervals.empty:
+            self.logger.warning(
+                "Could not determine interval from timestamps (empty after diff/dropna), defaulting to 1 minute.",
+                source_module=self._source_module
+            )
+            return timedelta(minutes=1)
+
         # Use mode (most common interval)
-        mode_interval = intervals.mode()
-        if len(mode_interval) > 0:
+        mode_interval_series = intervals.mode()
+        if not mode_interval_series.empty:
             # Convert pandas.Timedelta to datetime.timedelta
-            return mode_interval.iloc[0].to_pytimedelta()
+            py_delta = mode_interval_series.iloc[0].to_pytimedelta()
+            return typing_cast(timedelta, py_delta) # Cast to timedelta
+
+        # Fallback to median if mode is empty (e.g., all intervals are unique)
+        median_val = intervals.median()
+        if pd.isna(median_val): # Check if median itself is NaT (e.g., if intervals was empty, though covered above)
+            self.logger.warning(
+                "Median interval calculation resulted in NaT, defaulting to 1 minute.",
+                source_module=self._source_module
+            )
+            return timedelta(minutes=1)
         
-        # Fallback to median
-        # Convert pandas.Timedelta to datetime.timedelta
-        return intervals.median().to_pytimedelta()
+        py_delta = median_val.to_pytimedelta()
+        return typing_cast(timedelta, py_delta) # Cast to timedelta
     
     def _detect_frequency(self, timestamps: pd.Series) -> str:
         """Detect pandas frequency string."""

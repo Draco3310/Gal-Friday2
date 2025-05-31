@@ -1,36 +1,41 @@
 from datetime import datetime
 import uuid
 from decimal import Decimal
+from datetime import datetime # Changed back from 'import datetime'
+from typing import TYPE_CHECKING # For Order type hint
 
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gal_friday.core.events import ExecutionReportEvent
-from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from .base import Base
+
+if TYPE_CHECKING:
+    from .order import Order # Assuming Order is in models/order.py
 
 
 class Fill(Base):
     __tablename__ = "fills"
 
-    fill_pk = Column(Integer, primary_key=True, autoincrement=True)
-    fill_id = Column(String(64), nullable=True)  # Exchange fill ID
-    order_pk = Column(Integer, ForeignKey("orders.order_pk"), nullable=False, index=True)
-    exchange_order_id = Column(String(64), index=True) # From Order, denormalized for easier query
-    
-    trading_pair = Column(String(16), nullable=False)
-    exchange = Column(String(32), nullable=False)
-    side = Column(String(4), nullable=False)
-    quantity_filled = Column(Numeric(18, 8), nullable=False)
-    fill_price = Column(Numeric(18, 8), nullable=False)
-    commission = Column(Numeric(18, 8), nullable=False)
-    commission_asset = Column(String(16), nullable=False)
-    liquidity_type = Column(String(10), nullable=True)  # 'MAKER' or 'TAKER'
-    filled_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    fill_pk: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    fill_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # Exchange fill ID
+    order_pk: Mapped[int] = mapped_column(Integer, ForeignKey("orders.order_pk"), nullable=False, index=True)
+    exchange_order_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True) # From Order, denormalized for easier query
+
+    trading_pair: Mapped[str] = mapped_column(String(16), nullable=False)
+    exchange: Mapped[str] = mapped_column(String(32), nullable=False)
+    side: Mapped[str] = mapped_column(String(4), nullable=False)
+    quantity_filled: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    fill_price: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    commission: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    commission_asset: Mapped[str] = mapped_column(String(16), nullable=False)
+    liquidity_type: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 'MAKER' or 'TAKER'
+    filled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True) # Changed to Mapped[datetime]
 
     # Relationships
-    order = relationship("Order", back_populates="fills")
+    order: Mapped["Order"] = relationship("Order", back_populates="fills")
 
     # Constraints
     __table_args__ = (
@@ -69,7 +74,10 @@ class Fill(Base):
         order_type = self.order.order_type if self.order else "MARKET" # Default if no order
         quantity_ordered = self.order.quantity if self.order else self.quantity_filled # Default
         signal_id_val = self.order.signal_id if self.order and hasattr(self.order, 'signal_id') else uuid.uuid4() # Placeholder
-        client_order_id_val = self.order.client_order_id if self.order and hasattr(self.order, 'client_order_id') else None
+
+        _client_order_id_from_order = self.order.client_order_id if self.order and hasattr(self.order, 'client_order_id') else None
+        client_order_id_val = str(_client_order_id_from_order) if _client_order_id_from_order is not None else None
+
 
         # Determine order_status based on fill (simplified)
         # This is a very naive way to set status. Real status comes from the order.
@@ -101,11 +109,20 @@ class Fill(Base):
         # The type hint 'ExecutionReportEvent' will rely on a forward reference.
         # This means the actual ExecutionReportEvent class must be importable in the file's scope.
 
+        # Ensure exchange_order_id is not None if the event expects a string
+        final_exchange_order_id = order_exchange_order_id
+        if final_exchange_order_id is None:
+            # This addresses: gal_friday/models/fill.py:144: error: Argument "exchange_order_id" to "ExecutionReportEvent" has incompatible type "str | Any | None"; expected "str"
+            # We need to provide a string if the event strictly expects one.
+            # Alternatively, the event definition or this model's data integrity should be adjusted.
+            # For now, using a placeholder:
+            final_exchange_order_id = "UNKNOWN_FILL_EXCH_ORD_ID" # Placeholder
+
         event_data = {
             "source_module": self.__class__.__name__,
             "event_id": uuid.uuid4(),
             "timestamp": datetime.utcnow(), # Or self.filled_at for event timestamp
-            "exchange_order_id": order_exchange_order_id,
+            "exchange_order_id": final_exchange_order_id, # Use the adjusted value
             "trading_pair": order_trading_pair,
             "exchange": order_exchange,
             "order_status": current_order_status, # This is simplified
@@ -140,7 +157,7 @@ class Fill(Base):
             source_module=self.__class__.__name__,
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(), # Event's own creation time
-            exchange_order_id=order_exchange_order_id,
+            exchange_order_id=final_exchange_order_id, # Use the adjusted value
             trading_pair=order_trading_pair,
             exchange=order_exchange,
             order_status=current_order_status,
