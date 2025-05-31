@@ -779,9 +779,11 @@ class DataIngestor:
         """Handle connection or system status updates."""
         status = data.get("status")
         connection_id = data.get("connectionID")
-        version = data.get("version")
+        # Ensure version is string or None for consistent logging/processing
+        raw_version = data.get("version")
+        version_str = str(raw_version) if raw_version is not None else None
 
-        log_payload = {"status": status, "connection_id": connection_id, "version": version}
+        log_payload = {"status": status, "connection_id": connection_id, "version": version_str}
 
         if status == "online":
             self.logger.info(
@@ -812,8 +814,8 @@ class DataIngestor:
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(),
             # Map Kraken status to internal state if needed
-            new_state=status if status is not None else "unknown",
-            reason=f"Kraken WS Status Update: {status}",
+            new_state=str(status) if status is not None else "unknown", # Ensure str
+            reason=f"Kraken WS Status Update: {str(status) if status is not None else 'unknown'}", # Ensure str in f-string part
         )
         try:
             await self.pubsub.publish(event)
@@ -1682,9 +1684,13 @@ class MockLoggerService(LoggerService):
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message."""
-        extra = {"source_module": source_module}
+        extra: dict[str, Any] = {"source_module": source_module} # Explicitly type extra
         if context is not None:
-            extra["context"] = context
+            try:
+                # Convert context Mapping to a JSON string for the 'extra' dict
+                extra["context"] = json.dumps(dict(context))
+            except TypeError:
+                extra["context"] = str(context) # Fallback if not JSON serializable
         self._logger.log(level, message, *args, exc_info=exc_info, extra=extra)
 
     def _log(
@@ -1708,9 +1714,13 @@ class MockLoggerService(LoggerService):
         if not hasattr(self, "_logger"):
             return
 
-        extra = {"source_module": source_module}
+        extra: dict[str, Any] = {"source_module": source_module} # Explicitly type extra
         if context is not None:
-            extra["context"] = context
+            try:
+                # Convert context Mapping to a JSON string for the 'extra' dict
+                extra["context"] = json.dumps(dict(context))
+            except TypeError:
+                extra["context"] = str(context) # Fallback if not JSON serializable
 
         self._logger.log(level, message, *args, exc_info=exc_info, extra=extra) # Pass exc_info
 
@@ -1774,10 +1784,18 @@ class MockLoggerService(LoggerService):
         context: Mapping[str, object] | None = None,
     ) -> None:
         """Log an exception message."""
+        extra_payload: dict[str, Any] = {"source_module": source_module}
+        if context is not None:
+            try:
+                # Convert context Mapping to a JSON string for the 'extra' dict
+                extra_payload["context"] = json.dumps(dict(context))
+            except TypeError:
+                extra_payload["context"] = str(context) # Fallback
+
         self._logger.exception(
             message,
             *args,
-            extra={"source_module": source_module, "context": context},
+            extra=extra_payload,
         )
 
 

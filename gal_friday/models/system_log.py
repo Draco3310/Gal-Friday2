@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
-from typing import Any # Added Any
+from typing import Any
 
-from sqlalchemy import Column, BigInteger, String, Text, DateTime, JSON, Integer # Added Integer
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID # For signal_id
+from sqlalchemy import Column, BigInteger, String, Text, DateTime, JSON, Integer
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB # Added JSONB for potential use
+from sqlalchemy.orm import Mapped, mapped_column # Added Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from .base import Base
@@ -13,20 +14,21 @@ from gal_friday.core.events import LogEvent
 class SystemLog(Base):
     __tablename__ = "system_logs"
 
-    log_pk = Column(BigInteger, primary_key=True, autoincrement=True)
-    log_timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
-    source_module = Column(String(64), nullable=False, index=True)
-    log_level = Column(String(10), nullable=False, index=True)  # CHECK constraint handled by application/DB
-    message = Column(Text, nullable=False)
+    log_pk: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    log_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    source_module: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    log_level: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
     
     # Contextual fields
-    trading_pair = Column(String(16), nullable=True)
-    signal_id = Column(PG_UUID(as_uuid=True), nullable=True) # Assuming this might link to signals.signal_id
-    order_pk = Column(Integer, nullable=True) # Assuming this might link to orders.order_pk
+    trading_pair: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    signal_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    order_pk: Mapped[int | None] = mapped_column(Integer, nullable=True)
     
-    exception_type = Column(Text, nullable=True)
-    stack_trace = Column(Text, nullable=True)
-    context = Column(JSON, nullable=True) # For arbitrary additional context
+    exception_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stack_trace: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Using generic JSON for broader compatibility, can be switched to JSONB if PG-specific features are needed.
+    context: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     def __repr__(self) -> str: # Added -> str
         return (
@@ -54,20 +56,13 @@ class SystemLog(Base):
         if self.stack_trace: # Be cautious about event size with full stack traces
             event_context['stack_trace_preview'] = self.stack_trace[:200]
 
-
-        event_data = {
-            "source_module": self.source_module,
-            # LogEvent usually generates its own event_id and timestamp upon creation.
-            # If we want to preserve the original log's timestamp, LogEvent needs to allow it.
-            "event_id": uuid.uuid4(), # New UUID for the event itself
-            "timestamp": self.log_timestamp or datetime.utcnow(), # Use log_timestamp if available
-            "level": self.log_level.upper(), # Ensure level is uppercase e.g. INFO, ERROR
-            "message": self.message,
-            "context": event_context,
-        }
-        # In a real implementation:
-        # from gal_friday.core.events import LogEvent
-        # return LogEvent(**event_data)
-
-        # Returning dict for now
-        return LogEvent(**event_data) # Should be LogEvent(**event_data)
+        # Call LogEvent constructor with explicit keyword arguments
+        # This helps mypy with type checking against the LogEvent constructor signature.
+        return LogEvent(
+            source_module=self.source_module,
+            event_id=uuid.uuid4(),  # Generate a new UUID for this event instance
+            timestamp=self.log_timestamp or datetime.utcnow(), # Use the log's timestamp if available
+            level=self.log_level.upper(),
+            message=self.message,
+            context=event_context
+        )

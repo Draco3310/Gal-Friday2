@@ -18,10 +18,10 @@ class Log(Base):
     timestamp: Mapped[datetime.datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, default=datetime.datetime.utcnow)
     logger_name: Mapped[str] = mapped_column(String(255), nullable=False)
     level_name: Mapped[str] = mapped_column(String(50), nullable=False)
-    level_no = Column(Integer, nullable=False)
-    message = Column(Text, nullable=False)
-    pathname = Column(Text, nullable=True)
-    filename = Column(String(255), nullable=True)
+    level_no: Mapped[int] = mapped_column(Integer, nullable=False) # Added Mapped for consistency
+    message: Mapped[str] = mapped_column(Text, nullable=False) # Changed to Mapped[str]
+    pathname: Mapped[str | None] = mapped_column(Text, nullable=True) # Added Mapped for consistency
+    filename: Mapped[str | None] = mapped_column(String(255), nullable=True) # Added Mapped for consistency
     lineno: Mapped[int | None] = mapped_column(Integer, nullable=True)
     func_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     context_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True) # Assuming JSON maps to dict
@@ -36,7 +36,7 @@ class Log(Base):
         # from gal_friday.core.events import LogEvent
 
         # Prepare context, merging context_json with other relevant fields if desired
-        event_context = self.context_json or {}
+        event_context: dict[str, Any] = self.context_json or {}
         if self.pathname:
             event_context['pathname'] = self.pathname
         if self.filename:

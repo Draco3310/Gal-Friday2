@@ -632,7 +632,7 @@ class LoggerService:
 
     def _filter_sensitive_data(
         self,
-        context: dict[str, object] | None,
+        context: Mapping[str, object] | None, # Changed to Mapping
     ) -> dict[str, object] | None:
         """Recursively filter sensitive data from log context.
 
@@ -969,7 +969,7 @@ class LoggerService:
             for key, value in tags.items():
                 point = point.tag(key, str(value))
 
-            valid_fields = {}
+            valid_fields: dict[str, float | int | bool | str] = {} # Explicitly typed
             for key, value in fields.items():
                 if isinstance(value, float | int | bool | str):
                     valid_fields[key] = value
@@ -1202,8 +1202,9 @@ class LoggerService:
                 max_overflow=max_overflow,
                 echo=echo_sql,
             )
-            self._sqlalchemy_session_factory = sessionmaker(
-                bind=self._sqlalchemy_engine, class_=AsyncSession, expire_on_commit=False
+            # Use async_sessionmaker for AsyncEngine and AsyncSession
+            self._sqlalchemy_session_factory = async_sessionmaker(
+                bind=self._sqlalchemy_engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
             )
             self.info(
                 "SQLAlchemy async engine and session factory initialized successfully.",
