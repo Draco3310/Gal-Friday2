@@ -91,4 +91,4 @@ class Trade(Base):
         # return MarketDataTradeEvent(**event_data)
 
         # Returning dict for now
-        return event_data # Should be MarketDataTradeEvent(**event_data)
+        return MarketDataTradeEvent(**event_data) # Should be MarketDataTradeEvent(**event_data)

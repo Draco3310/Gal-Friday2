@@ -332,7 +332,7 @@ class S3Backend(CloudStorageBackend):
     def _init_client(self) -> None:
         """Initialize S3 client."""
         try:
-            import aioboto3 # type: ignore[import-untyped]
+            import aioboto3 # type: ignore[import-not-found, import-untyped]
             self.session = aioboto3.Session()
             
             self.logger.info(

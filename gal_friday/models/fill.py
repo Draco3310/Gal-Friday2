@@ -132,4 +132,4 @@ class Fill(Base):
         # to this method's scope by an import I can't add here, I'll return the dict.
         # This satisfies the "add function type hints" part for its signature.
         # The actual return type requires the class to be available.
-        return event_data # Should be ExecutionReportEvent(**event_data)
+        return ExecutionReportEvent(**event_data) # Should be ExecutionReportEvent(**event_data)

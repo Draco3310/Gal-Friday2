@@ -52,4 +52,4 @@ class Configuration(Base):
         # return LogEvent(**event_data)
 
         # Returning dict for now to satisfy type hint via forward reference
-        return event_data # Should be LogEvent(**event_data)
+        return LogEvent(**event_data) # Should be LogEvent(**event_data)

@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 from collections.abc import Coroutine
-from typing import TYPE_CHECKING, Optional, Protocol, TypeVar, Union, Any, AsyncIterator, Dict, List, Set, Literal, Iterator, Iterable, Coroutine
+from typing import TYPE_CHECKING, Optional, Protocol, TypeVar, Union, Any, AsyncIterator, Dict, List, Set, Literal, Iterator, Iterable, Coroutine, Mapping
 
 # Create TYPE_CHECKING specific imports
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from .config_manager import ConfigManager
     from .core.halt_recovery import HaltRecoveryManager
     from .core.pubsub import PubSubManager
-    from .logger_service import LoggerService
+    from .logger_service import LoggerService, ExcInfoType
     # Define a protocol for connection pools
     class PoolProtocol(Protocol):
         """Protocol for connection pools."""
@@ -563,7 +563,7 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log info message."""
         print(f"INFO [{source_module}]: {message}")
@@ -573,7 +573,7 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log debug message."""
         print(f"DEBUG [{source_module}]: {message}")
@@ -583,7 +583,7 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log warning message."""
         print(f"WARN [{source_module}]: {message}")
@@ -593,9 +593,8 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
-        exc_info: None
-        | (bool | BaseException | tuple[type[BaseException], BaseException, Any]) = None,
+        context: Mapping[str, object] | None = None,
+        exc_info: ExcInfoType = None,
     ) -> None:
         """Log error message."""
         print(f"ERROR [{source_module}]: {message}")
@@ -607,7 +606,7 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log exception message with traceback."""
         self.error(message, *args, source_module=source_module, context=context, exc_info=True)
@@ -617,9 +616,8 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
-        exc_info: None
-        | (bool | BaseException | tuple[type[BaseException], BaseException, Any]) = None,
+        context: Mapping[str, object] | None = None,
+        exc_info: ExcInfoType = None,
     ) -> None:
         """Log critical message."""
         print(f"CRITICAL [{source_module}]: {message}")

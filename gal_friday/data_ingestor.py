@@ -16,7 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, Mapping
 
 import websockets
 from sortedcontainers import SortedDict
@@ -27,7 +27,7 @@ from .core.events import (
     PotentialHaltTriggerEvent,
     SystemStateEvent,
 )
-from .logger_service import LoggerService
+from .logger_service import LoggerService, ExcInfoType
 
 if TYPE_CHECKING:
     from .config_manager import ConfigManager
@@ -1582,7 +1582,7 @@ async def _setup_logging() -> None:
 async def _run_test(
     config: dict,
     event_bus: asyncio.Queue,
-    logger_service: "LoggerService[Any]",
+    logger_service: "LoggerService",
 ) -> None:
     """Run the test with the given configuration.
 
@@ -1678,17 +1678,14 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
-        exc_info: bool
-        | tuple[type[BaseException], BaseException, TracebackType]
-        | BaseException
-        | None = None,
+        context: Mapping[str, object] | None = None,
+        exc_info: ExcInfoType = None,
     ) -> None:
         """Log a message."""
         extra = {"source_module": source_module}
         if context is not None:
             extra["context"] = context
-        self._logger.log(level, message, *args, extra=extra)
+        self._logger.log(level, message, *args, exc_info=exc_info, extra=extra)
 
     def _log(
         self,
@@ -1696,7 +1693,8 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
+        exc_info: ExcInfoType = None, # Added exc_info
     ) -> None:
         """Log a message with the specified level.
 
@@ -1714,14 +1712,14 @@ class MockLoggerService(LoggerService):
         if context is not None:
             extra["context"] = context
 
-        self._logger.log(level, message, *args, extra=extra)
+        self._logger.log(level, message, *args, exc_info=exc_info, extra=extra) # Pass exc_info
 
     def debug(
         self,
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log a debug message."""
         self._log(logging.DEBUG, message, *args, source_module=source_module, context=context)
@@ -1731,7 +1729,7 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log an info message."""
         self._log(logging.INFO, message, *args, source_module=source_module, context=context)
@@ -1741,7 +1739,7 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log a warning message."""
         self._log(logging.WARNING, message, *args, source_module=source_module, context=context)
@@ -1751,27 +1749,29 @@ class MockLoggerService(LoggerService):
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
+        exc_info: ExcInfoType = None,
     ) -> None:
         """Log an error message."""
-        self._log(logging.ERROR, message, *args, source_module=source_module, context=context)
+        self._log(logging.ERROR, message, *args, source_module=source_module, context=context, exc_info=exc_info)
 
     def critical(
         self,
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
+        exc_info: ExcInfoType = None,
     ) -> None:
         """Log a critical message."""
-        self._log(logging.CRITICAL, message, *args, source_module=source_module, context=context)
+        self._log(logging.CRITICAL, message, *args, source_module=source_module, context=context, exc_info=exc_info)
 
     def exception(
         self,
         message: str,
         *args: object,
         source_module: str | None = None,
-        context: dict[str, object] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log an exception message."""
         self._logger.exception(

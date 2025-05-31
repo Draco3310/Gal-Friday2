@@ -69,4 +69,4 @@ class Signal(Base):
         # return TradeSignalProposedEvent(**event_data)
 
         # Returning dict for now
-        return event_data # Should be TradeSignalProposedEvent(**event_data)
+        return TradeSignalProposedEvent(**event_data) # Should be TradeSignalProposedEvent(**event_data)

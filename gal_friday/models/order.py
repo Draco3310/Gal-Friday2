@@ -101,4 +101,4 @@ class Order(Base):
         # return ExecutionReportEvent(**event_data)
 
         # Returning dict for now
-        return event_data # Should be ExecutionReportEvent(**event_data)
+        return ExecutionReportEvent(**event_data) # Should be ExecutionReportEvent(**event_data)

@@ -729,7 +729,7 @@ class PortfolioManager:
         # Since we're making this method async and the position manager likely has an async method
         # we can properly await it. If position_manager.get_open_positions is sync, we'd need to adjust.
         # Based on the file structure, this is likely async
-        return await self.position_manager.get_open_positions()
+        return list(await self.position_manager.get_open_positions())
 
     EXPECTED_SYMBOL_PARTS = 2
 

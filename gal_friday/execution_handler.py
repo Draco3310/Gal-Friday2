@@ -1620,6 +1620,13 @@ class ExecutionHandler:
         
         Uses the event store to fetch historical events.
         """
+        if not self.event_store:
+            self.logger.warning(
+                "EventStore not available. Cannot retrieve originating signal event for %s.",
+                signal_id,
+                source_module=self.__class__.__name__
+            )
+            return None
         if not signal_id:
             return None
         

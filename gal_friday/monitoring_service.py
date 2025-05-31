@@ -18,13 +18,14 @@ from typing import (  # Added Type for exc_info typing
     TYPE_CHECKING,
     Any,
     Optional,
+    Mapping,
 )
 
 import psutil  # Added for system resource monitoring
 
 # Import actual classes when available, otherwise use placeholders
 from .execution_handler import ExecutionHandler
-from .logger_service import LoggerService
+from .logger_service import LoggerService, ExcInfoType
 from .portfolio_manager import PortfolioManager
 
 if TYPE_CHECKING:
@@ -1167,7 +1168,7 @@ class MonitoringService:
 
 # Define Mock Classes at module level for accessibility by helper functions
 # Create a mock logger service that implements LoggerService
-class TestLoggerService(LoggerService[Any]):
+class TestLoggerService(LoggerService):
     """Mock LoggerService for testing purposes."""
 
     def __init__(
@@ -1182,7 +1183,7 @@ class TestLoggerService(LoggerService[Any]):
         message: str,
         *args: object,  # More specific type than Any
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log an info message."""
         context_str = f" {context}" if context else ""
@@ -1196,7 +1197,7 @@ class TestLoggerService(LoggerService[Any]):
         message: str,
         *args: object,  # More specific type than Any
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log a debug message."""
         context_str = f" {context}" if context else ""
@@ -1209,7 +1210,7 @@ class TestLoggerService(LoggerService[Any]):
         message: str,
         *args: object,  # More specific type than Any
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> None:
         """Log a warning message."""
         context_str = f" {context}" if context else ""
@@ -1222,11 +1223,8 @@ class TestLoggerService(LoggerService[Any]):
         message: str,
         *args: object,  # More specific type than Any
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
-        exc_info: None
-        | (
-            bool | tuple[type[BaseException], BaseException, TracebackType | None] | BaseException
-        ) = None,
+        context: Mapping[str, object] | None = None,
+        exc_info: ExcInfoType = None,
     ) -> None:
         """Log an error message."""
         context_str = f" {context}" if context else ""
@@ -1241,11 +1239,8 @@ class TestLoggerService(LoggerService[Any]):
         message: str,
         *args: object,  # More specific type than Any
         source_module: str | None = None,
-        context: dict[Any, Any] | None = None,
-        exc_info: None
-        | (
-            bool | tuple[type[BaseException], BaseException, TracebackType | None] | BaseException
-        ) = None,
+        context: Mapping[str, object] | None = None,
+        exc_info: ExcInfoType = None,
     ) -> None:
         """Log a critical message."""
         context_str = f" {context}" if context else ""
@@ -1318,7 +1313,7 @@ async def _test_normal_drawdown(
     config_mgr: "MockConfigManager",
     pubsub_mgr: "PubSubManager",
     portfolio_mgr: "MockPortfolioManager",
-    test_logger: "LoggerService[Any]",
+    test_logger: "LoggerService",
 ) -> None:
     """Test MonitoringService with normal drawdown."""
     test_logger.info("Starting MonitoringService with normal drawdown")
@@ -1335,7 +1330,7 @@ async def _test_high_drawdown_halt(
     config_mgr: "MockConfigManager",
     pubsub_mgr: "PubSubManager",
     portfolio_mgr_high: "MockPortfolioManagerHighDrawdown",
-    test_logger: "LoggerService[Any]",
+    test_logger: "LoggerService",
 ) -> None:
     """Test MonitoringService with high drawdown that should trigger HALT."""
     test_logger.info("Starting MonitoringService with high drawdown (should HALT)")
@@ -1359,7 +1354,7 @@ async def _test_manual_halt(
     config_mgr: "MockConfigManager",
     pubsub_mgr: "PubSubManager",
     portfolio_mgr: "MockPortfolioManager",
-    test_logger: "LoggerService[Any]",
+    test_logger: "LoggerService",
 ) -> None:
     """Test manual trigger of HALT."""
     test_logger.info("Testing manual HALT trigger")
@@ -1375,7 +1370,7 @@ async def _test_resume_after_halt(
     config_mgr: "MockConfigManager",
     pubsub_mgr: "PubSubManager",
     portfolio_mgr: "MockPortfolioManager",
-    test_logger: "LoggerService[Any]",
+    test_logger: "LoggerService",
 ) -> None:
     """Test RESUME after HALT."""
     test_logger.info("Testing RESUME after HALT")
@@ -1388,7 +1383,7 @@ async def _test_resume_after_halt(
     await monitor_service.stop()
 
 
-async def main(logger: Optional["LoggerService[Any]"] = None) -> None:
+async def main(logger: Optional["LoggerService"] = None) -> None:
     """Testing/demonstration usage of the MonitoringService."""
     # Import here to avoid circular imports
     import logging  # Need for example main
@@ -1419,7 +1414,7 @@ async def main(logger: Optional["LoggerService[Any]"] = None) -> None:
     if logger is None:
         # Fix type error by using proper type annotation
         # This ensures LoggerService[Any] is type-compatible with TestLoggerService
-        test_logger: LoggerService[Any] = TestLoggerService(config_mgr, pubsub_mgr)
+        test_logger: LoggerService = TestLoggerService(config_mgr, pubsub_mgr)
     else:
         test_logger = logger
 

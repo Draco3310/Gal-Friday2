@@ -81,7 +81,6 @@ from .exceptions import DatabaseError, InvalidLoggerTableNameError, UnsupportedP
 
 # SQLAlchemy imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError # For error handling
 
 # Type variables for generic protocols

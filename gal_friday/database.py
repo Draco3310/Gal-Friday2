@@ -1,6 +1,5 @@
 from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 # Placeholder function for getting the database connection string
 def get_database_connection_string() -> str:

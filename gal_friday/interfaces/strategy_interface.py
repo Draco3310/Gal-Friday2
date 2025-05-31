@@ -260,7 +260,14 @@ class StrategyInterface(ABC):
 
         # Portfolio-specific validation
         if action.action_type in [ActionType.SELL, ActionType.CLOSE_LONG]:
-            current_position = self.asset_specifications.get(action.symbol, {}).get("position", 0)
+            asset_spec_or_default_dict = self.asset_specifications.get(action.symbol, {})
+            if isinstance(asset_spec_or_default_dict, dict):
+                current_position = asset_spec_or_default_dict.get("position", 0)
+            else:
+                # asset_spec_or_default_dict is an AssetSpecification object.
+                # AssetSpecification does not have a 'position' attribute.
+                # Defaulting to 0 as per the original code's fallback.
+                current_position = 0
             if current_position <= 0:
                 errors.append(f"Cannot sell {action.symbol}: no long position")
 

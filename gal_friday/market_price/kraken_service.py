@@ -512,6 +512,13 @@ class KrakenMarketPriceService(MarketPriceService):
         self, url: str, trading_pair: str, kraken_pair: str,
     ) -> dict[str, Any] | None:
         """Fetch OHLC data from Kraken API."""
+        if not self._session or self._session.closed:
+            self.logger.warning(
+                "AIOHTTP session is not available for OHLC fetch. Ensure start() was called.",
+                source_module=self._source_module,
+                context={"trading_pair": trading_pair}
+            )
+            return None
         try:
             async with self._session.get(url) as response:
                 if response.status != self.HTTP_OK:
