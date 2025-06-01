@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field # Added asdict
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
@@ -433,7 +433,7 @@ class RetrainingPipeline:
         self._active_jobs[job.job_id] = job
 
         if self.retraining_repository:
-            await self.retraining_repository.save_job(job)
+            await self.retraining_repository.save_job(asdict(job)) # Convert job to dict
 
         # Start retraining process and store task reference
         task = asyncio.create_task(self._execute_retraining(job))
@@ -449,7 +449,8 @@ class RetrainingPipeline:
             job.start_time = datetime.now(UTC)
 
             if self.retraining_repository:
-                await self.retraining_repository.update_job_status(job)
+                updates = {"status": job.status, "start_time": job.start_time}
+                await self.retraining_repository.update_job_status(uuid.UUID(job.job_id), updates)
 
             # Simulate retraining process
             self.logger.info(f"Starting retraining for job {job.job_id}")
@@ -479,7 +480,13 @@ class RetrainingPipeline:
                 del self._active_jobs[job.job_id]
 
             if self.retraining_repository:
-                await self.retraining_repository.update_job_status(job)
+                updates = {
+                    "new_model_id": job.new_model_id,
+                    "performance_comparison": job.performance_comparison,
+                    "status": job.status,
+                    "end_time": job.end_time,
+                }
+                await self.retraining_repository.update_job_status(uuid.UUID(job.job_id), updates)
 
             self.logger.info(f"Completed retraining for job {job.job_id}")
 
@@ -512,7 +519,12 @@ class RetrainingPipeline:
                 del self._active_jobs[job.job_id]
 
             if self.retraining_repository:
-                await self.retraining_repository.update_job_status(job)
+                updates = {
+                    "status": job.status,
+                    "error_message": job.error_message,
+                    "end_time": job.end_time,
+                }
+                await self.retraining_repository.update_job_status(uuid.UUID(job.job_id), updates)
 
             self.logger.error(f"Retraining failed for job {job.job_id}: {e}")
 
@@ -570,6 +582,6 @@ class RetrainingPipeline:
 
         # Check repository
         if self.retraining_repository:
-            return await self.retraining_repository.get_job(job_id)
+            return await self.retraining_repository.get_job(uuid.UUID(job_id)) # Convert str to UUID
 
         return None

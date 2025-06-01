@@ -272,11 +272,23 @@ class ExperimentManager:
 
             # Helper to safely get .hex
             def safe_hex(val: Any, name: str) -> str:
-                if not isinstance(val, uuid.UUID):
-                    err_msg = f"{name} is not a UUID instance: {type(val)}"
-                    self.logger.error(err_msg, source_module=self._source_module)
-                    raise TypeError(err_msg)
-                return val.hex
+                if isinstance(val, uuid.UUID):
+                    return val.hex
+                # Assuming val is a SQLAlchemy UUID object that can be stringified or has 'hex'
+                try:
+                    # Attempt to convert to string then to UUID, then get hex
+                    return uuid.UUID(str(val)).hex
+                except (ValueError, TypeError) as e:
+                    # Fallback if str(val) is not a valid UUID hex string,
+                    # or if val itself has a .hex attribute (e.g. already a Python UUID somehow)
+                    # This path is less likely if the primary path is `isinstance(val, uuid.UUID)`
+                    # but as a safeguard if it's some other proxy object.
+                    if hasattr(val, 'hex') and callable(getattr(val, 'hex')) :
+                        return val.hex # type: ignore
+
+                    err_msg = f"Cannot convert {name} (type: {type(val)}) to UUID hex: {e}"
+                    self.logger.error(err_msg, source_module=self._source_module, exc_info=True)
+                    raise TypeError(err_msg) from e
 
             exp_id_hex = safe_hex(created_experiment_model.experiment_id, "created_experiment_model.experiment_id")
             control_id_hex = safe_hex(created_experiment_model.control_model_id, "created_experiment_model.control_model_id")
@@ -531,10 +543,8 @@ class ExperimentManager:
                 return True, f"Statistical significance reached (p={p_value:.4f})"
 
         # Check for early stopping due to poor performance
-        if all([
-            config.max_loss_threshold is not None,
-            treatment_perf.total_return < -config.max_loss_threshold,
-        ]):
+        if config.max_loss_threshold is not None and \
+           treatment_perf.total_return < -config.max_loss_threshold:
             return True, "Maximum loss threshold exceeded"
 
         return False, ""
@@ -627,7 +637,7 @@ class ExperimentManager:
                 },
             }
 
-            await self.experiment_repo.save_results(experiment_id, results)
+            await self.experiment_repo.save_results(uuid.UUID(experiment_id), results) # Convert str to UUID
 
             # Remove from active experiments
             del self.active_experiments[experiment_id]
@@ -705,7 +715,7 @@ class ExperimentManager:
 
                 # Load performance data (repo returns dict)
                 # This part might need adjustment if VariantPerformance objects are stored/retrieved differently
-                perf_data = await self.experiment_repo.get_experiment_performance(exp_model.experiment_id) # Pass UUID object
+                perf_data = await self.experiment_repo.get_experiment_performance(uuid.UUID(str(exp_model.experiment_id))) # Convert SQLAlchemy UUID
                 
                 # Reconstruct performance objects (if still using VariantPerformance in memory)
                 # This is complex and depends on how performance data is stored/aggregated.
@@ -740,7 +750,7 @@ class ExperimentManager:
         """Get current status of an experiment."""
         if experiment_id not in self.active_experiments:
             # Try to load from database
-            exp_data = await self.experiment_repo.get_experiment(experiment_id)
+            exp_data = await self.experiment_repo.get_experiment(uuid.UUID(experiment_id)) # Convert str to UUID
             if not exp_data:
                 return {"error": "Experiment not found"}
 

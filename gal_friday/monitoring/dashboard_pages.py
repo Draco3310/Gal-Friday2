@@ -310,7 +310,7 @@ class EnhancedDashboardPages:
                     </div>
                 </div>
                 <p><strong>Description:</strong> {model.description or 'No description'}</p>
-                <p><strong>Last Updated:</strong> {model.updated_at.strftime('%Y-%m-%d %H:%M')}</p>
+                <p><strong>Last Updated:</strong> {(model.updated_at.strftime('%Y-%m-%d %H:%M') if model.updated_at else 'N/A')}</p>
                 <p><strong>Training Data:</strong> {model.training_data_path or 'N/A'}</p>
                 <p><strong>Pairs:</strong> {
                     ', '.join(trading_pairs) if isinstance(trading_pairs, list)

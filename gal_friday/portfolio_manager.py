@@ -6,17 +6,19 @@ exchange reconciliation.
 """
 
 import asyncio
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from datetime import datetime
 from decimal import Decimal, getcontext
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
+    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
 from .config_manager import ConfigManager
 from .core.events import EventType, ExecutionReportEvent
 from .core.pubsub import PubSubManager
+from .portfolio.valuation_service import PositionInput # Added import
 from .exceptions import (
     DataValidationError,
     InsufficientFundsError,
@@ -74,6 +76,7 @@ class PortfolioManager:
         market_price_service: MarketPriceService,
         logger_service: LoggerService,
         execution_handler: ExecutionHandler | None = None,
+        session_maker: "async_sessionmaker[AsyncSession]", # Added session_maker
     ) -> None:
         """Initialize the PortfolioManager with required dependencies.
 
@@ -96,7 +99,7 @@ class PortfolioManager:
 
         # Instantiate components
         self.funds_manager = FundsManager(logger_service, self.valuation_currency)
-        self.position_manager = PositionManager(logger_service)
+        self.position_manager = PositionManager(logger_service, session_maker, config_manager) # Added session_maker and config_manager
         self.valuation_service = ValuationService(
             logger_service,
             market_price_service,
@@ -139,10 +142,7 @@ class PortfolioManager:
             await self.funds_manager.initialize_funds(initial_capital)
 
             initial_positions_config = self.config_manager.get("portfolio.initial_positions", {})
-            await self.position_manager.initialize_positions(
-                initial_positions_config,
-                self._split_symbol,
-            )
+            await self.position_manager.initialize_positions() # Removed arguments
 
             # Perform initial valuation
             await self._update_portfolio_value_and_cache()
@@ -512,7 +512,7 @@ class PortfolioManager:
 
             _, latest_prices, exposure_pct = await self.valuation_service.update_portfolio_value(
                 current_funds,
-                current_positions_dict, # Pass the correctly formatted dict
+                cast(dict[str, PositionInput], current_positions_dict), # Refined cast
             )
 
             # Update local cache for get_current_state
