@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import xgboost as xgb
 from sklearn.preprocessing import StandardScaler
+from rich import print as rich_print
 
 from gal_friday.model_lifecycle import (
     ModelArtifact,
@@ -35,16 +36,16 @@ class MockConfig:
 class MockLogger:
     """Mock logger for testing."""
     def info(self, msg, **kwargs):
-        print(f"INFO: {msg}")
+        rich_print(f"INFO: {msg}")
 
     def warning(self, msg, **kwargs):
-        print(f"WARNING: {msg}")
+        rich_print(f"WARNING: {msg}")
 
     def error(self, msg, **kwargs):
-        print(f"ERROR: {msg}")
+        rich_print(f"ERROR: {msg}")
 
     def exception(self, msg, **kwargs):
-        print(f"EXCEPTION: {msg}")
+        rich_print(f"EXCEPTION: {msg}")
 
 
 class MockModelRepo:
@@ -141,21 +142,21 @@ async def test_model_registry():
     )
 
     # Test 1: Register model
-    print("Test 1: Registering model...")
+    rich_print("Test 1: Registering model...")
     model_id = await registry.register_model(artifact, "price_predictor")
     assert model_id is not None
-    print(f"✓ Model registered with ID: {model_id}")
+    rich_print(f"✓ Model registered with ID: {model_id}")
 
     # Test 2: Get model by name
-    print("\nTest 2: Retrieving model...")
+    rich_print("\nTest 2: Retrieving model...")
     retrieved = await registry.get_model("price_predictor")
     assert retrieved is not None
     assert retrieved.metadata.model_name == "price_predictor"
     assert retrieved.metadata.version == "1.0.0"
-    print(f"✓ Model retrieved: {retrieved.metadata.model_name} v{retrieved.metadata.version}")
+    rich_print(f"✓ Model retrieved: {retrieved.metadata.model_name} v{retrieved.metadata.version}")
 
     # Test 3: Register another version
-    print("\nTest 3: Registering new version...")
+    rich_print("\nTest 3: Registering new version...")
     artifact2 = ModelArtifact(
         model=model,
         preprocessor=scaler,
@@ -166,27 +167,27 @@ async def test_model_registry():
 
     retrieved2 = await registry.get_model("price_predictor")
     assert retrieved2.metadata.version == "1.0.1"
-    print(f"✓ New version registered: v{retrieved2.metadata.version}")
+    rich_print(f"✓ New version registered: v{retrieved2.metadata.version}")
 
     # Test 4: List models
-    print("\nTest 4: Listing models...")
+    rich_print("\nTest 4: Listing models...")
     models = await registry.list_models("price_predictor")
     assert len(models) == 2
-    print(f"✓ Found {len(models)} models")
+    rich_print(f"✓ Found {len(models)} models")
 
     # Test 5: Promote model
-    print("\nTest 5: Promoting model to production...")
+    rich_print("\nTest 5: Promoting model to production...")
     success = await registry.promote_model(model_id2, ModelStage.PRODUCTION)
     assert success
 
     prod_model = await registry.get_model("price_predictor", stage=ModelStage.PRODUCTION)
     assert prod_model is not None
     assert prod_model.metadata.stage == ModelStage.PRODUCTION
-    print(f"✓ Model promoted to {prod_model.metadata.stage.value}")
+    rich_print(f"✓ Model promoted to {prod_model.metadata.stage.value}")
 
     # Clean up
     shutil.rmtree(test_path)
-    print("\n✅ All tests passed!")
+    rich_print("\n✅ All tests passed!")
 
 
 if __name__ == "__main__":

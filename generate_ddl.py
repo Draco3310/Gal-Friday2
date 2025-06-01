@@ -26,10 +26,10 @@ try:
     from gal_friday.dal.models.reconciliation_event import ReconciliationEvent
     from gal_friday.dal.models.retraining_job import RetrainingJob
     from gal_friday.dal.models.trade_signal import TradeSignal
-    print("Successfully imported models.", file=sys.stderr)
+    sys.stderr.write("Successfully imported models.\n")
 except ImportError as e:
-    print(f"Error importing models: {e}. Check PYTHONPATH and script location.", file=sys.stderr)
-    print(f"Current sys.path: {sys.path}", file=sys.stderr)
+    sys.stderr.write(f"Error importing models: {e}. Check PYTHONPATH and script location.\n")
+    sys.stderr.write(f"Current sys.path: {str(sys.path)}\n")
     sys.exit(1)
 
 async def main():
@@ -40,24 +40,24 @@ async def main():
     engine = create_async_engine(dummy_url, poolclass=NullPool)
     pg_dialect = postgresql.dialect()
 
-    print("-- UPGRADE DDL --")
+    sys.stdout.write("-- UPGRADE DDL --\n")
     for table in Base.metadata.sorted_tables:
         try:
             # Compile DDL using the engine's dialect
             ddl_statement = str(CreateTable(table).compile(dialect=pg_dialect)).strip()
-            print(f"{ddl_statement};")
+            sys.stdout.write(f"{ddl_statement};\n")
         except Exception as e:
-            print(f"-- Error compiling CREATE for table {table.name}: {e}", file=sys.stderr)
+            sys.stderr.write(f"-- Error compiling CREATE for table {table.name}: {e}\n")
 
 
-    print("\n-- DOWNGRADE DDL --")
+    sys.stdout.write("\n-- DOWNGRADE DDL --\n")
     for table in reversed(Base.metadata.sorted_tables):
         try:
             # Compile DDL using the engine's dialect
             ddl_statement = str(DropTable(table).compile(dialect=pg_dialect)).strip()
-            print(f"{ddl_statement};")
+            sys.stdout.write(f"{ddl_statement};\n")
         except Exception as e:
-            print(f"-- Error compiling DROP for table {table.name}: {e}", file=sys.stderr)
+            sys.stderr.write(f"-- Error compiling DROP for table {table.name}: {e}\n")
 
 if __name__ == "__main__":
     asyncio.run(main())

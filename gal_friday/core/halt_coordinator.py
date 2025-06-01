@@ -19,8 +19,8 @@ class HaltCondition:
     """Represents a condition that can trigger a HALT."""
     condition_id: str
     name: str
-    threshold: Any
-    current_value: Any
+    threshold: int | float | Decimal | str | bool
+    current_value: int | float | Decimal | str | bool | None # current_value can be None initially
     is_triggered: bool
     timestamp: datetime
 
@@ -86,18 +86,18 @@ class HaltCoordinator:
             context={"conditions": list(self.conditions.keys())},
         )
 
-    def register_condition(self, condition_id: str, name: str, threshold: Any) -> None:
+    def register_condition(self, condition_id: str, name: str, threshold: int | float | Decimal | str | bool) -> None:
         """Register a new HALT condition."""
         self.conditions[condition_id] = HaltCondition(
             condition_id=condition_id,
             name=name,
             threshold=threshold,
-            current_value=None,
+            current_value=None, # Remains None until first update
             is_triggered=False,
             timestamp=datetime.now(UTC),
         )
 
-    def update_condition(self, condition_id: str, current_value: Any) -> bool:
+    def update_condition(self, condition_id: str, current_value: int | float | Decimal | str | bool) -> bool:
         """Update a condition's current value and check if triggered.
         
         Returns:

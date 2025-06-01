@@ -22,6 +22,7 @@ from typing import (
     TypeVar,
     Union,
 )
+from rich import print as rich_print
 
 # Create TYPE_CHECKING specific imports
 if TYPE_CHECKING:
@@ -184,10 +185,10 @@ class CLIService:
                 "asyncio.add_reader not supported for stdin, falling back to threaded input.",
                 source_module=self.__class__.__name__,
             )
-            print("\n--- Gal-Friday CLI Ready (Fallback Mode) ---")
-            print("Type a command (e.g., 'status', 'halt', 'stop') or '--help' and press Enter.")
-            print("(Note: CLI runs in a separate thread)")
-            print("---")
+            console.print("\n--- Gal-Friday CLI Ready (Fallback Mode) ---")
+            console.print("Type a command (e.g., 'status', 'halt', 'stop') or '--help' and press Enter.")
+            console.print("(Note: CLI runs in a separate thread)")
+            console.print("---")
             self._input_thread = threading.Thread(target=self._threaded_input_loop, daemon=True)
             self._input_thread.start()
 
@@ -378,7 +379,7 @@ def status() -> None:
         cli.logger.error(
             "CLI service not initialized",
             source_module="CLI_Command",
-        ) if cli else print("Error: CLI service not initialized")
+        ) if cli else console.print("Error: CLI service not initialized")
         return
 
     halted = cli.monitoring_service.is_halted()
@@ -419,7 +420,7 @@ def halt(
         cli.logger.error(
             "CLI service not initialized for halt command",
             source_module="CLI_Command",
-        ) if cli else print("Error: CLI service not initialized")
+        ) if cli else console.print("Error: CLI service not initialized")
         return
 
     if cli.monitoring_service.is_halted():
@@ -453,7 +454,7 @@ def resume() -> None:
         cli.logger.error(
             "CLI service not initialized for resume command",
             source_module="CLI_Command",
-        ) if cli else print("Error: CLI service not initialized")
+        ) if cli else console.print("Error: CLI service not initialized")
         return
 
     if not cli.monitoring_service.is_halted():
@@ -480,7 +481,7 @@ def stop_command() -> None:
         cli.logger.error(
             "CLI service not initialized for stop command",
             source_module="CLI_Command",
-        ) if cli else print("Error: CLI service not initialized")
+        ) if cli else console.print("Error: CLI service not initialized")
         return
 
     if typer.confirm("Are you sure you want to STOP the application?"):
@@ -502,11 +503,11 @@ def recovery_status() -> None:
     """Show HALT recovery checklist status."""
     cli = global_cli_instance.get_instance()
     if not cli:
-        print("Error: CLI service not initialized")
+        console.print("Error: CLI service not initialized")
         return
 
     if not cli.recovery_manager:
-        print("Recovery manager not initialized")
+        console.print("Recovery manager not initialized")
         return
 
     table = Table(title="HALT Recovery Checklist")
@@ -536,17 +537,17 @@ def complete_recovery_item(
     """Mark a recovery checklist item as complete."""
     cli = global_cli_instance.get_instance()
     if not cli:
-        print("Error: CLI service not initialized")
+        console.print("Error: CLI service not initialized")
         return
 
     if not cli.recovery_manager:
-        print("Recovery manager not initialized")
+        console.print("Recovery manager not initialized")
         return
 
     if cli.recovery_manager.complete_item(item_id, completed_by):
-        print(f"✓ Item '{item_id}' marked complete by {completed_by}")
+        console.print(f"✓ Item '{item_id}' marked complete by {completed_by}")
     else:
-        print(f"✗ Item '{item_id}' not found")
+        console.print(f"✗ Item '{item_id}' not found")
 
 
 # --- Mock Implementations ---
@@ -567,68 +568,62 @@ class MockLoggerService(LoggerService):
     def info(
         self,
         message: str,
-        *args: Any,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
     ) -> None:
         """Log info message."""
-        print(f"INFO [{source_module}]: {message}")
+        rich_print(f"INFO [{source_module}]: {message}")
 
     def debug(
         self,
         message: str,
-        *args: Any,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
     ) -> None:
         """Log debug message."""
-        print(f"DEBUG [{source_module}]: {message}")
+        rich_print(f"DEBUG [{source_module}]: {message}")
 
     def warning(
         self,
         message: str,
-        *args: Any,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
     ) -> None:
         """Log warning message."""
-        print(f"WARN [{source_module}]: {message}")
+        rich_print(f"WARN [{source_module}]: {message}")
 
     def error(
         self,
         message: str,
-        *args: Any,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log error message."""
-        print(f"ERROR [{source_module}]: {message}")
+        rich_print(f"ERROR [{source_module}]: {message}")
         if exc_info and not isinstance(exc_info, bool):
-            print(f"Exception: {exc_info}")
+            rich_print(f"Exception: {exc_info}")
 
     def exception(
         self,
         message: str,
-        *args: Any,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
     ) -> None:
         """Log exception message with traceback."""
-        self.error(message, *args, source_module=source_module, context=context, exc_info=True)
+        self.error(message, source_module=source_module, context=context, exc_info=True)
 
     def critical(
         self,
         message: str,
-        *args: Any,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log critical message."""
-        print(f"CRITICAL [{source_module}]: {message}")
+        rich_print(f"CRITICAL [{source_module}]: {message}")
         if exc_info and not isinstance(exc_info, bool):
-            print(f"Exception: {exc_info}")
+            rich_print(f"Exception: {exc_info}")
 
 
 class MockPubSubManager(PubSubManager):
@@ -684,13 +679,13 @@ class MockMonitoringService(MonitoringService):
 
     async def trigger_halt(self, reason: str, source: str) -> None:
         """Trigger a system halt."""
-        print(f"HALTING SYSTEM - Source: {source}, Reason: {reason}")
+        console.print(f"HALTING SYSTEM - Source: {source}, Reason: {reason}")
         self._halted = True
         self._halt_reason = reason
 
     async def trigger_resume(self, source: str) -> None:
         """Resume the system from a halt."""
-        print(f"RESUMING SYSTEM - Source: {source}")
+        console.print(f"RESUMING SYSTEM - Source: {source}")
         self._halted = False
         self._halt_reason = ""
 
@@ -700,7 +695,7 @@ class MockMainAppController:
 
     async def stop(self) -> None:
         """Stop the application."""
-        print("SHUTTING DOWN APPLICATION")
+        console.print("SHUTTING DOWN APPLICATION")
 
 
 def _create_mock_logger(
@@ -786,7 +781,7 @@ async def _run_example_cli(cli_service: CLIService, duration: int = 60) -> None:
     finally:
         # Clean up
         await cli_service.stop()
-        print("Example CLI service stopped.")
+        console.print("Example CLI service stopped.")
 
 
 async def _trigger_example_shutdown(cli_service: CLIService, duration: int) -> None:
@@ -797,16 +792,16 @@ async def _trigger_example_shutdown(cli_service: CLIService, duration: int) -> N
         cli_service: The CLI service to shut down
         duration: How long to wait before automatic shutdown in seconds
     """
-    print(f"\nExample will automatically shut down after {duration} seconds.")
-    print("Use commands like 'status', 'halt', or 'stop' to interact with the system.")
-    print("Press Ctrl+C to exit early.")
+    console.print(f"\nExample will automatically shut down after {duration} seconds.")
+    console.print("Use commands like 'status', 'halt', or 'stop' to interact with the system.")
+    console.print("Press Ctrl+C to exit early.")
 
     try:
         await asyncio.sleep(duration)
-        print(f"\n{duration} seconds elapsed, triggering automatic shutdown...")
+        console.print(f"\n{duration} seconds elapsed, triggering automatic shutdown...")
         await _mock_shutdown(cli_service)
     except asyncio.CancelledError:
-        print("Shutdown task cancelled.")
+        console.print("Shutdown task cancelled.")
 
 
 async def _mock_shutdown(cli_service: CLIService) -> None:
@@ -816,7 +811,7 @@ async def _mock_shutdown(cli_service: CLIService) -> None:
     ----
         cli_service: The CLI service being shut down
     """
-    print("Example shutting down...")
+    console.print("Example shutting down...")
     await cli_service.main_app_controller.stop()
     await cli_service.stop()
 

@@ -48,8 +48,14 @@ sys.path.insert(0, str(project_root / "src"))
 try:
     from gal_friday.config_manager import ConfigManager
 except ImportError as e:
-    print(f"Error importing ConfigManager: {e}")
-    print("Ensure the script is run from the project root or the PYTHONPATH is set correctly.")
+    # Logging might not be set up here yet, but attempt to use it if possible,
+    # otherwise default to stderr for this critical early error.
+    if 'logging' in sys.modules:
+        logging.error(f"Error importing ConfigManager: {e}")
+        logging.error("Ensure the script is run from the project root or the PYTHONPATH is set correctly.")
+    else:
+        sys.stderr.write(f"Error importing ConfigManager: {e}\n")
+        sys.stderr.write("Ensure the script is run from the project root or the PYTHONPATH is set correctly.\n")
     sys.exit(1)
 
 # --- Logging Setup --- #

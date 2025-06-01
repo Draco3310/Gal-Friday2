@@ -9,13 +9,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeVar, runtime_checkable, Callable
+from collections.abc import Awaitable # For PubSubManagerProtocol
 
 import pandas as pd
 
 # Type variables for generic types
 T = TypeVar("T")
 T_co = TypeVar("T_co", covariant=True)
+PredictionOutput = TypeVar('PredictionOutput') # For PredictionServiceProtocol
 
 
 # Protocol for configuration management
@@ -26,7 +28,7 @@ class ConfigManager(Protocol[T_co]):
     def get(self, key: str, default: T | None = None) -> T | None:
         ...
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: str) -> Any:  # noqa: ANN401 # Config values can be truly dynamic.
         ...
 
 
@@ -34,25 +36,25 @@ class ConfigManager(Protocol[T_co]):
 class LoggerService(Protocol):
     """Protocol for logging service."""
 
-    def log(self, message: str, level: str = "info", **kwargs: Any) -> None:
+    def log(self, message: str, level: str = "info", **kwargs: object) -> None:
         ...
 
-    def debug(self, message: str, **kwargs: Any) -> None:
+    def debug(self, message: str, **kwargs: object) -> None:
         ...
 
-    def info(self, message: str, **kwargs: Any) -> None:
+    def info(self, message: str, **kwargs: object) -> None:
         ...
 
-    def warning(self, message: str, **kwargs: Any) -> None:
+    def warning(self, message: str, **kwargs: object) -> None:
         ...
 
-    def error(self, message: str, **kwargs: Any) -> None:
+    def error(self, message: str, **kwargs: object) -> None:
         ...
 
-    def exception(self, message: str, **kwargs: Any) -> None:
+    def exception(self, message: str, **kwargs: object) -> None:
         ...
 
-    def critical(self, message: str, **kwargs: Any) -> None:
+    def critical(self, message: str, **kwargs: object) -> None:
         ...
 
 
@@ -93,7 +95,7 @@ class FeatureEngine(Protocol):
 class PredictionService(Protocol):
     """Protocol for prediction service."""
 
-    def predict(self, features: pd.DataFrame) -> Any:
+    def predict(self, features: pd.DataFrame) -> PredictionOutput:
         ...
 
 
@@ -101,7 +103,7 @@ class PredictionService(Protocol):
 class RiskManager(Protocol):
     """Protocol for risk management."""
 
-    def check_risk(self, order: dict[str, Any]) -> bool:
+    def check_risk(self, order: dict[str, object]) -> bool:
         ...
 
 
@@ -109,7 +111,7 @@ class RiskManager(Protocol):
 class StrategyArbitrator(Protocol):
     """Protocol for strategy arbitration."""
 
-    def decide_action(self, signals: dict[str, Any]) -> dict[str, Any]:
+    def decide_action(self, signals: dict[str, object]) -> dict[str, object]:
         ...
 
 
@@ -117,7 +119,7 @@ class StrategyArbitrator(Protocol):
 class ExchangeInfoService(Protocol):
     """Protocol for exchange information service."""
 
-    def get_symbol_info(self, symbol: str) -> dict[str, Any]:
+    def get_symbol_info(self, symbol: str) -> dict[str, object]:
         ...
 
 
@@ -125,7 +127,7 @@ class ExchangeInfoService(Protocol):
 class ExecutionHandler(Protocol):
     """Protocol for order execution."""
 
-    async def execute_order(self, order: dict[str, Any]) -> dict[str, Any]:
+    async def execute_order(self, order: dict[str, object]) -> dict[str, object]:
         ...
 
 
@@ -133,10 +135,10 @@ class ExecutionHandler(Protocol):
 class PubSubManager(Protocol):
     """Protocol for pub/sub management."""
 
-    def subscribe(self, channel: str, callback: Any) -> None:
+    def subscribe(self, channel: str, callback: Callable[[object], Awaitable[None]]) -> None:
         ...
 
-    def publish(self, channel: str, message: Any) -> None:
+    def publish(self, channel: str, message: object) -> None:
         ...
 
 

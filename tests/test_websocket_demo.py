@@ -1,32 +1,33 @@
 """Demo script showing WebSocket and Reconciliation functionality."""
 
 from datetime import UTC, datetime
+from rich import print as rich_print
 
 
 def demonstrate_websocket():
     """Demonstrate WebSocket functionality."""
-    print("=== Gal-Friday WebSocket Real-Time Data Demo ===\n")
+    rich_print("=== Gal-Friday WebSocket Real-Time Data Demo ===\n")
 
     # 1. Connection States
-    print("1. WebSocket Connection Management:")
-    print("   - Dual connections: Public (market data) + Private (orders)")
-    print("   - Automatic reconnection with exponential backoff")
-    print("   - Health monitoring and recovery")
+    rich_print("1. WebSocket Connection Management:")
+    rich_print("   - Dual connections: Public (market data) + Private (orders)")
+    rich_print("   - Automatic reconnection with exponential backoff")
+    rich_print("   - Health monitoring and recovery")
 
     # 2. Real-time Order Updates
-    print("\n2. Real-time Order Updates:")
-    print("   OLD: HTTP Polling")
-    print("   - Check order status every 1-5 seconds")
-    print("   - Wastes API rate limits")
-    print("   - Can miss rapid status changes")
+    rich_print("\n2. Real-time Order Updates:")
+    rich_print("   OLD: HTTP Polling")
+    rich_print("   - Check order status every 1-5 seconds")
+    rich_print("   - Wastes API rate limits")
+    rich_print("   - Can miss rapid status changes")
 
-    print("\n   NEW: WebSocket Streaming")
-    print("   - Instant order updates (< 100ms)")
-    print("   - No API calls wasted")
-    print("   - Never miss status changes")
+    rich_print("\n   NEW: WebSocket Streaming")
+    rich_print("   - Instant order updates (< 100ms)")
+    rich_print("   - No API calls wasted")
+    rich_print("   - Never miss status changes")
 
     # 3. Example Order Flow
-    print("\n3. Example Order Flow:")
+    rich_print("\n3. Example Order Flow:")
     order_events = [
         {"time": "10:00:00.000", "status": "NEW", "latency": "0ms"},
         {"time": "10:00:00.150", "status": "OPEN", "latency": "150ms"},
@@ -35,38 +36,38 @@ def demonstrate_websocket():
     ]
 
     for event in order_events:
-        print(f"   {event['time']} - Status: {event['status']} (Latency: {event['latency']})")
+        rich_print(f"   {event['time']} - Status: {event['status']} (Latency: {event['latency']})")
         if "filled" in event:
-            print(f"              - Filled: {event['filled']}")
+            rich_print(f"              - Filled: {event['filled']}")
 
     # 4. Market Data Streaming
-    print("\n4. Real-time Market Data:")
-    print("   - Order book updates: Every price change")
-    print("   - Trade feed: Every executed trade")
-    print("   - Ticker updates: Current prices")
-    print("   - OHLC candles: Real-time chart data")
+    rich_print("\n4. Real-time Market Data:")
+    rich_print("   - Order book updates: Every price change")
+    rich_print("   - Trade feed: Every executed trade")
+    rich_print("   - Ticker updates: Current prices")
+    rich_print("   - OHLC candles: Real-time chart data")
 
     # 5. Message Processing
-    print("\n5. Advanced Message Processing:")
-    print("   ✓ Sequence tracking with gap detection")
-    print("   ✓ Message deduplication")
-    print("   ✓ Automatic gap recovery from cache")
-    print("   ✓ Message validation")
+    rich_print("\n5. Advanced Message Processing:")
+    rich_print("   ✓ Sequence tracking with gap detection")
+    rich_print("   ✓ Message deduplication")
+    rich_print("   ✓ Automatic gap recovery from cache")
+    rich_print("   ✓ Message validation")
 
 
 def demonstrate_reconciliation():
     """Demonstrate reconciliation functionality."""
-    print("\n\n=== Gal-Friday Portfolio Reconciliation Demo ===\n")
+    rich_print("\n\n=== Gal-Friday Portfolio Reconciliation Demo ===\n")
 
     # 1. What is Reconciliation?
-    print("1. What is Reconciliation?")
-    print("   - Compares internal records with exchange data")
-    print("   - Detects position mismatches")
-    print("   - Auto-corrects small discrepancies")
-    print("   - Alerts on critical issues")
+    rich_print("1. What is Reconciliation?")
+    rich_print("   - Compares internal records with exchange data")
+    rich_print("   - Detects position mismatches")
+    rich_print("   - Auto-corrects small discrepancies")
+    rich_print("   - Alerts on critical issues")
 
     # 2. Example Reconciliation Report
-    print("\n2. Example Reconciliation Report:")
+    rich_print("\n2. Example Reconciliation Report:")
 
     report = {
         "timestamp": datetime.now(UTC).isoformat(),
@@ -105,102 +106,102 @@ def demonstrate_reconciliation():
         "manual_review_required": 1,
     }
 
-    print(f"   Timestamp: {report['timestamp']}")
-    print(f"   Status: {report['status']}")
-    print(f"   Positions Checked: {report['positions_checked']}")
+    rich_print(f"   Timestamp: {report['timestamp']}")
+    rich_print(f"   Status: {report['status']}")
+    rich_print(f"   Positions Checked: {report['positions_checked']}")
 
-    print("\n   Position Discrepancies:")
+    rich_print("\n   Position Discrepancies:")
     for disc in report["position_discrepancies"]:
-        print(f"   - {disc['pair']}: {disc['type']}")
-        print(f"     Internal: {disc.get('internal', 'N/A')}, Exchange: {disc.get('exchange', 'N/A')}")
-        print(f"     Severity: {disc['severity']}, Action: {disc['action']}")
+        rich_print(f"   - {disc['pair']}: {disc['type']}")
+        rich_print(f"     Internal: {disc.get('internal', 'N/A')}, Exchange: {disc.get('exchange', 'N/A')}")
+        rich_print(f"     Severity: {disc['severity']}, Action: {disc['action']}")
 
-    print("\n   Balance Discrepancies:")
+    rich_print("\n   Balance Discrepancies:")
     for disc in report["balance_discrepancies"]:
-        print(f"   - {disc['currency']}: Diff = {disc['difference']} ({disc['action']})")
+        rich_print(f"   - {disc['currency']}: Diff = {disc['difference']} ({disc['action']})")
 
-    print(f"\n   Untracked Orders: {len(report['untracked_orders'])}")
-    print(f"   Auto-corrections Applied: {report['auto_corrections']}")
-    print(f"   Manual Review Required: {report['manual_review_required']}")
+    rich_print(f"\n   Untracked Orders: {len(report['untracked_orders'])}")
+    rich_print(f"   Auto-corrections Applied: {report['auto_corrections']}")
+    rich_print(f"   Manual Review Required: {report['manual_review_required']}")
 
     # 3. Benefits
-    print("\n3. Benefits of Automated Reconciliation:")
-    print("   ✓ Prevents position drift")
-    print("   ✓ Catches missed trades")
-    print("   ✓ Ensures accurate P&L")
-    print("   ✓ Reduces manual work")
-    print("   ✓ Provides audit trail")
+    rich_print("\n3. Benefits of Automated Reconciliation:")
+    rich_print("   ✓ Prevents position drift")
+    rich_print("   ✓ Catches missed trades")
+    rich_print("   ✓ Ensures accurate P&L")
+    rich_print("   ✓ Reduces manual work")
+    rich_print("   ✓ Provides audit trail")
 
     # 4. Reconciliation Process
-    print("\n4. Reconciliation Process:")
-    print("   1. Query exchange positions/balances")
-    print("   2. Compare with internal records")
-    print("   3. Identify discrepancies")
-    print("   4. Auto-correct small differences")
-    print("   5. Alert on critical issues")
-    print("   6. Store report for audit")
+    rich_print("\n4. Reconciliation Process:")
+    rich_print("   1. Query exchange positions/balances")
+    rich_print("   2. Compare with internal records")
+    rich_print("   3. Identify discrepancies")
+    rich_print("   4. Auto-correct small differences")
+    rich_print("   5. Alert on critical issues")
+    rich_print("   6. Store report for audit")
 
 
 def show_integration():
     """Show how WebSocket and Reconciliation work together."""
-    print("\n\n=== Integration: WebSocket + Reconciliation ===\n")
+    rich_print("\n\n=== Integration: WebSocket + Reconciliation ===\n")
 
-    print("How they work together:")
-    print("1. WebSocket provides real-time updates")
-    print("2. Reconciliation validates accuracy periodically")
-    print("3. Together they ensure:")
-    print("   - Fast updates (WebSocket)")
-    print("   - Data integrity (Reconciliation)")
-    print("   - Automatic recovery from issues")
+    rich_print("How they work together:")
+    rich_print("1. WebSocket provides real-time updates")
+    rich_print("2. Reconciliation validates accuracy periodically")
+    rich_print("3. Together they ensure:")
+    rich_print("   - Fast updates (WebSocket)")
+    rich_print("   - Data integrity (Reconciliation)")
+    rich_print("   - Automatic recovery from issues")
 
-    print("\nExample Scenario:")
-    print("- 10:00:00 - WebSocket receives order fill")
-    print("- 10:00:00.050 - Position updated internally")
-    print("- 11:00:00 - Hourly reconciliation runs")
-    print("- 11:00:01 - Confirms position matches exchange")
-    print("- Result: Fast updates + verified accuracy")
+    rich_print("\nExample Scenario:")
+    rich_print("- 10:00:00 - WebSocket receives order fill")
+    rich_print("- 10:00:00.050 - Position updated internally")
+    rich_print("- 11:00:00 - Hourly reconciliation runs")
+    rich_print("- 11:00:01 - Confirms position matches exchange")
+    rich_print("- Result: Fast updates + verified accuracy")
 
 
 def main():
     """Run the demonstration."""
-    print("=" * 60)
-    print("GAL-FRIDAY SPRINT 2 DEMONSTRATION")
-    print("Real-Time Capabilities Implementation")
-    print("=" * 60)
+    rich_print("=" * 60)
+    rich_print("GAL-FRIDAY SPRINT 2 DEMONSTRATION")
+    rich_print("Real-Time Capabilities Implementation")
+    rich_print("=" * 60)
 
     demonstrate_websocket()
     demonstrate_reconciliation()
     show_integration()
 
-    print("\n" + "=" * 60)
-    print("SPRINT 2 SUMMARY")
-    print("=" * 60)
+    rich_print("\n" + "=" * 60)
+    rich_print("SPRINT 2 SUMMARY")
+    rich_print("=" * 60)
 
-    print("\nWeek 3 - WebSocket Implementation ✅")
-    print("- Core WebSocket client with dual connections")
-    print("- Message processing with sequencing")
-    print("- Connection health monitoring")
-    print("- Market data service integration")
+    rich_print("\nWeek 3 - WebSocket Implementation ✅")
+    rich_print("- Core WebSocket client with dual connections")
+    rich_print("- Message processing with sequencing")
+    rich_print("- Connection health monitoring")
+    rich_print("- Market data service integration")
 
-    print("\nWeek 4 - Reconciliation Service ✅")
-    print("- Automated position/balance verification")
-    print("- Discrepancy detection and reporting")
-    print("- Auto-correction for small differences")
-    print("- Database persistence of reports")
+    rich_print("\nWeek 4 - Reconciliation Service ✅")
+    rich_print("- Automated position/balance verification")
+    rich_print("- Discrepancy detection and reporting")
+    rich_print("- Auto-correction for small differences")
+    rich_print("- Database persistence of reports")
 
-    print("\nKey Achievements:")
-    print("✓ Reduced order update latency from 1-5s to <100ms")
-    print("✓ 90% reduction in API calls")
-    print("✓ 100% position accuracy with reconciliation")
-    print("✓ Automatic recovery from discrepancies")
+    rich_print("\nKey Achievements:")
+    rich_print("✓ Reduced order update latency from 1-5s to <100ms")
+    rich_print("✓ 90% reduction in API calls")
+    rich_print("✓ 100% position accuracy with reconciliation")
+    rich_print("✓ Automatic recovery from discrepancies")
 
-    print("\nNext Steps (Sprint 3):")
-    print("- A/B testing framework for models")
-    print("- Automated retraining pipeline")
-    print("- Drift detection algorithms")
-    print("- Performance optimization")
+    rich_print("\nNext Steps (Sprint 3):")
+    rich_print("- A/B testing framework for models")
+    rich_print("- Automated retraining pipeline")
+    rich_print("- Drift detection algorithms")
+    rich_print("- Performance optimization")
 
-    print("\n✅ Sprint 2 Complete!")
+    rich_print("\n✅ Sprint 2 Complete!")
 
 
 if __name__ == "__main__":

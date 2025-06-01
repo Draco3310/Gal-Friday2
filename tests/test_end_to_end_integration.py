@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from rich import print as rich_print
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import (
@@ -499,30 +500,30 @@ class TestEndToEndIntegration:
 
 def run_integration_tests():
     """Run all integration tests."""
-    print("=" * 70)
-    print("GAL-FRIDAY END-TO-END INTEGRATION TESTS")
-    print("=" * 70)
+    rich_print("=" * 70)
+    rich_print("GAL-FRIDAY END-TO-END INTEGRATION TESTS")
+    rich_print("=" * 70)
 
-    print("\nTesting complete system integration...")
-    print("✓ Market data → Prediction flow")
-    print("✓ Prediction → Trading signal flow")
-    print("✓ Model registry lifecycle")
-    print("✓ A/B testing experiments")
-    print("✓ Portfolio reconciliation")
-    print("✓ WebSocket management")
-    print("✓ Drift detection")
-    print("✓ Performance optimization")
-    print("✓ Dashboard metrics")
-    print("✓ Full trading cycle")
-    print("✓ System resilience")
+    rich_print("\nTesting complete system integration...")
+    rich_print("✓ Market data → Prediction flow")
+    rich_print("✓ Prediction → Trading signal flow")
+    rich_print("✓ Model registry lifecycle")
+    rich_print("✓ A/B testing experiments")
+    rich_print("✓ Portfolio reconciliation")
+    rich_print("✓ WebSocket management")
+    rich_print("✓ Drift detection")
+    rich_print("✓ Performance optimization")
+    rich_print("✓ Dashboard metrics")
+    rich_print("✓ Full trading cycle")
+    rich_print("✓ System resilience")
 
-    print("\nAll integration tests passed! ✅")
-    print("\nThe system demonstrates:")
-    print("- Seamless component integration")
-    print("- Proper event flow throughout")
-    print("- Resilient error handling")
-    print("- Performance optimization")
-    print("- Complete feature coverage")
+    rich_print("\nAll integration tests passed! ✅")
+    rich_print("\nThe system demonstrates:")
+    rich_print("- Seamless component integration")
+    rich_print("- Proper event flow throughout")
+    rich_print("- Resilient error handling")
+    rich_print("- Performance optimization")
+    rich_print("- Complete feature coverage")
 
 
 if __name__ == "__main__":

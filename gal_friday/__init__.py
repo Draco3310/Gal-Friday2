@@ -1,4 +1,6 @@
 """Gal Friday trading application package."""
 
+import logging
+
 # Make the directory a package
-print("Gal Friday Package Initialized")  # You can keep or remove this print
+logging.info("Gal Friday Package Initialized")  # You can keep or remove this print

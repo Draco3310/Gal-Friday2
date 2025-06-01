@@ -1,5 +1,6 @@
 """Simple test to demonstrate Model Registry structure."""
 
+from rich import print as rich_print
 import json
 import pickle
 import shutil
@@ -62,7 +63,7 @@ class SimpleModel:
 
 def demonstrate_model_registry():
     """Demonstrate the Model Registry structure and workflow."""
-    print("=== Gal-Friday Model Registry Demonstration ===\n")
+    rich_print("=== Gal-Friday Model Registry Demonstration ===\n")
 
     # 1. Create storage directory
     storage_path = Path("./demo_models")
@@ -108,36 +109,36 @@ def demonstrate_model_registry():
 
     metadata.artifact_path = str(artifact_path)
 
-    print("✓ Model artifact saved to:", artifact_path)
-    print(f"  - Model: {metadata.model_name} v{metadata.version}")
-    print(f"  - Type: {metadata.model_type}")
-    print(f"  - Features: {len(metadata.features)}")
-    print(f"  - Metrics: {metadata.metrics}")
+    rich_print("✓ Model artifact saved to:", artifact_path)
+    rich_print(f"  - Model: {metadata.model_name} v{metadata.version}")
+    rich_print(f"  - Type: {metadata.model_type}")
+    rich_print(f"  - Features: {len(metadata.features)}")
+    rich_print(f"  - Metrics: {metadata.metrics}")
 
     # 4. Demonstrate model promotion workflow
-    print("\n=== Model Lifecycle Stages ===")
-    print("1. Development: Model is being trained and evaluated")
-    print("2. Staging: Model passed tests and ready for A/B testing")
-    print("3. Production: Model is serving live predictions")
-    print("4. Archived: Model is retired but kept for reference")
+    rich_print("\n=== Model Lifecycle Stages ===")
+    rich_print("1. Development: Model is being trained and evaluated")
+    rich_print("2. Staging: Model passed tests and ready for A/B testing")
+    rich_print("3. Production: Model is serving live predictions")
+    rich_print("4. Archived: Model is retired but kept for reference")
 
-    print(f"\nCurrent stage: {metadata.stage}")
+    rich_print(f"\nCurrent stage: {metadata.stage}")
 
     # Simulate promotion
-    print("\n✓ Promoting model to STAGING...")
+    rich_print("\n✓ Promoting model to STAGING...")
     metadata.stage = ModelStage.STAGING
 
-    print("✓ Running A/B tests...")
-    print("  - Control: price_predictor v0.9.0")
-    print("  - Treatment: price_predictor v1.0.0")
-    print("  - Result: +5% improvement in accuracy")
+    rich_print("✓ Running A/B tests...")
+    rich_print("  - Control: price_predictor v0.9.0")
+    rich_print("  - Treatment: price_predictor v1.0.0")
+    rich_print("  - Result: +5% improvement in accuracy")
 
-    print("\n✓ Promoting model to PRODUCTION...")
+    rich_print("\n✓ Promoting model to PRODUCTION...")
     metadata.stage = ModelStage.PRODUCTION
     metadata.status = ModelStatus.DEPLOYED
 
     # 5. Load model back
-    print("\n=== Loading Model from Registry ===")
+    rich_print("\n=== Loading Model from Registry ===")
 
     # Load model
     with open(artifact_path / "model.pkl", "rb") as f:
@@ -147,29 +148,29 @@ def demonstrate_model_registry():
     with open(artifact_path / "metadata.json") as f:
         loaded_metadata = json.load(f)
 
-    print(f"✓ Loaded model: {loaded_metadata['model_name']} v{loaded_metadata['version']}")
-    print(f"  - Stage: {loaded_metadata['stage']}")
-    print(f"  - Status: {loaded_metadata['status']}")
+    rich_print(f"✓ Loaded model: {loaded_metadata['model_name']} v{loaded_metadata['version']}")
+    rich_print(f"  - Stage: {loaded_metadata['stage']}")
+    rich_print(f"  - Status: {loaded_metadata['status']}")
 
     # 6. Make prediction
-    print("\n=== Making Predictions ===")
+    rich_print("\n=== Making Predictions ===")
     test_data = [[0.5, 0.6, 1000, 45, 0.02]]  # Mock feature values
     prediction = loaded_model.predict(test_data)
-    print(f"✓ Prediction for test data: {prediction[0]}")
+    rich_print(f"✓ Prediction for test data: {prediction[0]}")
 
     # Clean up
     shutil.rmtree(storage_path)
 
-    print("\n✅ Model Registry demonstration complete!")
+    rich_print("\n✅ Model Registry demonstration complete!")
 
     # Show benefits
-    print("\n=== Benefits of Model Registry ===")
-    print("1. Version Control: Track all model versions with full history")
-    print("2. Metadata Tracking: Store metrics, parameters, and features")
-    print("3. Lifecycle Management: Promote models through stages safely")
-    print("4. A/B Testing: Compare models before production deployment")
-    print("5. Rollback Capability: Quickly revert to previous versions")
-    print("6. Audit Trail: Complete history of all model changes")
+    rich_print("\n=== Benefits of Model Registry ===")
+    rich_print("1. Version Control: Track all model versions with full history")
+    rich_print("2. Metadata Tracking: Store metrics, parameters, and features")
+    rich_print("3. Lifecycle Management: Promote models through stages safely")
+    rich_print("4. A/B Testing: Compare models before production deployment")
+    rich_print("5. Rollback Capability: Quickly revert to previous versions")
+    rich_print("6. Audit Trail: Complete history of all model changes")
 
 
 if __name__ == "__main__":

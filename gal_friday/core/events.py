@@ -1138,14 +1138,14 @@ class APIErrorEvent(Event):
     event_type: EventType = field(default=EventType.SYSTEM_ERROR, init=False)
 
     @classmethod
-    def create(cls, source_module: str, error_message: str, **kwargs: Any) -> "APIErrorEvent":
+    def create(cls, source_module: str, error_message: str, **details: Any) -> "APIErrorEvent":  # noqa: ANN401
         """Create a new APIErrorEvent with a generated UUID and current timestamp.
 
         Args:
         ----
             source_module: The module that created this event
             error_message: Description of the error that occurred
-            **kwargs: Additional fields like http_status, endpoint, etc.
+            **details: Additional fields like http_status, endpoint, etc.
 
         Returns:
         -------
@@ -1156,7 +1156,7 @@ class APIErrorEvent(Event):
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(),
             error_message=error_message,
-            **kwargs,
+            **details,
         )
 
 

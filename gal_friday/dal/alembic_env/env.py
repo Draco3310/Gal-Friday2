@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import logging
 from logging.config import fileConfig
 
 from alembic import context  # type: ignore[import-not-found]
@@ -35,28 +36,30 @@ from gal_friday.dal.models import Base  # Import Base from your models package
 
 target_metadata = Base.metadata
 
+logger = logging.getLogger(__name__)
+
 # Typed dummy functions for Alembic hooks
 def process_revision_directives(
     context: MigrationContext, revision: str | tuple[str, ...], directives: list[Any],
 ) -> None:
-    print(f"Processing revision {revision} with directives: {directives}")
+    logger.debug(f"Processing revision {revision} with directives: {directives}")
 
 def render_item(
     type_: str, obj: Any, autogen_context: AutogenContext,
 ) -> str | Literal[False] | None:
-    print(f"Rendering item type {type_} for object {obj}")
+    logger.debug(f"Rendering item type {type_} for object {obj}")
     return None
 
 def include_object(
     object: SchemaItem, name: str | None, type_: str, reflected: bool, compare_to: Any | None,
 ) -> bool:
-    print(f"Checking include_object for {type_} {name}")
+    logger.debug(f"Checking include_object for {type_} {name}")
     return True
 
 def include_name(
     name: str | None, type_: str, parent_names: dict[str, Any] | None,
 ) -> bool:
-    print(f"Checking include_name for {type_} {name}")
+    logger.debug(f"Checking include_name for {type_} {name}")
     return True
 
 def include_symbol(
@@ -66,7 +69,7 @@ def include_symbol(
     is_reflected: bool,
     symbol_name: str,
 ) -> bool:
-    print(f"Checking include_symbol for {symbol_type} {symbol_name} in table {schema_name}.{table_name}")
+    logger.debug(f"Checking include_symbol for {symbol_type} {symbol_name} in table {schema_name}.{table_name}")
     return True
 
 def compare_type(
@@ -76,7 +79,7 @@ def compare_type(
     inspected_type: Any,
     metadata_type: Any,
 ) -> bool | None:
-    print(f"Comparing type for column {metadata_column.name}: DB {inspected_type} vs Meta {metadata_type}")
+    logger.debug(f"Comparing type for column {metadata_column.name}: DB {inspected_type} vs Meta {metadata_type}")
     return None
 
 # Import ConfigManager to get database URL
@@ -90,12 +93,12 @@ def get_db_url() -> str:
         db_url = config_manager.get("database.connection_string")
         if not db_url:
             db_url = config.get_main_option("sqlalchemy.url")
-            print(f"Warning: DB URL from ConfigManager empty, falling back to alembic.ini URL: {db_url}")
+            logger.warning(f"DB URL from ConfigManager empty, falling back to alembic.ini URL: {db_url}")
         else:
-            print(f"Using DB URL from ConfigManager: {db_url}")
+            logger.info(f"Using DB URL from ConfigManager: {db_url}")
         return cast("str", db_url)
     except Exception as e:
-        print(f"Error getting DB URL from ConfigManager: {e}. Falling back to alembic.ini.")
+        logger.error(f"Error getting DB URL from ConfigManager: {e}. Falling back to alembic.ini.")
         return cast("str", config.get_main_option("sqlalchemy.url"))
 
 
@@ -136,7 +139,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     db_url = get_db_url()
-    print("Configuring context for metadata-only autogeneration (no actual DB connection attempt).")
+    logger.info("Configuring context for metadata-only autogeneration (no actual DB connection attempt).")
     context.configure(
         connection=None,
         url=db_url,

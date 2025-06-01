@@ -6,6 +6,8 @@ requiring all dependencies to be installed.
 """
 
 from typing import Any
+from rich import print as rich_print
+import builtins
 
 
 class Console:
@@ -13,27 +15,30 @@ class Console:
 
     def print(self, *args: str) -> None:
         """Print to console, simplified version of rich.console.Console.print."""
-        print(*args)
+        builtins.print(*args)  # noqa: T201 - Mocking built-in print for console testing
 
 
 class Table:
     """Mock implementation of rich.table.Table for non-type-checking mode."""
 
-    MIN_ARGS_FOR_ROW_PRINT = 2
+    MIN_ARGS_FOR_ROW_PRINT = 2 # Not strictly needed anymore with buffer
 
     def __init__(self, title: str | None = None) -> None:
         """Initialize a mock table."""
         self.title = title
+        self.output_buffer: list[str] = []
         if title:
-            print(f"TABLE: {title}")
+            # This print is for immediate feedback during mock usage, not part of table content
+            rich_print(f"TABLE: {title}")
 
     def add_column(self, title: str, style: str | None = None) -> None:
         """Add a column to the table."""
+        self.output_buffer.append(f"COLUMN: {title} (style={style})")
 
     def add_row(self, *args: str) -> None:
         """Add a row to the table."""
-        if len(args) >= self.MIN_ARGS_FOR_ROW_PRINT:
-            print(f"  {args[0]}: {args[1]}")
+        # Representing the row as a tuple of strings
+        self.output_buffer.append(f"ROW: {args}")
 
 
 class MonitoringService:
@@ -45,11 +50,11 @@ class MonitoringService:
 
     async def trigger_halt(self, reason: str, source: str) -> None:
         """Trigger a halt of the trading system."""
-        print(f"HALT triggered by {source}: {reason}")
+        rich_print(f"HALT triggered by {source}: {reason}")
 
     async def trigger_resume(self, source: str) -> None:
         """Resume trading after a halt."""
-        print(f"RESUME triggered by {source}")
+        rich_print(f"RESUME triggered by {source}")
 
 
 class MainAppController:
@@ -57,7 +62,7 @@ class MainAppController:
 
     async def stop(self) -> None:
         """Stop the application."""
-        print("Shutdown requested by CLI.")
+        rich_print("Shutdown requested by CLI.")
 
 
 class PortfolioManager:
@@ -76,14 +81,14 @@ class LoggerService:
         message: str,
     ) -> None:
         """Log info message."""
-        print(f"INFO: {message}")
+        rich_print(f"INFO: {message}")
 
     def warning(
         self,
         message: str,
     ) -> None:
         """Log warning message."""
-        print(f"WARNING: {message}")
+        rich_print(f"WARNING: {message}")
 
     def error(
         self,
@@ -91,9 +96,9 @@ class LoggerService:
         exc_info: BaseException | None = None,
     ) -> None:
         """Log error message."""
-        print(f"ERROR: {message}")
+        rich_print(f"ERROR: {message}")
         if exc_info:
-            print(f"Exception: {exc_info}")
+            rich_print(f"Exception: {exc_info}")
 
     def exception(
         self,
@@ -102,21 +107,21 @@ class LoggerService:
         context: dict | None = None,
     ) -> None:
         """Log error message with exception info."""
-        print(f"EXCEPTION: {message}")
+        rich_print(f"EXCEPTION: {message}")
         if source_module:
-            print(f"Source: {source_module}")
+            rich_print(f"Source: {source_module}")
         if context:
-            print(f"Context: {context}")
+            rich_print(f"Context: {context}")
         import sys
 
-        print(f"Exception: {sys.exc_info()[1]}")
+        rich_print(f"Exception: {sys.exc_info()[1]}")
 
     def debug(
         self,
         message: str,
     ) -> None:
         """Log debug message."""
-        print(f"DEBUG: {message}")
+        rich_print(f"DEBUG: {message}")
 
     def critical(
         self,
@@ -124,6 +129,6 @@ class LoggerService:
         exc_info: BaseException | None = None,
     ) -> None:
         """Log critical message."""
-        print(f"CRITICAL: {message}")
+        rich_print(f"CRITICAL: {message}")
         if exc_info:
-            print(f"Exception: {exc_info}")
+            rich_print(f"Exception: {exc_info}")

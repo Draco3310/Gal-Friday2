@@ -11,7 +11,7 @@ import pandas as pd
 class BacktestHistoricalDataProvider:
     """Provides historical data for backtesting."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self) -> None:
         """Initialize the backtest historical data provider."""
 
     def get_historical_data(

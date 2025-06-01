@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import psutil
+from rich import print as rich_print
 
 from gal_friday.core.events import (
     EventType,
@@ -29,7 +30,7 @@ class PerformanceTestRunner:
 
     async def test_event_throughput(self, duration_seconds: int = 10):
         """Test event publishing throughput."""
-        print(f"\n=== Testing Event Throughput (duration: {duration_seconds}s) ===")
+        rich_print(f"\n=== Testing Event Throughput (duration: {duration_seconds}s) ===")
 
         events_published = 0
         start_time = time.time()
@@ -55,12 +56,12 @@ class PerformanceTestRunner:
             "events_per_second": throughput,
         }
 
-        print(f"Published {events_published:,} events in {elapsed:.2f}s")
-        print(f"Throughput: {throughput:,.0f} events/second")
+        rich_print(f"Published {events_published:,} events in {elapsed:.2f}s")
+        rich_print(f"Throughput: {throughput:,.0f} events/second")
 
     async def test_prediction_latency(self, num_predictions: int = 1000):
         """Test prediction generation latency."""
-        print(f"\n=== Testing Prediction Latency (n={num_predictions}) ===")
+        rich_print(f"\n=== Testing Prediction Latency (n={num_predictions}) ===")
 
         latencies = []
 
@@ -101,13 +102,13 @@ class PerformanceTestRunner:
             "max_ms": max(latencies),
         }
 
-        print(f"Latency - Mean: {self.results['prediction_latency']['mean_ms']:.2f}ms")
-        print(f"Latency - P95: {self.results['prediction_latency']['p95_ms']:.2f}ms")
-        print(f"Latency - P99: {self.results['prediction_latency']['p99_ms']:.2f}ms")
+        rich_print(f"Latency - Mean: {self.results['prediction_latency']['mean_ms']:.2f}ms")
+        rich_print(f"Latency - P95: {self.results['prediction_latency']['p95_ms']:.2f}ms")
+        rich_print(f"Latency - P99: {self.results['prediction_latency']['p99_ms']:.2f}ms")
 
     async def test_concurrent_load(self, num_workers: int = 10, duration_seconds: int = 30):
         """Test system under concurrent load."""
-        print(f"\n=== Testing Concurrent Load (workers={num_workers}, duration={duration_seconds}s) ===")
+        rich_print(f"\n=== Testing Concurrent Load (workers={num_workers}, duration={duration_seconds}s) ===")
 
         async def worker(worker_id: int):
             events_processed = 0
@@ -180,13 +181,13 @@ class PerformanceTestRunner:
             "error_rate": total_errors / total_events if total_events > 0 else 0,
         }
 
-        print(f"Processed {total_events:,} events with {num_workers} workers")
-        print(f"Throughput: {total_events / elapsed:,.0f} events/second")
-        print(f"Error rate: {self.results['concurrent_load']['error_rate']:.2%}")
+        rich_print(f"Processed {total_events:,} events with {num_workers} workers")
+        rich_print(f"Throughput: {total_events / elapsed:,.0f} events/second")
+        rich_print(f"Error rate: {self.results['concurrent_load']['error_rate']:.2%}")
 
     async def test_memory_usage(self, duration_seconds: int = 60):
         """Test memory usage under load."""
-        print(f"\n=== Testing Memory Usage (duration={duration_seconds}s) ===")
+        rich_print(f"\n=== Testing Memory Usage (duration={duration_seconds}s) ===")
 
         process = psutil.Process()
         memory_samples = []
@@ -237,13 +238,13 @@ class PerformanceTestRunner:
             "memory_growth_mb": (memory_samples[-1]["rss_mb"] - memory_samples[0]["rss_mb"]) if memory_samples else 0,
         }
 
-        print(f"Initial memory: {self.results['memory_usage']['initial_rss_mb']:.1f}MB")
-        print(f"Peak memory: {self.results['memory_usage']['peak_rss_mb']:.1f}MB")
-        print(f"Memory growth: {self.results['memory_usage']['memory_growth_mb']:.1f}MB")
+        rich_print(f"Initial memory: {self.results['memory_usage']['initial_rss_mb']:.1f}MB")
+        rich_print(f"Peak memory: {self.results['memory_usage']['peak_rss_mb']:.1f}MB")
+        rich_print(f"Memory growth: {self.results['memory_usage']['memory_growth_mb']:.1f}MB")
 
     async def test_cache_performance(self):
         """Test cache hit rates and performance."""
-        print("\n=== Testing Cache Performance ===")
+        rich_print("\n=== Testing Cache Performance ===")
 
         from gal_friday.utils.performance_optimizer import LRUCache
 
@@ -278,13 +279,13 @@ class PerformanceTestRunner:
             "p99_latency_us": np.percentile(cache_times, 99),
         }
 
-        print(f"Cache hit rate: {stats['hit_rate']:.1%}")
-        print(f"Mean latency: {self.results['cache_performance']['mean_latency_us']:.1f}μs")
-        print(f"P99 latency: {self.results['cache_performance']['p99_latency_us']:.1f}μs")
+        rich_print(f"Cache hit rate: {stats['hit_rate']:.1%}")
+        rich_print(f"Mean latency: {self.results['cache_performance']['mean_latency_us']:.1f}μs")
+        rich_print(f"P99 latency: {self.results['cache_performance']['p99_latency_us']:.1f}μs")
 
     async def test_database_connection_pool(self):
         """Test database connection pool performance."""
-        print("\n=== Testing Connection Pool Performance ===")
+        rich_print("\n=== Testing Connection Pool Performance ===")
 
         from gal_friday.utils.performance_optimizer import ConnectionPool
 
@@ -326,8 +327,8 @@ class PerformanceTestRunner:
             "pool_stats": pool_stats,
         }
 
-        print(f"Mean operation time: {self.results['connection_pool']['mean_time_ms']:.1f}ms")
-        print(f"Pool stats: {pool_stats}")
+        rich_print(f"Mean operation time: {self.results['connection_pool']['mean_time_ms']:.1f}ms")
+        rich_print(f"Pool stats: {pool_stats}")
 
         await pool.stop()
 
@@ -423,8 +424,8 @@ async def run_all_performance_tests():
     """Run all performance tests."""
     runner = PerformanceTestRunner()
 
-    print("Starting Gal-Friday Performance Tests...")
-    print("This will take several minutes to complete.")
+    rich_print("Starting Gal-Friday Performance Tests...")
+    rich_print("This will take several minutes to complete.")
 
     # Run tests
     await runner.test_event_throughput(duration_seconds=10)
@@ -436,12 +437,12 @@ async def run_all_performance_tests():
 
     # Generate report
     report = runner.generate_report()
-    print("\n" + report)
+    rich_print("\n" + report)
 
     # Save report
     with open("performance_test_report.txt", "w") as f:
         f.write(report)
-    print("\nReport saved to: performance_test_report.txt")
+    rich_print("\nReport saved to: performance_test_report.txt")
 
     return runner.results
 
