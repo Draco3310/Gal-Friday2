@@ -57,7 +57,7 @@ class TimeSeriesDB:
             for point in points:
                 self.write_api.write(bucket=self.bucket, record=point)
             return True
-        except InfluxDBError as e:
+        except InfluxDBError:
             self.logger.exception(
                 "Error writing points to InfluxDB",
                 source_module=self._source_module,
@@ -162,7 +162,7 @@ class TimeSeriesDB:
 
             return results
 
-        except InfluxDBError as e:
+        except InfluxDBError:
             self.logger.exception(
                 "Error querying data from InfluxDB",
                 source_module=self._source_module,

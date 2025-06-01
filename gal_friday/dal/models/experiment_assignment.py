@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, String, PrimaryKeyConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, PrimaryKeyConstraint, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,7 +15,7 @@ class ExperimentAssignment(Base):
     __tablename__ = "experiment_assignments"
 
     experiment_id: Mapped[UUID] = mapped_column(
-        ForeignKey("experiments.experiment_id"), primary_key=True
+        ForeignKey("experiments.experiment_id"), primary_key=True,
     )
     event_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True) # Assuming this is a generic UUID for an event
     variant: Mapped[str] = mapped_column(String(20), nullable=False)

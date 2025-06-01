@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     # Define a proper protocol/interface for execution handlers
     from typing import Protocol
 
+    from sqlalchemy.ext.asyncio import async_sessionmaker  # Added
+
     from .cli_service import CLIService as CLIServiceType
     from .core.pubsub import PubSubManager as PubSubManagerType
     from .data_ingestor import DataIngestor as DataIngestorType
@@ -64,7 +66,6 @@ if TYPE_CHECKING:
     from .risk_manager import RiskManager as RiskManagerType
     from .simulated_execution_handler import SimulatedExecutionHandler
     from .strategy_arbitrator import StrategyArbitrator as StrategyArbitratorType
-    from sqlalchemy.ext.asyncio import async_sessionmaker # Added
 
     class ExecutionHandlerProtocol(Protocol):
         """Protocol defining interface for execution handlers."""
@@ -413,7 +414,7 @@ class GalFridayApp:
         # Store references to specific services after instantiation for DI
         self.logger_service: LoggerServiceType | None = None
         self.db_connection_pool: DatabaseConnectionPool | None = None # Added
-        self.session_maker: async_sessionmaker | None = None # type: ignore # Added 
+        self.session_maker: async_sessionmaker | None = None # type: ignore # Added
         self.migration_manager: MigrationManager | None = None # Added
         # Added
         self.market_price_service: MarketPriceServiceType | None = None
@@ -848,7 +849,7 @@ class GalFridayApp:
 
             self.db_connection_pool = DatabaseConnectionPool(
                 config=self.config,
-                logger=temp_db_logger # type: ignore # Pass a basic logger
+                logger=temp_db_logger, # type: ignore # Pass a basic logger
             )
             await self.db_connection_pool.initialize()
             self.session_maker = self.db_connection_pool.get_session_maker()
@@ -869,7 +870,7 @@ class GalFridayApp:
             self.logger_service = LoggerService(
                 config_manager=self.config, # type: ignore
                 pubsub_manager=self.pubsub, # type: ignore
-                db_session_maker=self.session_maker # Pass the session_maker
+                db_session_maker=self.session_maker, # Pass the session_maker
             )
             self.services.append(self.logger_service) # Add to services for start/stop
             log.info("LoggerService instantiated/configured with DB support.")
@@ -879,19 +880,19 @@ class GalFridayApp:
         except Exception as e:
             log.exception("FATAL: Failed to instantiate full LoggerService")
             raise LoggerServiceInstantiationFailedExit from e
-            
+
         # --- 7. MigrationManager Setup ---
         if MigrationManager is not None and self.logger_service is not None:
             self.migration_manager = MigrationManager(
                 logger=self.logger_service, # Pass the full logger service
-                project_root_path="/app" # Explicitly set project root
+                project_root_path="/app", # Explicitly set project root
             )
             log.info("MigrationManager instantiated.")
             try:
                 log.info("Running database migrations to head...")
                 await asyncio.to_thread(self.migration_manager.upgrade_to_head)
                 log.info("Database migrations completed.")
-            except Exception as e:
+            except Exception:
                 log.exception("Failed to run database migrations.")
                 raise # Re-raise as this is critical for app consistency
         else:

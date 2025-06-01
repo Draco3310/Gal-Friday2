@@ -328,22 +328,22 @@ class Event:
     source_module: str
     event_id: uuid.UUID
     timestamp: datetime
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary for serialization."""
         from dataclasses import asdict
-        
+
         # Convert dataclass to dict
         data = asdict(self)
-        
+
         # Convert special types to strings
-        if 'event_id' in data:
-            data['event_id'] = str(data['event_id'])
-        if 'timestamp' in data:
-            data['timestamp'] = data['timestamp'].isoformat()
-        if 'event_type' in data:
-            data['event_type'] = data['event_type'].value
-            
+        if "event_id" in data:
+            data["event_id"] = str(data["event_id"])
+        if "timestamp" in data:
+            data["timestamp"] = data["timestamp"].isoformat()
+        if "event_type" in data:
+            data["event_type"] = data["event_type"].value
+
         # Convert UUID fields
         for key, value in data.items():
             if isinstance(value, uuid.UUID):
@@ -354,44 +354,44 @@ class Event:
                 data[key] = str(value)
             elif isinstance(value, Enum):
                 data[key] = value.value
-                
+
         return data
-    
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Event":
         """Create event from dictionary."""
         # Convert string UUIDs back to UUID objects
-        if 'event_id' in data:
-            data['event_id'] = uuid.UUID(data['event_id'])
-            
+        if "event_id" in data:
+            data["event_id"] = uuid.UUID(data["event_id"])
+
         # Convert ISO strings back to datetime
-        if 'timestamp' in data:
-            data['timestamp'] = datetime.fromisoformat(data['timestamp'])
-            
+        if "timestamp" in data:
+            data["timestamp"] = datetime.fromisoformat(data["timestamp"])
+
         # Handle specific field conversions based on event type
         for key, value in data.items():
-            if key.endswith('_id') and isinstance(value, str) and value:
+            if key.endswith("_id") and isinstance(value, str) and value:
                 try:
                     data[key] = uuid.UUID(value)
                 except ValueError:
                     pass
-            elif 'timestamp' in key and isinstance(value, str):
+            elif "timestamp" in key and isinstance(value, str):
                 try:
                     data[key] = datetime.fromisoformat(value)
                 except ValueError:
                     pass
-            elif key in ['price', 'volume', 'quantity', 'sl_price', 'tp_price', 
-                         'limit_price', 'bid', 'ask', 'bid_size', 'ask_size',
-                         'last_price', 'last_size', 'volume_24h', 'vwap_24h',
-                         'high_24h', 'low_24h', 'quantity_ordered', 'quantity_filled',
-                         'average_fill_price', 'stop_price', 'commission',
-                         'proposed_sl_price', 'proposed_tp_price', 'proposed_entry_price']:
-                if value is not None and value != 'None':
+            elif key in ["price", "volume", "quantity", "sl_price", "tp_price",
+                         "limit_price", "bid", "ask", "bid_size", "ask_size",
+                         "last_price", "last_size", "volume_24h", "vwap_24h",
+                         "high_24h", "low_24h", "quantity_ordered", "quantity_filled",
+                         "average_fill_price", "stop_price", "commission",
+                         "proposed_sl_price", "proposed_tp_price", "proposed_entry_price"]:
+                if value is not None and value != "None":
                     data[key] = Decimal(str(value))
-                    
+
         # Remove event_type if present (it's set by the class)
-        data.pop('event_type', None)
-        
+        data.pop("event_type", None)
+
         return cls(**data)
 
 
@@ -510,29 +510,29 @@ class MarketDataTickerEvent(Event):
             ("last_price", self.last_price),
             ("vwap_24h", self.vwap_24h),
             ("high_24h", self.high_24h),
-            ("low_24h", self.low_24h)
+            ("low_24h", self.low_24h),
         ]
-        
+
         for field_name, price in price_fields:
             if price <= Decimal("0"):
                 raise ValueError(self._NON_POSITIVE_PRICE_MSG.format(field=field_name, price=price))
-        
+
         # Validate sizes
         size_fields = [
             ("bid_size", self.bid_size),
             ("ask_size", self.ask_size),
             ("last_size", self.last_size),
-            ("volume_24h", self.volume_24h)
+            ("volume_24h", self.volume_24h),
         ]
-        
+
         for field_name, size in size_fields:
             if size < Decimal("0"):
                 raise ValueError(self._NON_POSITIVE_SIZE_MSG.format(field=field_name, size=size))
-        
+
         # Validate trade count
         if self.trades_24h < 0:
             raise ValueError(self._NEGATIVE_COUNT_MSG.format(count=self.trades_24h))
-        
+
         # Validate bid/ask spread
         if self.bid >= self.ask:
             raise ValueError(f"Invalid bid/ask spread: bid={self.bid} >= ask={self.ask}")

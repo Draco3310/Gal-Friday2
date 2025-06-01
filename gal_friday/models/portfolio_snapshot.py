@@ -1,7 +1,6 @@
-from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, Integer, Numeric, Float, DateTime, JSON
+from sqlalchemy import JSON, Column, DateTime, Float, Integer, Numeric
 from sqlalchemy.sql import func
 
 from .base import Base

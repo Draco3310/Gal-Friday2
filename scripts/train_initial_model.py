@@ -1,17 +1,17 @@
 #!/usr/bin/env python
-"""
-Script to train the initial prediction model (MVP - XGBoost).
+"""Script to train the initial prediction model (MVP - XGBoost).
 
 Reads historical data, generates features and labels based on configuration,
 trains an XGBoost model, evaluates it, and saves the model artifact.
 """
 
 import logging
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import joblib
 import pandas as pd
+import xgboost as xgb
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -19,7 +19,6 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-import xgboost as xgb
 
 # Error messages and constants
 FEATURE_LIST_ERROR = "Feature list ('training.data.feature_list') not defined in config"
@@ -67,11 +66,11 @@ def _handle_timestamp_index(df: pd.DataFrame) -> pd.DataFrame:
     Args:
         df: Input DataFrame
 
-    Returns
+    Returns:
     -------
         DataFrame with properly formatted DatetimeIndex
 
-    Raises
+    Raises:
     ------
         ValueError: If no suitable timestamp column is found
         TypeError: If the index is not a DatetimeIndex
@@ -99,7 +98,7 @@ def _handle_timestamp_index(df: pd.DataFrame) -> pd.DataFrame:
 def _filter_and_clean_data(
     all_data: pd.DataFrame,
     pair_to_train: str,
-    data_path: str
+    data_path: str,
 ) -> pd.DataFrame:
     """Filter data for target pair and clean it.
 
@@ -108,7 +107,7 @@ def _filter_and_clean_data(
         pair_to_train: Target trading pair
         data_path: Path to the data file (for error messages)
 
-    Returns
+    Returns:
     -------
         Cleaned DataFrame with data for the target pair
     """
@@ -130,7 +129,7 @@ def _filter_and_clean_data(
     # Drop any rows with missing OHLCV data
     cleaned_df = df.dropna(
         subset=["open", "high", "low", "close", "volume"],
-        inplace=False
+        inplace=False,
     )
     log.info("%d rows remaining after initial NaN drop.", len(cleaned_df))
     return cleaned_df
@@ -142,11 +141,11 @@ def load_historical_data(config: "ConfigManager") -> pd.DataFrame:
     Args:
         config: ConfigManager instance with application configuration
 
-    Returns
+    Returns:
     -------
         pd.DataFrame: DataFrame with historical data for the specified pair
 
-    Raises
+    Raises:
     ------
         FileNotFoundError: If data file is not found
         ValueError: If no trading pairs are configured or data is invalid
@@ -183,12 +182,12 @@ def load_historical_data(config: "ConfigManager") -> pd.DataFrame:
 def generate_features(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame:
     """Generate features based on configuration.
 
-    Args
+    Args:
     ----
         df: Input DataFrame containing raw OHLCV data
         config: Configuration manager instance containing feature settings
 
-    Returns
+    Returns:
     -------
         DataFrame with additional technical analysis features
     """
@@ -227,7 +226,7 @@ def generate_features(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame
 
     if "atr" in enabled_features:
         atr_period = config.get_int(
-            "backtest.atr_period", 14
+            "backtest.atr_period", 14,
         )  # Reuse from backtest for consistency
         df.ta.atr(length=atr_period, append=True)
         log.debug("Calculated ATR(%d)", atr_period)
@@ -265,12 +264,12 @@ def generate_features(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame
 def generate_labels(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame:
     """Generate the target variable (label) based on future price movement.
 
-    Args
+    Args:
     ----
         df: Input DataFrame containing OHLCV and feature data
         config: Configuration manager instance containing labeling parameters
 
-    Returns
+    Returns:
     -------
         DataFrame with added target labels
     """
@@ -317,7 +316,7 @@ def generate_labels(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame:
     if len(label_counts) < MIN_CLASSES_REQUIRED:
         log.warning(
             "Dataset contains only one class after labeling. "
-            "Model training might fail or be meaningless."
+            "Model training might fail or be meaningless.",
         )
 
     log.info("Label generation complete. %d rows remaining.", len(df))
@@ -325,16 +324,16 @@ def generate_labels(df: pd.DataFrame, config: "ConfigManager") -> pd.DataFrame:
 
 
 def split_data(
-    df: pd.DataFrame, config: "ConfigManager"
+    df: pd.DataFrame, config: "ConfigManager",
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     """Split data chronologically into training and testing sets.
 
-    Args
+    Args:
     ----
         df: Input DataFrame containing features and labels
         config: Configuration manager instance containing split parameters
 
-    Returns
+    Returns:
     -------
         Tuple containing (X_train, X_test, y_train, y_test)
     """
@@ -360,7 +359,7 @@ def split_data(
     log.info(
         "Data split: Train=%d rows, Test=%d rows",
         len(x_train),
-        len(x_test)
+        len(x_test),
     )
     train_dist = y_train.value_counts(normalize=True) * 100
     log.info("Training Target Distribution:\n%s", train_dist)
@@ -379,7 +378,7 @@ def train_model(
 ) -> xgb.XGBClassifier:
     """Train an XGBoost model with the provided data.
 
-    Args
+    Args:
     ----
         X_train: Training features
         y_train: Training labels
@@ -387,7 +386,7 @@ def train_model(
         y_test: Test labels
         config: Configuration manager instance containing model parameters
 
-    Returns
+    Returns:
     -------
         Trained XGBoost classifier model
     """
@@ -402,7 +401,7 @@ def train_model(
     if not model_params:
         log.warning(
             "No model parameters ('training.model.params') found in config. "
-            "Using XGBoost defaults."
+            "Using XGBoost defaults.",
         )
 
     # Check target balance and set scale_pos_weight if needed
@@ -411,7 +410,7 @@ def train_model(
         scale_pos_weight = balance[0] / balance[1]
         log.info(
             "Target imbalance detected. Setting scale_pos_weight=%.2f",
-            scale_pos_weight
+            scale_pos_weight,
         )
         model_params["scale_pos_weight"] = scale_pos_weight
     else:
@@ -424,7 +423,7 @@ def train_model(
         x_train,
         y_train,
         eval_set=[(x_train, y_train), (x_test, y_test)],
-        verbose=True
+        verbose=True,
     )
 
     log.info("Model training complete.")
@@ -434,7 +433,7 @@ def train_model(
 def evaluate_model(model: xgb.XGBClassifier, x_test: pd.DataFrame, y_test: pd.Series) -> None:
     """Evaluate model performance on test data.
 
-    Args
+    Args:
     ----
         model: Trained XGBoost classifier
         x_test: Test features
@@ -461,7 +460,7 @@ def evaluate_model(model: xgb.XGBClassifier, x_test: pd.DataFrame, y_test: pd.Se
 def save_model(model: xgb.XGBClassifier, config: "ConfigManager") -> None:
     """Save the trained model to disk.
 
-    Args
+    Args:
     ----
         model: Trained XGBoost classifier to save
         config: Configuration manager instance containing save path

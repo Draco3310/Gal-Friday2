@@ -610,7 +610,7 @@ class AlertingSystem:
                     "SMS alerting enabled but missing one or more required configurations "
                     "(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or alerting.sms.from_number was empty/None). "
                     "SMS channel will not be initialized.",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
 
         # Discord channel

@@ -1,10 +1,10 @@
-from datetime import datetime
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON
+from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String
+from sqlalchemy.sql import func
 
 from gal_friday.core.events import LogEvent
-from sqlalchemy.sql import func
 
 from .base import Base
 
@@ -24,7 +24,7 @@ class Configuration(Base):
             f"is_active={self.is_active})>"
         )
 
-    def to_event(self) -> 'LogEvent': # Added to_event with type hints
+    def to_event(self) -> "LogEvent": # Added to_event with type hints
         """Converts the Configuration object to a LogEvent."""
         # Assuming LogEvent is importable from gal_friday.core.events
         # import uuid
@@ -44,7 +44,7 @@ class Configuration(Base):
                 "loaded_at": self.loaded_at.isoformat() if self.loaded_at else None,
                 # Be cautious about logging entire config_content if it's sensitive
                 # "config_content_preview": str(self.config_content)[:100] # Example preview
-            }
+            },
         }
         # In a real implementation:
         # from gal_friday.core.events import LogEvent
@@ -67,5 +67,5 @@ class Configuration(Base):
                 "is_active": self.is_active,
                 "loaded_at": self.loaded_at.isoformat() if self.loaded_at else None,
                 # "config_content_preview": str(self.config_content)[:100] # Example preview
-            }
+            },
         )

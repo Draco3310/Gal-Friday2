@@ -3,30 +3,35 @@
 import asyncio
 import random
 import uuid
-from collections.abc import Callable, Coroutine
+from collections.abc import (
+    Callable,
+    Coroutine,
+    Sequence,  # Added Sequence and cast
+)
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any, TypeVar, Sequence, cast # Added Sequence and cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import numpy as np
 from scipy import stats
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession # Added
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker  # Added
 
 from gal_friday.config_manager import ConfigManager
-from gal_friday.core.events import Event # Added Event for TypeVar bound
+from gal_friday.core.events import Event  # Added Event for TypeVar bound
 from gal_friday.core.pubsub import PubSubManager
-from gal_friday.dal.repositories.experiment_repository import ExperimentRepository
+
 # Import SQLAlchemy models that this manager might deal with if it transforms data
 from gal_friday.dal.models.experiment import Experiment as ExperimentModel
-from gal_friday.dal.models.experiment_assignment import ExperimentAssignment as ExperimentAssignmentModel
-from gal_friday.dal.models.experiment_outcome import ExperimentOutcome as ExperimentOutcomeModel
+from gal_friday.dal.repositories.experiment_repository import ExperimentRepository
 from gal_friday.logger_service import LoggerService
 
 if TYPE_CHECKING:
-    from gal_friday.model_lifecycle.registry import Registry as ModelRegistryType # Updated to new Registry
+    from gal_friday.model_lifecycle.registry import (
+        Registry as ModelRegistryType,  # Updated to new Registry
+    )
 
 # Type variable for generic event type, bound to base Event
 T = TypeVar("T", bound=Event)
@@ -258,10 +263,10 @@ class ExperimentManager:
                 experiment_data_dict["treatment_model_id"] = uuid.UUID(config.treatment_model_id)
 
             # Convert specific Decimal fields back to Decimal if to_dict stringified them
-            for key in ['traffic_split', 'confidence_level', 'minimum_detectable_effect', 'max_loss_threshold']:
+            for key in ["traffic_split", "confidence_level", "minimum_detectable_effect", "max_loss_threshold"]:
                 if key in experiment_data_dict and experiment_data_dict[key] is not None:
                     experiment_data_dict[key] = Decimal(str(experiment_data_dict[key]))
-            
+
             # Dates should be datetime objects
             experiment_data_dict["start_time"] = config.start_time
             if config.end_time:
@@ -283,7 +288,7 @@ class ExperimentManager:
                     # or if val itself has a .hex attribute (e.g. already a Python UUID somehow)
                     # This path is less likely if the primary path is `isinstance(val, uuid.UUID)`
                     # but as a safeguard if it's some other proxy object.
-                    if hasattr(val, 'hex') and callable(getattr(val, 'hex')) :
+                    if hasattr(val, "hex") and callable(val.hex) :
                         return val.hex # type: ignore
 
                     err_msg = f"Cannot convert {name} (type: {type(val)}) to UUID hex: {e}"
@@ -357,7 +362,7 @@ class ExperimentManager:
 
                 # Update event with selected model
                 # Cast to Any to allow setting a dynamic attribute if T is a frozen dataclass
-                cast(Any, event).experiment_info = {
+                cast("Any", event).experiment_info = {
                     "experiment_id": exp_id,
                     "variant": variant,
                     "model_id": model_id,
@@ -446,7 +451,7 @@ class ExperimentManager:
             "experiment_id": uuid.UUID(experiment_id), # Ensure UUID
             "variant": variant,
             "event_id": uuid.UUID(str(event.event_id)), # Ensure UUID
-            "assigned_at": datetime.now(timezone.utc) # Use timezone.utc
+            "assigned_at": datetime.now(UTC), # Use timezone.utc
         }
         await self.experiment_repo.record_assignment(assignment_data)
 
@@ -460,7 +465,7 @@ class ExperimentManager:
         try:
             # Get the variant assignment (repo returns ExperimentAssignmentModel or None)
             assignment_model = await self.experiment_repo.get_assignment(
-                uuid.UUID(experiment_id), uuid.UUID(event_id) # Ensure UUIDs
+                uuid.UUID(experiment_id), uuid.UUID(event_id), # Ensure UUIDs
             )
             if not assignment_model:
                 self.logger.warning(f"No assignment found for experiment {experiment_id}, event {event_id}. Cannot record outcome.", source_module=self._source_module)
@@ -486,7 +491,7 @@ class ExperimentManager:
                 "correct_prediction": outcome.get("correct_prediction"),
                 "signal_generated": outcome.get("signal_generated"),
                 "trade_return": Decimal(str(outcome.get("return", "0"))), # Ensure Decimal
-                "recorded_at": datetime.now(timezone.utc) # Use timezone.utc
+                "recorded_at": datetime.now(UTC), # Use timezone.utc
             }
             await self.experiment_repo.save_outcome(outcome_data_for_db)
 
@@ -716,7 +721,7 @@ class ExperimentManager:
                 # Load performance data (repo returns dict)
                 # This part might need adjustment if VariantPerformance objects are stored/retrieved differently
                 perf_data = await self.experiment_repo.get_experiment_performance(uuid.UUID(str(exp_model.experiment_id))) # Convert SQLAlchemy UUID
-                
+
                 # Reconstruct performance objects (if still using VariantPerformance in memory)
                 # This is complex and depends on how performance data is stored/aggregated.
                 # For simplicity, this reconstruction is illustrative.
@@ -732,7 +737,7 @@ class ExperimentManager:
                     vp.total_return = metrics.get("total_return", Decimal(0))
                     if vp.predictions_made > 0:
                          vp.mean_accuracy = vp.correct_predictions / vp.predictions_made
-                    self.experiment_performance[exp_model.experiment_id.hex][variant_name] = vp
+                    self.experiment_performance[str(exp_model.experiment_id)][variant_name] = vp
 
 
             self.logger.info(

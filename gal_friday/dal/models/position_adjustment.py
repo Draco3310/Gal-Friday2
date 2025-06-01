@@ -17,11 +17,11 @@ class PositionAdjustment(Base):
     __tablename__ = "position_adjustments"
 
     adjustment_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4()
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
     )
     # reconciliation_id is a ForeignKey to reconciliation_events.reconciliation_id
     reconciliation_id: Mapped[UUID | None] = mapped_column( # Schema in 001 allows NULL, 003 implies NOT NULL via REFERENCES. Assuming 001 version for FK nullability for now.
-        ForeignKey("reconciliation_events.reconciliation_id"), nullable=True, index=True # Added index
+        ForeignKey("reconciliation_events.reconciliation_id"), nullable=True, index=True, # Added index
     )
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False) # From 003, added index
     adjustment_type: Mapped[str] = mapped_column(String(50), nullable=False) # From 003
@@ -29,7 +29,7 @@ class PositionAdjustment(Base):
     new_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     adjusted_at: Mapped[datetime | None] = mapped_column(
-        DateTime, server_default=func.current_timestamp(), index=True # Added index based on 003
+        DateTime, server_default=func.current_timestamp(), index=True, # Added index based on 003
     )
 
     # Relationship to ReconciliationEvent

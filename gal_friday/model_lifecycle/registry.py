@@ -8,28 +8,29 @@ import shutil
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable, Sequence as TypingSequence, Union, Optional
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
 import joblib
 import numpy as np
 import numpy.typing as npt
 from sklearn.base import BaseEstimator
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession # Added
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker  # Added
 
 # from gal_friday.dal.base import BaseEntity # BaseEntity is removed
 from gal_friday.dal.models.model_version import ModelVersion as ModelVersionModel
-from gal_friday.dal.models.model_deployment import ModelDeployment as ModelDeploymentModel
-from gal_friday.dal.repositories.model_repository import ModelRepository # Keep for instantiation
+from gal_friday.dal.repositories.model_repository import ModelRepository  # Keep for instantiation
 
 if TYPE_CHECKING:
     from gal_friday.config_manager import ConfigManager
+
     # from gal_friday.dal.repositories.model_repository import ModelRepository # Already imported above
     from gal_friday.logger_service import LoggerService
     from gal_friday.utils.secrets_manager import SecretsManager
-    from .cloud_storage import GCSBackend, S3Backend # Added for type hinting
+
+    from .cloud_storage import GCSBackend, S3Backend  # Added for type hinting
 
 # Type variables for generic typing
 T = TypeVar("T", bound="Predictor")
@@ -55,7 +56,7 @@ class Predictor(Protocol):
         """
         ...
 
-    def fit(self, x: ArrayLike, y: ArrayLike | None = None) -> "Predictor":
+    def fit(self, x: ArrayLike, y: ArrayLike | None = None) -> Predictor:
         """Fit the model to the training data.
 
         Args:
@@ -374,7 +375,7 @@ class ModelArtifact:
 
 class Registry: # Renamed from ModelRegistry for clarity as per plan
     """Centralized model registry with versioning and lifecycle management."""
-    cloud_storage: Optional[Union[GCSBackend, S3Backend]] = None # Added type hint
+    cloud_storage: GCSBackend | S3Backend | None = None # Added type hint
 
     def __init__(
         self,
@@ -411,7 +412,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
     def _init_cloud_storage(self) -> None:
         """Initialize cloud storage backend."""
         provider = self.config_manager.get("model_registry.cloud_provider", "").lower()
-        
+
         if provider == "gcs":
             from .cloud_storage import GCSBackend
             self.cloud_storage = GCSBackend(self.config_manager, self.logger)
@@ -420,10 +421,10 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             self.cloud_storage = S3Backend(self.config_manager, self.logger)
         else:
             raise ValueError(f"Unsupported cloud provider: {provider}")
-        
+
         self.logger.info(
             f"Initialized {provider.upper()} cloud storage",
-            source_module=self._source_module
+            source_module=self._source_module,
         )
 
     async def register_model(
@@ -485,12 +486,12 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                 "artifact_path": artifact.metadata.artifact_path,
             }
             created_model_version = await self.model_repo.add_model_version(model_version_data)
-            
+
             if artifact.metadata.stage == ModelStage.PRODUCTION:
                  await self.model_repo.update_model_version_stage(
                      uuid.UUID(str(created_model_version.model_id)),
                      ModelStage.PRODUCTION.value,
-                     deployed_by=artifact.metadata.trained_by
+                     deployed_by=artifact.metadata.trained_by,
                  )
 
             if self.use_cloud_storage:
@@ -537,14 +538,14 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                 raise ValueError(f"Model not found: {model_name} (version={version}, stage={stage})")
 
             metadata_dto = self._model_version_to_metadata_dto(model_version_model)
-            
+
             deployments = await self.model_repo.get_deployments_for_model_version(uuid.UUID(str(model_version_model.model_id)))
             metadata_dto.deployment_history = [
                 {
-                    "deployed_at": dep.deployed_at.isoformat(), 
-                    "deployed_by": dep.deployed_by, 
+                    "deployed_at": dep.deployed_at.isoformat(),
+                    "deployed_by": dep.deployed_by,
                     "is_active": dep.is_active,
-                    "config": dep.deployment_config
+                    "config": dep.deployment_config,
                 } for dep in deployments
             ]
 
@@ -576,8 +577,8 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         stage: ModelStage | None = None,
     ) -> list[ModelMetadata]:
         model_version_models = await self.model_repo.list_all_model_versions(
-            model_name=model_name, 
-            stage=stage.value if stage else None
+            model_name=model_name,
+            stage=stage.value if stage else None,
         )
         return [self._model_version_to_metadata_dto(mvm) for mvm in model_version_models]
 
@@ -617,11 +618,11 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                     await self.model_repo.update_model_version_stage(
                         uuid.UUID(str(active_prod_deployments.model_id)),
                         ModelStage.STAGING.value,
-                        deployed_by="system_demotion" 
+                        deployed_by="system_demotion",
                     )
-            
+
             updated_model = await self.model_repo.update_model_version_stage(
-                model_uuid, to_stage.value, promoted_by
+                model_uuid, to_stage.value, promoted_by,
             )
 
             if updated_model:
@@ -658,9 +659,9 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                 raise ValueError("Cannot delete/archive active production model without force=True. Demote first.")
 
             updated_model = await self.model_repo.update_model_version_stage(
-                model_uuid, ModelStage.ARCHIVED.value, "system_archive"
+                model_uuid, ModelStage.ARCHIVED.value, "system_archive",
             )
-            
+
             if not updated_model:
                  self.logger.error(f"Failed to archive model {model_id}", source_module=self._source_module)
                  return False
@@ -691,9 +692,9 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             if len(parts) == 3:
                 parts[2] += 1
                 return ".".join(map(str, parts))
-            return f"{current_version_str}.{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+            return f"{current_version_str}.{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
         except ValueError:
-            return f"{current_version_str}.{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+            return f"{current_version_str}.{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
 
     def _get_artifact_path(self, model_name: str, version: str) -> Path:
         return self.storage_path / model_name / version
@@ -732,7 +733,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
 
     async def _demote_model(self, model_id: str) -> None:
         await self.model_repo.update_model_version_stage(
-            uuid.UUID(model_id), ModelStage.STAGING.value, "system_demotion"
+            uuid.UUID(model_id), ModelStage.STAGING.value, "system_demotion",
         )
 
     def _model_version_to_metadata_dto(self, model_version: ModelVersionModel) -> ModelMetadata:
@@ -747,7 +748,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         training_completed_at_utc = None
         if model_version.training_completed_at:
             training_completed_at_utc = model_version.training_completed_at.replace(
-                tzinfo=UTC if model_version.training_completed_at.tzinfo is None else None
+                tzinfo=UTC if model_version.training_completed_at.tzinfo is None else None,
             )
 
         # updated_at does not exist on ModelVersionModel, so it defaults to None in ModelMetadata
@@ -766,7 +767,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             feature_importance=model_version.feature_importance or {},
             artifact_path=model_version.artifact_path,
             updated_at=None,  # Explicitly set to None as it's not in ModelVersionModel
-            training_data_path=None  # Explicitly set to None as it's not in ModelVersionModel
+            training_data_path=None,  # Explicitly set to None as it's not in ModelVersionModel
             # model_type, training_duration_seconds etc. will use defaults from ModelMetadata
         )
 
@@ -778,12 +779,12 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         if success:
             self.logger.info(
                 f"Uploaded model to cloud: {remote_path}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
         else:
             self.logger.error(
                 f"Failed to upload model to cloud: {remote_path}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
     async def _download_from_cloud(self, local_path: Path, model_name: str, version: str) -> None:
@@ -794,7 +795,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         if success:
             self.logger.info(
                 f"Downloaded model from cloud: {remote_path}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
         else:
             raise RuntimeError(f"Failed to download model from cloud: {remote_path}")

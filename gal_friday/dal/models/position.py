@@ -17,7 +17,7 @@ class Position(Base):
     __tablename__ = "positions"
 
     id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4()
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
     )
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False, index=True) # Added index based on schema
     side: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -25,17 +25,17 @@ class Position(Base):
     entry_price: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     current_price: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     realized_pnl: Mapped[Decimal | None] = mapped_column(
-        Numeric(20, 8), server_default="0"
+        Numeric(20, 8), server_default="0",
     )
     unrealized_pnl: Mapped[Decimal | None] = mapped_column(
-        Numeric(20, 8), server_default="0"
+        Numeric(20, 8), server_default="0",
     )
     opened_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.current_timestamp(), index=True # Added index based on schema
+        DateTime, nullable=False, server_default=func.current_timestamp(), index=True, # Added index based on schema
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool | None] = mapped_column(
-        Boolean, server_default="true", index=True # Added index based on schema
+        Boolean, server_default="true", index=True, # Added index based on schema
     )
 
     # If positions are related to orders (e.g., a position consists of multiple orders),

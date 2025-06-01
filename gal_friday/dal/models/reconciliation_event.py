@@ -3,7 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String
+from sqlalchemy import DateTime, Index, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -28,7 +28,7 @@ class ReconciliationEvent(Base):
     report: Mapped[dict] = mapped_column(JSONB, nullable=False) # From 003
     duration_seconds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True) # Precision from 003
     created_at: Mapped[datetime | None] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime, server_default=func.current_timestamp(),
     )
 
     # Relationship to PositionAdjustment

@@ -13,10 +13,10 @@ import json
 import logging
 import uuid
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, Optional, Mapping
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 import websockets
 from sortedcontainers import SortedDict
@@ -27,7 +27,7 @@ from .core.events import (
     PotentialHaltTriggerEvent,
     SystemStateEvent,
 )
-from .logger_service import LoggerService, ExcInfoType
+from .logger_service import ExcInfoType, LoggerService
 
 if TYPE_CHECKING:
     from .config_manager import ConfigManager

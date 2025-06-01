@@ -1,14 +1,11 @@
 """Database migration management system using Alembic."""
 
 import os
-import sys
-from typing import Sequence, Tuple # Added Sequence, Tuple
-from io import StringIO # For capturing stdout if needed for command.current
+from collections.abc import Sequence  # Added Sequence, Tuple
 
-from alembic.config import Config # type: ignore[import-not-found]
-from alembic import command # type: ignore[import-not-found]
-from alembic.script import ScriptDirectory # type: ignore[import-not-found]
-from alembic.runtime.environment import EnvironmentContext # type: ignore[import-not-found]
+from alembic import command  # type: ignore[import-not-found]
+from alembic.config import Config  # type: ignore[import-not-found]
+from alembic.script import ScriptDirectory  # type: ignore[import-not-found]
 
 from gal_friday.logger_service import LoggerService
 
@@ -26,17 +23,17 @@ class MigrationManager:
         """
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # Determine project root. If running inside a container where CWD is /app, this is fine.
         # Otherwise, this needs to be passed or discovered more robustly.
         _root = project_root_path if project_root_path else os.getcwd()
         self.alembic_cfg_path = os.path.join(_root, "gal_friday", "dal", "alembic.ini")
-        
+
         # Ensure alembic.ini exists
         if not os.path.exists(self.alembic_cfg_path):
             self.logger.error(
                 f"Alembic config file not found at: {self.alembic_cfg_path}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             # This is a critical error, consider raising an exception or handling appropriately
             # For now, subsequent calls will likely fail if alembic_cfg cannot be loaded.
@@ -52,7 +49,7 @@ class MigrationManager:
         The `script_location` in `alembic.ini` is relative to `alembic.ini`'s location.
         """
         alembic_cfg = Config(self.alembic_cfg_path)
-        
+
         # The script_location in alembic.ini is relative to the ini file's directory.
         # Alembic's Config object should resolve this correctly.
         # For example, if alembic.ini is in gal_friday/dal and script_location is alembic_env,
@@ -69,7 +66,7 @@ class MigrationManager:
         except Exception as e:
             self.logger.exception(
                 f"Error during database upgrade to head: {e}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             raise # Re-raise after logging
 
@@ -83,7 +80,7 @@ class MigrationManager:
         except Exception as e:
             self.logger.exception(
                 f"Error during database downgrade to version {version}: {e}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             raise
 
@@ -94,40 +91,40 @@ class MigrationManager:
             alembic_cfg = self._get_alembic_config()
             # script_location should be correctly interpreted by Config relative to alembic.ini
             script = ScriptDirectory.from_config(alembic_cfg)
-            
+
             # To get current heads, we need an EnvironmentContext.
             # This part might require a database connection to check the alembic_version table.
             # If this method is intended to run without a live DB connection, it might not work as expected
             # or might only return script heads, not DB heads.
             # The subtask is about refactoring MigrationManager, assuming it might be used in an env
             # where DB is eventually available.
-            
+
             # The most reliable way to get DB heads needs a connection.
             # For now, let's try to get script heads which doesn't require DB connection.
             # heads = script.get_heads()
             # return heads
             # However, command.current() is what's usually used. It prints.
             # To capture stdout:
-            
+
             # Alternative: Using EnvironmentContext to get DB heads (requires DB access)
             # This is more accurate if we want the DB's actual state.
             # If the goal is "current revision in the script directory", script.get_revision("head") or similar.
             # For now, sticking to a method that can get DB state if possible.
-            
+
             # Capture stdout from command.current
             # This is a common workaround if the API doesn't return directly.
-            from io import StringIO
             import sys
+            from io import StringIO
             old_stdout = sys.stdout
             sys.stdout = captured_output = StringIO()
-            
+
             command.current(alembic_cfg, verbose=False) # verbose=True adds more details
-            
+
             sys.stdout = old_stdout # Restore stdout
             output = captured_output.getvalue().strip()
             # Output is like "abc123def456 (head)" or "(no migration detected)"
             # Or multiple lines if multiple heads.
-            
+
             if not output or "no migration detected" in output:
                 self.logger.info("No current revision detected.", source_module=self._source_module)
                 return tuple() # Return empty tuple for no revision
@@ -139,14 +136,14 @@ class MigrationManager:
                 match = line.split(" ")[0]
                 if match:
                     revisions.append(match)
-            
+
             self.logger.info(f"Current database revision(s): {revisions}", source_module=self._source_module)
             return tuple(revisions)
 
         except Exception as e:
             self.logger.exception(
                 f"Error fetching current database revision: {e}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             # Depending on policy, either raise or return an empty tuple/None
             return tuple() # Or raise e
@@ -161,7 +158,7 @@ class MigrationManager:
         except Exception as e:
             self.logger.exception(
                 f"Error stamping database with revision {revision}: {e}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             raise
 
@@ -179,6 +176,6 @@ class MigrationManager:
         except Exception as e:
             self.logger.exception(
                 f"Error generating new revision '{message}': {e}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             raise

@@ -6,19 +6,20 @@ exchange reconciliation.
 """
 
 import asyncio
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from decimal import Decimal, getcontext
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
-    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .config_manager import ConfigManager
 from .core.events import EventType, ExecutionReportEvent
 from .core.pubsub import PubSubManager
-from .portfolio.valuation_service import PositionInput # Added import
+from .dal.models.position import Position as PositionModel
 from .exceptions import (
     DataValidationError,
     InsufficientFundsError,
@@ -29,8 +30,10 @@ from .interfaces.market_price_service_interface import MarketPriceService
 from .logger_service import LoggerService
 from .portfolio.funds_manager import FundsManager, TradeParams
 from .portfolio.position_manager import PositionManager
-from .dal.models.position import Position as PositionModel
-from .portfolio.valuation_service import ValuationService
+from .portfolio.valuation_service import (
+    PositionInput,  # Added import
+    ValuationService,
+)
 
 # Set Decimal precision
 getcontext().prec = 28
@@ -396,7 +399,7 @@ class PortfolioManager:
             elif event.order_status in ["FILLED", "PARTIALLY_FILLED"]: # If update failed but should have happened
                 self.logger.warning(
                     f"Position model for {event.trading_pair} was not updated in cache after trade {event.exchange_order_id}.",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
 
             if pnl != Decimal(0):
@@ -512,7 +515,7 @@ class PortfolioManager:
 
             _, latest_prices, exposure_pct = await self.valuation_service.update_portfolio_value(
                 current_funds,
-                cast(dict[str, PositionInput], current_positions_dict), # Refined cast
+                cast("dict[str, PositionInput]", current_positions_dict), # Refined cast
             )
 
             # Update local cache for get_current_state
@@ -700,7 +703,7 @@ class PortfolioManager:
         # For now, returning empty list to fix attr-defined.
         self.logger.debug( # Changed to debug as this is an expected temporary state
             f"Trade history retrieval for PositionModel is not fully implemented. Returning empty for {pair}.",
-            source_module=self._source_module
+            source_module=self._source_module,
         )
         actual_trade_history: list[Any] = [] # Placeholder, assuming trades would be dicts or objects
 
@@ -709,12 +712,12 @@ class PortfolioManager:
             # Assuming 'trade' object would have timestamp, side, quantity, price, commission, commission_asset
             result.append(
                 {
-                    "timestamp": getattr(trade, 'timestamp', datetime.utcnow()).isoformat() + "Z",
-                    "side": getattr(trade, 'side', 'UNKNOWN'),
-                    "quantity": str(getattr(trade, 'quantity', Decimal(0))),
-                    "price": str(getattr(trade, 'price', Decimal(0))),
-                    "commission": str(getattr(trade, 'commission', Decimal(0))),
-                    "commission_asset": getattr(trade, 'commission_asset', None),
+                    "timestamp": getattr(trade, "timestamp", datetime.utcnow()).isoformat() + "Z",
+                    "side": getattr(trade, "side", "UNKNOWN"),
+                    "quantity": str(getattr(trade, "quantity", Decimal(0))),
+                    "price": str(getattr(trade, "price", Decimal(0))),
+                    "commission": str(getattr(trade, "commission", Decimal(0))),
+                    "commission_asset": getattr(trade, "commission_asset", None),
                 },
             )
         return result

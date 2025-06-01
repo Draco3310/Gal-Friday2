@@ -1,15 +1,18 @@
 """Model repository implementation using SQLAlchemy."""
 
 import uuid
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select, update as sqlalchemy_update
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy import select
+from sqlalchemy import update as sqlalchemy_update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gal_friday.dal.base import BaseRepository
-from gal_friday.dal.models.model_version import ModelVersion
 from gal_friday.dal.models.model_deployment import ModelDeployment
+from gal_friday.dal.models.model_version import ModelVersion
+
 # Assuming ModelStage might be an enum or string constants used by a service layer now
 # from gal_friday.model_lifecycle.registry import ModelStage
 
@@ -22,7 +25,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
     """Repository for ModelVersion data persistence using SQLAlchemy."""
 
     def __init__(
-        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService"
+        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService",
     ) -> None:
         """Initialize the model repository.
 
@@ -42,10 +45,10 @@ class ModelRepository(BaseRepository[ModelVersion]):
         # Ensure datetime objects are timezone-aware if needed by DB schema or comparisons
         if "created_at" in model_version_data and isinstance(model_version_data["created_at"], datetime):
             if model_version_data["created_at"].tzinfo is None:
-                 model_version_data["created_at"] = model_version_data["created_at"].replace(tzinfo=timezone.utc)
+                 model_version_data["created_at"] = model_version_data["created_at"].replace(tzinfo=UTC)
         if "training_completed_at" in model_version_data and isinstance(model_version_data["training_completed_at"], datetime):
             if model_version_data["training_completed_at"].tzinfo is None:
-                 model_version_data["training_completed_at"] = model_version_data["training_completed_at"].replace(tzinfo=timezone.utc)
+                 model_version_data["training_completed_at"] = model_version_data["training_completed_at"].replace(tzinfo=UTC)
 
         return await self.create(model_version_data)
 
@@ -54,7 +57,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
         return await self.get_by_id(model_id)
 
     async def get_model_versions_by_name(
-        self, model_name: str, version: str | None = None
+        self, model_name: str, version: str | None = None,
     ) -> Sequence[ModelVersion]:
         """Get model versions by name, optionally filtered by version."""
         filters = {"model_name": model_name}
@@ -65,21 +68,21 @@ class ModelRepository(BaseRepository[ModelVersion]):
     async def get_latest_model_version_by_name(self, model_name: str) -> ModelVersion | None:
         """Get the latest model version for a given model name."""
         versions = await self.find_all(
-            filters={"model_name": model_name}, order_by="created_at DESC", limit=1
+            filters={"model_name": model_name}, order_by="created_at DESC", limit=1,
         )
         return versions[0] if versions else None
 
     async def get_model_versions_by_stage(
-        self, model_name: str, stage: str # Assuming stage is a string now
+        self, model_name: str, stage: str, # Assuming stage is a string now
     ) -> Sequence[ModelVersion]:
         """Get model versions by name and stage."""
         return await self.find_all(
             filters={"model_name": model_name, "stage": stage},
             order_by="created_at DESC",
         )
-    
+
     async def list_all_model_versions(
-        self, model_name: str | None = None, stage: str | None = None
+        self, model_name: str | None = None, stage: str | None = None,
     ) -> Sequence[ModelVersion]:
         """List model versions with optional filters for name and stage."""
         filters = {}
@@ -91,7 +94,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
 
 
     async def update_model_version_stage(
-        self, model_id: uuid.UUID, new_stage: str, deployed_by: str | None = None # Assuming stage is string
+        self, model_id: uuid.UUID, new_stage: str, deployed_by: str | None = None, # Assuming stage is string
     ) -> ModelVersion | None:
         """Update model version's stage. If promoting to 'production', creates a deployment record."""
         # deployed_by is optional, only used if new_stage is production-like
@@ -102,12 +105,12 @@ class ModelRepository(BaseRepository[ModelVersion]):
             await self._create_deployment_record(
                 model_version=updated_model,
                 deployed_by=deployed_by or "system", # Default to system if not specified
-                deployment_config={"auto_promoted_stage": new_stage}
+                deployment_config={"auto_promoted_stage": new_stage},
             )
         return updated_model
 
     async def _create_deployment_record(
-        self, model_version: ModelVersion, deployed_by: str, deployment_config: dict | None = None
+        self, model_version: ModelVersion, deployed_by: str, deployment_config: dict | None = None,
     ) -> ModelDeployment:
         """Internal helper to create a deployment record and deactivate old ones for the same model name."""
         async with self.session_maker() as session:
@@ -118,10 +121,10 @@ class ModelRepository(BaseRepository[ModelVersion]):
                 sqlalchemy_update(ModelDeployment)
                 .where(
                     ModelDeployment.model_id.in_(
-                        select(ModelVersion.model_id).where(ModelVersion.model_name == model_version.model_name)
+                        select(ModelVersion.model_id).where(ModelVersion.model_name == model_version.model_name),
                     ),
                     ModelDeployment.is_active == True,
-                    ModelDeployment.model_id != model_version.model_id # Don't deactivate if re-deploying same version
+                    ModelDeployment.model_id != model_version.model_id, # Don't deactivate if re-deploying same version
                 )
                 .values(is_active=False)
             )
@@ -130,7 +133,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
             # Create new deployment record
             new_deployment = ModelDeployment(
                 model_id=model_version.model_id, # Must be the PK of ModelVersion
-                deployed_at=datetime.now(timezone.utc),
+                deployed_at=datetime.now(UTC),
                 deployed_by=deployed_by,
                 deployment_config=deployment_config or {},
                 is_active=True,
@@ -141,7 +144,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
             self.logger.info(
                 f"Created new deployment record {new_deployment.deployment_id} "
                 f"for model_id {model_version.model_id}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return new_deployment
 

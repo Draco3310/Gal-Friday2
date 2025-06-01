@@ -1,19 +1,19 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING  # For relationship type hints
 
-from typing import TYPE_CHECKING # For relationship type hints
-from sqlalchemy import Column, Integer, String, Text, Numeric, Float, DateTime, ForeignKey
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship # Added Mapped, mapped_column
-from sqlalchemy.sql import func
+from sqlalchemy.orm import Mapped, mapped_column, relationship  # Added Mapped, mapped_column
 
-from .base import Base
 from gal_friday.core.events import MarketDataTradeEvent
 
+from .base import Base
+
 if TYPE_CHECKING:
-    from .signal import Signal # Assuming Signal model is in signal.py
-    from .order import Order   # Assuming Order model is in order.py
+    from .order import Order  # Assuming Order model is in order.py
+    from .signal import Signal  # Assuming Signal model is in signal.py
 
 
 class Trade(Base):
@@ -22,18 +22,18 @@ class Trade(Base):
     trade_pk: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     trade_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4, index=True)
     signal_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("signals.signal_id"), index=True, nullable=True)
-    
+
     trading_pair: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     exchange: Mapped[str] = mapped_column(String(32), nullable=False)
     strategy_id: Mapped[str] = mapped_column(String(64), nullable=False)
     side: Mapped[str] = mapped_column(String(4), nullable=False)  # Side of the entry
-    
+
     entry_order_pk: Mapped[int | None] = mapped_column(Integer, ForeignKey("orders.order_pk"), nullable=True)
     exit_order_pk: Mapped[int | None] = mapped_column(Integer, ForeignKey("orders.order_pk"), nullable=True)
-    
+
     entry_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     exit_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
-    
+
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
     average_entry_price: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
     average_exit_price: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
@@ -44,15 +44,15 @@ class Trade(Base):
 
     # Relationships
     signal: Mapped["Signal | None"] = relationship("Signal", back_populates="trade")
-    
+
     entry_order: Mapped["Order | None"] = relationship(
-        "Order", 
-        foreign_keys=[entry_order_pk], 
+        "Order",
+        foreign_keys=[entry_order_pk],
         backref="trade_as_entry", # Use backref to avoid conflict if Order directly relates to Trade
         # Or ensure Order.trade_entry uses a specific foreign_keys if defined there
     )
     exit_order: Mapped["Order | None"] = relationship(
-        "Order", 
+        "Order",
         foreign_keys=[exit_order_pk],
         backref="trade_as_exit",
     )
@@ -63,7 +63,7 @@ class Trade(Base):
             f"strategy_id='{self.strategy_id}', realized_pnl={self.realized_pnl})>"
         )
 
-    def to_event(self) -> 'MarketDataTradeEvent': # Added to_event with type hints
+    def to_event(self) -> "MarketDataTradeEvent": # Added to_event with type hints
         """Converts the Trade object to a MarketDataTradeEvent.
         This represents the entry part of the trade as a market event.
         Exit would be a separate event if needed.
@@ -110,5 +110,5 @@ class Trade(Base):
             price=self.average_entry_price, # Ensure this is Decimal
             volume=self.quantity, # Ensure this is Decimal
             side=self.side, # Side of the entry trade
-            trade_id=str(self.trade_id) # self.trade_id is non-nullable
+            trade_id=str(self.trade_id), # self.trade_id is non-nullable
         )

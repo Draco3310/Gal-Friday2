@@ -18,7 +18,7 @@ router = APIRouter(prefix="/dashboard", dependencies=[Depends(verify_api_key)])
 
 class EnhancedDashboardPages:
     """Enhanced dashboard pages with all features."""
-    
+
     # Dashboard CSS styles
     DASHBOARD_CSS = """
     <style>

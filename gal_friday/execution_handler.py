@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import hashlib
-import hmac
 import secrets
 import time
-import urllib.parse
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 import aiohttp
 
 from gal_friday.config_manager import ConfigManager
+
 # Removed incorrect import: from gal_friday.core.errors import ExecutionHandlerAuthenticationError
 from gal_friday.core.events import (
     ClosePositionCommand,
@@ -210,7 +208,7 @@ class ExecutionHandler:
         pubsub_manager: PubSubManager,
         monitoring_service: MonitoringService,
         logger_service: LoggerService,
-        event_store: "EventStore | None" = None,
+        event_store: EventStore | None = None,
     ) -> None:
         """Initialize the execution handler with required services and configuration."""
         self.logger = logger_service
@@ -1624,33 +1622,33 @@ class ExecutionHandler:
             self.logger.warning(
                 "EventStore not available. Cannot retrieve originating signal event for %s.",
                 signal_id,
-                source_module=self.__class__.__name__
+                source_module=self.__class__.__name__,
             )
             return None
         if not signal_id:
             return None
-        
+
         try:
             # Get the approved signal event
             events = await self.event_store.get_events_by_correlation(
                 correlation_id=signal_id,
-                event_types=[TradeSignalApprovedEvent]
+                event_types=[TradeSignalApprovedEvent],
             )
-            
+
             if events:
                 # Return the most recent approved signal
                 return events[-1]  # type: ignore
-            
+
             self.logger.warning(
                 f"No approved signal event found for signal_id: {signal_id}",
-                source_module=self.__class__.__name__
+                source_module=self.__class__.__name__,
             )
             return None
-            
+
         except Exception:
             self.logger.exception(
                 f"Error retrieving signal event for {signal_id}",
-                source_module=self.__class__.__name__
+                source_module=self.__class__.__name__,
             )
             return None
 

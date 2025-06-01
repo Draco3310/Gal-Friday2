@@ -5,7 +5,6 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
-    Column,
     DateTime,
     ForeignKey,
     Index,
@@ -25,10 +24,10 @@ class ExperimentOutcome(Base):
     __tablename__ = "experiment_outcomes"
 
     outcome_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4()
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
     )
     experiment_id: Mapped[UUID] = mapped_column(
-        ForeignKey("experiments.experiment_id"), index=True
+        ForeignKey("experiments.experiment_id"), index=True,
     )
     # Assuming event_id is a generic UUID, not necessarily FK to experiment_assignments.event_id
     # If it should be, then add ForeignKey("experiment_assignments.event_id")

@@ -1,16 +1,17 @@
 """Repository for reconciliation data persistence using SQLAlchemy."""
 
 import uuid
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gal_friday.dal.base import BaseRepository
-from gal_friday.dal.models.reconciliation_event import ReconciliationEvent
 from gal_friday.dal.models.position_adjustment import PositionAdjustment
+from gal_friday.dal.models.reconciliation_event import ReconciliationEvent
+
 # ReconciliationReport and ReconciliationStatus would now likely be service-layer or domain models, not directly handled by repo.
 
 
@@ -22,7 +23,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
     """Repository for ReconciliationEvent data persistence using SQLAlchemy."""
 
     def __init__(
-        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService"
+        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService",
     ) -> None:
         """Initialize the reconciliation repository.
 
@@ -33,7 +34,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
         super().__init__(session_maker, ReconciliationEvent, logger)
 
     async def save_reconciliation_event(
-        self, event_data: dict[str, Any]
+        self, event_data: dict[str, Any],
     ) -> ReconciliationEvent:
         """Saves a reconciliation event.
         `event_data` should contain fields for ReconciliationEvent model.
@@ -45,22 +46,22 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             event_data["reconciliation_id"] = event_data.get("reconciliation_id", uuid.uuid4())
         if "timestamp" in event_data and isinstance(event_data["timestamp"], datetime):
             if event_data["timestamp"].tzinfo is None:
-                 event_data["timestamp"] = event_data["timestamp"].replace(tzinfo=timezone.utc)
+                 event_data["timestamp"] = event_data["timestamp"].replace(tzinfo=UTC)
 
         return await self.create(event_data)
 
     async def get_reconciliation_event(
-        self, reconciliation_id: uuid.UUID
+        self, reconciliation_id: uuid.UUID,
     ) -> ReconciliationEvent | None:
         """Get a specific reconciliation event by its ID."""
         return await self.get_by_id(reconciliation_id)
 
     async def get_recent_reconciliation_events(
-        self, days: int = 7, status: str | None = None
+        self, days: int = 7, status: str | None = None,
     ) -> Sequence[ReconciliationEvent]:
         """Get reconciliation events from the last N days, optionally filtered by status."""
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-        
+        cutoff_date = datetime.now(UTC) - timedelta(days=days)
+
         filters: dict[str, Any] = {} # Added type hint
         # Assuming ReconciliationEvent model has a 'timestamp' field
         # This requires a custom query as BaseRepository.find_all doesn't support date range directly.
@@ -71,14 +72,14 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             if status:
                 stmt = stmt.where(ReconciliationEvent.status == status)
             stmt = stmt.order_by(ReconciliationEvent.timestamp.desc())
-            
+
             result = await session.execute(stmt)
             events = result.scalars().all()
             self.logger.debug(f"Found {len(events)} reconciliation events from last {days} days.", source_module=self._source_module)
             return events
 
     async def save_position_adjustment(
-        self, adjustment_data: dict[str, Any]
+        self, adjustment_data: dict[str, Any],
     ) -> PositionAdjustment:
         """Saves a position adjustment.
         `adjustment_data` should contain fields for PositionAdjustment model.
@@ -103,7 +104,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
 
 
     async def get_adjustments_for_event(
-        self, reconciliation_id: uuid.UUID
+        self, reconciliation_id: uuid.UUID,
     ) -> Sequence[PositionAdjustment]:
         """Get all position adjustments for a specific reconciliation event."""
         # This could use BaseRepository[PositionAdjustment].find_all if we had one,
@@ -118,18 +119,18 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             adjustments = result.scalars().all()
             self.logger.debug(f"Found {len(adjustments)} adjustments for event {reconciliation_id}", source_module=self._source_module)
             return adjustments
-            
+
     async def get_adjustment_history(
-        self, trading_pair: str | None = None, days: int = 30
+        self, trading_pair: str | None = None, days: int = 30,
     ) -> Sequence[PositionAdjustment]:
         """Get history of position adjustments, optionally filtered by trading_pair."""
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff_date = datetime.now(UTC) - timedelta(days=days)
         async with self.session_maker() as session:
             stmt = select(PositionAdjustment).where(PositionAdjustment.adjusted_at > cutoff_date)
             if trading_pair:
                 stmt = stmt.where(PositionAdjustment.trading_pair == trading_pair)
             stmt = stmt.order_by(PositionAdjustment.adjusted_at.desc())
-            
+
             result = await session.execute(stmt)
             adjustments = result.scalars().all()
             self.logger.debug(f"Retrieved adjustment history for last {days} days.", source_module=self._source_module)

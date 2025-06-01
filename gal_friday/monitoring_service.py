@@ -10,22 +10,20 @@ import logging  # Added for structured logging
 import time
 import uuid
 from collections import deque  # Added for tracking recent API errors
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
-from types import TracebackType  # Added for exc_info typing
 from typing import (  # Added Type for exc_info typing
     TYPE_CHECKING,
     Any,
     Optional,
-    Mapping,
 )
 
 import psutil  # Added for system resource monitoring
 
 # Import actual classes when available, otherwise use placeholders
 from .execution_handler import ExecutionHandler
-from .logger_service import LoggerService, ExcInfoType
+from .logger_service import ExcInfoType, LoggerService
 from .portfolio_manager import PortfolioManager
 
 if TYPE_CHECKING:
@@ -1387,7 +1385,6 @@ async def main(logger: Optional["LoggerService"] = None) -> None:
     """Testing/demonstration usage of the MonitoringService."""
     # Import here to avoid circular imports
     import logging  # Need for example main
-    from typing import Any
 
     logging.basicConfig(
         level=logging.INFO,

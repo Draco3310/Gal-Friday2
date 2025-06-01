@@ -17,7 +17,7 @@ class TradeSignal(Base):
     __tablename__ = "trade_signals"
 
     id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4()
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
     )
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)
     strategy_id: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -28,7 +28,7 @@ class TradeSignal(Base):
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True) # Added index based on schema
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.current_timestamp(), index=True # Added index based on schema
+        DateTime, nullable=False, server_default=func.current_timestamp(), index=True, # Added index based on schema
     )
     executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

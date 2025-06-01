@@ -1,19 +1,20 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING, Any  # Added Any, List, TYPE_CHECKING
 
-from typing import TYPE_CHECKING, Any, List # Added Any, List, TYPE_CHECKING
-from sqlalchemy import Column, String, Text, Numeric, Float, DateTime, JSON
+from sqlalchemy import JSON, DateTime, Float, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship # Added Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship  # Added Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from .base import Base
 from gal_friday.core.events import TradeSignalProposedEvent
 
+from .base import Base
+
 if TYPE_CHECKING:
-    from .order import Order # For relationship hint
-    from .trade import Trade # For relationship hint
+    from .order import Order  # For relationship hint
+    from .trade import Trade  # For relationship hint
 
 
 class Signal(Base):
@@ -36,7 +37,7 @@ class Signal(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
 
     # Relationships
-    orders: Mapped[List["Order"]] = relationship("Order", back_populates="signal", cascade="all, delete-orphan")
+    orders: Mapped[list["Order"]] = relationship("Order", back_populates="signal", cascade="all, delete-orphan")
     trade: Mapped["Trade | None"] = relationship("Trade", back_populates="signal", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self) -> str: # Added -> str
@@ -45,7 +46,7 @@ class Signal(Base):
             f"strategy_id='{self.strategy_id}', status='{self.status}')>"
         )
 
-    def to_event(self) -> 'TradeSignalProposedEvent': # Added to_event with type hints
+    def to_event(self) -> "TradeSignalProposedEvent": # Added to_event with type hints
         """Converts the Signal object to a TradeSignalProposedEvent."""
         # Assuming TradeSignalProposedEvent is importable from gal_friday.core.events
         # import uuid # Already imported
@@ -92,5 +93,5 @@ class Signal(Base):
             proposed_tp_price=self.proposed_tp_price, # Ensure Decimal
             strategy_id=self.strategy_id,
             triggering_prediction_event_id=self.prediction_event_id, # Ensure uuid.UUID | None
-            triggering_prediction={"value": self.prediction_value} if self.prediction_value is not None else None
+            triggering_prediction={"value": self.prediction_value} if self.prediction_value is not None else None,
         )

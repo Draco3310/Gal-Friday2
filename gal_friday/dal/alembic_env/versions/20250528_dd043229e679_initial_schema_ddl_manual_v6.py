@@ -5,24 +5,18 @@ Revises: 465b5ba8a9a2
 Create Date: 2025-05-28 21:16:14.970591
 
 """
-from typing import Sequence, Union
-
-from alembic import op # type: ignore[import-not-found]
-import sqlalchemy as sa
-
+from collections.abc import Sequence
 
 # revision identifiers, used by Alembic.
-revision: str = 'dd043229e679'
-down_revision: Union[str, None] = '465b5ba8a9a2'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+revision: str = "dd043229e679"
+down_revision: str | None = "465b5ba8a9a2"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     """Upgrade schema."""
-    pass
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    pass

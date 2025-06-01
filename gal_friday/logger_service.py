@@ -17,47 +17,42 @@ import sys
 import threading
 import types  # Added for exc_info typing
 from asyncio import QueueFull  # Import QueueFull from asyncio, not asyncio.exceptions
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from contextlib import (
-    AbstractAsyncContextManager,
-    asynccontextmanager,  # For AsyncpgPoolAdapter
-)
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path  # Add missing import
 from random import SystemRandom
 from typing import (
+    # Add Point type for type checking
     TYPE_CHECKING,
     Any,
-    ClassVar,
-    Generic,
     Optional,
     Protocol,
     TypeVar,
     cast,
-    Mapping,
-    Union,
-    Tuple,
-    Type,
+)
+from typing import (
     TypeAlias as TypingTypeAlias,
 )
 
-import pythonjsonlogger.jsonlogger as jsonlogger  # Add missing import for JSON logging
+from pythonjsonlogger import jsonlogger  # Add missing import for JSON logging
 
 # Runtime imports
 # from influxdb_client import Point as InfluxDBPoint # Moved into methods
 
 if TYPE_CHECKING:
-    import asyncpg
     # For type hinting InfluxDBClient and WriteApi if needed at class/method signature level
-    from influxdb_client import InfluxDBClient, Point as InfluxDBPoint
-    from influxdb_client.client.write_api import WriteApi
     from asyncpg import Connection as AsyncpgConnection
     from asyncpg import Pool as AsyncpgPool
-    from asyncpg.exceptions import ConnectionDoesNotExistError as AsyncpgConnectionDoesNotExistError
+    from asyncpg.exceptions import (
+        ConnectionDoesNotExistError as AsyncpgConnectionDoesNotExistError,
+    )
     from asyncpg.exceptions import ConnectionIsClosedError as AsyncpgConnectionIsClosedError
     from asyncpg.exceptions import InterfaceError as AsyncpgInterfaceError
     from asyncpg.exceptions import PostgresError as AsyncpgPostgresError
+    from influxdb_client import InfluxDBClient
+    from influxdb_client import Point as InfluxDBPoint
+    from influxdb_client.client.write_api import WriteApi
 else:
     # Define placeholders if asyncpg is not available at runtime for type checking purposes
     # This helps prevent ModuleNotFoundError if asyncpg is not installed during e.g. linting
@@ -70,9 +65,10 @@ else:
     AsyncpgPostgresError = Exception
 
 # SQLAlchemy imports for refactored DB logging
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession, AsyncEngine
 from sqlalchemy.exc import SQLAlchemyError
-from gal_friday.dal.models.log import Log # Import the Log model
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+from gal_friday.dal.models.log import Log  # Import the Log model
 
 # Import JSON Formatter
 from .core.events import EventType, LogEvent
@@ -81,12 +77,10 @@ if TYPE_CHECKING:
     from .core.pubsub import PubSubManager
 
 # Import custom exceptions
-from .exceptions import DatabaseError, InvalidLoggerTableNameError, UnsupportedParamsTypeError
-
 # SQLAlchemy imports
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.exc import SQLAlchemyError # For error handling
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from .exceptions import DatabaseError
 
 # Type variables for generic protocols
 _T = TypeVar("_T")
@@ -94,12 +88,7 @@ _RT = TypeVar("_RT")
 
 # Define a type alias for exc_info to improve readability and manage line length
 # Moved to module level and updated to use Union, Tuple
-ExcInfoType: TypingTypeAlias = Union[
-    bool,
-    Tuple[Type[BaseException], BaseException, types.TracebackType],
-    BaseException,
-    None
-]
+ExcInfoType: TypingTypeAlias = bool | tuple[type[BaseException], BaseException, types.TracebackType] | BaseException | None
 
 # Define a Protocol for ConfigManager to properly type hint its interface
 
@@ -326,7 +315,7 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
             # Map record_data keys to Log model attributes if they differ.
             # Assuming _format_record produces keys matching Log model attributes.
             log_entry = Log(**record_data)
-            
+
             async with self._session_maker() as session:
                 async with session.begin(): # Start a transaction
                     session.add(log_entry)
@@ -353,8 +342,6 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
 
     async def _process_queue_with_retry(self, record_data: dict[str, Any]) -> None:
         """Process a single record with retry logic using SQLAlchemy."""
-        from sqlalchemy.exc import OperationalError # For specific retryable exceptions
-
         max_retries = 3
         base_backoff = 1.0  # seconds
         attempt = 0
@@ -371,7 +358,7 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
                     attempt + 1, # attempt is 0-indexed
                     max_retries,
                     str(db_err),
-                    exc_info=True
+                    exc_info=True,
                 )
                 # If it's a connection issue that might be resolved, could retry.
                 # For now, assume it's not directly retryable by this handler.
@@ -400,7 +387,7 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
             except (RuntimeError, ValueError, TypeError, DatabaseError) as e: # General non-DB errors
                 logging.getLogger(__name__).error(
                     "AsyncPostgresHandler: Non-retryable error caught in _process_queue_with_retry for record: %s. Error: %s",
-                    record_data.get("message", "N/A"), e, exc_info=True
+                    record_data.get("message", "N/A"), e, exc_info=True,
                 )
                 return  # Stop processing this record
 
@@ -476,8 +463,8 @@ class LoggerService:
 
     _influx_client: Optional["InfluxDBClient"] = None # type: ignore[name-defined]
     _influx_write_api: Optional["WriteApi"] = None # type: ignore[name-defined]
-    _sqlalchemy_engine: Optional[AsyncEngine] = None # Added
-    _sqlalchemy_session_factory: Optional[async_sessionmaker[AsyncSession]] = None # Added
+    _sqlalchemy_engine: AsyncEngine | None = None # Added
+    _sqlalchemy_session_factory: async_sessionmaker[AsyncSession] | None = None # Added
 
     def __init__(
         self,
@@ -601,7 +588,7 @@ class LoggerService:
             if self._async_handler is None and self._db_session_maker:
                 self.info(
                     "SQLAlchemy initialized. Re-evaluating database log handler setup.",
-                    source_module="LoggerService"
+                    source_module="LoggerService",
                 )
                 # Temporarily remove and re-add handlers to ensure correct setup
                 # This is a bit heavy-handed; a more refined approach might be better
@@ -887,12 +874,11 @@ class LoggerService:
             return False
 
         assert url is not None, "URL should be a string after 'all' check"
-        assert token is not None, "Token should be a string after 'all' check"
-        assert org is not None, "Org should be a string after 'all' check"
 
         try:
             # Import influxdb_client specifics here, only when actually trying to initialize
-            from influxdb_client import InfluxDBClient
+            from influxdb_client import InfluxDBClient, Point
+            from influxdb_client.client.exceptions import InfluxDBError
             from influxdb_client.client.write_api import SYNCHRONOUS
         except ImportError:
             self.error(
@@ -922,7 +908,7 @@ class LoggerService:
                 raise TypeError("Token must be a string")
             if not isinstance(org, str): # This check might be deemed redundant by mypy now
                 raise TypeError("Organization must be a string")
-            
+
             # Now use the imported InfluxDBClient
             self._influx_client = InfluxDBClient(url=url, token=token, org=org)
             self._influx_write_api = self._influx_client.write_api(write_options=SYNCHRONOUS)
@@ -938,7 +924,7 @@ class LoggerService:
         tags: dict[str, str],
         fields: dict[str, Any],
         timestamp: datetime,
-    ) -> "InfluxDBPoint | None":  # Returns InfluxDB Point or None
+    ) -> "InfluxDBPoint" | None:  # Returns InfluxDB Point or None
         """Prepare a data point for InfluxDB.
 
         Args:
@@ -999,12 +985,11 @@ class LoggerService:
                 )
                 return None
 
+            # Create the point with valid fields
             for key, value in valid_fields.items():
                 point = point.field(key, value)
-            # Explicitly annotate the return type if needed, or ensure it matches InfluxDBPoint type hint
-            # from influxdb_client import Point # Already imported if TYPE_CHECKING or locally
 
-            return point
+            return cast("InfluxDBPoint", point)
 
     async def log_timeseries(
         self,
@@ -1078,7 +1063,7 @@ class LoggerService:
             if self._async_handler is None and self._db_session_maker:
                 self.info(
                     "SQLAlchemy initialized. Re-evaluating database log handler setup.",
-                    source_module="LoggerService"
+                    source_module="LoggerService",
                 )
                 # Temporarily remove and re-add handlers to ensure correct setup
                 # This is a bit heavy-handed; a more refined approach might be better
@@ -1197,7 +1182,7 @@ class LoggerService:
             self.info(
                 "Initializing SQLAlchemy async engine for logging...",
                 source_module="LoggerService",
-                context={"database_url": str(db_url)[:str(db_url).find("@")] + "@********" if "@" in str(db_url) else str(db_url)} # Mask credentials
+                context={"database_url": str(db_url)[:str(db_url).find("@")] + "@********" if "@" in str(db_url) else str(db_url)}, # Mask credentials
             )
             pool_size = self._config_manager.get_int("logging.database.pool_size", 5)
             max_overflow = self._config_manager.get_int("logging.database.max_overflow", 10)
@@ -1211,7 +1196,7 @@ class LoggerService:
             )
             # Use async_sessionmaker for AsyncEngine and AsyncSession
             self._sqlalchemy_session_factory = async_sessionmaker(
-                bind=self._sqlalchemy_engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
+                bind=self._sqlalchemy_engine, class_=AsyncSession, expire_on_commit=False, autoflush=False,
             )
             self.info(
                 "SQLAlchemy async engine and session factory initialized successfully.",

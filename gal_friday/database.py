@@ -1,5 +1,7 @@
-from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncSession, async_sessionmaker
+from collections.abc import AsyncGenerator
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 
 # Placeholder function for getting the database connection string
 def get_database_connection_string() -> str:
@@ -13,7 +15,7 @@ DATABASE_URL = get_database_connection_string()
 engine = create_async_engine(DATABASE_URL, echo=True, pool_size=5, max_overflow=10)
 
 AsyncSessionFactory = async_sessionmaker(
-    bind=engine, class_=AsyncSession, expire_on_commit=False
+    bind=engine, class_=AsyncSession, expire_on_commit=False,
 )
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:

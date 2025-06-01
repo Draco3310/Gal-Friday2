@@ -51,7 +51,8 @@ class PredictorModel(Protocol):
         ...
 
 
-import torch # Add import for torch.Tensor
+import torch  # Add import for torch.Tensor
+
 
 @runtime_checkable
 class TorchModel(Protocol):

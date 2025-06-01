@@ -16,11 +16,11 @@ class ModelDeployment(Base):
     __tablename__ = "model_deployments"
 
     deployment_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4()
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
     )
     # model_id is a ForeignKey to model_versions.model_id
     model_id: Mapped[UUID] = mapped_column(
-        ForeignKey("model_versions.model_id"), nullable=True, index=True # Schema allows NULL, added index
+        ForeignKey("model_versions.model_id"), nullable=True, index=True, # Schema allows NULL, added index
     )
     deployed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False) # No server_default in schema
     deployed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)

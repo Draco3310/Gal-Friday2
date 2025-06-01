@@ -6,7 +6,7 @@ cryptocurrency exchange, including price, spread information, and currency conve
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, cast # Added cast
+from typing import Any, cast  # Added cast
 
 import aiohttp
 
@@ -516,7 +516,7 @@ class KrakenMarketPriceService(MarketPriceService):
             self.logger.warning(
                 "AIOHTTP session is not available for OHLC fetch. Ensure start() was called.",
                 source_module=self._source_module,
-                context={"trading_pair": trading_pair}
+                context={"trading_pair": trading_pair},
             )
             return None
         try:
@@ -528,7 +528,7 @@ class KrakenMarketPriceService(MarketPriceService):
                         source_module=self._source_module,
                     )
                     return None
-                return cast(dict[str, Any], await response.json())
+                return cast("dict[str, Any]", await response.json())
         except aiohttp.ClientError as e:
             self.logger.exception(
                 f"HTTP Client error fetching OHLC for {trading_pair} "

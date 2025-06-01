@@ -1,20 +1,20 @@
-from datetime import datetime
 import uuid
+from datetime import datetime
 from decimal import Decimal
-from datetime import datetime # Changed back from 'import datetime'
-from typing import TYPE_CHECKING # For Order type hint
+from typing import (  # Added for casts
+    TYPE_CHECKING,  # For Order type hint
+    cast,
+)
 
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from typing import cast, Optional # Added for casts
 
 from gal_friday.core.events import ExecutionReportEvent
-from sqlalchemy.sql import func
 
 from .base import Base
 
 if TYPE_CHECKING:
-    from .order import Order # Assuming Order is in models/order.py
+    from .order import Order  # Assuming Order is in models/order.py
 
 
 class Fill(Base):
@@ -40,7 +40,7 @@ class Fill(Base):
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint('exchange', 'fill_id', name='uq_exchange_fill_id'),
+        UniqueConstraint("exchange", "fill_id", name="uq_exchange_fill_id"),
     )
 
     def __repr__(self) -> str: # Added -> str
@@ -49,7 +49,7 @@ class Fill(Base):
             f"quantity_filled={self.quantity_filled}, fill_price={self.fill_price})>"
         )
 
-    def to_event(self) -> 'ExecutionReportEvent': # Added to_event with type hints
+    def to_event(self) -> "ExecutionReportEvent": # Added to_event with type hints
         """Converts the Fill object to an ExecutionReportEvent."""
         # Imports needed for ExecutionReportEvent. Assuming they are or will be available in the module.
         # from decimal import Decimal # Already imported via sqlalchemy Numeric
@@ -74,9 +74,9 @@ class Fill(Base):
         order_side = self.side or (self.order.side if self.order else "UNKNOWN_SIDE")
         order_type = self.order.order_type if self.order else "MARKET" # Default if no order
         quantity_ordered = self.order.quantity if self.order else self.quantity_filled # Default
-        signal_id_val = self.order.signal_id if self.order and hasattr(self.order, 'signal_id') else uuid.uuid4() # Placeholder
+        signal_id_val = self.order.signal_id if self.order and hasattr(self.order, "signal_id") else uuid.uuid4() # Placeholder
 
-        _client_order_id_from_order = self.order.client_order_id if self.order and hasattr(self.order, 'client_order_id') else None
+        _client_order_id_from_order = self.order.client_order_id if self.order and hasattr(self.order, "client_order_id") else None
         client_order_id_val = str(_client_order_id_from_order) if _client_order_id_from_order is not None else None
 
 
@@ -158,21 +158,21 @@ class Fill(Base):
             source_module=self.__class__.__name__,
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(), # Event's own creation time
-            exchange_order_id=cast(str, final_exchange_order_id),
-            trading_pair=cast(str, order_trading_pair),
-            exchange=cast(str, order_exchange),
+            exchange_order_id=cast("str", final_exchange_order_id),
+            trading_pair=cast("str", order_trading_pair),
+            exchange=cast("str", order_exchange),
             order_status=current_order_status,
-            order_type=cast(str, order_type),
-            side=cast(str, order_side),
+            order_type=cast("str", order_type),
+            side=cast("str", order_side),
             quantity_ordered=quantity_ordered, # Ensure this is Decimal
-            signal_id=cast(uuid.UUID, signal_id_val), # Was Column[UUID] | UUID, event expects UUID | None. Value is always UUID.
+            signal_id=cast("uuid.UUID", signal_id_val), # Was Column[UUID] | UUID, event expects UUID | None. Value is always UUID.
             client_order_id=client_order_id_val,
             quantity_filled=self.quantity_filled, # Ensure this is Decimal
             average_fill_price=self.fill_price, # Ensure this is Decimal
-            limit_price=cast(Optional[Decimal], (self.order.limit_price if self.order and self.order.order_type == "LIMIT" else None)),
-            stop_price=cast(Optional[Decimal], (self.order.stop_price if self.order and "STOP" in self.order.order_type else None)),
+            limit_price=cast("Decimal | None", (self.order.limit_price if self.order and self.order.order_type == "LIMIT" else None)),
+            stop_price=cast("Decimal | None", (self.order.stop_price if self.order and "STOP" in self.order.order_type else None)),
             commission=self.commission, # Ensure Decimal or None
             commission_asset=self.commission_asset,
             timestamp_exchange=self.filled_at, # Timestamp of the actual fill
-            error_message=None # Assuming no error for a successful fill conversion
+            error_message=None, # Assuming no error for a successful fill conversion
         )

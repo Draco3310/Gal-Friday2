@@ -3,7 +3,6 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    Column,
     DateTime,
     ForeignKey,
     Index,
@@ -25,35 +24,35 @@ class RetrainingJob(Base):
     job_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     # Assuming model_versions.model_id is UUID and ModelVersion model exists
     model_id: Mapped[UUID] = mapped_column(
-        ForeignKey("model_versions.model_id"), nullable=False, index=True
+        ForeignKey("model_versions.model_id"), nullable=False, index=True,
     )
     model_name: Mapped[str] = mapped_column(String(200), nullable=False)
     trigger: Mapped[str] = mapped_column(String(50), nullable=False)
     drift_metrics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(
-        String(50), nullable=False, server_default="pending", index=True
+        String(50), nullable=False, server_default="pending", index=True,
     )
     start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Assuming new_model_id also refers to model_versions.model_id
     new_model_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("model_versions.model_id"), nullable=True
+        ForeignKey("model_versions.model_id"), nullable=True,
     )
     performance_comparison: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(
-        DateTime, server_default=func.current_timestamp(), index=True
+        DateTime, server_default=func.current_timestamp(), index=True,
     )
     updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+        DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(),
     )
 
     # Relationships
     original_model_version = relationship(
-        "ModelVersion", foreign_keys=[model_id], backref="retraining_jobs_triggered"
+        "ModelVersion", foreign_keys=[model_id], backref="retraining_jobs_triggered",
     )
     new_model_version = relationship(
-        "ModelVersion", foreign_keys=[new_model_id], backref="retraining_jobs_created"
+        "ModelVersion", foreign_keys=[new_model_id], backref="retraining_jobs_created",
     )
 
     __table_args__ = (

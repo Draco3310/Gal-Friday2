@@ -1,9 +1,13 @@
 # tests/unit/dal/test_order_repository.py
-import pytest
-from unittest.mock import MagicMock
 import uuid
-from datetime import datetime, timedelta, timezone # Changed to timezone.utc for broader compatibility
+from datetime import (  # Changed to timezone.utc for broader compatibility
+    UTC,
+    datetime,
+    timedelta,
+)
 from decimal import Decimal
+
+import pytest
 
 # Models and Repository
 from gal_friday.dal.models.order import Order
@@ -32,7 +36,7 @@ def sample_order_data(override: dict = None) -> dict:
         "filled_quantity": Decimal("0"),
         "average_fill_price": None,
         "commission": None,
-        "created_at": datetime.now(timezone.utc), 
+        "created_at": datetime.now(UTC),
         "updated_at": None,
     }
     if override:
@@ -43,12 +47,12 @@ def sample_order_data(override: dict = None) -> dict:
 @pytest.mark.asyncio
 async def test_create_order(db_session_maker, mock_logger, db_setup): # Use db_session_maker
     repo = OrderRepository(session_maker=db_session_maker, logger=mock_logger)
-    
+
     order_data_dict = sample_order_data()
     # BaseRepository.create expects a dict or a model instance.
-    
-    created_order_model = await repo.create(order_data_dict) 
-    
+
+    created_order_model = await repo.create(order_data_dict)
+
     assert created_order_model is not None
     assert created_order_model.id == order_data_dict["id"] # ID was provided
     assert created_order_model.signal_id == order_data_dict["signal_id"]
@@ -64,7 +68,7 @@ async def test_create_order(db_session_maker, mock_logger, db_setup): # Use db_s
 @pytest.mark.asyncio
 async def test_get_order_by_id(db_session_maker, mock_logger, db_setup):
     repo = OrderRepository(session_maker=db_session_maker, logger=mock_logger)
-    
+
     order_data_dict = sample_order_data()
     order_instance = Order(**order_data_dict)
     async with db_session_maker() as session:
@@ -96,7 +100,7 @@ async def test_update_order_status_direct_repo_update(db_session_maker, mock_log
 
     updates = {"status": "FILLED", "filled_quantity": Decimal("1.0")}
     # BaseRepository.update returns the updated model instance or None
-    updated_order = await repo.update(order_instance.id, updates) 
+    updated_order = await repo.update(order_instance.id, updates)
 
     assert updated_order is not None
     assert updated_order.status == "FILLED"
@@ -121,12 +125,12 @@ async def test_order_repository_update_order_status_method(db_session_maker, moc
         session.add(order_instance)
         await session.commit()
         await session.refresh(order_instance)
-    
+
     updated_order = await repo.update_order_status(
-        order_id=order_instance.id, 
-        status="FILLED", 
+        order_id=order_instance.id,
+        status="FILLED",
         filled_quantity=Decimal("0.5"),
-        average_fill_price=Decimal("51000.0")
+        average_fill_price=Decimal("51000.0"),
     )
     assert updated_order is not None
     assert updated_order.status == "FILLED"
@@ -166,7 +170,7 @@ async def test_get_active_orders(db_session_maker, mock_logger, db_setup):
 
     active_order_data = sample_order_data({"status": "ACTIVE", "signal_id": uuid.uuid4()})
     filled_order_data = sample_order_data({"status": "FILLED", "signal_id": uuid.uuid4()})
-    
+
     async with db_session_maker() as session:
         session.add_all([Order(**active_order_data), Order(**filled_order_data)])
         await session.commit()
@@ -181,14 +185,14 @@ async def test_get_active_orders(db_session_maker, mock_logger, db_setup):
 async def test_get_recent_orders(db_session_maker, mock_logger, db_setup):
     repo = OrderRepository(session_maker=db_session_maker, logger=mock_logger)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     order_new_dict = sample_order_data({"created_at": now - timedelta(hours=1), "signal_id": uuid.uuid4()})
     order_old_dict = sample_order_data({"created_at": now - timedelta(hours=48), "signal_id": uuid.uuid4()})
 
     async with db_session_maker() as session:
         session.add_all([Order(**order_new_dict), Order(**order_old_dict)])
         await session.commit()
-    
+
     recent_orders = await repo.get_recent_orders(hours=24)
     assert len(recent_orders) == 1
     assert recent_orders[0].signal_id == order_new_dict["signal_id"]
@@ -203,10 +207,10 @@ async def test_get_orders_by_signal(db_session_maker, mock_logger, db_setup):
     target_signal_id = uuid.uuid4()
     other_signal_id = uuid.uuid4()
 
-    order1_data = sample_order_data({"signal_id": target_signal_id, "created_at": datetime.now(timezone.utc) - timedelta(minutes=2)})
-    order2_data = sample_order_data({"signal_id": target_signal_id, "created_at": datetime.now(timezone.utc) - timedelta(minutes=1)})
+    order1_data = sample_order_data({"signal_id": target_signal_id, "created_at": datetime.now(UTC) - timedelta(minutes=2)})
+    order2_data = sample_order_data({"signal_id": target_signal_id, "created_at": datetime.now(UTC) - timedelta(minutes=1)})
     order3_data = sample_order_data({"signal_id": other_signal_id})
-    
+
     async with db_session_maker() as session:
         session.add_all([Order(**order1_data), Order(**order2_data), Order(**order3_data)])
         await session.commit()
@@ -223,7 +227,7 @@ async def test_get_orders_by_signal(db_session_maker, mock_logger, db_setup):
 async def test_find_by_exchange_id(db_session_maker, mock_logger, db_setup):
     repo = OrderRepository(session_maker=db_session_maker, logger=mock_logger)
     target_exchange_id = "EXCH_ID_123"
-    
+
     order_data_target = sample_order_data({"exchange_order_id": target_exchange_id, "signal_id": uuid.uuid4()})
     order_data_other = sample_order_data({"exchange_order_id": "EXCH_ID_456", "signal_id": uuid.uuid4()})
 

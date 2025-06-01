@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Any, Protocol, Unpack, TypedDict
+from typing import Any, Protocol, TypedDict, Unpack
 
 from ..core.asset_registry import AssetSpecification, ExchangeSpecification
 

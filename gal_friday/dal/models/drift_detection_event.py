@@ -1,13 +1,12 @@
 """SQLAlchemy model for the 'drift_detection_events' table."""
 
 from datetime import datetime
-from decimal import Decimal # Though schema uses DECIMAL(10,6) which fits float, Decimal is safer
+from decimal import Decimal  # Though schema uses DECIMAL(10,6) which fits float, Decimal is safer
 
 from sqlalchemy import (
     Boolean,
-    Column,
     DateTime,
-    ForeignKey, # Not used in this specific table schema, but common
+    ForeignKey,  # Not used in this specific table schema, but common
     Index,
     Numeric,
     String,
@@ -25,11 +24,11 @@ class DriftDetectionEvent(Base):
     __tablename__ = "drift_detection_events"
 
     event_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4()
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
     )
     # Assuming model_versions.model_id is UUID and ModelVersion model exists
     model_id: Mapped[UUID] = mapped_column(
-        ForeignKey("model_versions.model_id"), nullable=False, index=True # Added index based on schema
+        ForeignKey("model_versions.model_id"), nullable=False, index=True, # Added index based on schema
     )
     drift_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True) # Added index
     metric_name: Mapped[str] = mapped_column(String(100), nullable=False)

@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import uuid
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field # Added asdict
+from dataclasses import asdict, dataclass, field  # Added asdict
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
@@ -16,7 +16,9 @@ if TYPE_CHECKING:
     from gal_friday.config_manager import ConfigManager
     from gal_friday.dal.repositories.retraining_repository import RetrainingRepository
     from gal_friday.logger_service import LoggerService
-    from gal_friday.model_lifecycle.registry import Registry as ModelRegistry # Changed ModelRegistry to Registry and aliased
+    from gal_friday.model_lifecycle.registry import (
+        Registry as ModelRegistry,  # Changed ModelRegistry to Registry and aliased
+    )
 
 
 class DriftType(Enum):

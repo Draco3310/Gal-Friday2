@@ -36,10 +36,10 @@ class FundsManager:
     INSUFFICIENT_BASE_FUNDS = "Insufficient {} to sell. Required: {}, Available: {}"
 
     def __init__(
-        self, 
-        logger_service: LoggerService, 
+        self,
+        logger_service: LoggerService,
         session_maker: Any, # async_sessionmaker | None = None, for consistency, but unused
-        valuation_currency: str = "USD"
+        valuation_currency: str = "USD",
     ) -> None:
         """Initialize the funds manager.
 

@@ -13,8 +13,15 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Coroutine
-from typing import TYPE_CHECKING, Optional, Protocol, TypeVar, Union, Any, AsyncIterator, Dict, List, Set, Literal, Iterator, Iterable, Coroutine, Mapping
+from collections.abc import Coroutine, Mapping
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Optional,
+    Protocol,
+    TypeVar,
+    Union,
+)
 
 # Create TYPE_CHECKING specific imports
 if TYPE_CHECKING:
@@ -25,12 +32,11 @@ if TYPE_CHECKING:
     from .config_manager import ConfigManager
     from .core.halt_recovery import HaltRecoveryManager
     from .core.pubsub import PubSubManager
-    from .logger_service import LoggerService, ExcInfoType
+    from .logger_service import ExcInfoType, LoggerService
     # Define a protocol for connection pools
     class PoolProtocol(Protocol):
         """Protocol for connection pools."""
-        pass
-    
+
     # Type variable for connection pools
     T_Pool = TypeVar("T_Pool", bound=PoolProtocol)
     from .main import GalFridayApp

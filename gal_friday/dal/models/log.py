@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func # For server_default=func.now()
+from sqlalchemy.sql import func  # For server_default=func.now()
 
 from .models_base import Base
 
@@ -17,7 +17,7 @@ class Log(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True) # BIGSERIAL
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
     ) # TIMESTAMPTZ, default NOW()
     logger_name: Mapped[str] = mapped_column(String(255), nullable=False)
     level_name: Mapped[str] = mapped_column(String(50), nullable=False)

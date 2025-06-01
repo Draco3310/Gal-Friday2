@@ -2,10 +2,9 @@
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Index, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func # Required if using func for server_default, not directly in this model's schema defaults
 
 from .models_base import Base
 

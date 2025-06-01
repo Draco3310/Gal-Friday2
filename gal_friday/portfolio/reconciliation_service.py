@@ -3,26 +3,23 @@
 import asyncio
 import contextlib
 import uuid
+from collections.abc import Sequence  # Added Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Sequence # Added Sequence
+from typing import Any
 
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gal_friday.config_manager import ConfigManager
+from gal_friday.dal.models.position import Position as PositionModel
+from gal_friday.dal.repositories.order_repository import OrderRepository
+
 # Import new repositories and models
 from gal_friday.dal.repositories.position_repository import PositionRepository
-from gal_friday.dal.repositories.order_repository import OrderRepository
 from gal_friday.dal.repositories.reconciliation_repository import ReconciliationRepository
-from gal_friday.dal.models.position import Position as PositionModel
-from gal_friday.dal.models.order import Order as OrderModel
-from gal_friday.dal.models.reconciliation_event import ReconciliationEvent as ReconciliationEventModel
-from gal_friday.dal.models.position_adjustment import PositionAdjustment as PositionAdjustmentModel
-
-from gal_friday.execution_handler import ExecutionHandler # Keep as is
+from gal_friday.execution_handler import ExecutionHandler  # Keep as is
 from gal_friday.logger_service import LoggerService
 from gal_friday.monitoring.alerting_system import Alert, AlertingSystem, AlertSeverity
 from gal_friday.portfolio_manager import PortfolioManager
@@ -166,7 +163,7 @@ class ReconciliationService:
         self.alerting = alerting_system
         self.logger = logger_service
         self._source_module = self.__class__.__name__
-        
+
         # Instantiate repositories
         self.session_maker = session_maker
         self.position_repository = PositionRepository(session_maker, logger_service)
@@ -558,7 +555,7 @@ class ReconciliationService:
         # that uses self.position_repository.create()
         # For this refactor, we assume `portfolio_manager.create_new_position_from_exchange_data` exists
         # or this is noted for `_apply_auto_corrections`.
-        
+
         correction_data = {
             "type": "add_position", "pair": pair,
             "quantity": str(exchange_pos_data.get("quantity", 0)), # Ensure string for JSON
@@ -574,12 +571,12 @@ class ReconciliationService:
 
 
     async def _adjust_db_position_quantity(
-        self, internal_pos_model: PositionModel, exchange_qty: Decimal, report: ReconciliationReport
+        self, internal_pos_model: PositionModel, exchange_qty: Decimal, report: ReconciliationReport,
     ) -> None:
         """Marks for auto-correction: Adjust internal position quantity to match exchange."""
         # This method now just prepares the correction for the report.
         # Actual DB update via portfolio_manager.adjust_position_quantity(...)
-        
+
         correction_data = {
             "type": "position_quantity", "pair": internal_pos_model.trading_pair,
             "old_value": internal_pos_model.quantity, # Keep as Decimal for PositionAdjustmentModel
@@ -591,7 +588,7 @@ class ReconciliationService:
         self.logger.info(f"Marked position {internal_pos_model.trading_pair} for quantity adjustment.", source_module=self._source_module)
 
     async def _adjust_balance( # This method's DB interaction is via PortfolioManager
-        self, currency: str, internal_balance: Decimal, exchange_balance: Decimal, report: ReconciliationReport
+        self, currency: str, internal_balance: Decimal, exchange_balance: Decimal, report: ReconciliationReport,
     ) -> None:
         """Marks for auto-correction: Adjust internal balance to match exchange."""
         # This method now just prepares the correction for the report.
@@ -638,10 +635,10 @@ class ReconciliationService:
                     # adjusted_at is defaulted by DB
                 }
                 # Convert numeric strings to Decimal if they came from report.to_dict()
-                for key in ['old_value', 'new_value']:
+                for key in ["old_value", "new_value"]:
                     if isinstance(adjustment_to_save[key], str):
                         adjustment_to_save[key] = Decimal(adjustment_to_save[key])
-                
+
                 await self.reconciliation_repository.save_position_adjustment(adjustment_to_save)
             self.logger.info(f"Saved {len(report.auto_corrections)} adjustments for event {created_event.reconciliation_id}", source_module=self._source_module)
 
@@ -730,7 +727,7 @@ class ReconciliationService:
                 last_report_data = None
         else:
             last_report_data = None
-            
+
         last_run = (
             self._last_reconciliation.isoformat()
             if self._last_reconciliation

@@ -1,14 +1,14 @@
 """Base repository pattern for data access using SQLAlchemy."""
 
-from datetime import datetime, timezone
-from typing import Any, Generic, TypeVar, Sequence, cast # Added cast
+from collections.abc import Sequence  # Added cast
+from datetime import UTC, datetime
+from typing import Any, Generic, TypeVar, cast
 
-from sqlalchemy import select, delete as sqlalchemy_delete, asc, desc
+from sqlalchemy import asc, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from gal_friday.dal.models import Base  # Assuming Base is your declarative_base from models
 from gal_friday.logger_service import LoggerService
-from gal_friday.dal.models import Base # Assuming Base is your declarative_base from models
-
 
 # Define a TypeVar bound to the SQLAlchemy Base model
 T = TypeVar("T", bound=Base)
@@ -40,8 +40,10 @@ class BaseRepository(Generic[T]):
 
         Args:
             data: Dictionary of column names to values, or a model instance.
+
         Returns:
             The created entity instance, with all fields populated (including defaults).
+
         Raises:
             SQLAlchemyError: If the database operation fails.
         """
@@ -59,7 +61,7 @@ class BaseRepository(Generic[T]):
                     f"Created new {self.model_class.__name__} with ID {getattr(instance, 'id', None)}",
                     source_module=self._source_module,
                 )
-                return cast(T, instance)
+                return cast("T", instance)
         except Exception as e: # Catch generic Exception for logging, re-raise specific if needed
             self.logger.exception(
                 f"Error creating in {self.model_class.__name__}: {e}",
@@ -72,8 +74,10 @@ class BaseRepository(Generic[T]):
 
         Args:
             entity_id: The primary key value.
+
         Returns:
             The entity instance or None if not found.
+
         Raises:
             SQLAlchemyError: If the database operation fails.
         """
@@ -104,8 +108,10 @@ class BaseRepository(Generic[T]):
         Args:
             entity_id: ID of the entity to update.
             updates: Dictionary of column names to new values.
+
         Returns:
             The updated entity instance or None if not found.
+
         Raises:
             SQLAlchemyError: If the operation fails.
         """
@@ -126,10 +132,10 @@ class BaseRepository(Generic[T]):
                         else:
                             self.logger.warning(
                                 f"Attempted to update non-existent attribute '{key}' on {self.model_class.__name__}",
-                                source_module=self._source_module
+                                source_module=self._source_module,
                             )
                     if hasattr(entity, "updated_at"):
-                        entity.updated_at = datetime.now(timezone.utc) # type: ignore
+                        entity.updated_at = datetime.now(UTC) # type: ignore
 
                     await session.commit()
                     await session.refresh(entity)
@@ -138,12 +144,11 @@ class BaseRepository(Generic[T]):
                         source_module=self._source_module,
                     )
                     return entity
-                else:
-                    self.logger.warning(
-                        f"Attempted to update non-existent {self.model_class.__name__} with ID {entity_id}",
-                        source_module=self._source_module,
-                    )
-                    return None
+                self.logger.warning(
+                    f"Attempted to update non-existent {self.model_class.__name__} with ID {entity_id}",
+                    source_module=self._source_module,
+                )
+                return None
         except Exception as e:
             self.logger.exception(
                 f"Error updating {self.model_class.__name__} with ID {entity_id}: {e}",
@@ -165,8 +170,10 @@ class BaseRepository(Generic[T]):
             limit: Maximum number of results to return.
             offset: Number of results to skip.
             order_by: Column to order results by (e.g., "name" or "created_at DESC").
+
         Returns:
             A sequence of found entities.
+
         Raises:
             SQLAlchemyError: If the operation fails.
             ValueError: If order_by clause is malformed.
@@ -182,7 +189,7 @@ class BaseRepository(Generic[T]):
                         else:
                             self.logger.warning(
                                 f"Filter key '{column_name}' not found on model {self.model_class.__name__}",
-                                source_module=self._source_module
+                                source_module=self._source_module,
                             )
                 if order_by:
                     parts = order_by.strip().split()
@@ -226,8 +233,10 @@ class BaseRepository(Generic[T]):
 
         Args:
             entity_id: ID of the entity to delete.
+
         Returns:
             True if deletion was successful, False otherwise.
+
         Raises:
             SQLAlchemyError: If the operation fails.
         """

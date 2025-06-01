@@ -2,12 +2,12 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Column, Integer, String, Text, Numeric, DateTime, ForeignKey
-
-from gal_friday.core.events import ExecutionReportEvent
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+
+from gal_friday.core.events import ExecutionReportEvent
 
 from .base import Base
 
@@ -19,7 +19,7 @@ class Order(Base):
     client_order_id = Column(PG_UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4, index=True)
     exchange_order_id = Column(String(64), unique=True, nullable=True, index=True)
     signal_id = Column(PG_UUID(as_uuid=True), ForeignKey("signals.signal_id"), index=True)
-    
+
     trading_pair = Column(String(16), nullable=False)
     exchange = Column(String(32), nullable=False)
     side = Column(String(4), nullable=False)  # CHECK constraint handled by application/DB
@@ -29,7 +29,7 @@ class Order(Base):
     stop_price = Column(Numeric(18, 8), nullable=True)
     status = Column(String(20), nullable=False, index=True)
     error_message = Column(Text, nullable=True)
-    
+
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
     submitted_at = Column(DateTime(timezone=True), nullable=True)
     last_updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -37,7 +37,7 @@ class Order(Base):
     # Relationships
     signal = relationship("Signal", back_populates="orders")
     fills = relationship("Fill", back_populates="order", cascade="all, delete-orphan")
-    
+
     # Relationships to Trade table (will be fully defined in Trade model via back_populates)
     # trade_entry: Mapped[Optional["Trade"]] = relationship(foreign_keys="Trade.entry_order_pk", back_populates="entry_order")
     # trade_exit: Mapped[Optional["Trade"]] = relationship(foreign_keys="Trade.exit_order_pk", back_populates="exit_order")
@@ -49,7 +49,7 @@ class Order(Base):
             f"exchange_order_id='{self.exchange_order_id}', status='{self.status}')>"
         )
 
-    def to_event(self) -> 'ExecutionReportEvent': # Added to_event with type hints
+    def to_event(self) -> "ExecutionReportEvent": # Added to_event with type hints
         """Converts the Order object to an ExecutionReportEvent."""
         # Assuming ExecutionReportEvent is importable from gal_friday.core.events
         # import uuid # Already imported
