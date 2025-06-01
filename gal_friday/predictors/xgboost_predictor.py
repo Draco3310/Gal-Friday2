@@ -36,8 +36,8 @@ class XGBoostPredictor(PredictorInterface):
             model_path: Path to the XGBoost model file
             model_id: Unique identifier for this model
             config: Additional configuration parameters for this model.
-                    Expected to contain 'scaler_path': Optional[str] and
-                    'model_feature_names': List[str].
+                    Expected to contain 'model_feature_names': List[str].
+                    'scaler_path' is no longer used as features are expected pre-scaled.
         """
         # _expected_features must be set before super().__init__ if load_assets uses it.
         # However, we'll fetch it from self.config inside load_assets now.
@@ -79,44 +79,22 @@ class XGBoostPredictor(PredictorInterface):
             raise ModelLoadError(error_msg) from e
 
         # Load Scaler
-        self.scaler = None
-        if self.scaler_path:
-            try:
-
-                def _load_scaler() -> None:
-                    """Load the scaler from the specified path."""
-                    # Add type checking to ensure self.scaler_path is not None
-                    scaler_path = self.scaler_path
-                    if scaler_path is None:
-                        raise ValueError("Scaler path cannot be None")
-                    if not Path(scaler_path).exists():
-                        self._raise_scaler_not_found(scaler_path, self.logger)
-
-                _load_scaler()
-
-                self.scaler = joblib.load(self.scaler_path)
-                self.logger.info(
-                    "Scaler loaded successfully from %s",
-                    self.scaler_path,
-                )
-            except FileNotFoundError:
-                raise
-            except Exception:
-                self.logger.exception(
-                    "Failed to load scaler from %s",
-                    self.scaler_path,
-                )
-                raise
-        else:
-            self.logger.info("No scaler_path provided. Proceeding without a scaler.")
-            self.scaler = None
+        self.scaler = None # Scaler is no longer loaded or used by this predictor.
+        self.logger.info(
+            "Scaler attribute is set to None. Features are expected to be pre-scaled."
+        )
+        # if self.scaler_path: # Removed scaler loading logic
+        # else:
+        #     self.logger.info("No scaler_path provided. Proceeding without a scaler.")
+        #     self.scaler = None
 
     def predict(self, features: np.ndarray) -> np.ndarray:
         """Generate predictions using the XGBoost model.
+        Features are expected to be pre-scaled by the FeatureEngine.
 
         Args:
         ----
-            features: A 1D numpy array of raw, ordered feature values.
+            features: A 1D numpy array of pre-scaled, ordered feature values.
 
         Returns:
         -------
@@ -138,18 +116,9 @@ class XGBoostPredictor(PredictorInterface):
             self.logger.error(msg)
             raise ValueError(msg)
 
-        features_2d = features.reshape(1, -1)
-
-        if self.scaler:
-            try:
-                processed_features = self.scaler.transform(features_2d)
-                self.logger.debug("Features scaled successfully.")
-            except Exception:
-                self.logger.exception("Error applying scaler transform.")
-                raise
-        else:
-            processed_features = features_2d
-            self.logger.debug("No scaler found or used. Using raw features.")
+        # Features are assumed to be pre-scaled.
+        processed_features = features.reshape(1, -1)
+        self.logger.debug("Using pre-scaled features directly for prediction.")
 
         # Ensure expected_feature_names are available for DMatrix
         model_feature_names = self.expected_feature_names
@@ -312,20 +281,20 @@ class XGBoostPredictor(PredictorInterface):
         cls,
         model_id: str,
         model_path: str,
-        scaler_path: str | None,
-        feature_vector: np.ndarray,  # Expects 1D raw feature vector
+        scaler_path: str | None, # Kept for interface compatibility, but not used.
+        feature_vector: np.ndarray,  # Expects 1D pre-scaled feature vector
         model_feature_names: list[str],  # From model config
         _predictor_specific_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Run inference in a separate process.
+        """Run inference in a separate process. Expects pre-scaled features.
 
         Args:
             model_id (str): Unique identifier for the model
             model_path (str): Path to the XGBoost model file
-            scaler_path (Optional[str]): Optional path to the scaler file
-            feature_vector (np.ndarray): 1D numpy array of feature values
-            model_feature_names (list[str]): List of feature names expected by the model
-            _predictor_specific_config (dict[str, Any] | None): Optional additional configuration
+            scaler_path (Optional[str]): No longer used; features should be pre-scaled.
+            feature_vector (np.ndarray): 1D numpy array of pre-scaled feature values.
+            model_feature_names (list[str]): List of feature names expected by the model.
+            _predictor_specific_config (dict[str, Any] | None): Optional additional configuration.
 
         Returns:
         -------
@@ -336,65 +305,39 @@ class XGBoostPredictor(PredictorInterface):
 
         # Initialize result with model_id and default error state
         result: dict[str, Any] = {"model_id": model_id, "error": None}
-        model: xgb.Booster | None = None # Added type hint for model
-        scaler: Any = None # Type hint for scaler (can be various types or None)
-        processed_features: np.ndarray | None = None # Typed initialization
-        feature_prep_error_info: dict[str, Any] | None = None # Initialize here
+        model = None
+        # Scaler is no longer loaded or used in this static method.
+        # scaler = None
+        processed_features = None
 
         try:
             # 1. Load Model
-            model, load_model_error_info = cls._load_model(model_path, model_id, logger)
-            if load_model_error_info: # Check if the error dict is populated from _load_model
-                result["error"] = load_model_error_info.get("error", "Failed to load model")
+            model, error = cls._load_model(model_path, model_id, logger)
+            if error:
+                result["error"] = error.get("error", "Failed to load model")
                 return result
 
-            # Explicit guard for mypy to ensure 'model' is not None past this point.
-            # Logically, if load_model_error_info was empty, model should be a Booster instance.
-            if model is None:
-                error_msg = "Model loading failed silently (model is None but no error info returned)."
-                logger.error(f"{error_msg} (model_id: {model_id})")
-                result["error"] = error_msg
-                return result
-
-            # 2. Load Scaler if path is provided
+            # 2. Scaler loading is removed.
+            # if scaler_path:
+            #     scaler, error = cls._load_scaler(scaler_path, model_id, logger)
+            #     if error:
+            #         result["error"] = error.get("error", "Failed to load scaler")
+            #         return result
             if scaler_path:
-                scaler, scaler_error_info = cls._load_scaler(scaler_path, model_id, logger)
-                if scaler_error_info: # Check if the error dict is populated
-                    result["error"] = scaler_error_info.get("error", "Failed to load scaler")
-                    return result
+                logger.info("scaler_path provided but will be ignored as features are expected pre-scaled.")
 
-            # 3. Process features
-            # processed_features and feature_prep_error_info are now initialized in the outer scope
 
-            if scaler is not None:
-                processed_features, feature_prep_error_info = XGBoostPredictor._prepare_features(
-                    feature_vector=feature_vector,
-                    scaler=scaler,
-                    model_id=model_id,
-                    logger=logger,
-                )
-            else: # scaler is None
-                processed_features, feature_prep_error_info = XGBoostPredictor._prepare_features(
-                    feature_vector=feature_vector,
-                    scaler=None,
-                    model_id=model_id,
-                    logger=logger,
-                )
-
-            # Now check feature_prep_error_info regardless of which path was taken
-            if feature_prep_error_info: # This is now well-defined
-                result["error"] = feature_prep_error_info.get("error", "Failed to prepare features")
+            # 3. Process features: Features are expected pre-scaled. Reshape only.
+            # The _prepare_features method (which included scaling) is no longer used here.
+            if feature_vector.ndim != 1:
+                result["error"] = "Feature vector must be 1D."
+                logger.error(result["error"])
                 return result
-
-            if processed_features is None:
-                # This case should ideally be covered by feature_prep_error_info having an error.
-                # If _prepare_features can return (None, {}) without error, this guard is important.
-                if not result.get("error"): # Check if error was already set by a previous step
-                    result["error"] = "Feature preparation returned None without explicit error info."
-                return result
+            processed_features = feature_vector.reshape(1, -1)
+            logger.debug("Using pre-scaled feature vector directly (after reshape).")
 
             # 4. Make prediction if no errors so far
-            if not result["error"] and processed_features is not None:
+            if processed_features is not None: # Error condition for ndim already handled
                 prediction_result = cls._make_prediction(
                     model=model,
                     features=processed_features,

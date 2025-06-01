@@ -186,11 +186,19 @@ class ContextFormatter(logging.Formatter):
         -------
             Formatted log record as string with context information included
         """
+        # Ensure 'context' attribute exists on the record before super().format()
+        # if the main format string self._fmt (used by super().format()) contains '%(context)s'.
+        if not hasattr(record, 'context'):
+            record.context = {} # Default to an empty dict if not present
+
         # Default formatting first
         s = super().format(record)
-        # Check if context exists in the record's extra dict
+
+        # The following logic is for custom post-processing of a literal "[%(context)s]"
+        # string that might have been in the original format string, or further refines
+        # the output of what %(context)s produced.
         context_str = ""
-        if hasattr(record, "context") and record.context:
+        if hasattr(record, "context") and record.context: # record.context is now guaranteed to exist
             if isinstance(record.context, dict):
                 context_items = [f"{k}={v}" for k, v in record.context.items()]
                 context_str = ", ".join(context_items)
@@ -700,7 +708,8 @@ class LoggerService:
         filtered_context = self._filter_sensitive_data(context)
 
         # Prepare extra dictionary for context
-        extra_data = {"context": filtered_context} if filtered_context else {}
+        # Ensure 'context' key always exists if the formatter string expects '%(context)s'
+        extra_data = {"context": filtered_context if filtered_context is not None else {}}
 
         # Log the message using the standard logging interface
         logger.log(

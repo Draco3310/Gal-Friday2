@@ -118,9 +118,9 @@ class LSTMPredictor(PredictorInterface):
             model_id: Unique identifier for this model.
             config: Additional configuration parameters. Expected to contain:
                     'framework': 'tensorflow' or 'pytorch'.
-                    'scaler_path': Optional[str].
                     'model_feature_names': List[str] (features per timestep).
                     'sequence_length': int (number of timesteps).
+                    'scaler_path' is no longer used as features are expected pre-scaled.
                     If PyTorch: 'model_class_module', 'model_class_name', 'model_init_args' (dict).
         """
         super().__init__(model_path, model_id, config)
@@ -281,12 +281,15 @@ class LSTMPredictor(PredictorInterface):
             self.logger.error(error_msg)
             raise InvalidDimensionsError("Invalid input dimensions")
 
-        # Apply scaling if available
-        try:
-            scaled_sequence = self.scaler.transform(features) if self.scaler else features
-        except Exception as e:
-            self.logger.exception("Error applying scaler transform in LSTMPredictor.predict")
-            raise ValueError(f"Scaling failed: {e}") from e
+        # Apply scaling if available - REMOVED as features are pre-scaled
+        # try:
+        #     scaled_sequence = self.scaler.transform(features) if self.scaler else features
+        # except Exception as e:
+        #     self.logger.exception("Error applying scaler transform in LSTMPredictor.predict")
+        #     raise ValueError(f"Scaling failed: {e}") from e
+        scaled_sequence = features # Use features directly
+        self.logger.debug("Using pre-scaled features directly for LSTM prediction.")
+
 
         # Reshape for model input: (batch_size, timesteps, features_per_timestep)
         model_input = scaled_sequence.reshape(1, *scaled_sequence.shape)
@@ -420,12 +423,12 @@ class LSTMPredictor(PredictorInterface):
     @classmethod
     def _process_features(
         cls,
-        feature_sequence: np.ndarray,
-        scaler_asset: object | joblib.scaler.StandardScaler | None,
+        feature_sequence: np.ndarray, # Expected to be pre-scaled
+        scaler_asset: object | joblib.scaler.StandardScaler | None, # Kept for compatibility, but should be None
         model_id: str,
         logger: logging.Logger,
     ) -> tuple[np.ndarray, str] | dict[str, str]:
-        """Process and scale the input features."""
+        """Process the input features (reshaping only, scaling is removed)."""
         if feature_sequence.ndim != cls.EXPECTED_INPUT_DIMENSIONS:
             error_msg = (
                 f"Feature sequence must be {cls.EXPECTED_INPUT_DIMENSIONS}D "
@@ -434,26 +437,19 @@ class LSTMPredictor(PredictorInterface):
             logger.error(error_msg)
             return {"error": error_msg, "model_id": model_id}
 
+        # Scaling logic is removed as features are expected to be pre-scaled.
         processed_sequence = feature_sequence
         if scaler_asset is not None:
-            try:
-                # Check if the scaler has transform method
-                if hasattr(scaler_asset, "transform"):
-                    processed_sequence = scaler_asset.transform(feature_sequence)
-                    logger.debug(
-                        "Feature sequence (shape: %s) scaled to (shape: %s).",
-                        feature_sequence.shape,
-                        processed_sequence.shape,
-                    )
-                else:
-                    logger.warning("Scaler does not have transform method, using raw features")
-            except Exception as e_scale_apply:
-                error_msg = f"Error applying scaler: {e_scale_apply!s}"
-                logger.exception(error_msg)
-                return {"error": error_msg, "model_id": model_id}
-        else:
-            logger.debug("No scaler used for sequence.")
+            logger.warning(
+                "scaler_asset provided to _process_features for model %s, "
+                "but it will be ignored as features are expected pre-scaled.",
+                model_id
+            )
 
+        logger.debug(
+            "Using pre-scaled feature sequence (shape: %s) directly.",
+            processed_sequence.shape
+        )
         return processed_sequence, ""
 
     @classmethod
@@ -513,13 +509,13 @@ class LSTMPredictor(PredictorInterface):
         cls,
         model_id: str,
         model_path: str,
-        scaler_path: str | None,
-        feature_sequence: np.ndarray,
+        scaler_path: str | None, # Kept for interface compatibility, but not used for scaling.
+        feature_sequence: np.ndarray, # Expected to be pre-scaled.
         predictor_specific_config: dict[str, Any],
     ) -> dict[str, Any]:
-        """Load LSTM model and scaler, preprocess, predict.
+        """Load LSTM model, (optionally log scaler_path), use pre-scaled features, and predict.
 
-        Executed in a separate process. Expects `feature_sequence` to be the complete 2D sequence.
+        Executed in a separate process. Expects `feature_sequence` to be pre-scaled and 2D.
         """
         logger = logging.getLogger(f"{cls.__name__}:{model_id}.run_inference_in_process")
         logger.debug(
@@ -534,7 +530,7 @@ class LSTMPredictor(PredictorInterface):
 
             if model_framework == "tf":
                 result = cls._load_tf_model(model_path, model_id, logger)
-            elif model_framework == "pt":
+            elif model_framework == "pt": # Corrected from 'pytorch' to 'pt' for consistency if used elsewhere
                 result = cls._load_pytorch_model(
                     model_path,
                     model_id,
@@ -546,28 +542,30 @@ class LSTMPredictor(PredictorInterface):
                 logger.error(error_msg)
                 return {"error": error_msg, "model_id": model_id}
 
-            if isinstance(result, dict):
+            if isinstance(result, dict): # Error dictionary returned
                 return result
-            model_asset = result[0]
+            model_asset = result[0] # model_asset, "" was returned
 
-            # --- Load scaler if specified ---
-            scaler_asset = None
+            # --- Scaler handling (logging only, no loading for transform) ---
             if scaler_path:
-                result = cls._load_scaler(scaler_path, model_id, logger)
-                if isinstance(result, dict):
-                    return result
-                scaler_asset = result[0]
+                logger.info(
+                    "scaler_path '%s' provided for model %s but will be ignored "
+                    "as features are expected pre-scaled by FeatureEngine.",
+                    scaler_path, model_id
+                )
+            # scaler_asset remains None as it's not loaded for transformation purposes.
 
-            # --- Process features ---
+            # --- Process features (reshape only, features are pre-scaled) ---
+            # The scaler_asset argument to _process_features will be None.
             result = cls._process_features(
                 feature_sequence,
-                scaler_asset,
+                None, # Pass None for scaler_asset
                 model_id,
                 logger,
             )
-            if isinstance(result, dict):
+            if isinstance(result, dict): # Error dictionary returned
                 return result
-            processed_sequence = result[0]
+            processed_sequence = result[0] # processed_sequence, "" was returned
 
             # --- Prepare model input ---
             model_input = processed_sequence.reshape(

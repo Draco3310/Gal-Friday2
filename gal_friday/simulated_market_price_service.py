@@ -9,7 +9,7 @@ It also supports volatility-adjusted spread calculation and market depth simulat
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -1285,7 +1285,7 @@ async def _setup_service_and_data(
     price_service = SimulatedMarketPriceService(hist_data, logger=main_logger)
 
     # Common timestamp for many tests
-    ts1 = datetime(2023, 1, 1, 0, 1, 0, tzinfo=UTC)
+    ts1 = datetime(2023, 1, 1, 0, 1, 0, tzinfo=timezone.utc)
     return price_service, ts1
 
 
@@ -1326,7 +1326,7 @@ async def _test_price_queries(
         main_logger.info("BTC Spread at %s: None", ts1)
 
     # Test 2: Get price between timestamps (should get previous close)
-    ts2 = datetime(2023, 1, 1, 0, 1, 30, tzinfo=UTC)
+    ts2 = datetime(2023, 1, 1, 0, 1, 30, tzinfo=timezone.utc)
     price_service.update_time(ts2)
     btc_price2 = await price_service.get_latest_price("BTC/USD")
     main_logger.info(
@@ -1337,7 +1337,7 @@ async def _test_price_queries(
     )
 
     # Test 3: Get price before data starts
-    ts3 = datetime(2022, 12, 31, 23, 59, 0, tzinfo=UTC)
+    ts3 = datetime(2022, 12, 31, 23, 59, 0, tzinfo=timezone.utc)
     price_service.update_time(ts3)
     btc_price3 = await price_service.get_latest_price("BTC/USD")
     main_logger.info("Prices at %s: BTC=%s (Should be None)", ts3, btc_price3)

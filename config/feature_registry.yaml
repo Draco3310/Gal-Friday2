@@ -1,0 +1,85 @@
+# Gal-Friday Feature Registry
+# Defines a catalog of available features that can be activated and customized
+# in the main application configuration.
+
+rsi_14_default:
+  description: "Default 14-period Relative Strength Index."
+  calculator_type: "rsi"
+  input_type: "close_series" # 'close_series', 'ohlcv_df', 'l2_book_series', 'trades_and_bar_starts'
+  category: "TECHNICAL" # TECHNICAL, L2_ORDER_BOOK, TRADE_DATA, SENTIMENT, CUSTOM
+  version: "1.0"
+  parameters:
+    period: 14
+  imputation: # Optional: Config for handling NaNs from the calculator's output
+    strategy: "constant"
+    fill_value: 50.0
+  scaling: # Optional: Config for scaling the feature's output
+    method: "minmax"
+    feature_range: [0, 100] # Typical RSI range after scaling
+  output_properties:
+    value_type: "float"
+    range: [0, 100] # Expected logical range of RSI
+
+macd_default:
+  description: "Default MACD (12, 26, 9)."
+  calculator_type: "macd"
+  input_type: "close_series"
+  category: "TECHNICAL"
+  version: "1.0"
+  parameters:
+    fast: 12
+    slow: 26
+    signal: 9
+  imputation:
+    strategy: "constant" # MACD, Signal, Histogram can be 0 if undefined
+    fill_value: 0.0
+  scaling: "passthrough" # Or None, or {'method': 'passthrough'}
+  output_properties:
+    value_type: "float" # For MACD line, signal line, histogram
+    # Range is variable, depends on price; not easily defined statically
+
+l2_spread_basic:
+  description: "Basic L2 order book bid-ask spread (absolute and percentage)."
+  calculator_type: "l2_spread"
+  input_type: "l2_book_series"
+  category: "L2_ORDER_BOOK"
+  version: "1.1"
+  parameters: {} # No specific parameters for this version of spread
+  imputation:
+    strategy: "constant"
+    fill_value: 0.0 # If spread cannot be calculated (e.g. no bids/asks)
+  scaling: "passthrough"
+  output_properties:
+    value_type: "float" # For both abs_spread and pct_spread
+
+vwap_trades_60s:
+  description: "Volume Weighted Average Price from trades over 60 seconds."
+  calculator_type: "vwap_trades"
+  input_type: "trades_and_bar_starts" # X will be trade_deque, kw_args include bar_start_times
+  category: "TRADE_DATA"
+  version: "1.0"
+  parameters:
+    bar_interval_seconds: 60
+  imputation:
+    # Fallback to OHLCV close is handled inside the calculator,
+    # this imputation is for after that if still NaN.
+    strategy: "constant"
+    fill_value: 0.0 # If VWAP cannot be calculated at all
+  scaling: "passthrough"
+  output_properties:
+    value_type: "float"
+
+# Example of a feature that might override parameters heavily in app config
+# generic_indicator_template:
+#   description: "A generic indicator template."
+#   calculator_type: "some_generic_calc"
+#   input_type: "close_series"
+#   category: "CUSTOM"
+#   version: "0.5"
+#   parameters:
+#     length: 20
+#     mode: "sma"
+#   imputation: null
+#   scaling: null
+#   output_properties:
+#     value_type: "float"

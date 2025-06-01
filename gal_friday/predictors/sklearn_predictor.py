@@ -114,8 +114,8 @@ class SKLearnPredictor(PredictorInterface):
             model_path: Path to the scikit-learn model file (joblib/pickle).
             model_id: Unique identifier for this model.
             config: Additional configuration parameters for this model.
-                    Expected to contain 'scaler_path': Optional[str] and
-                    'model_feature_names': List[str] (if not in model.feature_names_in_).
+                    Expected to contain 'model_feature_names': List[str] (if not in model.feature_names_in_).
+                    'scaler_path' is no longer used as features are expected pre-scaled.
         """
         super().__init__(model_path, model_id, config)
         self.model: Any = None
@@ -174,33 +174,22 @@ class SKLearnPredictor(PredictorInterface):
             raise
 
         # Load Scaler
-        if self.scaler_path:
-            try:
-
-                def _raise_scaler_not_found() -> None:
-                    error_msg = f"Scaler file not found: {self.scaler_path}"
-                    return self._raise_error(FileNotFoundError, error_msg)
-
-                if not Path(self.scaler_path).exists():
-                    _raise_scaler_not_found()
-
-                self.scaler = joblib.load(self.scaler_path)
-                self.logger.info("Scaler loaded successfully from %s", self.scaler_path)
-            except FileNotFoundError:
-                raise
-            except Exception:
-                self.logger.exception("Failed to load scaler from %s", self.scaler_path)
-                raise
-        else:
-            self.logger.info("No scaler_path provided. Proceeding without a scaler.")
-            self.scaler = None
+        self.scaler = None # Scaler is no longer loaded or used by this predictor.
+        self.logger.info(
+            "Scaler attribute is set to None. Features are expected to be pre-scaled."
+        )
+        # if self.scaler_path: # Removed scaler loading logic
+        # else:
+        #     self.logger.info("No scaler_path provided. Proceeding without a scaler.")
+        #     self.scaler = None
 
     def predict(self, features: np.ndarray) -> np.ndarray:
         """Generate predictions using the scikit-learn model.
+        Features are expected to be pre-scaled by the FeatureEngine.
 
         Args:
         ----
-            features: A 1D numpy array of raw, ordered feature values.
+            features: A 1D numpy array of pre-scaled, ordered feature values.
 
         Returns:
         -------
@@ -225,19 +214,9 @@ class SKLearnPredictor(PredictorInterface):
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
-        features_2d = features.reshape(1, -1)
-
-        if self.scaler:
-            try:
-                processed_features = self.scaler.transform(features_2d)
-                self.logger.debug("Features scaled successfully.")
-            except Exception as e:
-                self.logger.exception("Error applying scaler transform.")
-                error_msg = f"Error during scaling: {e!s}"
-                raise ValueError(error_msg) from e
-        else:
-            processed_features = features_2d
-            self.logger.debug("No scaler found or used. Using raw features.")
+        # Features are assumed to be pre-scaled.
+        processed_features = features.reshape(1, -1)
+        self.logger.debug("Using pre-scaled features directly for prediction.")
 
         try:
             # For classifiers, prefer predict_proba and return probability of
@@ -498,6 +477,8 @@ class SKLearnPredictor(PredictorInterface):
 
         Args:
             request: An InferenceRequest instance containing all necessary parameters.
+                     `request.scaler_path` is ignored as features are pre-scaled.
+                     `request.feature_vector` is expected to be pre-scaled.
 
         Returns:
         -------
@@ -517,21 +498,26 @@ class SKLearnPredictor(PredictorInterface):
                 result.update(error)
                 cls._raise_with_result(result, cls._ERROR_MSG_MODEL_LOADING)
 
-            # 2. Load Scaler
-            scaler, error = cls._load_scaler(request.scaler_path, request.model_id)
-            if error:
-                result.update(error)
-                cls._raise_with_result(result, cls._ERROR_MSG_SCALER_LOADING)
+            # 2. Load Scaler - REMOVED
+            # scaler, error = cls._load_scaler(request.scaler_path, request.model_id)
+            # if error:
+            #     result.update(error)
+            #     cls._raise_with_result(result, cls._ERROR_MSG_SCALER_LOADING)
+            if request.scaler_path:
+                logger.info("scaler_path provided in InferenceRequest but will be ignored.")
+            scaler = None # Explicitly set to None as it's not used.
 
-            # 3. Prepare features
-            processed_features, error = cls._prepare_features(
-                request.feature_vector,
-                scaler,
-                request.model_id,
-            )
-            if error:
-                result.update(error)
+            # 3. Prepare features - Scaling part of _prepare_features is effectively bypassed.
+            # The original _prepare_features reshaped and optionally scaled.
+            # Now, features are pre-scaled, so just reshape.
+            if request.feature_vector.ndim != 1:
+                error_dict = {"error": "Feature vector must be 1D for processing.", "model_id": request.model_id}
+                result.update(error_dict)
                 cls._raise_with_result(result, cls._ERROR_MSG_FEATURE_PREP)
+
+            processed_features = request.feature_vector.reshape(1, -1)
+            logger.debug("Using pre-scaled feature vector directly (after reshape).")
+
 
             # 4. Make prediction
             # Ensure processed_features is not None before calling _make_prediction

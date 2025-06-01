@@ -1,14 +1,22 @@
 """Provide a backtesting environment for algorithmic trading strategies.
 
-This module contains the BacktestingEngine which orchestrates backtesting simulations
-using historical data. It handles loading data, initializing simulation services,
-executing the simulation, and calculating performance metrics.
+This module contains the BacktestingEngine, which orchestrates backtesting simulations
+using historical data. It handles loading data, initializing core simulation services
+(like FeatureRegistryClient, LoggerService, PubSubManager, and FeatureEngine),
+executing the simulation by processing historical data through the FeatureEngine,
+and managing the overall backtest lifecycle.
+
+The engine is designed to allow other components (e.g., PredictionService,
+StrategyArbitrator, PortfolioManager, RiskManager, ExecutionHandler) to be
+injected (typically pre-initialized with shared core services) and participate
+in the event-driven simulation.
 """
 
 # Standard library imports
 from __future__ import annotations
 
 import asyncio
+import builtins # Import builtins
 import json
 import logging
 import uuid
@@ -51,8 +59,8 @@ if TYPE_CHECKING:
     # Import core types
 
     # Import implementation types
-    from gal_friday.feature_engine import FeatureEngine as _FeatureEngine
-    from gal_friday.logger_service import LoggerService as _LoggerService
+    from gal_friday.feature_engine import FeatureEngine # Actual FeatureEngine
+    from gal_friday.logger_service import LoggerService # Actual LoggerService
     from gal_friday.portfolio_manager import PortfolioManager as _PortfolioManager
     from gal_friday.prediction_service import PredictionService as _PredictionService
     from gal_friday.risk_manager import RiskManager as _RiskManager
@@ -133,8 +141,9 @@ if TYPE_CHECKING:
     from gal_friday.strategy_arbitrator import StrategyArbitrator as StrategyArbitratorImpl
 
     from .config_manager import ConfigManager as ConfigManagerImpl
-    from .core.events import Event, EventType
-    from .core.events import MarketDataOHLCVEvent as MarketDataEvent
+    from .core.events import Event, EventType, MarketDataOHLCVEvent # Import MarketDataOHLCVEvent
+    from .core.feature_models import PublishedFeaturesV1 # For type hint if needed later
+    from .core.pubsub import PubSubManager # Actual PubSubManager
 else:
     # Define placeholder classes for runtime
     class BacktestHistoricalDataProviderImpl:
@@ -146,11 +155,14 @@ else:
     class ExchangeInfoServiceImpl:
         """Placeholder for ExchangeInfoService implementation."""
 
-    class FeatureEngineImpl:
+    class FeatureEngine: # Use actual name for placeholder if FeatureEngineImpl was specific
         """Placeholder for FeatureEngine implementation."""
 
-    class LoggerServiceImpl:
+    class LoggerService: # Use actual name
         """Placeholder for LoggerService implementation."""
+
+    class PubSubManager: # Add placeholder for PubSubManager
+        """Placeholder for PubSubManager."""
 
     class PortfolioManagerImpl:
         """Placeholder for PortfolioManager implementation."""
@@ -173,8 +185,17 @@ else:
 
 # Define SignalEvent if not available
 if not TYPE_CHECKING:
+    # Define missing base event classes first
+    class Event:
+        """Base class for all events in the backtesting engine."""
 
-    class SignalEvent(Event):
+    class MarketDataEvent:
+        """Event representing market data updates in the backtesting engine."""
+
+    class BacktestHistoricalDataProvider:
+        """Placeholder for BacktestHistoricalDataProvider if not defined."""
+
+    class SignalEvent(Event): # Now Event is defined
         """Signal event for trading signals."""
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
@@ -186,17 +207,7 @@ if not TYPE_CHECKING:
             """
             super().__init__(*args, **kwargs)
 
-    # Define missing event classes
-    class Event:
-        """Base class for all events in the backtesting engine."""
-
-    class MarketDataEvent:
-        """Event representing market data updates in the backtesting engine."""
-
-    class BacktestHistoricalDataProvider:
-        """Placeholder for BacktestHistoricalDataProvider if not defined."""
-
-    # SignalEvent is defined later in the file
+    # SignalEvent is defined later in the file (This comment might be obsolete now)
 
     class EventType(Enum):
         """Event types for the backtesting engine."""
@@ -415,49 +426,46 @@ class BacktestHistoricalDataProviderImpl:
 
         Returns:
         -------
-            The ATR value as a float, or None if not available
+            The ATR value as a float, or None if not available (always None as it's deprecated).
         """
-        MIN_BARS_FOR_ATR = 2  # noqa: N806
-        try:
-            if trading_pair not in self._data:
-                self.logger.warning("No data for trading pair: %s", trading_pair)
-                return None
-
-            df = self._data[trading_pair]
-
-            # If ATR column exists, use it directly
-            if "atr" in df.columns:
-                atr_series = df.loc[df.index <= timestamp, "atr"]
-                if not atr_series.empty:
-                    return float(atr_series.iloc[-1])
-
-            # Otherwise calculate simple ATR if possible
-            required_cols = {"high", "low", "close"}
-            if not required_cols.issubset(df.columns):
-                self.logger.warning("Missing required columns for ATR calculation")
-                return None
-
-            # Simple ATR calculation (not as accurate as TA-Lib)
-            df_slice = df[df.index <= timestamp].tail(period + 1)
-            if len(df_slice) < MIN_BARS_FOR_ATR:
-                return None
-
-            tr = pd.DataFrame()
-            tr["h-l"] = df_slice["high"] - df_slice["low"]
-            tr["h-pc"] = abs(df_slice["high"] - df_slice["close"].shift(1))
-            tr["l-pc"] = abs(df_slice["low"] - df_slice["close"].shift(1))
-            tr["tr"] = tr[["h-l", "h-pc", "l-pc"]].max(axis=1)
-
-            atr = tr["tr"].rolling(window=period).mean().iloc[-1]
-            return float(atr) if pd.notnull(atr) else None
-
-        except Exception:
-            self.logger.exception(
-                "Error calculating ATR for %s at %s",
-                trading_pair,
-                timestamp,
-            )
-            return None
+        # This method is now deprecated as ATR should be sourced from FeatureEngine.
+        self.logger.warning(
+            "BacktestHistoricalDataProviderImpl.get_atr() is deprecated. "
+            "ATR, along with other features, should be generated by FeatureEngine "
+            "and accessed from its published events. Returning None."
+        )
+        return None
+        # MIN_BARS_FOR_ATR = 2  # noqa: N806 # Old constant
+        # try: # Old logic commented out
+            # if trading_pair not in self._data:
+            #     self.logger.warning("No data for trading pair: %s", trading_pair)
+            #     return None
+            # df = self._data[trading_pair]
+            # if "atr" in df.columns:
+            #     atr_series = df.loc[df.index <= timestamp, "atr"]
+            #     if not atr_series.empty:
+            #         return float(atr_series.iloc[-1])
+            # required_cols = {"high", "low", "close"}
+            # if not required_cols.issubset(df.columns):
+            #     self.logger.warning("Missing required columns for ATR calculation")
+            #     return None
+            # df_slice = df[df.index <= timestamp].tail(period + 1)
+            # if len(df_slice) < MIN_BARS_FOR_ATR:
+            #     return None
+            # tr = pd.DataFrame()
+            # tr["h-l"] = df_slice["high"] - df_slice["low"]
+            # tr["h-pc"] = abs(df_slice["high"] - df_slice["close"].shift(1))
+            # tr["l-pc"] = abs(df_slice["low"] - df_slice["close"].shift(1))
+            # tr["tr"] = tr[["h-l", "h-pc", "l-pc"]].max(axis=1)
+            # atr = tr["tr"].rolling(window=period).mean().iloc[-1]
+            # return float(atr) if pd.notnull(atr) else None
+        # except Exception: # Keep general exception handling for unexpected issues, though less likely now
+            # self.logger.exception(
+                # "Unexpected error in deprecated get_atr for %s at %s",
+                # trading_pair,
+                # timestamp,
+            # )
+            # return None
 
     async def get_historical_ohlcv(
         self,
@@ -698,9 +706,9 @@ def _calculate_trade_statistics(trade_log: list[dict[str, Any]], results: dict) 
         avg_loss = results["average_loss"]
         if avg_loss != 0:
             results["avg_win_loss_ratio"] = float(str(abs(avg_win / avg_loss)))
-        else:
+        else: # Line 853
             results["avg_win_loss_ratio"] = float("inf")
-    else:
+    else: # This else corresponds to `if num_trades > 0:`
         # Default values if no trades occurred
         default_trade_stats = {
             "total_pnl": 0.0,
@@ -848,6 +856,7 @@ if TYPE_CHECKING:
         SimulatedMarketPriceService as _SimulatedMarketPriceService,
     )
     from gal_friday.strategy_arbitrator import StrategyArbitrator as _StrategyArbitrator
+from gal_friday.core.feature_registry_client import FeatureRegistryClient # Added import
 else:
     # Define dummy types for runtime
     class _LoggerService:
@@ -926,24 +935,151 @@ class BacktestingEngine:
         self._end_time: datetime | None = None
 
         # Initialize services with proper type annotations
-        self.pubsub_manager: _PubSubManager | None = None
-        self.logger_service: _LoggerService | None = None
+        self.pubsub_manager: PubSubManager | None = None # Use actual PubSubManager type
+        self.logger_service: LoggerService | None = None # Use actual LoggerService type
         self.historical_data_provider: _BacktestHistoricalDataProvider | None = None
         self.market_price_service: _MarketPriceService | None = None
         self.portfolio_manager: _PortfolioManager | None = None
         self.execution_handler: _ExecutionHandler | None = None
-        self.feature_engine: _FeatureEngine | None = None
+        self.feature_engine: FeatureEngine | None = None # Use actual FeatureEngine type
         self.prediction_service: _PredictionService | None = None
         self.risk_manager: _RiskManager | None = None
         self.strategy_arbitrator: _StrategyArbitrator | None = None
         self.exchange_info_service: _ExchangeInfoService | None = None
+        self.feature_registry_client: FeatureRegistryClient | None = None # Added attribute
 
         # Attribute to store the execution report handler for unsubscribing
         self._backtest_exec_report_handler: None | (
             Callable[..., Coroutine[Any, Any, None]]
         ) = None
 
+        # For capturing features from FeatureEngine
+        self.current_features: Optional[Dict[str, float]] = None
+        self.last_features_timestamp: Optional[str] = None
+
         log.info("BacktestingEngine initialized.")
+
+    async def _initialize_services(self) -> None:
+        """
+        Initializes core services required for the backtest simulation.
+
+        This method sets up:
+        - `FeatureRegistryClient`: Instantiated as `self.feature_registry_client`. This client
+          is used by the `FeatureEngine` and can be passed to other services like
+          `StrategyArbitrator` if they are part of the backtest setup.
+        - `PubSubManager`: Instantiated as `self.pubsub_manager`. This is the central event bus
+          for the backtest, used by `FeatureEngine` and any other participating services.
+        - `LoggerService`: Instantiated as `self.logger_service`. This provides consistent
+          logging capabilities for all components operating within the backtest.
+        - `FeatureEngine`: Instantiated as `self.feature_engine`. It's configured with the
+          application config (to handle feature activation and registry paths),
+          the shared `PubSubManager`, `LoggerService`, and `FeatureRegistryClient`.
+          It generates features based on market data and publishes them as `dict[str, float]`
+          payloads in `FeatureEvent`s.
+
+        The method ensures these core services are started. A backtest-specific event handler
+        (`_backtest_feature_event_handler`) is also subscribed to capture feature events
+        for potential internal logging or debugging within the `BacktestingEngine`.
+        """
+        self.logger.info("Initializing backtesting core services...")
+
+        self.feature_registry_client = FeatureRegistryClient()
+        self.logger.info("FeatureRegistryClient initialized for backtesting.")
+
+        # PubSubManager setup
+        # PubSubManager's __init__ expects a concrete ConfigManager, but self.config is ConfigManagerProtocol.
+        # This assumes that the passed self.config will be compatible.
+        # TODO: Consider making PubSubManager's config_manager param ConfigManagerProtocol or ensure type compatibility.
+        pubsub_logger = logging.getLogger(f"{__name__}.BacktestPubSub")
+        self.pubsub_manager = PubSubManager(logger=pubsub_logger, config_manager=self.config) # type: ignore[arg-type]
+        self.logger.info("PubSubManager initialized for backtesting.")
+
+        # LoggerService setup
+        self.logger_service = LoggerService(config_manager=self.config, pubsub_manager=self.pubsub_manager)
+        self.logger.info("LoggerService initialized for backtesting.")
+
+        # Prepare configuration dictionary for FeatureEngine
+        app_config_dict: dict = {}
+        if hasattr(self.config, 'get_all') and callable(self.config.get_all):
+            app_config_dict = self.config.get_all()
+        elif hasattr(self.config, '_config') and isinstance(self.config._config, dict):
+            app_config_dict = self.config._config
+            self.logger.info("Retrieved full config for FeatureEngine via _config attribute (fallback).")
+        else:
+            self.logger.warning(
+                "BacktestingEngine: Could not retrieve full application configuration dictionary for FeatureEngine. "
+                "FeatureEngine may receive a partial or empty config. Ensure ConfigManager provides get_all()."
+            )
+            # Attempt to provide at least the feature_engine section if possible
+            fe_config_section = self.config.get('feature_engine')
+            if isinstance(fe_config_section, dict):
+                app_config_dict['feature_engine'] = fe_config_section
+            # Add other sections if FeatureEngine needs them, e.g., logging for its own logger
+            log_config_section = self.config.get('logging')
+            if isinstance(log_config_section, dict):
+                app_config_dict['logging'] = log_config_section
+
+
+        if not app_config_dict: # If still empty after attempts
+             self.logger.error(
+                "FeatureEngine configuration dictionary is empty. FeatureEngine may not initialize or operate correctly."
+            )
+
+        # FeatureEngine setup
+        self.feature_engine = FeatureEngine(
+            config=app_config_dict,
+            pubsub_manager=self.pubsub_manager,
+            logger_service=self.logger_service, # Pass the full logger_service instance
+            historical_data_service=None
+        )
+        await self.feature_engine.start()
+
+        # Subscribe the backtest-specific handler to capture features
+        if self.pubsub_manager: # Ensure pubsub_manager was initialized
+            await self.pubsub_manager.subscribe(
+                EventType.FEATURES_CALCULATED, self._backtest_feature_event_handler # type: ignore
+            )
+        self.logger.info("FeatureEngine initialized and _backtest_feature_event_handler subscribed.")
+
+    async def _backtest_feature_event_handler(self, event_dict: Dict[str, Any]) -> None:
+        """
+        Handles FEATURES_CALCULATED events specifically for the BacktestingEngine's internal use.
+
+        This handler captures the latest features and their timestamp, making them available
+        on `self.current_features` and `self.last_features_timestamp`. This can be useful
+        for debugging the backtest itself or for internal assertions after a run.
+
+        This handler is NOT essential for the primary flow of features to downstream services
+        like PredictionService or StrategyArbitrator, as those services should subscribe
+        to feature events themselves via the shared PubSubManager.
+        """
+        # The event_dict is what PubSubManager delivers, which is the raw dict form of an Event.
+        # Assuming EventType.FEATURES_CALCULATED.name is the string representation.
+        if event_dict.get('event_type') == EventType.FEATURES_CALCULATED.name:
+            payload = event_dict.get('payload')
+            if payload and isinstance(payload, dict):
+                self.current_features = payload.get('features') # This is dict[str, float]
+                self.last_features_timestamp = payload.get('timestamp_features_for')
+                # self.logger.debug(
+                #     f"Backtest captured features for {self.last_features_timestamp}: "
+                #     f"{self.current_features is not None}"
+                # )
+            else:
+                self.logger.warning("FEATURES_CALCULATED event received with missing or invalid payload.")
+        else:
+            self.logger.debug(f"Backtest handler received non-feature event: {event_dict.get('event_type')}")
+
+
+    async def _stop_services(self) -> None:
+        """Stops any running services initiated by _initialize_services."""
+        self.logger.info("Stopping backtesting services (FeatureEngine, PubSub)...")
+        if self.feature_engine:
+            await self.feature_engine.stop()
+            self.logger.info("FeatureEngine stopped.")
+        if self.pubsub_manager and hasattr(self.pubsub_manager, 'stop_consuming'): # PubSubManager has stop_consuming
+            await self.pubsub_manager.stop_consuming()
+            self.logger.info("PubSubManager stopped.")
+        # Add other services to stop here if necessary
 
     def _get_backtest_config(self) -> dict[str, Any]:
         """Get backtest configuration from the config manager."""
@@ -971,15 +1107,23 @@ class BacktestingEngine:
                 return None
 
             # Assuming CSV format with 'pair' column for multiple pairs
-            df = pd.read_csv(path, parse_dates=["timestamp"])
-            if "pair" not in df.columns:
-                log.error("Data file must contain 'pair' column")
+            local_df = pd.read_csv(path, parse_dates=["timestamp"])
+
+            if not isinstance(local_df, pd.DataFrame):
+                log.error("pd.read_csv did not return a DataFrame for path %s. Got type: %s", data_path, type(local_df))
                 return None
 
-            return dict(df.groupby("pair"))
+            if "pair" not in local_df.columns:
+                log.error("Data file %s must contain 'pair' column", data_path)
+                return None
 
-        except Exception:
-            log.exception("Error loading data from %s", data_path)
+            grouped_data = local_df.groupby("pair")
+
+            import builtins as local_builtins
+            return local_builtins.dict(grouped_data)
+
+        except Exception as e: # More specific logging for the exception
+            log.exception("Error during data loading/processing in _load_raw_data (path: %s): %s", data_path, str(e))
             return None
 
     def _clean_and_validate_data(
@@ -1142,8 +1286,14 @@ class BacktestingEngine:
         """Execute the backtest simulation with proper time-series iteration.
 
         Args:
-            services: Dictionary of initialized services
-            run_config: Configuration for the backtest run
+            services: Dictionary of pre-initialized services (e.g., `PortfolioManager`,
+                      `ExecutionHandler`, `PredictionService`, `StrategyArbitrator`). These
+                      services should be instantiated with the shared `PubSubManager`,
+                      `LoggerService`, and `FeatureRegistryClient` (where applicable)
+                      created in `_initialize_services` to ensure they participate
+                      correctly in the backtesting event flow.
+            run_config: Configuration specific to this backtest run, typically from
+                      the 'backtest' section of the main application configuration.
         """
         log.info("Starting backtest simulation")
 
@@ -1164,24 +1314,33 @@ class BacktestingEngine:
         if not all([market_price_service, portfolio_manager, execution_handler]):
             raise ValueError("Required services not available for simulation")
 
-        # Start all services
+        # Initialize services (PubSub, FeatureEngine, etc.)
+        await self._initialize_services()
+
+        # Original service startup loop (ensure it doesn't re-init FE/PubSub if they are among `services`)
         for service_name, service in services.items():
+            # Avoid re-initializing services that _initialize_services is now responsible for
+            if service_name in ['feature_engine', 'pubsub_manager', 'logger_service'] and \
+               getattr(self, service_name, None) is not None:
+                log.info(f"Service {service_name} already initialized by BacktestingEngine. Skipping general start.")
+                continue
+
             if hasattr(service, "start") and callable(service.start):
                 try:
                     log.info("Starting service: %s", service_name)
                     if asyncio.iscoroutinefunction(service.start):
                         await service.start()
                     else:
-                        result = service.start()
-                        if asyncio.iscoroutine(result):
-                            await result
+                        service_start_result = service.start()
+                        if asyncio.iscoroutine(service_start_result):
+                            await service_start_result
                 except Exception:
                     log.exception("Error starting service %s", service_name)
                     raise
 
         try:
             # Get unified timeline from all trading pairs
-            all_timestamps = set()
+            all_timestamps = set() # type: ignore
             for pair in trading_pairs:
                 if pair in self._data:
                     pair_data = self._data[pair]
@@ -1270,80 +1429,82 @@ class BacktestingEngine:
             log.exception("Error during simulation")
             raise
         finally:
-            # Stop all services in reverse order
-            service_names = list(services)
-            for service_name in reversed(service_names):
-                service = services[service_name]
+            # Stop services initialized by BacktestingEngine first
+            await self._stop_services()
+
+            # Stop other services that were passed in
+            original_services_to_stop = {
+                name: svc for name, svc in services.items()
+                if name not in ['feature_engine', 'pubsub_manager', 'logger_service'] # Exclude already stopped
+            }
+            for service_name in reversed(list(original_services_to_stop.keys())):
+                service = original_services_to_stop[service_name]
                 if hasattr(service, "stop") and callable(service.stop):
                     try:
-                        log.info("Stopping %s...", service_name)
+                        log.info("Stopping original service: %s...", service_name)
                         if asyncio.iscoroutinefunction(service.stop):
                             await service.stop()
                         else:
-                            result = service.stop()
-                            if asyncio.iscoroutine(result):
-                                await result
+                            stop_result = service.stop()
+                            if asyncio.iscoroutine(stop_result):
+                                await stop_result
                     except Exception:
-                        log.exception("Error stopping %s", service_name)
+                        log.exception("Error stopping original service %s", service_name)
 
-            # Clean up process pool if it exists
-            if "prediction_service" in services:
-                prediction_service = services["prediction_service"]
-                has_pool = hasattr(prediction_service, "process_pool_executor")
-                if prediction_service is not None and has_pool:
-                    executor = getattr(prediction_service, "process_pool_executor", None)
-                    if executor is not None and hasattr(executor, "shutdown"):
-                        try:
-                            executor.shutdown(wait=True)
-                        except Exception:
-                            log.exception("Error shutting down process pool")
+            log.info("All services shut down.")
 
-            log.info("All services shut down")
 
     async def _process_market_data_for_timestamp(
         self,
         trading_pair: str,
         timestamp: datetime,
-        services: dict[str, Any],
+        services: dict[str, Any], # services dict is passed for context if needed
     ) -> None:
         """Process market data for a specific trading pair and timestamp.
+        This will involve creating a MarketDataOHLCVEvent and passing it to the FeatureEngine.
         
         Args:
-            trading_pair: The trading pair to process
-            timestamp: Current simulation timestamp
-            services: Dictionary of initialized services
+            trading_pair: The trading pair to process.
+            timestamp: Current simulation timestamp.
+            services: Dictionary of initialized services (used to access FeatureEngine).
         """
         try:
-            # Get bar data for this timestamp
             bar_data = self._get_bar_at_timestamp(trading_pair, timestamp)
             if bar_data is None:
-                return  # No data for this pair at this timestamp
+                # self.logger.debug(f"No bar data for {trading_pair} at {timestamp}")
+                return
 
-            # Create and publish market data event
-            from .core.events import MarketDataOHLCVEvent
+            # Create MarketDataOHLCVEvent dictionary payload
+            # Ensure bar_data["timestamp"] is used for timestamp_bar_start
+            # Values for OHLCV are expected as strings by MarketDataOHLCVEvent according to its definition
+            market_event_payload = {
+                "trading_pair": trading_pair,
+                "exchange": self.config.get("exchange_name", "simulated_exchange"),
+                "interval": self.config.get("ohlcv_interval", "1d"), # Make interval configurable or use a default
+                "timestamp_bar_start": bar_data["timestamp"].isoformat() + "Z", # Timestamp of the bar itself
+                "open": str(bar_data["open"]),
+                "high": str(bar_data["high"]),
+                "low": str(bar_data["low"]),
+                "close": str(bar_data["close"]),
+                "volume": str(bar_data["volume"]),
+            }
 
-            market_event = MarketDataOHLCVEvent(
-                source_module=self.__class__.__name__,
-                event_id=uuid.uuid4(),
-                timestamp=timestamp,
-                trading_pair=trading_pair,
-                exchange="simulated",  # Add required exchange field
-                interval="1d",  # Add required interval field
-                timestamp_bar_start=timestamp,  # Add required timestamp_bar_start field
-                open=str(bar_data.get("open", 0)),
-                high=str(bar_data.get("high", 0)),
-                low=str(bar_data.get("low", 0)),
-                close=str(bar_data.get("close", 0)),
-                volume=str(bar_data.get("volume", 0)),
-            )
+            market_event_dict = {
+                "event_id": str(uuid.uuid4()),
+                "event_type": EventType.MARKET_DATA_OHLCV.name,
+                "timestamp": datetime.utcnow().isoformat() + "Z", # Timestamp of event creation
+                "source_module": self.__class__.__name__,
+                "payload": market_event_payload,
+            }
 
-            # Send to feature engine if available
-            feature_engine = services.get("feature_engine")
-            if feature_engine and hasattr(feature_engine, "handle_market_data_event"):
-                await feature_engine.handle_market_data_event(market_event)
+            if self.feature_engine:
+                await self.feature_engine.process_market_data(market_event_dict)
+                # self.logger.debug(f"Sent market data for {trading_pair} at {timestamp} to FeatureEngine.")
+            else:
+                self.logger.warning("FeatureEngine not initialized. Cannot process market data for feature generation.")
 
         except Exception as e:
-            log.error(f"Error processing market data for {trading_pair} at {timestamp}: {e}")
+            self.logger.error(f"Error processing market data for {trading_pair} at {timestamp}: {e}", exc_info=True)
 
     def _get_bar_at_timestamp(self, trading_pair: str, timestamp: datetime) -> pd.Series | None:
         """Get OHLCV bar data for a specific trading pair and timestamp.
@@ -1372,3 +1533,5 @@ class BacktestingEngine:
         except Exception as e:
             log.error(f"Error getting bar data for {trading_pair} at {timestamp}: {e}")
             return None
+
+[end of gal_friday/backtesting_engine.py]
