@@ -33,10 +33,19 @@ from .core.feature_registry_client import FeatureRegistryClient
 # --- StrategyArbitrator Class ---
 class StrategyArbitrator:
     """
-    Consumes prediction events, applies trading strategy logic (including secondary
-    confirmation using features from the PredictionEvent), and produces proposed
-    trade signals. It can use FeatureRegistryClient for more advanced validation
-    of features named in confirmation rules.
+    Consumes prediction events from models, applies trading strategy logic, and
+    produces proposed trade signals.
+
+    The arbitrator supports configurable threshold-based strategies with secondary
+    confirmation rules. These rules can leverage features published by the
+    `FeatureEngine`. The `StrategyArbitrator` uses an injected `FeatureRegistryClient`
+    to validate that feature names specified in confirmation rules exist in the
+    Feature Registry during its configuration validation phase.
+
+    During live operation, it expects `PredictionEvent`s to carry the necessary
+    `triggering_features` (as a `dict[str, float]`) within their
+    `associated_features` payload, which are then used to evaluate the
+    confirmation rules.
     """
 
     def __init__(
@@ -45,6 +54,7 @@ class StrategyArbitrator:
         pubsub_manager: PubSubManager,
         logger_service: LoggerService,
         market_price_service: MarketPriceService,
+        feature_registry_client: FeatureRegistryClient, # Added parameter
     ) -> None:
         """Initialize the StrategyArbitrator.
 
@@ -62,12 +72,13 @@ class StrategyArbitrator:
             pubsub_manager (PubSubManager): For subscribing/publishing events.
             logger_service (LoggerService): The shared logger instance.
             market_price_service (MarketPriceService): Service to get market prices.
+            feature_registry_client (FeatureRegistryClient): Instance of the feature registry client.
         """
         self._config = config.get("strategy_arbitrator", {})
         self.pubsub = pubsub_manager
         self.logger = logger_service
         self.market_price_service = market_price_service
-        self.feature_registry_client = FeatureRegistryClient() # Initialize client
+        self.feature_registry_client = feature_registry_client # Use passed instance
         self._is_running = False
         self._main_task = None
         self._source_module = self.__class__.__name__
@@ -220,15 +231,58 @@ class StrategyArbitrator:
                 )
 
     def _validate_confirmation_rules_config(self) -> None:
-        """Validate the structure of confirmation rules."""
+        """
+        Validate the structure of confirmation rules and check if feature names
+        exist in the Feature Registry.
+        """
+        if not self.feature_registry_client or not self.feature_registry_client.is_loaded():
+            self.logger.warning(
+                "FeatureRegistryClient not available or not loaded. "
+                "Skipping feature name validation in confirmation rules for strategy '%s'.",
+                self._strategy_id,
+                source_module=self._source_module
+            )
+            # Perform only structural validation if registry is not available
+            for rule in self._confirmation_rules:
+                if not all(k in rule for k in ["feature", "condition", "threshold"]):
+                    self.logger.error(
+                        "Invalid confirmation rule structure for strategy '%s': %s",
+                        self._strategy_id, rule,
+                        source_module=self._source_module,
+                    )
+                    raise StrategyConfigurationError(f"Invalid confirmation rule structure for strategy {self._strategy_id}: {rule}")
+            return
+
         for rule in self._confirmation_rules:
             if not all(k in rule for k in ["feature", "condition", "threshold"]):
                 self.logger.error(
-                    "Invalid confirmation rule structure: %s",
-                    rule,
+                    "Invalid confirmation rule structure for strategy '%s': %s",
+                     self._strategy_id, rule,
                     source_module=self._source_module,
                 )
-                raise StrategyConfigurationError
+                raise StrategyConfigurationError(f"Invalid confirmation rule structure for strategy {self._strategy_id}: {rule}")
+
+            feature_name = rule.get("feature")
+            if feature_name: # feature_name is present in the rule structure
+                definition = self.feature_registry_client.get_feature_definition(str(feature_name))
+                if definition is None:
+                    self.logger.warning(
+                        "Confirmation rule for strategy '%s' references feature_key '%s' "
+                        "which is not found in the Feature Registry. This rule may be "
+                        "ineffective or cause errors during secondary confirmation.",
+                        self._strategy_id, feature_name,
+                        source_module=self._source_module
+                    )
+                else:
+                    self.logger.debug(
+                        "Confirmation rule feature '%s' for strategy '%s' validated against Feature Registry.",
+                        feature_name, self._strategy_id,
+                        source_module=self._source_module
+                    )
+            # If feature_name is None or empty, the structural check above would have already caught it
+            # if 'feature' was a required key with a non-empty value.
+            # The current structural check `all(k in rule for k in ["feature", ...])` ensures 'feature' key exists.
+            # An additional check for empty feature_name string might be useful if desired.
 
     def _validate_configuration(self) -> None:
         """Validate loaded strategy configuration by calling specific validators."""
@@ -528,7 +582,18 @@ class StrategyArbitrator:
     ) -> bool:
         """
         Validate a single confirmation rule against the provided features.
-        Features are expected to be a dictionary of float values.
+
+        Args:
+            rule: A dictionary defining the confirmation rule (feature, condition, threshold).
+            features: A dictionary of feature names to their float values, typically
+                      `triggering_features` from a `PredictionEvent`.
+            trading_pair: The trading pair for which the rule is being validated.
+            primary_side: The primary signal side ("BUY" or "SELL") being considered.
+
+        Returns:
+            True if the rule passes or is skipped (due to invalid structure or
+            unsupported condition), False if the rule condition is not met or an
+            error occurs during processing.
         """
         feature_name = rule.get("feature")
         condition_key = rule.get("condition")
@@ -611,7 +676,17 @@ class StrategyArbitrator:
     ) -> bool:
         """
         Check if secondary confirmation rules pass using features from the PredictionEvent.
-        Features are expected in `prediction_event.associated_features['triggering_features']`.
+
+        Args:
+            prediction_event: The `PredictionEvent` containing associated features.
+            primary_side: The primary signal side ("BUY" or "SELL") being considered.
+
+        Returns:
+            True if all confirmation rules pass or if no rules are defined.
+            False if any rule fails or if necessary features are missing.
+
+        Features are expected in `prediction_event.associated_features['triggering_features']`
+        as a `dict[str, float]`.
         """
         if not self._confirmation_rules:
             return True  # No rules defined, confirmation passes by default

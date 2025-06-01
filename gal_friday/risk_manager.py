@@ -342,17 +342,18 @@ class RiskManager:
     - Calculating appropriate position sizes based on risk per trade percentages.
     - Performing pre-trade checks like fat-finger validation and ensuring sufficient balance.
     - Optionally, dynamically adjusting `risk_per_trade_pct` based on market volatility.
-      This dynamic adjustment is driven by a configured volatility feature (e.g., ATR)
-      received from `FeatureEngine` via `FeatureEvent`s. A baseline "normal" volatility
-      is calibrated on startup using historical OHLCV data. See `_calibrate_normal_volatility`
+      This dynamic adjustment can be driven by a configured volatility feature (e.g., "atr_14_default")
+      received from `FeatureEngine` via `FeatureEvent`s (payload: `dict[str, float]`).
+      A baseline "normal" volatility for selected pairs is calibrated on startup using
+      historical OHLCV data from the `MarketPriceService`. See `_calibrate_normal_volatility`
       and `_update_risk_parameters_based_on_volatility`.
     - Monitoring for excessive consecutive losses and triggering system alerts or halts.
     - Publishing `TradeSignalApprovedEvent` or `TradeSignalRejectedEvent`.
     - Publishing `PotentialHaltTriggerEvent` if critical risk limits are breached.
 
-    It instantiates a `FeatureRegistryClient` to potentially query feature definitions,
-    though its direct use in current logic is minimal, it's available for future enhancements
-    (e.g., validating that configured feature keys exist in the registry).
+    It instantiates an internal `FeatureRegistryClient`. If dynamic risk adjustment
+    is enabled and a `dynamic_risk_volatility_feature_key` is specified in the
+    configuration, this key is validated against the Feature Registry during startup.
     """
 
     def __init__(  # - Multiple dependencies are required
@@ -378,9 +379,12 @@ class RiskManager:
             market_price_service: MarketPriceService instance for price and volatility data.
             exchange_info_service: ExchangeInfoService instance for exchange-specific details.
 
-        Initializes `FeatureRegistryClient`, loads specific risk configurations via
-        `_load_risk_config`, and sets up handlers for `TradeSignalProposedEvent`,
-        `ExecutionReportEvent`, and `FeatureEvent` (if dynamic risk is enabled).
+        Initializes an internal `FeatureRegistryClient`. Loads specific risk configurations
+        via `_load_risk_config`, which includes validating the
+        `dynamic_risk_volatility_feature_key` against the registry if dynamic risk
+        adjustment is enabled and the key is configured. Sets up handlers for
+        `TradeSignalProposedEvent`, `ExecutionReportEvent`, and `FeatureEvent`
+        (if dynamic risk adjustment based on features is enabled).
         """
         self._config = config.get("risk_manager", {}) # Service specific config
         self.pubsub = pubsub_manager
@@ -428,7 +432,10 @@ class RiskManager:
         the `dynamic_risk_volatility_feature_key` (which specifies the feature from
         FeatureEngine to monitor, e.g., "atr_14_default"), and
         `dynamic_risk_target_pairs` for applying these adjustments.
-        Logs warnings if dynamic adjustment is enabled but necessary keys are missing.
+        If dynamic risk adjustment is enabled and `dynamic_risk_volatility_feature_key`
+        is set, this method also validates the feature key against the Feature Registry.
+        Logs warnings if dynamic adjustment is enabled but necessary keys are missing
+        or if the specified feature key is not found in the registry.
         """
         limits = self._config.get("limits", {})
         self._max_total_drawdown_pct = Decimal(str(limits.get("max_total_drawdown_pct", 15.0)))
@@ -490,6 +497,31 @@ class RiskManager:
                 "Dynamic risk adjustment is enabled, but 'dynamic_risk_target_pairs' is empty. "
                 "Adjustments will not apply to any specific pair via FeatureEngine features."
             )
+
+        # Validate dynamic_risk_volatility_feature_key against Feature Registry
+        if self._enable_dynamic_risk_adjustment and self._dynamic_risk_volatility_feature_key:
+            if not self.feature_registry_client or not self.feature_registry_client.is_loaded():
+                self.logger.warning(
+                    "FeatureRegistryClient not available or not loaded. "
+                    "Cannot validate 'dynamic_risk_volatility_feature_key': '%s' against the registry.",
+                    self._dynamic_risk_volatility_feature_key,
+                    source_module=self._source_module
+                )
+            else:
+                definition = self.feature_registry_client.get_feature_definition(self._dynamic_risk_volatility_feature_key)
+                if definition is None:
+                    self.logger.warning(
+                        "The configured 'dynamic_risk_volatility_feature_key': '%s' was not found in the Feature Registry. "
+                        "Dynamic risk adjustment based on this feature may not work as expected.",
+                        self._dynamic_risk_volatility_feature_key,
+                        source_module=self._source_module
+                    )
+                else:
+                    self.logger.debug(
+                        "Dynamic risk volatility feature '%s' validated against Feature Registry.",
+                        self._dynamic_risk_volatility_feature_key,
+                        source_module=self._source_module
+                    )
 
         self.logger.info("RiskManager configured.", source_module=self._source_module)
         self._validate_config()
@@ -672,10 +704,15 @@ class RiskManager:
 
     async def _handle_feature_event(self, event_dict: Dict[str, Any]) -> None:
         """
-        Handles incoming `FeatureEvent`s to update latest volatility data.
-        If dynamic risk adjustment is enabled and the event is for a target pair
-        and contains the configured volatility feature, it updates the stored
-        volatility for that pair and triggers a risk parameter update.
+        Handles incoming `FeatureEvent`s (payload expected as `dict[str, float]`)
+        to update latest volatility data for dynamic risk adjustment.
+
+        If dynamic risk adjustment is enabled, this method checks if the received
+        feature event corresponds to one of the `_dynamic_risk_target_pairs` and
+        if the event payload contains the `_dynamic_risk_volatility_feature_key`.
+        If so, it extracts the float value of this feature, stores it in
+        `_latest_volatility_features`, and then calls
+        `_update_risk_parameters_based_on_volatility` for the specific trading pair.
         """
         if not self._is_running or not self._enable_dynamic_risk_adjustment or \
            not self._dynamic_risk_volatility_feature_key:
@@ -1269,15 +1306,22 @@ class RiskManager:
         # current_volatility: Decimal, # No longer a direct arg
     ) -> None:
         """
-        Dynamically adjusts `_risk_per_trade_pct` based on the latest volatility feature
-        value received for the `trading_pair` (from `self._latest_volatility_features`).
+        Dynamically adjusts `_risk_per_trade_pct` for a given `trading_pair`.
 
-        Compares the current feature-based volatility against a pre-calibrated "normal"
-        volatility (from `self._normal_volatility`, typically based on historical daily
-        log return standard deviation).
-        - If current volatility is significantly higher, risk per trade is reduced.
-        - If current volatility is significantly lower, risk per trade is increased (up to the static config max).
-        - Otherwise, it reverts to the statically configured risk per trade.
+        This method uses the latest live volatility feature value for the `trading_pair`
+        (cached in `self._latest_volatility_features` by `_handle_feature_event`) and
+        compares it against a pre-calibrated "normal" volatility for that pair
+        (from `self._normal_volatility`, typically based on historical daily log return
+        standard deviation).
+
+        - If current volatility is significantly higher than normal, `_risk_per_trade_pct` is reduced.
+        - If current volatility is significantly lower than normal, `_risk_per_trade_pct` is
+          increased (capped at the original statically configured maximum).
+        - Otherwise (volatility is within a normal band), `_risk_per_trade_pct` is
+          reverted to its static configured value.
+
+        This adjustment is only performed if `self._enable_dynamic_risk_adjustment` is true
+        and the necessary volatility data (both live and normal) is available.
         """
         if not self._enable_dynamic_risk_adjustment:
             return

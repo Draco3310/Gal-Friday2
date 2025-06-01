@@ -1,12 +1,13 @@
 """Base repository pattern for data access using SQLAlchemy."""
 
 from datetime import datetime, timezone
-from typing import Any, Generic, TypeVar, Sequence
+from typing import Any, Generic, TypeVar, Sequence, TYPE_CHECKING
 
 from sqlalchemy import select, delete as sqlalchemy_delete, asc, desc
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from gal_friday.logger_service import LoggerService
+if TYPE_CHECKING:
+    from gal_friday.logger_service import LoggerService
 from gal_friday.dal.models import Base # Assuming Base is your declarative_base from models
 
 
@@ -21,7 +22,7 @@ class BaseRepository(Generic[T]):
         self,
         session_maker: async_sessionmaker[AsyncSession],
         model_class: type[T],
-        logger: LoggerService,
+        logger: 'LoggerService', # Use string literal for forward reference
     ) -> None:
         """Initialize base repository.
 

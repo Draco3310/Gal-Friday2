@@ -1,0 +1,69 @@
+app_name: GalFridayTestBacktestFeatureFlow
+backtest:
+  data_path: /app/tests/integration/test_temp_output/historical_data.csv
+  end_date: '2023-01-01T00:04:00Z'
+  initial_capital: 10000.0
+  ohlcv_interval: 1min
+  output_dir: /app/tests/integration/test_temp_output/backtest_results
+  start_date: '2023-01-01T00:00:00Z'
+  trading_pairs:
+  - BTC/USD
+exchange_info_service:
+  exchange_name: simulated_test_exchange
+  trading_pairs_config:
+    BTC/USD:
+      maker_fee_pct: 0.001
+      min_quantity: 1.0e-05
+      price_precision: 2
+      quantity_precision: 6
+      taker_fee_pct: 0.002
+exchange_name: simulated_test_exchange
+feature_engine:
+  active_feature_rules:
+  - active: true
+    feature_key: rsi_14_default
+  - active: true
+    feature_key: macd_default
+  feature_registry_path: /app/tests/integration/test_temp_output/feature_registry.yaml
+  output_ohlcv_path: /app/tests/integration/test_temp_output/feature_engine_ohlcv_output.parquet
+  output_trades_path: /app/tests/integration/test_temp_output/feature_engine_trades_output.parquet
+logging:
+  disable_existing_loggers: false
+  formatters:
+    simple:
+      format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  handlers:
+    console:
+      class: logging.StreamHandler
+      formatter: simple
+      level: DEBUG
+  loggers:
+    gal_friday:
+      handlers:
+      - console
+      level: DEBUG
+      propagate: false
+  root:
+    handlers:
+    - console
+    level: INFO
+  version: 1
+prediction_service:
+  model_paths:
+    mock_model_v1: dummy_path
+strategy_arbitrator:
+  strategies:
+  - buy_threshold: 0.7
+    confirmation_rules:
+    - condition: lt
+      feature: rsi_14_default
+      threshold: 70
+    - condition: gt
+      feature: macd_default_MACD_12_26_9
+      threshold: -10
+    entry_type: MARKET
+    id: test_strategy_rsi_confirm
+    prediction_interpretation: prob_up
+    sell_threshold: 0.3
+    sl_pct: 0.01
+    tp_pct: 0.02

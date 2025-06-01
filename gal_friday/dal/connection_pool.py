@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -13,13 +13,14 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from gal_friday.config_manager import ConfigManager
-from gal_friday.logger_service import LoggerService
+if TYPE_CHECKING:
+    from gal_friday.logger_service import LoggerService
 
 
 class DatabaseConnectionPool:
     """Manages SQLAlchemy database engine and sessions."""
 
-    def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
+    def __init__(self, config: ConfigManager, logger: 'LoggerService') -> None:
         """Initialize the connection pool manager.
 
         Args:
