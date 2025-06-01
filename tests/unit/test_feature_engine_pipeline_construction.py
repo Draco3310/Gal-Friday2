@@ -1,15 +1,13 @@
 """Unit tests for FeatureEngine._build_feature_pipelines."""
 
-import pytest
 from unittest.mock import MagicMock
-import pandas as pd # Required for PandasScalerTransformer if it uses pd.Series/DataFrame
 
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer, StandardScaler, MinMaxScaler, RobustScaler
+import pytest
 from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, RobustScaler, StandardScaler
 
 from gal_friday.feature_engine import FeatureEngine, InternalFeatureSpec, PandasScalerTransformer
-from gal_friday.interfaces.feature_engine_interface import FeatureCategory # Assuming direct import works
 
 # --- Mocks and Helpers ---
 
@@ -24,13 +22,13 @@ def mock_pubsub_manager():
 def create_feature_engine_with_config(
     feature_config: dict,
     logger: MagicMock,
-    pubsub_manager: MagicMock
+    pubsub_manager: MagicMock,
 ) -> FeatureEngine:
     """Helper to instantiate FeatureEngine with a specific feature configuration."""
     base_config = {
         "exchange_name": "test_exchange",
         "feature_engine": {"trade_history_maxlen": 100},
-        "features": feature_config
+        "features": feature_config,
     }
     engine = FeatureEngine(config=base_config, pubsub_manager=pubsub_manager, logger_service=logger)
     return engine
@@ -47,21 +45,21 @@ def test_build_rsi_pipeline_custom_config(mock_logger, mock_pubsub_manager):
             "category": "TECHNICAL",
             "parameters": {"period": 14},
             "imputation": {"strategy": "constant", "fill_value": 50.0},
-            "scaling": {"method": "minmax", "feature_range": (0, 1)}
-        }
+            "scaling": {"method": "minmax", "feature_range": (0, 1)},
+        },
     }
     engine = create_feature_engine_with_config(rsi_config, mock_logger, mock_pubsub_manager)
 
     pipeline_name = f"{feature_key}_pipeline"
     assert pipeline_name in engine.feature_pipelines
     pipeline_info = engine.feature_pipelines[pipeline_name]
-    pipeline = pipeline_info['pipeline']
-    spec = pipeline_info['spec']
+    pipeline = pipeline_info["pipeline"]
+    spec = pipeline_info["spec"]
 
     assert isinstance(pipeline, Pipeline)
     assert isinstance(spec, InternalFeatureSpec)
     assert spec.key == feature_key
-    assert spec.parameters['period'] == 14
+    assert spec.parameters["period"] == 14
 
     # Expected steps: input_imputer, rsi_calculator, reshape_before_impute, output_imputer, reshape_after_impute, output_scaler
     # Check number of steps (can be fragile if reshape steps are conditional)
@@ -78,15 +76,15 @@ def test_build_rsi_pipeline_custom_config(mock_logger, mock_pubsub_manager):
 
     assert pipeline.steps[0][0] == f"{feature_key}_input_imputer" # Name based on spec.key
     assert isinstance(pipeline.steps[0][1], SimpleImputer)
-    assert pipeline.steps[0][1].strategy == 'mean' # Default for input
+    assert pipeline.steps[0][1].strategy == "mean" # Default for input
 
     assert pipeline.steps[1][0] == f"{feature_key}_calculator"
     assert isinstance(pipeline.steps[1][1], FunctionTransformer)
-    assert pipeline.steps[1][1].kw_args == {'period': 14}
+    assert pipeline.steps[1][1].kw_args == {"period": 14}
 
-    assert pipeline.steps[3][0] == f'{feature_key}_output_imputer_const_50.0' # Name from helper
+    assert pipeline.steps[3][0] == f"{feature_key}_output_imputer_const_50.0" # Name from helper
     assert isinstance(pipeline.steps[3][1], SimpleImputer) # If using SimpleImputer path
-    assert pipeline.steps[3][1].strategy == 'constant'
+    assert pipeline.steps[3][1].strategy == "constant"
     assert pipeline.steps[3][1].fill_value == 50.0
 
     assert pipeline.steps[5][0] == f"{feature_key}_output_scaler_MinMaxScaler" # Name from helper
@@ -102,13 +100,13 @@ def test_build_rsi_pipeline_default_processing(mock_logger, mock_pubsub_manager)
             "calculator_type": "rsi", "input_type": "close_series",
             "parameters": {"period": 20},
             "imputation": None, # Trigger default output imputation (fillna 50)
-            "scaling": None     # Trigger default output scaling (StandardScaler)
-        }
+            "scaling": None,     # Trigger default output scaling (StandardScaler)
+        },
     }
     engine = create_feature_engine_with_config(rsi_config, mock_logger, mock_pubsub_manager)
     pipeline_name = f"{feature_key}_pipeline"
     assert pipeline_name in engine.feature_pipelines
-    pipeline = engine.feature_pipelines[pipeline_name]['pipeline']
+    pipeline = engine.feature_pipelines[pipeline_name]["pipeline"]
 
     # Expected: input_imputer, calculator, output_fillna_50_transformer, output_scaler (Standard)
     assert pipeline.steps[2][0] == f"{feature_key}_output_fillna" # Default fillna for rsi
@@ -126,13 +124,13 @@ def test_build_pipeline_passthrough_processing(mock_logger, mock_pubsub_manager)
             "calculator_type": "rsi", "input_type": "close_series",
             "parameters": {"period": 7},
             "imputation": "passthrough",
-            "scaling": "passthrough"
-        }
+            "scaling": "passthrough",
+        },
     }
     engine = create_feature_engine_with_config(rsi_config, mock_logger, mock_pubsub_manager)
     pipeline_name = f"{feature_key}_pipeline"
     assert pipeline_name in engine.feature_pipelines
-    pipeline = engine.feature_pipelines[pipeline_name]['pipeline']
+    pipeline = engine.feature_pipelines[pipeline_name]["pipeline"]
     # Expected: input_imputer, calculator ONLY
     assert len(pipeline.steps) == 2
     assert pipeline.steps[0][0] == f"{feature_key}_input_imputer"
@@ -146,15 +144,15 @@ def test_build_macd_pipeline(mock_logger, mock_pubsub_manager):
             "calculator_type": "macd", "input_type": "close_series",
             "parameters": {"fast": 10, "slow": 20, "signal": 5},
             "imputation": {"strategy": "constant", "fill_value": 0.1}, # For DataFrame
-            "scaling": {"method": "robust"}
-        }
+            "scaling": {"method": "robust"},
+        },
     }
     engine = create_feature_engine_with_config(macd_config, mock_logger, mock_pubsub_manager)
     pipeline_name = f"{feature_key}_pipeline"
     assert pipeline_name in engine.feature_pipelines
-    pipeline = engine.feature_pipelines[pipeline_name]['pipeline']
+    pipeline = engine.feature_pipelines[pipeline_name]["pipeline"]
 
-    assert pipeline.steps[1][1].kw_args == {'fast': 10, 'slow': 20, 'signal': 5}
+    assert pipeline.steps[1][1].kw_args == {"fast": 10, "slow": 20, "signal": 5}
     assert pipeline.steps[2][0] == f"{feature_key}_output_imputer_const_0.1" # DataFrame fillna
     assert isinstance(pipeline.steps[3][1].scaler, RobustScaler)
 
@@ -167,13 +165,13 @@ def test_build_l2_spread_pipeline(mock_logger, mock_pubsub_manager):
             "calculator_type": "l2_spread", "input_type": "l2_book_series",
             # No specific calc params for spread
             "imputation": None, # Default: df.fillna(df.mean())
-            "scaling": "passthrough"
-        }
+            "scaling": "passthrough",
+        },
     }
     engine = create_feature_engine_with_config(l2_config, mock_logger, mock_pubsub_manager)
     pipeline_name = f"{feature_key}_pipeline"
     assert pipeline_name in engine.feature_pipelines
-    pipeline = engine.feature_pipelines[pipeline_name]['pipeline']
+    pipeline = engine.feature_pipelines[pipeline_name]["pipeline"]
 
     # Expected: calculator, output_imputer (df.fillna(df.mean()))
     assert len(pipeline.steps) == 2
@@ -188,14 +186,14 @@ def test_build_volume_delta_pipeline(mock_logger, mock_pubsub_manager):
             "calculator_type": "volume_delta", "input_type": "trades_and_bar_starts",
             "parameters": {"bar_interval_seconds": 120},
             "imputation": {"strategy": "constant", "fill_value": -1.0},
-            "scaling": {"method": "standard"}
-        }
+            "scaling": {"method": "standard"},
+        },
     }
     engine = create_feature_engine_with_config(vd_config, mock_logger, mock_pubsub_manager)
     pipeline_name = f"{feature_key}_pipeline"
     assert pipeline_name in engine.feature_pipelines
-    pipeline = engine.feature_pipelines[pipeline_name]['pipeline']
-    spec = engine.feature_pipelines[pipeline_name]['spec']
+    pipeline = engine.feature_pipelines[pipeline_name]["pipeline"]
+    spec = engine.feature_pipelines[pipeline_name]["spec"]
 
     assert spec.input_type == "trades_and_bar_starts"
     # Expected: calculator, output_imputer, output_scaler
@@ -213,14 +211,14 @@ def test_missing_critical_parameter(mock_logger, mock_pubsub_manager):
         feature_key: {
             "calculator_type": "rsi", "input_type": "close_series",
             # "parameters": {"period": 10}, # Period is missing
-        }
+        },
     }
     engine = create_feature_engine_with_config(rsi_config, mock_logger, mock_pubsub_manager)
     # Default period is 14 for rsi, so it should still build.
     # _build_feature_pipelines logs a debug message if default is used.
     pipeline_name = f"{feature_key}_pipeline"
     assert pipeline_name in engine.feature_pipelines
-    assert engine.feature_pipelines[pipeline_name]['pipeline'].steps[1][1].kw_args['period'] == 14
+    assert engine.feature_pipelines[pipeline_name]["pipeline"].steps[1][1].kw_args["period"] == 14
     # Check if logger was called with a debug message (or warning if we change it)
     # This requires more advanced mock inspection, e.g. mock_logger.debug.assert_any_call(...)
     # For now, we confirm default is applied.
@@ -230,8 +228,8 @@ def test_missing_critical_parameter(mock_logger, mock_pubsub_manager):
     custom_config = {
          feature_key_bad: {
             "calculator_type": "non_existent_type_for_this_test", # Will cause calc_func to be None
-            "input_type": "close_series"
-        }
+            "input_type": "close_series",
+        },
     }
     engine_bad = create_feature_engine_with_config(custom_config, mock_logger, mock_pubsub_manager)
     assert f"{feature_key_bad}_pipeline" not in engine_bad.feature_pipelines

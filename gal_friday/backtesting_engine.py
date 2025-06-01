@@ -16,19 +16,16 @@ in the event-driven simulation.
 from __future__ import annotations
 
 import asyncio
-import builtins # Import builtins
 import json
 import logging
 import uuid
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Generic,
     Protocol,
     TypeVar,
 )
@@ -59,8 +56,9 @@ if TYPE_CHECKING:
     # Import core types
 
     # Import implementation types
-    from gal_friday.feature_engine import FeatureEngine # Actual FeatureEngine
-    from gal_friday.logger_service import LoggerService # Actual LoggerService
+    from gal_friday.core.feature_registry_client import FeatureRegistryClient  # Added import
+    from gal_friday.feature_engine import FeatureEngine  # Actual FeatureEngine
+    from gal_friday.logger_service import LoggerService  # Actual LoggerService
     from gal_friday.portfolio_manager import PortfolioManager as _PortfolioManager
     from gal_friday.prediction_service import PredictionService as _PredictionService
     from gal_friday.risk_manager import RiskManager as _RiskManager
@@ -70,10 +68,10 @@ if TYPE_CHECKING:
     from gal_friday.strategy_arbitrator import StrategyArbitrator as _StrategyArbitrator
 
     # Define type aliases that use the implementation types
-    LoggerServiceType = _LoggerService
+    LoggerServiceType = LoggerService
     SimulatedMarketPriceServiceType = _SimulatedMarketPriceService
     PortfolioManagerType = _PortfolioManager
-    FeatureEngineType = _FeatureEngine
+    FeatureEngineType = FeatureEngine
     PredictionServiceType = _PredictionService
     RiskManagerType = _RiskManager
     StrategyArbitratorType = _StrategyArbitrator
@@ -92,11 +90,10 @@ else:
 
         ProtocolType = TypingProtocol
 
-    from collections.abc import Awaitable, Callable, Coroutine
+    from collections.abc import Callable, Coroutine
     from typing import (
         TYPE_CHECKING,
         Any,
-        Generic,
         TypeVar,
     )
 
@@ -108,180 +105,70 @@ AsyncFunction = TypeVar("AsyncFunction", bound=Callable[..., Coroutine[Any, Any,
 # Type aliases
 if TYPE_CHECKING:
     from .core.events import Event, EventType
-    from .core.events import MarketDataOHLCVEvent as MarketDataEvent
+    from .core.feature_registry_client import FeatureRegistryClient
 
-    # Type aliases for backtesting
-    BacktestHistoricalDataProvider = "BacktestHistoricalDataProviderImpl"
-    PubSubManager = "PubSubManager"
-    ExchangeInfoService = "ExchangeInfoService"
-    LoggerService = "LoggerService[Any]"
-    MarketPriceService = "MarketPriceService"
-    PortfolioManager = "PortfolioManager"
-    ExecutionHandler = "ExecutionHandler"
-    FeatureEngine = "FeatureEngine"
-    PredictionService = "PredictionService"
-    RiskManager = "RiskManager"
-    StrategyArbitrator = "StrategyArbitrator"
-    SimulatedMarketPriceService = "SimulatedMarketPriceService"
+# Runtime imports - Import service implementations
+try:
+    from gal_friday.feature_engine import FeatureEngine
+except ImportError:
+    logging.getLogger(__name__).warning("Failed to import FeatureEngine")
+    FeatureEngine = None  # type: ignore[assignment,misc]
 
-# Runtime imports
-# Import service implementations with type checking only
-if TYPE_CHECKING:
-    from gal_friday.feature_engine import FeatureEngine as FeatureEngineImpl
-    from gal_friday.logger_service import LoggerService as LoggerServiceImpl
-    from gal_friday.portfolio_manager import PortfolioManager as PortfolioManagerImpl
-    from gal_friday.prediction_service import PredictionService as PredictionServiceImpl
-    from gal_friday.risk_manager import RiskManager as RiskManagerImpl
+try:
+    from gal_friday.logger_service import LoggerService
+except ImportError:
+    logging.getLogger(__name__).warning("Failed to import LoggerService")
+    LoggerService = None  # type: ignore[assignment,misc]
+
+try:
+    from gal_friday.portfolio_manager import PortfolioManager
+except ImportError:
+    logging.getLogger(__name__).warning("Failed to import PortfolioManager")
+    PortfolioManager = None  # type: ignore[assignment,misc]
+
+try:
+    from gal_friday.prediction_service import PredictionService
+except ImportError:
+    logging.getLogger(__name__).warning("Failed to import PredictionService")
+    PredictionService = None  # type: ignore[assignment,misc]
+
+try:
+    from gal_friday.risk_manager import RiskManager
+except ImportError:
+    logging.getLogger(__name__).warning("Failed to import RiskManager")
+    RiskManager = None  # type: ignore[assignment,misc]
+
+try:
     from gal_friday.simulated_execution_handler import (
-        SimulatedExecutionHandler as SimulatedExecutionHandlerImpl,
+        SimulatedExecutionHandler as ExecutionHandler,
     )
-    from gal_friday.simulated_market_price_service import (
-        SimulatedMarketPriceService as SimulatedMarketPriceServiceImpl,
-    )
-    from gal_friday.strategy_arbitrator import StrategyArbitrator as StrategyArbitratorImpl
+except ImportError:
+    logging.getLogger(__name__).warning("Failed to import SimulatedExecutionHandler")
+    ExecutionHandler = None  # type: ignore[assignment,misc]
 
-    from .config_manager import ConfigManager as ConfigManagerImpl
-    from .core.events import Event, EventType, MarketDataOHLCVEvent # Import MarketDataOHLCVEvent
-    from .core.feature_models import PublishedFeaturesV1 # For type hint if needed later
-    from .core.pubsub import PubSubManager # Actual PubSubManager
-else:
-    # Define placeholder classes for runtime
-    class BacktestHistoricalDataProviderImpl:
-        """Placeholder for BacktestHistoricalDataProvider implementation."""
+try:
+    from gal_friday.simulated_market_price_service import SimulatedMarketPriceService
+except ImportError:
+    logging.getLogger(__name__).warning("Failed to import SimulatedMarketPriceService")
+    SimulatedMarketPriceService = None  # type: ignore[assignment,misc]
 
-    class ConfigManagerImpl:
-        """Placeholder for ConfigManager implementation."""
+try:
+    from gal_friday.strategy_arbitrator import StrategyArbitrator
+except ImportError:
+    logging.getLogger(__name__).warning("Failed to import StrategyArbitrator")
+    StrategyArbitrator = None  # type: ignore[assignment,misc]
 
-    class ExchangeInfoServiceImpl:
-        """Placeholder for ExchangeInfoService implementation."""
+try:
+    from .config_manager import ConfigManager
+except ImportError:
+    logging.getLogger(__name__).warning("Failed to import ConfigManager")
+    ConfigManager = None  # type: ignore[assignment,misc]
 
-    class FeatureEngine: # Use actual name for placeholder if FeatureEngineImpl was specific
-        """Placeholder for FeatureEngine implementation."""
-
-    class LoggerService: # Use actual name
-        """Placeholder for LoggerService implementation."""
-
-    class PubSubManager: # Add placeholder for PubSubManager
-        """Placeholder for PubSubManager."""
-
-    class PortfolioManagerImpl:
-        """Placeholder for PortfolioManager implementation."""
-
-    class PredictionServiceImpl:
-        """Placeholder for PredictionService implementation."""
-
-    class RiskManagerImpl:
-        """Placeholder for RiskManager implementation."""
-
-    class SimulatedExecutionHandlerImpl:
-        """Placeholder for SimulatedExecutionHandler implementation."""
-
-    class SimulatedMarketPriceServiceImpl:
-        """Placeholder for SimulatedMarketPriceService implementation."""
-
-    class StrategyArbitratorImpl:
-        """Placeholder for StrategyArbitrator implementation."""
-
-
-# Define SignalEvent if not available
-if not TYPE_CHECKING:
-    # Define missing base event classes first
-    class Event:
-        """Base class for all events in the backtesting engine."""
-
-    class MarketDataEvent:
-        """Event representing market data updates in the backtesting engine."""
-
-    class BacktestHistoricalDataProvider:
-        """Placeholder for BacktestHistoricalDataProvider if not defined."""
-
-    class SignalEvent(Event): # Now Event is defined
-        """Signal event for trading signals."""
-
-        def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
-            """Initialize SignalEvent with any arguments.
-
-            Args:
-                *args: Variable length argument list.
-                **kwargs: Arbitrary keyword arguments.
-            """
-            super().__init__(*args, **kwargs)
-
-    # SignalEvent is defined later in the file (This comment might be obsolete now)
-
-    class EventType(Enum):
-        """Event types for the backtesting engine."""
-
-        MARKET_DATA = "market_data"
-        SIGNAL = "signal"
-
-
-if TYPE_CHECKING:
-    from typing import Protocol as TypingProtocol
-else:
-    try:
-        from typing_extensions import Protocol as TypingProtocol  # type: ignore
-    except ImportError:
-        from typing import Protocol as TypingProtocol  # type: ignore
-
-# Alias for Protocol to avoid conflicts
-Protocol = TypingProtocol
-
-# Type variable for generic types
-T = TypeVar("T")
-KT = TypeVar("KT")  # Key type
-VT = TypeVar("VT")  # Value type
-T_co = TypeVar("T_co", covariant=True)  # Covariant type variable
-V_co = TypeVar("V_co", covariant=True)  # Covariant type variable
-
-# Type aliases
-ConfigType = dict[str, Any]
-Timestamp = datetime | float | int | str
-Number = int | float | Decimal
-Price = Decimal | float | int
-Quantity = Decimal | float | int
-Symbol = str
-ExchangeID = str
-OrderID = str
-TradeID = str
-PositionID = str
-AccountID = str
-StrategyID = str
-ModelID = str
-FeatureName = str
-FeatureValue = Number | str | bool | None
-FeatureVector = dict[FeatureName, FeatureValue]
-FeatureMatrix = list[FeatureVector]
-Timeframe = str
-OrderSide = str  # 'buy' or 'sell'
-OrderType = str  # 'market', 'limit', 'stop', etc.
-OrderStatus = str  # 'new', 'filled', 'canceled', etc.
-TradeDirection = str  # 'long' or 'short'
-ExchangeName = str
-
-# Re-export commonly used types from typing module
-DictStrAny = dict[str, Any]
-ListStr = list[str]
-DictStrNum = dict[str, Number]
-DictStrStr = dict[str, str]
-ListDictStrAny = list[dict[str, Any]]
-CallableT = TypeVar("CallableT", bound=Callable[..., Any])
-
-# Generic function type for event handlers
-EventHandler = Callable[[Event], Awaitable[None]]
-ErrorHandler = Callable[[Exception], Awaitable[None]]
-
-# Type for progress callback
-ProgressCallback = Callable[[float, str], None]
-
-
-class LoggerAdapterType(logging.LoggerAdapter, Generic[T]):
-    """A generic logger adapter that adds type information to log messages.
-
-    This adapter extends logging.LoggerAdapter to work with generic types,
-    allowing for type-safe logging with additional context.
-    """
-
+try:
+    from .core.pubsub import PubSubManager
+except ImportError:
+    logging.getLogger(__name__).warning("Failed to import PubSubManager")
+    PubSubManager = None  # type: ignore[assignment,misc]
 
 # Import TA-Lib for technical indicators
 try:
@@ -432,10 +319,10 @@ class BacktestHistoricalDataProviderImpl:
         self.logger.warning(
             "BacktestHistoricalDataProviderImpl.get_atr() is deprecated. "
             "ATR, along with other features, should be generated by FeatureEngine "
-            "and accessed from its published events. Returning None."
+            "and accessed from its published events. Returning None.",
         )
         return None
-        # MIN_BARS_FOR_ATR = 2  # noqa: N806 # Old constant
+        # MIN_BARS_FOR_ATR = 2  # Old constant
         # try: # Old logic commented out
             # if trading_pair not in self._data:
             #     self.logger.warning("No data for trading pair: %s", trading_pair)
@@ -785,19 +672,13 @@ def calculate_performance_metrics(
 
 
 class ConfigManagerProtocol(Protocol):
-    """Protocol defining the required interface for config manager."""
+    """Protocol for configuration management in backtesting."""
 
     def get(self, key: str, default: ConfigValue = None) -> ConfigValue:
-        """Get a configuration value by key.
+        """Get a configuration value by key."""
 
-        Args:
-            key: The configuration key to retrieve.
-            default: Default value to return if key is not found.
-
-        Returns:
-        -------
-            The configuration value or default if key not found.
-        """
+    def get_int(self, key: str, default: int = 0) -> int:
+        """Get an integer configuration value by key."""
 
     def __getitem__(self, key: str) -> ConfigValue:
         """Get a configuration value by key using dictionary-style access.
@@ -856,7 +737,6 @@ if TYPE_CHECKING:
         SimulatedMarketPriceService as _SimulatedMarketPriceService,
     )
     from gal_friday.strategy_arbitrator import StrategyArbitrator as _StrategyArbitrator
-from gal_friday.core.feature_registry_client import FeatureRegistryClient # Added import
 else:
     # Define dummy types for runtime
     class _LoggerService:
@@ -954,96 +834,66 @@ class BacktestingEngine:
         ) = None
 
         # For capturing features from FeatureEngine
-        self.current_features: Optional[Dict[str, float]] = None
-        self.last_features_timestamp: Optional[str] = None
+        self.current_features: dict[str, float] | None = None
+        self.last_features_timestamp: str | None = None
 
         log.info("BacktestingEngine initialized.")
 
     async def _initialize_services(self) -> None:
+        """Initializes minimal services needed by BacktestingEngine for proper backtesting.
+
+        - PubSubManager: For event-based communication between services.
+        - LoggerService: A shared logging service if not already available.
+        - FeatureEngine: Calculates features from market data and publishes them to PubSub.
+
+        These services are made available as instance attributes (e.g., self.pubsub_manager,
+        self.logger_service, self.feature_engine) for the BacktestingEngine to coordinate
+        the backtest's event flow.
         """
-        Initializes core services required for the backtest simulation.
+        self.logger.info("Initializing BacktestingEngine services...")
 
-        This method sets up:
-        - `FeatureRegistryClient`: Instantiated as `self.feature_registry_client`. This client
-          is used by the `FeatureEngine` and can be passed to other services like
-          `StrategyArbitrator` if they are part of the backtest setup.
-        - `PubSubManager`: Instantiated as `self.pubsub_manager`. This is the central event bus
-          for the backtest, used by `FeatureEngine` and any other participating services.
-        - `LoggerService`: Instantiated as `self.logger_service`. This provides consistent
-          logging capabilities for all components operating within the backtest.
-        - `FeatureEngine`: Instantiated as `self.feature_engine`. It's configured with the
-          application config (to handle feature activation and registry paths),
-          the shared `PubSubManager`, `LoggerService`, and `FeatureRegistryClient`.
-          It generates features based on market data and publishes them as `dict[str, float]`
-          payloads in `FeatureEvent`s.
-
-        The method ensures these core services are started. A backtest-specific event handler
-        (`_backtest_feature_event_handler`) is also subscribed to capture feature events
-        for potential internal logging or debugging within the `BacktestingEngine`.
-        """
-        self.logger.info("Initializing backtesting core services...")
-
-        self.feature_registry_client = FeatureRegistryClient()
-        self.logger.info("FeatureRegistryClient initialized for backtesting.")
-
-        # PubSubManager setup
-        # PubSubManager's __init__ expects a concrete ConfigManager, but self.config is ConfigManagerProtocol.
-        # This assumes that the passed self.config will be compatible.
-        # TODO: Consider making PubSubManager's config_manager param ConfigManagerProtocol or ensure type compatibility.
-        pubsub_logger = logging.getLogger(f"{__name__}.BacktestPubSub")
-        self.pubsub_manager = PubSubManager(logger=pubsub_logger, config_manager=self.config) # type: ignore[arg-type]
-        self.logger.info("PubSubManager initialized for backtesting.")
-
-        # LoggerService setup
-        self.logger_service = LoggerService(config_manager=self.config, pubsub_manager=self.pubsub_manager)
-        self.logger.info("LoggerService initialized for backtesting.")
-
-        # Prepare configuration dictionary for FeatureEngine
-        app_config_dict: dict = {}
-        if hasattr(self.config, 'get_all') and callable(self.config.get_all):
-            app_config_dict = self.config.get_all()
-        elif hasattr(self.config, '_config') and isinstance(self.config._config, dict):
-            app_config_dict = self.config._config
-            self.logger.info("Retrieved full config for FeatureEngine via _config attribute (fallback).")
+        # --- 1. PubSubManager ---
+        if PubSubManager is not None:
+            # Create a minimal logger for PubSubManager if self.logger isn't suitable
+            pubsub_logger = logging.getLogger("gal_friday.backtesting.pubsub")
+            self.pubsub_manager = PubSubManager(
+                config=self.config if hasattr(self.config, "get") else {}, # type: ignore
+                logger_service=pubsub_logger, # type: ignore # Pass a basic logger
+            )
+            # If PubSubManager has async start, call it
+            if hasattr(self.pubsub_manager, "start") and asyncio.iscoroutinefunction(self.pubsub_manager.start):
+                await self.pubsub_manager.start()
+            self.logger.info("PubSubManager initialized for backtesting.")
         else:
-            self.logger.warning(
-                "BacktestingEngine: Could not retrieve full application configuration dictionary for FeatureEngine. "
-                "FeatureEngine may receive a partial or empty config. Ensure ConfigManager provides get_all()."
+            self.logger.warning("PubSubManager class not available. Event-based features disabled.")
+
+        # --- 2. LoggerService ---
+        if LoggerService is not None and self.logger_service is None:
+            # Create LoggerService without database support for backtesting
+            self.logger_service = LoggerService(
+                config_manager=self.config, # type: ignore
+                pubsub_manager=self.pubsub_manager, # type: ignore
+                db_session_maker=None, # No database support for backtesting
             )
-            # Attempt to provide at least the feature_engine section if possible
-            fe_config_section = self.config.get('feature_engine')
-            if isinstance(fe_config_section, dict):
-                app_config_dict['feature_engine'] = fe_config_section
-            # Add other sections if FeatureEngine needs them, e.g., logging for its own logger
-            log_config_section = self.config.get('logging')
-            if isinstance(log_config_section, dict):
-                app_config_dict['logging'] = log_config_section
+            self.logger.info("LoggerService initialized for backtesting (no DB support).")
+        elif self.logger_service:
+            self.logger.info("Using existing LoggerService instance.")
 
+        # --- 3. FeatureEngine ---
+        # Create feature_engine if not provided externally
+        # Note: FeatureEngine doesn't use FeatureRegistryClient - it loads features from YAML directly
 
-        if not app_config_dict: # If still empty after attempts
-             self.logger.error(
-                "FeatureEngine configuration dictionary is empty. FeatureEngine may not initialize or operate correctly."
-            )
-
-        # FeatureEngine setup
         self.feature_engine = FeatureEngine(
-            config=app_config_dict,
+            config=self.config.get_all() if hasattr(self.config, "get_all") else {},
             pubsub_manager=self.pubsub_manager,
-            logger_service=self.logger_service, # Pass the full logger_service instance
-            historical_data_service=None
+            logger_service=self.logger_service,
+            historical_data_service=None,
         )
         await self.feature_engine.start()
-
-        # Subscribe the backtest-specific handler to capture features
-        if self.pubsub_manager: # Ensure pubsub_manager was initialized
-            await self.pubsub_manager.subscribe(
-                EventType.FEATURES_CALCULATED, self._backtest_feature_event_handler # type: ignore
-            )
         self.logger.info("FeatureEngine initialized and _backtest_feature_event_handler subscribed.")
 
-    async def _backtest_feature_event_handler(self, event_dict: Dict[str, Any]) -> None:
-        """
-        Handles FEATURES_CALCULATED events specifically for the BacktestingEngine's internal use.
+    async def _backtest_feature_event_handler(self, event_dict: dict[str, Any]) -> None:
+        """Handles FEATURES_CALCULATED events specifically for the BacktestingEngine's internal use.
 
         This handler captures the latest features and their timestamp, making them available
         on `self.current_features` and `self.last_features_timestamp`. This can be useful
@@ -1055,11 +905,11 @@ class BacktestingEngine:
         """
         # The event_dict is what PubSubManager delivers, which is the raw dict form of an Event.
         # Assuming EventType.FEATURES_CALCULATED.name is the string representation.
-        if event_dict.get('event_type') == EventType.FEATURES_CALCULATED.name:
-            payload = event_dict.get('payload')
+        if event_dict.get("event_type") == EventType.FEATURES_CALCULATED.name:
+            payload = event_dict.get("payload")
             if payload and isinstance(payload, dict):
-                self.current_features = payload.get('features') # This is dict[str, float]
-                self.last_features_timestamp = payload.get('timestamp_features_for')
+                self.current_features = payload.get("features") # This is dict[str, float]
+                self.last_features_timestamp = payload.get("timestamp_features_for")
                 # self.logger.debug(
                 #     f"Backtest captured features for {self.last_features_timestamp}: "
                 #     f"{self.current_features is not None}"
@@ -1076,7 +926,7 @@ class BacktestingEngine:
         if self.feature_engine:
             await self.feature_engine.stop()
             self.logger.info("FeatureEngine stopped.")
-        if self.pubsub_manager and hasattr(self.pubsub_manager, 'stop_consuming'): # PubSubManager has stop_consuming
+        if self.pubsub_manager and hasattr(self.pubsub_manager, "stop_consuming"): # PubSubManager has stop_consuming
             await self.pubsub_manager.stop_consuming()
             self.logger.info("PubSubManager stopped.")
         # Add other services to stop here if necessary
@@ -1320,7 +1170,7 @@ class BacktestingEngine:
         # Original service startup loop (ensure it doesn't re-init FE/PubSub if they are among `services`)
         for service_name, service in services.items():
             # Avoid re-initializing services that _initialize_services is now responsible for
-            if service_name in ['feature_engine', 'pubsub_manager', 'logger_service'] and \
+            if service_name in ["feature_engine", "pubsub_manager", "logger_service"] and \
                getattr(self, service_name, None) is not None:
                 log.info(f"Service {service_name} already initialized by BacktestingEngine. Skipping general start.")
                 continue
@@ -1435,7 +1285,7 @@ class BacktestingEngine:
             # Stop other services that were passed in
             original_services_to_stop = {
                 name: svc for name, svc in services.items()
-                if name not in ['feature_engine', 'pubsub_manager', 'logger_service'] # Exclude already stopped
+                if name not in ["feature_engine", "pubsub_manager", "logger_service"] # Exclude already stopped
             }
             for service_name in reversed(list(original_services_to_stop.keys())):
                 service = original_services_to_stop[service_name]
@@ -1533,5 +1383,3 @@ class BacktestingEngine:
         except Exception as e:
             log.error(f"Error getting bar data for {trading_pair} at {timestamp}: {e}")
             return None
-
-[end of gal_friday/backtesting_engine.py]

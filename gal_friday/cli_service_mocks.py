@@ -5,9 +5,10 @@ when not in type checking mode. These mocks allow the module to run without
 requiring all dependencies to be installed.
 """
 
-from typing import Any
-from rich import print as rich_print
 import builtins
+from typing import Any
+
+from rich import print as rich_print
 
 
 class Console:

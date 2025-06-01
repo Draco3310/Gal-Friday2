@@ -81,7 +81,7 @@ class XGBoostPredictor(PredictorInterface):
         # Load Scaler
         self.scaler = None # Scaler is no longer loaded or used by this predictor.
         self.logger.info(
-            "Scaler attribute is set to None. Features are expected to be pre-scaled."
+            "Scaler attribute is set to None. Features are expected to be pre-scaled.",
         )
         # if self.scaler_path: # Removed scaler loading logic
         # else:
@@ -337,7 +337,7 @@ class XGBoostPredictor(PredictorInterface):
             logger.debug("Using pre-scaled feature vector directly (after reshape).")
 
             # 4. Make prediction if no errors so far
-            if processed_features is not None: # Error condition for ndim already handled
+            if processed_features is not None and model is not None: # Error condition for ndim already handled
                 prediction_result = cls._make_prediction(
                     model=model,
                     features=processed_features,
@@ -352,7 +352,10 @@ class XGBoostPredictor(PredictorInterface):
                     # If no error, return the prediction result directly
                     return prediction_result
             elif not result["error"]:
-                result["error"] = "Failed to process features"
+                if model is None:
+                    result["error"] = "Model failed to load"
+                else:
+                    result["error"] = "Failed to process features"
 
         except Exception as e:
             error_msg = f"Unexpected error during inference: {e!s}"

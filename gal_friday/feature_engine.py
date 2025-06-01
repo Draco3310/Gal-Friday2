@@ -34,36 +34,39 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict, deque
+from dataclasses import dataclass, field  # Added for InternalFeatureSpec
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum  # Added for _LocalFeatureCategory
+from pathlib import Path  # Added for feature registry
 from typing import TYPE_CHECKING, Any
-from dataclasses import dataclass, field # Added for InternalFeatureSpec
-from pathlib import Path # Added for feature registry
-import yaml # Added for feature registry
 
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
-from sklearn.base import clone # For cloning pipelines to modify params at runtime
+import yaml  # Added for feature registry
+from sklearn.base import clone  # For cloning pipelines to modify params at runtime
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, StandardScaler, RobustScaler
+from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, RobustScaler, StandardScaler
 
 from gal_friday.core.events import EventType
-from gal_friday.core.feature_models import PublishedFeaturesV1 # Added for Pydantic model
+from gal_friday.core.feature_models import PublishedFeaturesV1  # Added for Pydantic model
+
 # Attempt to import FeatureCategory, handle potential circularity if it arises
 try:
     from gal_friday.interfaces.feature_engine_interface import FeatureCategory
 except ImportError:
-    # Simplified local definition if import fails (e.g. circular dependency)
-    from enum import Enum
-    class FeatureCategory(Enum):
+    # Define local fallback enum
+    class _LocalFeatureCategory(Enum):
         TECHNICAL = "TECHNICAL"
         L2_ORDER_BOOK = "L2_ORDER_BOOK"
         TRADE_DATA = "TRADE_DATA"
         SENTIMENT = "SENTIMENT"
         CUSTOM = "CUSTOM"
         UNKNOWN = "UNKNOWN"
+
+    FeatureCategory = _LocalFeatureCategory  # type: ignore[assignment,misc]
 
 
 if TYPE_CHECKING:
@@ -92,9 +95,51 @@ class InternalFeatureSpec:
 
 DEFAULT_FEATURE_REGISTRY_PATH = Path("config/feature_registry.yaml")
 
-class FeatureEngine:
+class PandasScalerTransformer:
+    """A wrapper around sklearn scalers that preserves pandas Series/DataFrame structure.
+    
+    This transformer wraps any sklearn scaler (StandardScaler, MinMaxScaler, etc.)
+    and ensures that the output maintains the same pandas structure as the input,
+    including column names and index.
     """
-    Orchestrates feature calculation based on market data and configurations.
+
+    def __init__(self, scaler: Any) -> None:
+        """Initialize with an sklearn scaler instance."""
+        self.scaler = scaler
+        self._feature_names: Any = None
+        self._index: Any = None
+
+    def fit(self, X: Any, y: Any = None) -> PandasScalerTransformer:
+        """Fit the scaler and store structure information."""
+        if isinstance(X, pd.DataFrame):
+            self._feature_names = X.columns
+            self._index = X.index
+            self.scaler.fit(X.values)
+        elif isinstance(X, pd.Series):
+            self._feature_names = X.name
+            self._index = X.index
+            self.scaler.fit(X.values.reshape(-1, 1))
+        else:
+            self.scaler.fit(X)
+        return self
+
+    def transform(self, X: Any) -> Any:
+        """Transform the data and restore pandas structure."""
+        if isinstance(X, pd.DataFrame):
+            transformed = self.scaler.transform(X.values)
+            return pd.DataFrame(transformed, columns=self._feature_names or X.columns, index=X.index)
+        if isinstance(X, pd.Series):
+            transformed = self.scaler.transform(X.values.reshape(-1, 1))
+            return pd.Series(transformed.flatten(), name=self._feature_names or X.name, index=X.index)
+        return self.scaler.transform(X)
+
+    def fit_transform(self, X: Any, y: Any = None) -> Any:
+        """Fit and transform in one step."""
+        self.fit(X, y)
+        return self.transform(X)
+
+class FeatureEngine:
+    """Orchestrates feature calculation based on market data and configurations.
 
     The FeatureEngine loads canonical feature definitions from a YAML Feature Registry
     (path defined by `DEFAULT_FEATURE_REGISTRY_PATH`). It then uses the application-level
@@ -266,8 +311,7 @@ class FeatureEngine:
 
 
     def _extract_feature_configs(self) -> None:
-        """
-        Initializes `self._feature_configs` by loading feature definitions.
+        """Initializes `self._feature_configs` by loading feature definitions.
 
         This method orchestrates the loading of features by:
         1.  Calling `_load_feature_registry` to fetch all canonical feature definitions
@@ -296,8 +340,9 @@ class FeatureEngine:
         Warnings are logged for issues like missing registry keys, malformed configurations,
         or if no features are ultimately parsed and activated.
         """
-        # raw_features_config = self.config.get("features", {}) # Old logic
-        # parsed_specs: dict[str, InternalFeatureSpec] = {} # Old logic
+        # Initialize variables properly
+        raw_features_config = self.config.get("feature_engine", {}).get("features", {})
+        parsed_specs: dict[str, InternalFeatureSpec] = {}
 
         if not isinstance(raw_features_config, dict):
             self.logger.warning(
@@ -329,11 +374,11 @@ class FeatureEngine:
                     parameters[common_param_key] = raw_cfg_dict[common_param_key]
 
 
-            imputation_cfg = raw_cfg_dict.get('imputation')
-            scaling_cfg = raw_cfg_dict.get('scaling')
-            description = raw_cfg_dict.get('description', f"{calculator_type} feature based on {key}")
+            imputation_cfg = raw_cfg_dict.get("imputation")
+            scaling_cfg = raw_cfg_dict.get("scaling")
+            description = raw_cfg_dict.get("description", f"{calculator_type} feature based on {key}")
 
-            category_str = raw_cfg_dict.get('category', 'TECHNICAL').upper()
+            category_str = raw_cfg_dict.get("category", "TECHNICAL").upper()
             try:
                 category = FeatureCategory[category_str]
             except KeyError:
@@ -342,7 +387,7 @@ class FeatureEngine:
                     category_str, key, source_module=self._source_module)
                 category = FeatureCategory.TECHNICAL
 
-            spec = InternalFeatureSpec(
+            spec_val = InternalFeatureSpec(
                 key=key,
                 calculator_type=calculator_type,
                 input_type=input_type,
@@ -352,7 +397,7 @@ class FeatureEngine:
                 scaling=scaling_cfg,
                 description=description,
             )
-            parsed_specs[key] = spec
+            parsed_specs[key] = spec_val
 
         # self._feature_configs = parsed_specs # Old logic replaced by new registry-based logic below
 
@@ -375,9 +420,9 @@ class FeatureEngine:
                     self.logger.warning("Registry definition for '%s' is not a dictionary. Skipping.", key)
                     continue
 
-                spec = self._parse_single_feature_definition(key, feature_def_from_registry.copy())
-                if spec:
-                    final_parsed_specs[key] = spec
+                spec_result = self._parse_single_feature_definition(key, feature_def_from_registry.copy())
+                if spec_result is not None:
+                    final_parsed_specs[key] = spec_result
 
         elif isinstance(app_feature_config, dict): # Case 2: Dict of feature names with overrides or ad-hoc
             for key, overrides_or_activation in app_feature_config.items():
@@ -386,7 +431,7 @@ class FeatureEngine:
                     continue
 
                 base_config = registry_definitions.get(key)
-                final_config_dict = {}
+                final_config_dict: dict[str, Any] = {}
 
                 if base_config: # Key found in registry, apply overrides
                     if not isinstance(base_config, dict):
@@ -397,13 +442,13 @@ class FeatureEngine:
                     self.logger.info("Feature '%s' not found in registry, treating as ad-hoc definition from app config.", key)
                     final_config_dict = overrides_or_activation.copy()
                     # Ad-hoc definitions must provide all necessary fields like calculator_type, input_type
-                    if 'calculator_type' not in final_config_dict or 'input_type' not in final_config_dict:
+                    if "calculator_type" not in final_config_dict or "input_type" not in final_config_dict:
                         self.logger.warning("Ad-hoc feature '%s' missing 'calculator_type' or 'input_type'. Skipping.", key)
                         continue
 
-                spec = self._parse_single_feature_definition(key, final_config_dict)
-                if spec:
-                    final_parsed_specs[key] = spec
+                spec_result = self._parse_single_feature_definition(key, final_config_dict)
+                if spec_result is not None:
+                    final_parsed_specs[key] = spec_result
 
         else:
             self.logger.warning("App-level 'features' config is neither a list nor a dict. No features will be configured based on it.")
@@ -438,8 +483,7 @@ class FeatureEngine:
         return merged
 
     def _parse_single_feature_definition(self, feature_key: str, config_dict: dict) -> InternalFeatureSpec | None:
-        """
-        Parses a single, consolidated feature configuration dictionary into an
+        """Parses a single, consolidated feature configuration dictionary into an
         `InternalFeatureSpec` data object.
 
         This method is responsible for taking the final configuration dictionary for a
@@ -469,7 +513,6 @@ class FeatureEngine:
             fields like `calculator_type` and `input_type` can be determined.
             Returns `None` if critical information is missing, with errors logged.
         """
-
         # calculator_type and input_type can be inferred if not explicit (legacy/ad-hoc)
         # For registry-defined features, these should ideally be explicit.
         calculator_type = config_dict.get("calculator_type", config_dict.get("type"))
@@ -484,7 +527,7 @@ class FeatureEngine:
             if not calculator_type or not input_type:
                 self.logger.warning(
                     "Could not determine calculator_type or input_type for feature '%s' even after inference. Skipping.",
-                    feature_key
+                    feature_key,
                 )
                 return None
 
@@ -497,13 +540,13 @@ class FeatureEngine:
             if common_param_key in config_dict and common_param_key not in parameters:
                 parameters[common_param_key] = config_dict[common_param_key]
 
-        imputation_cfg = config_dict.get('imputation')
-        scaling_cfg = config_dict.get('scaling')
-        description = config_dict.get('description', f"{calculator_type} feature based on {feature_key}")
-        version = config_dict.get('version')
-        output_properties = config_dict.get('output_properties', {})
+        imputation_cfg = config_dict.get("imputation")
+        scaling_cfg = config_dict.get("scaling")
+        description = config_dict.get("description", f"{calculator_type} feature based on {feature_key}")
+        version = config_dict.get("version")
+        output_properties = config_dict.get("output_properties", {})
 
-        category_str = str(config_dict.get('category', 'TECHNICAL')).upper() # Ensure string before upper()
+        category_str = str(config_dict.get("category", "TECHNICAL")).upper() # Ensure string before upper()
         try:
             category = FeatureCategory[category_str]
         except KeyError:
@@ -530,8 +573,7 @@ class FeatureEngine:
 
 
     def _load_feature_registry(self, registry_path: Path) -> dict[str, Any]:
-        """
-        Loads feature definitions from the specified YAML feature registry file.
+        """Loads feature definitions from the specified YAML feature registry file.
 
         Args:
             registry_path: `Path` object pointing to the YAML feature registry file.
@@ -547,7 +589,7 @@ class FeatureEngine:
             return {}
 
         try:
-            with registry_path.open('r') as f:
+            with registry_path.open("r") as f:
                 registry_data = yaml.safe_load(f)
         except yaml.YAMLError as e:
             self.logger.exception(f"Error parsing YAML in feature registry {registry_path}: {e}")
@@ -564,8 +606,7 @@ class FeatureEngine:
         return registry_data
 
     def _build_feature_pipelines(self) -> None:
-        """
-        Constructs Scikit-learn pipelines for each feature defined in `self._feature_configs`.
+        """Constructs Scikit-learn pipelines for each feature defined in `self._feature_configs`.
 
         For each `InternalFeatureSpec`:
         1.  An input imputer might be added (e.g., for 'close_series' inputs).
@@ -590,21 +631,20 @@ class FeatureEngine:
                                     default_fill_value: float = 0.0,
                                     is_dataframe_output: bool = False,
                                     spec_key: str = "") -> tuple[str, FunctionTransformer] | None:
-            """
-            Creates a Scikit-learn compatible imputation step based on configuration.
+            """Creates a Scikit-learn compatible imputation step based on configuration.
             Handles Series and DataFrame outputs from feature calculators.
             """
-            if imputation_cfg == 'passthrough':
+            if imputation_cfg == "passthrough":
                 self.logger.debug("Imputation set to 'passthrough' for %s.", spec_key)
                 return None
 
-            strategy = 'default' # Internal default if cfg is None or invalid
+            strategy = "default" # Internal default if cfg is None or invalid
             fill_value = default_fill_value
 
             if isinstance(imputation_cfg, dict):
-                strategy = imputation_cfg.get('strategy', 'constant')
-                if strategy == 'constant':
-                    fill_value = imputation_cfg.get('fill_value', default_fill_value)
+                strategy = imputation_cfg.get("strategy", "constant")
+                if strategy == "constant":
+                    fill_value = imputation_cfg.get("fill_value", default_fill_value)
             elif imputation_cfg is None: # Use provided default_fill_value directly
                  pass # strategy remains 'default' -> use default_fill_value
             else: # Invalid config, treat as passthrough or log warning
@@ -612,61 +652,60 @@ class FeatureEngine:
                 return None
 
             step_name_suffix = ""
-            transform_func = None
+            transform_func: Callable[[Any], Any] | None = None
 
-            if strategy == 'constant':
-                step_name_suffix = f'const_{fill_value}'
+            if strategy == "constant":
+                step_name_suffix = f"const_{fill_value}"
                 transform_func = lambda x: x.fillna(fill_value)
-            elif strategy == 'mean':
-                step_name_suffix = 'mean'
+            elif strategy == "mean":
+                step_name_suffix = "mean"
                 transform_func = lambda x: x.fillna(x.mean())
-            elif strategy == 'median':
-                step_name_suffix = 'median'
+            elif strategy == "median":
+                step_name_suffix = "median"
                 transform_func = lambda x: x.fillna(x.median())
-            elif strategy == 'default': # Use the passed default_fill_value
-                step_name_suffix = f'default_fill_{default_fill_value}'
+            elif strategy == "default": # Use the passed default_fill_value
+                step_name_suffix = f"default_fill_{default_fill_value}"
                 transform_func = lambda x: x.fillna(default_fill_value)
             else: # Should not be reached if checks are exhaustive
                 self.logger.warning("Unknown imputation strategy '%s' for %s. No imputer added.", strategy, spec_key)
                 return None
 
-            self.logger.debug("Using output imputer strategy '%s' (fill: %s) for %s", strategy if strategy != 'default' else f'default_fill({default_fill_value})', fill_value if strategy == 'constant' else 'N/A', spec_key)
-            return (f'{spec_key}_output_imputer_{step_name_suffix}', FunctionTransformer(transform_func, validate=False))
+            self.logger.debug("Using output imputer strategy '%s' (fill: %s) for %s", strategy if strategy != "default" else f"default_fill({default_fill_value})", fill_value if strategy == "constant" else "N/A", spec_key)
+            return (f"{spec_key}_output_imputer_{step_name_suffix}", FunctionTransformer(transform_func, validate=False))
 
 
         # Helper for output scaler step
         def get_output_scaler_step(scaling_cfg: dict[str, Any] | str | None,
                                    spec_key: str = "") -> tuple[str, PandasScalerTransformer] | None:
-            """
-            Creates a Scikit-learn compatible scaling step based on the feature's `scaling` configuration.
+            """Creates a Scikit-learn compatible scaling step based on the feature's `scaling` configuration.
             This step is managed by the FeatureEngine to make features ready for consumption,
             potentially by models that expect scaled data.
             Uses PandasScalerTransformer to preserve pandas Series/DataFrame structure.
             """
-            if scaling_cfg == 'passthrough' or scaling_cfg is None:
-                if scaling_cfg == 'passthrough': self.logger.debug("Scaling set to 'passthrough' for %s.", spec_key)
+            if scaling_cfg == "passthrough" or scaling_cfg is None:
+                if scaling_cfg == "passthrough": self.logger.debug("Scaling set to 'passthrough' for %s.", spec_key)
                 else: self.logger.debug("No scaling configured or default 'None' for %s.", spec_key)
                 return None
 
-            scaler_instance = StandardScaler() # Default scaler
+            scaler_instance: StandardScaler | MinMaxScaler | RobustScaler = StandardScaler() # Default scaler
             scaler_name_suffix = "StandardScaler"
 
             if isinstance(scaling_cfg, dict):
-                method = scaling_cfg.get('method', 'standard')
-                if method == 'minmax':
-                    scaler_instance = MinMaxScaler(feature_range=scaling_cfg.get('feature_range', (0,1)))
+                method = scaling_cfg.get("method", "standard")
+                if method == "minmax":
+                    scaler_instance = MinMaxScaler(feature_range=scaling_cfg.get("feature_range", (0,1)))
                     scaler_name_suffix = f"MinMaxScaler_{scaler_instance.feature_range}"
-                elif method == 'robust':
-                    scaler_instance = RobustScaler(quantile_range=scaling_cfg.get('quantile_range', (25.0, 75.0)))
+                elif method == "robust":
+                    scaler_instance = RobustScaler(quantile_range=scaling_cfg.get("quantile_range", (25.0, 75.0)))
                     scaler_name_suffix = f"RobustScaler_{scaler_instance.quantile_range}"
-                elif method != 'standard':
+                elif method != "standard":
                     self.logger.warning("Unknown scaling method '%s' for %s. Using StandardScaler.", method, spec_key)
-            elif isinstance(scaling_cfg, str) and scaling_cfg not in ['standard', 'passthrough']: # e.g. just "minmax"
+            elif isinstance(scaling_cfg, str) and scaling_cfg not in ["standard", "passthrough"]: # e.g. just "minmax"
                  self.logger.warning("Simple string for scaling method '%s' for %s is ambiguous. Use dict config or 'passthrough'. Defaulting to StandardScaler.", scaling_cfg, spec_key)
 
 
             self.logger.debug("Using %s for scaling for %s", type(scaler_instance).__name__, spec_key)
-            return (f'{spec_key}_output_scaler_{scaler_name_suffix}', PandasScalerTransformer(scaler_instance))
+            return (f"{spec_key}_output_scaler_{scaler_name_suffix}", PandasScalerTransformer(scaler_instance))
 
 
         for feature_key, spec in self._feature_configs.items(): # Now iterates over InternalFeatureSpec
@@ -674,10 +713,10 @@ class FeatureEngine:
             pipeline_name = f"{spec.key}_pipeline" # Use spec.key for consistency
 
             # Input imputer for features that take a single series like 'close'
-            if spec.input_type == 'close_series':
+            if spec.input_type == "close_series":
                 # TODO: Make input imputer strategy configurable if needed from global or feature spec
                 self.logger.debug("Adding standard input imputer (mean) for %s", spec.key)
-                pipeline_steps.append((f'{spec.key}_input_imputer', SimpleImputer(strategy='mean')))
+                pipeline_steps.append((f"{spec.key}_input_imputer", SimpleImputer(strategy="mean")))
 
             # Calculator step based on spec.calculator_type
             calculator_func = getattr(FeatureEngine, f"_pipeline_compute_{spec.calculator_type}", None)
@@ -691,30 +730,30 @@ class FeatureEngine:
 
             if spec.calculator_type in ["rsi", "roc", "stdev"]:
                 default_period = 14 if spec.calculator_type == "rsi" else 10 if spec.calculator_type == "roc" else 20
-                calc_kw_args['period'] = spec.parameters.get('period', default_period)
-                if spec.parameters.get('period') is None: self.logger.debug("Using default period %s for %s ('%s')", calc_kw_args['period'], spec.calculator_type, spec.key)
+                calc_kw_args["period"] = spec.parameters.get("period", default_period)
+                if spec.parameters.get("period") is None: self.logger.debug("Using default period %s for %s ('%s')", calc_kw_args["period"], spec.calculator_type, spec.key)
 
             elif spec.calculator_type == "macd":
-                calc_kw_args['fast'] = spec.parameters.get('fast', 12)
-                calc_kw_args['slow'] = spec.parameters.get('slow', 26)
-                calc_kw_args['signal'] = spec.parameters.get('signal', 9)
-                if any(p not in spec.parameters for p in ['fast', 'slow', 'signal']):
-                    self.logger.debug("Using default MACD params (f:%s,s:%s,sig:%s) for %s", calc_kw_args['fast'], calc_kw_args['slow'], calc_kw_args['signal'], spec.key)
+                calc_kw_args["fast"] = spec.parameters.get("fast", 12)
+                calc_kw_args["slow"] = spec.parameters.get("slow", 26)
+                calc_kw_args["signal"] = spec.parameters.get("signal", 9)
+                if any(p not in spec.parameters for p in ["fast", "slow", "signal"]):
+                    self.logger.debug("Using default MACD params (f:%s,s:%s,sig:%s) for %s", calc_kw_args["fast"], calc_kw_args["slow"], calc_kw_args["signal"], spec.key)
 
             elif spec.calculator_type == "bbands":
-                calc_kw_args['length'] = spec.parameters.get('length', 20)
-                calc_kw_args['std_dev'] = float(spec.parameters.get('std_dev', 2.0))
-                if 'length' not in spec.parameters or 'std_dev' not in spec.parameters:
-                     self.logger.debug("Using default BBands params (l:%s,s:%.1f) for %s", calc_kw_args['length'], calc_kw_args['std_dev'], spec.key)
+                calc_kw_args["length"] = spec.parameters.get("length", 20)
+                calc_kw_args["std_dev"] = float(spec.parameters.get("std_dev", 2.0))
+                if "length" not in spec.parameters or "std_dev" not in spec.parameters:
+                     self.logger.debug("Using default BBands params (l:%s,s:%.1f) for %s", calc_kw_args["length"], calc_kw_args["std_dev"], spec.key)
 
             elif spec.calculator_type == "atr":
-                calc_kw_args['length'] = spec.parameters.get('length', 14)
+                calc_kw_args["length"] = spec.parameters.get("length", 14)
                 # high_col, low_col, close_col default in function signature of _pipeline_compute_atr
-                if 'length' not in spec.parameters: self.logger.debug("Using default ATR length %s for %s", calc_kw_args['length'], spec.key)
+                if "length" not in spec.parameters: self.logger.debug("Using default ATR length %s for %s", calc_kw_args["length"], spec.key)
 
             elif spec.calculator_type == "vwap_ohlcv":
-                calc_kw_args['length'] = spec.parameters.get('length', 14)
-                if 'length' not in spec.parameters: self.logger.debug("Using default VWAP_OHLCV length %s for %s", calc_kw_args['length'], spec.key)
+                calc_kw_args["length"] = spec.parameters.get("length", 14)
+                if "length" not in spec.parameters: self.logger.debug("Using default VWAP_OHLCV length %s for %s", calc_kw_args["length"], spec.key)
 
             elif spec.calculator_type in ["l2_imbalance", "l2_depth", "l2_wap"]:
                 # `ohlcv_close_prices` is NOT included here; it's passed dynamically for l2_wap.
@@ -723,22 +762,22 @@ class FeatureEngine:
                 elif spec.calculator_type == "l2_spread": default_levels = 0 # Not applicable for spread
 
                 if default_levels > 0: # Only add 'levels' if applicable
-                    calc_kw_args['levels'] = spec.parameters.get('levels', default_levels)
-                    if 'levels' not in spec.parameters: self.logger.debug("Using default levels %s for %s ('%s')", calc_kw_args['levels'], spec.calculator_type, spec.key)
+                    calc_kw_args["levels"] = spec.parameters.get("levels", default_levels)
+                    if "levels" not in spec.parameters: self.logger.debug("Using default levels %s for %s ('%s')", calc_kw_args["levels"], spec.calculator_type, spec.key)
 
             elif spec.calculator_type == "vwap_trades" or spec.calculator_type == "volume_delta":
                 # `ohlcv_close_prices` is NOT included here; it's passed dynamically.
                 # `bar_start_times` is also dynamic, passed at runtime.
                 # `trade_history_deque` is the `X` input to fit_transform.
-                calc_kw_args['bar_interval_seconds'] = spec.parameters.get('bar_interval_seconds',
-                                                                         spec.parameters.get('length_seconds', 60))
-                if 'bar_interval_seconds' not in spec.parameters and 'length_seconds' not in spec.parameters:
-                    self.logger.debug("Using default bar_interval_seconds %s for %s ('%s')", calc_kw_args['bar_interval_seconds'], spec.calculator_type, spec.key)
+                calc_kw_args["bar_interval_seconds"] = spec.parameters.get("bar_interval_seconds",
+                                                                         spec.parameters.get("length_seconds", 60))
+                if "bar_interval_seconds" not in spec.parameters and "length_seconds" not in spec.parameters:
+                    self.logger.debug("Using default bar_interval_seconds %s for %s ('%s')", calc_kw_args["bar_interval_seconds"], spec.calculator_type, spec.key)
                 # `bar_start_times` will be passed dynamically during the call in _calculate_and_publish_features
 
             # l2_spread currently has no parameters in its _pipeline_compute_l2_spread signature other than X.
 
-            pipeline_steps.append((f'{spec.key}_calculator', FunctionTransformer(calculator_func, kw_args=calc_kw_args, validate=False)))
+            pipeline_steps.append((f"{spec.key}_calculator", FunctionTransformer(calculator_func, kw_args=calc_kw_args, validate=False)))
 
             # Output Imputation & Scaling using helpers
             is_df_output = spec.calculator_type in ["macd", "bbands", "l2_spread", "l2_depth"]
@@ -757,85 +796,15 @@ class FeatureEngine:
                 final_pipeline = Pipeline(steps=pipeline_steps)
                 final_pipeline.set_output(transform="pandas") # Ensure pandas output
                 self.feature_pipelines[pipeline_name] = {
-                    'pipeline': final_pipeline,
-                    'input_type': spec.input_type,
-                    'params': spec.parameters, # Storing parsed parameters
-                    'spec': spec # Store the full spec for richer context if needed later
+                    "pipeline": final_pipeline,
+                    "input_type": spec.input_type,
+                    "params": spec.parameters, # Storing parsed parameters
+                    "spec": spec, # Store the full spec for richer context if needed later
                 }
                 self.logger.info(
                     "Built pipeline: %s with steps: %s, input: %s",
                     pipeline_name, [s[0] for s in pipeline_steps], spec.input_type,
-                    source_module=self._source_module
-                )
-
-    def _handle_ohlcv_update(self, trading_pair: str, ohlcv_payload: dict[str, Any]) -> None:
-            pipeline_name = f"{spec.key}_pipeline" # Use spec.key for consistency
-
-            # Input imputer for features that take a single series like 'close'
-            if spec.input_type == 'close_series':
-                # TODO: Make input imputer strategy configurable if needed
-                pipeline_steps.append((f'{spec.key}_input_imputer', SimpleImputer(strategy='mean')))
-
-            # Calculator step based on spec.calculator_type
-            calculator_func = getattr(FeatureEngine, f"_pipeline_compute_{spec.calculator_type}", None)
-            if not calculator_func:
-                self.logger.error("No _pipeline_compute function found for calculator_type: %s (feature key: %s)", spec.calculator_type, spec.key)
-                continue
-
-            # Prepare kw_args for the calculator from spec.parameters
-            # Ensure all necessary parameters for the specific calculator are present with defaults
-            calc_kw_args = {}
-            if spec.calculator_type in ["rsi", "roc", "stdev"]:
-                calc_kw_args['period'] = spec.parameters.get('period', 14 if spec.calculator_type == "rsi" else 10 if spec.calculator_type == "roc" else 20)
-                if spec.parameters.get('period') is None: self.logger.debug("Using default period %s for %s", calc_kw_args['period'], spec.key)
-            elif spec.calculator_type == "macd":
-                calc_kw_args['fast'] = spec.parameters.get('fast', 12)
-                calc_kw_args['slow'] = spec.parameters.get('slow', 26)
-                calc_kw_args['signal'] = spec.parameters.get('signal', 9)
-            elif spec.calculator_type == "bbands":
-                calc_kw_args['length'] = spec.parameters.get('length', 20)
-                calc_kw_args['std_dev'] = float(spec.parameters.get('std_dev', 2.0)) # Ensure float
-            elif spec.calculator_type == "atr":
-                calc_kw_args['length'] = spec.parameters.get('length', 14)
-                # high_col, low_col, close_col default in function signature
-            elif spec.calculator_type == "vwap_ohlcv":
-                calc_kw_args['length'] = spec.parameters.get('length', 14)
-            elif spec.calculator_type in ["l2_imbalance", "l2_wap", "l2_depth"]:
-                calc_kw_args['levels'] = spec.parameters.get('levels', 5 if spec.calculator_type != "l2_wap" else 1)
-            elif spec.calculator_type == "vwap_trades":
-                calc_kw_args['bar_interval_seconds'] = spec.parameters.get('length_seconds', 60)
-            elif spec.calculator_type == "volume_delta":
-                calc_kw_args['bar_interval_seconds'] = spec.parameters.get('bar_interval_seconds', 60)
-            # l2_spread has no specific calc_kw_args from params in its current form
-
-            pipeline_steps.append((f'{spec.key}_calculator', FunctionTransformer(calculator_func, kw_args=calc_kw_args, validate=False)))
-
-            # Output Imputation & Scaling using helpers
-            is_df_output = spec.calculator_type in ["macd", "bbands", "l2_spread", "l2_depth"]
-            # Define default fill values based on feature type characteristics
-            default_fill = 0.0 # General default
-            if spec.calculator_type == "rsi": default_fill = 50.0
-            elif spec.calculator_type in ["atr", "vwap_ohlcv", "l2_wap", "vwap_trades", "stdev"]: default_fill = np.nan # Will be filled by mean then
-
-            imputer_step = get_output_imputer_step(spec.imputation, default_fill_value=default_fill, is_dataframe_output=is_df_output, spec_key=spec.key)
-            if imputer_step: pipeline_steps.append(imputer_step)
-
-            scaler_step = get_output_scaler_step(spec.scaling, spec_key=spec.key)
-            if scaler_step: pipeline_steps.append(scaler_step)
-
-            if pipeline_steps:
-                final_pipeline = Pipeline(steps=pipeline_steps)
-                final_pipeline.set_output(transform="pandas") # Ensure pandas output
-                self.feature_pipelines[pipeline_name] = {
-                    'pipeline': final_pipeline,
-                    'input_type': spec.input_type,
-                    'params': spec.parameters, # Storing parsed parameters
-                    'spec': spec # Store the full spec for richer context if needed later
-                }
-                self.logger.info(
-                    "Built pipeline: %s with steps: %s, input: %s",
-                    pipeline_name, [s[0] for s in pipeline_steps], spec.input_type,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
 
     def _handle_ohlcv_update(self, trading_pair: str, ohlcv_payload: dict[str, Any]) -> None:
@@ -1143,42 +1112,6 @@ class FeatureEngine:
                 context=payload,
             )
 
-    def _extract_feature_configs(self) -> None:
-        """Extract feature-specific configurations from the main config.
-
-        This method also ensures that default preprocessing keys (imputation, scaling)
-        are present in each feature's configuration. These keys will be used later
-        to define Scikit-learn preprocessing steps in feature calculation pipelines.
-        """
-        raw_features_config = self.config.get("features", {})
-        processed_feature_configs: dict[str, dict[str, Any]] = {}
-
-        if isinstance(raw_features_config, dict):
-            for feature_name, feature_cfg in raw_features_config.items():
-                if not isinstance(feature_cfg, dict):
-                    self.logger.warning(
-                        "Feature configuration for '%s' is not a dictionary. Skipping.",
-                        feature_name,
-                        source_module=self._source_module,
-                    )
-                    continue
-
-                # Ensure preprocessing keys exist, defaulting to None.
-                # These will be used to define Scikit-learn preprocessing steps.
-                if 'imputation' not in feature_cfg:
-                    feature_cfg['imputation'] = None  # e.g., {'strategy': 'mean'}
-                if 'scaling' not in feature_cfg:
-                    feature_cfg['scaling'] = None     # e.g., {'method': 'standard'}
-
-                processed_feature_configs[feature_name] = feature_cfg
-            self._feature_configs = processed_feature_configs
-        else:
-            self.logger.warning(
-                "Global 'features' configuration is not a dictionary. No features loaded.",
-                source_module=self._source_module,
-            )
-            self._feature_configs = {}
-
     def _get_min_history_required(self) -> int:
         """Determine the minimum required history size for TA calculations.
         This function relies on accessing period/length parameters from feature configurations.
@@ -1187,15 +1120,15 @@ class FeatureEngine:
         """
         min_size = 1  # Minimum baseline
 
-        # Check various indicator requirements
-        periods = [
-            self._get_period_from_config("rsi", "period", 14),
-            self._get_period_from_config("roc", "period", 1),
-            self._get_period_from_config("bbands", "length", 20),
-            self._get_period_from_config("vwap", "length", 14),
-            self._get_period_from_config("atr", "length", 14),
-            self._get_period_from_config("stdev", "length", 14),
-        ]
+        # Check various indicator requirements based on the InternalFeatureSpec objects
+        periods = []
+        for spec in self._feature_configs.values():
+            if spec.calculator_type in ["rsi", "roc"]:
+                period = spec.parameters.get("period", 14 if spec.calculator_type == "rsi" else 10)
+                periods.append(period)
+            elif spec.calculator_type in ["bbands", "vwap_ohlcv", "atr", "stdev"]:
+                length = spec.parameters.get("length", 20 if spec.calculator_type == "bbands" else 14)
+                periods.append(length)
 
         if periods:
             min_size = max(periods) * 3  # Multiply by 3 for a safe margin
@@ -1213,17 +1146,15 @@ class FeatureEngine:
         feature's configuration dictionary. The addition of 'imputation' and 'scaling'
         keys at the same level does not affect its ability to retrieve these parameters.
         """
-        feature_cfg = self._feature_configs.get(feature_name, {})
-        # Ensure feature_cfg is a dictionary before attempting to get a value from it.
-        # _extract_feature_configs should ensure this, but an extra check is safe.
-        if isinstance(feature_cfg, dict):
-            period_value = feature_cfg.get(field_name, default_value)
+        feature_spec = self._feature_configs.get(feature_name)
+        if feature_spec and isinstance(feature_spec, InternalFeatureSpec):
+            period_value = feature_spec.parameters.get(field_name, default_value)
             return (
                 period_value if isinstance(period_value, int) and period_value > 0 else default_value
             )
-        # If feature_cfg is not a dict (e.g. if config was malformed and somehow bypassed checks)
+        # If feature_spec is not found or not the right type
         self.logger.warning(
-            "Configuration for feature '%s' is not a dictionary when trying to get '%s'. "
+            "Configuration for feature '%s' not found or invalid when trying to get '%s'. "
             "Returning default value %s.",
             feature_name,
             field_name,
@@ -1367,13 +1298,13 @@ class FeatureEngine:
         """
         if not isinstance(data, pd.Series):
             # self.logger.error("_pipeline_compute_rsi expects a pd.Series.") # Logger not available in static method
-            return pd.Series(dtype='float64', name=f"rsi_{period}") # Return empty named series on error
+            return pd.Series(dtype="float64", name=f"rsi_{period}") # Return empty named series on error
 
         rsi_series = data.ta.rsi(length=period)
         # Fill NaNs (typically at the beginning) with a neutral RSI value.
         rsi_series = rsi_series.fillna(50.0)
         rsi_series.name = f"rsi_{period}"
-        return rsi_series.astype('float64')
+        return rsi_series.astype("float64")
 
     @staticmethod
     def _pipeline_compute_macd(
@@ -1388,13 +1319,13 @@ class FeatureEngine:
         """
         if not isinstance(data, pd.Series):
             # self.logger.error("_pipeline_compute_macd expects a pd.Series.")
-            return pd.DataFrame(dtype='float64') # Return empty DataFrame on error
+            return pd.DataFrame(dtype="float64") # Return empty DataFrame on error
         # pandas-ta returns MACD, MACDh (histogram), MACDs (signal)
         macd_df = data.ta.macd(fast=fast, slow=slow, signal=signal)
         # Fill NaNs with 0.0 for all MACD related columns
         if macd_df is not None:
             macd_df = macd_df.fillna(0.0)
-        return macd_df.astype('float64') if macd_df is not None else pd.DataFrame(dtype='float64')
+        return macd_df.astype("float64") if macd_df is not None else pd.DataFrame(dtype="float64")
 
     @staticmethod
     def _fillna_bbands(bbands_df: pd.DataFrame, close_prices: pd.Series) -> pd.DataFrame:
@@ -1402,7 +1333,7 @@ class FeatureEngine:
         Middle band NaN is filled with close price. Lower/Upper NaNs also with close price.
         """
         if bbands_df is None:
-            return pd.DataFrame(dtype='float64')
+            return pd.DataFrame(dtype="float64")
 
         # Identify columns by common suffixes, as exact names vary with params
         middle_col = next((col for col in bbands_df.columns if col.startswith("BBM_")), None)
@@ -1429,12 +1360,12 @@ class FeatureEngine:
         Intended for use in Scikit-learn FunctionTransformer.
         """
         if not isinstance(data, pd.Series):
-            return pd.DataFrame(dtype='float64')
+            return pd.DataFrame(dtype="float64")
         bbands_df = data.ta.bbands(length=length, std=std_dev)
         # Custom NaN filling: Middle band with close, Lower/Upper also with close (0 width initially)
         if bbands_df is not None:
             bbands_df = FeatureEngine._fillna_bbands(bbands_df, data)
-        return bbands_df.astype('float64') if bbands_df is not None else pd.DataFrame(dtype='float64')
+        return bbands_df.astype("float64") if bbands_df is not None else pd.DataFrame(dtype="float64")
 
     @staticmethod
     def _pipeline_compute_roc(data: pd.Series, period: int) -> pd.Series:
@@ -1442,31 +1373,31 @@ class FeatureEngine:
         Intended for use in Scikit-learn FunctionTransformer.
         """
         if not isinstance(data, pd.Series):
-            return pd.Series(dtype='float64', name=f"roc_{period}")
+            return pd.Series(dtype="float64", name=f"roc_{period}")
         roc_series = data.ta.roc(length=period)
         # Fill NaNs (typically at the beginning) with 0.0, representing no change.
         roc_series = roc_series.fillna(0.0)
         roc_series.name = f"roc_{period}"
-        return roc_series.astype('float64')
+        return roc_series.astype("float64")
 
     @staticmethod
     def _pipeline_compute_atr(
         ohlc_data: pd.DataFrame,
         length: int,
-        high_col: str = 'high',
-        low_col: str = 'low',
-        close_col: str = 'close',
+        high_col: str = "high",
+        low_col: str = "low",
+        close_col: str = "close",
     ) -> pd.Series:
         """Compute Average True Range (ATR) using pandas-ta.
         Expects a DataFrame with high, low, close columns (float64).
         Intended for use in Scikit-learn FunctionTransformer.
         """
         if not isinstance(ohlc_data, pd.DataFrame):
-            return pd.Series(dtype='float64', name=f"atr_{length}")
+            return pd.Series(dtype="float64", name=f"atr_{length}")
         # Ensure required columns are present; this check could be more robust
         if not all(col in ohlc_data.columns for col in [high_col, low_col, close_col]):
             # self.logger.error("ATR calculation missing H/L/C columns.") # Logger not available
-            return pd.Series(dtype='float64', name=f"atr_{length}")
+            return pd.Series(dtype="float64", name=f"atr_{length}")
 
         atr_series = ta.atr(
             high=ohlc_data[high_col],
@@ -1478,7 +1409,7 @@ class FeatureEngine:
         # This implies zero volatility for initial undefined periods, which is an approximation.
         atr_series = atr_series.fillna(0.0)
         atr_series.name = f"atr_{length}"
-        return atr_series.astype('float64')
+        return atr_series.astype("float64")
 
     @staticmethod
     def _pipeline_compute_stdev(data: pd.Series, length: int) -> pd.Series:
@@ -1487,30 +1418,30 @@ class FeatureEngine:
         Intended for use in Scikit-learn FunctionTransformer.
         """
         if not isinstance(data, pd.Series):
-            return pd.Series(dtype='float64', name=f"stdev_{length}")
+            return pd.Series(dtype="float64", name=f"stdev_{length}")
         stdev_series = data.rolling(window=length).std()
         # Fill NaNs (typically at the beginning) with 0.0, representing zero volatility.
         stdev_series = stdev_series.fillna(0.0)
         stdev_series.name = f"stdev_{length}"
-        return stdev_series.astype('float64')
+        return stdev_series.astype("float64")
 
     @staticmethod
     def _pipeline_compute_vwap_ohlcv(
         ohlcv_df: pd.DataFrame,
         length: int,
-        high_col: str = 'high',
-        low_col: str = 'low',
-        close_col: str = 'close',
-        volume_col: str = 'volume',
+        high_col: str = "high",
+        low_col: str = "low",
+        close_col: str = "close",
+        volume_col: str = "volume",
     ) -> pd.Series:
         """Compute VWAP from OHLCV data using rolling window.
         Expects DataFrame with Decimal objects for price/volume, converts to float64 Series output.
         Intended for use in Scikit-learn FunctionTransformer.
         """
         if not isinstance(ohlcv_df, pd.DataFrame):
-            return pd.Series(dtype='float64')
+            return pd.Series(dtype="float64")
         if not all(col in ohlcv_df.columns for col in [high_col, low_col, close_col, volume_col]):
-            return pd.Series(dtype='float64') # Or log error
+            return pd.Series(dtype="float64") # Or log error
 
         # Ensure inputs are Decimal for precision in intermediate calculations
         high_d = ohlcv_df[high_col].apply(Decimal)
@@ -1526,7 +1457,7 @@ class FeatureEngine:
 
         vwap_series_decimal = sum_tp_vol / sum_vol
         # Replace infinities (from division by zero if sum_vol is 0) with NaN before further processing
-        vwap_series_decimal = vwap_series_decimal.replace([Decimal('Infinity'), Decimal('-Infinity')], pd.NA)
+        vwap_series_decimal = vwap_series_decimal.replace([Decimal("Infinity"), Decimal("-Infinity")], pd.NA)
 
         # Iterate and fill NaNs or zero-volume results with the typical price of that bar
         for idx in ohlcv_df.index:
@@ -1554,7 +1485,7 @@ class FeatureEngine:
 
         # Convert to float64 for pipeline compatibility.
         # NaNs from missing HLC for typical price fallback, or if typical price itself is NaN, will remain.
-        vwap_series_float = vwap_series_decimal.astype('float64')
+        vwap_series_float = vwap_series_decimal.astype("float64")
         vwap_series_float.name = f"vwap_ohlcv_{length}"
         # Final fill for any remaining NaNs, e.g., if HLC was missing for a fallback typical price.
         # Using forward fill first, then backfill, is a common strategy for time series.
@@ -1581,7 +1512,7 @@ class FeatureEngine:
         output_index = bar_start_times.index if isinstance(bar_start_times, pd.Series) else None
         if not isinstance(bar_start_times, pd.Series): # Basic validation for bar_start_times
             # trade_history_deque validation is implicitly handled by checking if trades_df is None/empty
-            return pd.Series(dtype='float64', index=output_index, name=series_name)
+            return pd.Series(dtype="float64", index=output_index, name=series_name)
 
         vwap_results = []
 
@@ -1591,7 +1522,7 @@ class FeatureEngine:
                 # Ensure all elements in deque are dicts before creating DataFrame
                 if not all(isinstance(trade, dict) for trade in trade_history_deque):
                     # Log or handle malformed deque elements if necessary
-                    trades_df = pd.DataFrame(columns=['price', 'volume', 'timestamp']) # Empty DF
+                    trades_df = pd.DataFrame(columns=["price", "volume", "timestamp"]) # Empty DF
                 else:
                     trades_df = pd.DataFrame(list(trade_history_deque))
 
@@ -1601,7 +1532,7 @@ class FeatureEngine:
                     trades_df["timestamp"] = pd.to_datetime(trades_df["timestamp"])
                 else: # trades_df is empty (e.g. deque was empty or contained non-dict items)
                     trades_df = None # Ensure it's None to trigger fallback for all bars
-            except (ValueError, TypeError, KeyError, AttributeError) as e:
+            except (ValueError, TypeError, KeyError, AttributeError):
                 # Catch broad errors during DataFrame creation or type conversion
                 # self.logger.warning("Error processing trade_history_deque: %s", e) # Logger not available
                 trades_df = None # Force fallback for all bars if trade data is corrupt
@@ -1641,7 +1572,7 @@ class FeatureEngine:
 
             vwap_results.append(calculated_vwap)
 
-        return pd.Series(vwap_results, index=output_index, dtype='float64', name=series_name)
+        return pd.Series(vwap_results, index=output_index, dtype="float64", name=series_name)
 
 
     # --- Existing feature calculation methods (some may be deprecated/refactored) ---
@@ -1649,33 +1580,7 @@ class FeatureEngine:
     # Note: _calculate_vwap and _calculate_vwap_from_trades removed.
     # --- Removed _calculate_roc, _calculate_atr, _calculate_stdev ---
     # --- Removed _calculate_bid_ask_spread, _calculate_order_book_imbalance, _calculate_wap, _calculate_depth ---
-        # --- Removed _calculate_true_volume_delta_from_trades ---
-        # The following _calculate_vwap_from_trades seems to be a leftover, should be removed.
-        # It was intended to be replaced by _pipeline_compute_vwap_trades.
-    # def _calculate_vwap_from_trades(
-    #     self,
-    #     trades: deque,
-    #     current_bar_start_time: datetime,
-    #     bar_interval_seconds: int = 60,
-    # ) -> Decimal | None:
-    #     """Calculate VWAP from a deque of recent trades relevant to the current OHLCV bar."""
-    #     self.logger.debug("Calculating VWAP from trades.", source_module=self._source_module)
-    #     if not trades:
-    #         return None
-    #     bar_end_time = current_bar_start_time + pd.Timedelta(seconds=bar_interval_seconds)
-    #     relevant_trades = [
-    #         trade
-    #         for trade in trades
-    #         if current_bar_start_time <= trade["timestamp"] < bar_end_time
-    #     ]
-    #     if not relevant_trades:
-    #         return None
-    #     sum_price_volume = sum(trade["price"] * trade["volume"] for trade in relevant_trades)
-    #     sum_volume = sum(trade["volume"] for trade in relevant_trades)
-    #     if sum_volume == Decimal("0"):
-    #         return None
-    #     result: Decimal | None = sum_price_volume / sum_volume
-    #     return result
+        # --- Removed _calculate_true_volume_delta_from_trades, _calculate_vwap_from_trades ---
 
 
     @staticmethod
@@ -1732,7 +1637,7 @@ class FeatureEngine:
         return pd.DataFrame(
             {"abs_spread": abs_spreads, "pct_spread": pct_spreads},
             index=output_index,
-            dtype='float64'
+            dtype="float64",
         )
 
     @staticmethod
@@ -1782,13 +1687,13 @@ class FeatureEngine:
 
             imbalances.append(current_imbalance)
 
-        return pd.Series(imbalances, index=output_index, dtype='float64', name=series_name)
+        return pd.Series(imbalances, index=output_index, dtype="float64", name=series_name)
 
     @staticmethod
     def _pipeline_compute_l2_wap(
         l2_books_series: pd.Series,
         ohlcv_close_prices: pd.Series | None = None, # For fallback
-        levels: int = 1 # Typically levels=1 for WAP
+        levels: int = 1, # Typically levels=1 for WAP
     ) -> pd.Series:
         """Computes Weighted Average Price (WAP) from a Series of L2 book snapshots.
         Outputs a Series (float64).
@@ -1800,7 +1705,7 @@ class FeatureEngine:
         series_name = f"wap_{levels}"
         output_index = l2_books_series.index if isinstance(l2_books_series, pd.Series) else None
         if not isinstance(l2_books_series, pd.Series):
-            return pd.Series(dtype='float64', name=series_name, index=output_index)
+            return pd.Series(dtype="float64", name=series_name, index=output_index)
 
         waps = []
         for book_idx, book in l2_books_series.items():
@@ -1852,7 +1757,7 @@ class FeatureEngine:
 
             waps.append(calculated_wap)
 
-        return pd.Series(waps, index=output_index, dtype='float64', name=series_name)
+        return pd.Series(waps, index=output_index, dtype="float64", name=series_name)
 
     @staticmethod
     def _pipeline_compute_l2_depth(l2_books_series: pd.Series, levels: int = 5) -> pd.DataFrame:
@@ -1903,8 +1808,8 @@ class FeatureEngine:
 
         df = pd.DataFrame({
             col_name_bid: bid_depths,
-            col_name_ask: ask_depths
-        }, index=output_index, dtype='float64')
+            col_name_ask: ask_depths,
+        }, index=output_index, dtype="float64")
         return df
 
     @staticmethod
@@ -1922,10 +1827,10 @@ class FeatureEngine:
         deltas = []
         series_name = f"volume_delta_{bar_interval_seconds}s"
         if not isinstance(bar_start_times, pd.Series) or not isinstance(trade_history_deque, deque):
-            return pd.Series(dtype='float64', index=bar_start_times.index if isinstance(bar_start_times, pd.Series) else None, name=series_name)
+            return pd.Series(dtype="float64", index=bar_start_times.index if isinstance(bar_start_times, pd.Series) else None, name=series_name)
 
         if not trade_history_deque: # No trades in entire history
-            return pd.Series(0.0, index=bar_start_times.index, dtype='float64', name=series_name)
+            return pd.Series(0.0, index=bar_start_times.index, dtype="float64", name=series_name)
 
         trades_df = pd.DataFrame(list(trade_history_deque))
         # Ensure 'price' and 'volume' are converted to Decimal, handling potential string inputs
@@ -1950,7 +1855,7 @@ class FeatureEngine:
             sell_volume = relevant_trades[relevant_trades["side"] == "sell"]["volume"].sum()
             deltas.append(float(buy_volume - sell_volume))
 
-        return pd.Series(deltas, index=bar_start_times.index, dtype='float64', name=f"volume_delta_{bar_interval_seconds}s")
+        return pd.Series(deltas, index=bar_start_times.index, dtype="float64", name=f"volume_delta_{bar_interval_seconds}s")
 
 
     # --- Existing feature calculation methods (some may be deprecated/refactored) ---
@@ -1958,40 +1863,8 @@ class FeatureEngine:
     # Note: _calculate_vwap and _calculate_vwap_from_trades removed.
     # --- Removed _calculate_roc, _calculate_atr, _calculate_stdev ---
     # --- Removed _calculate_bid_ask_spread, _calculate_order_book_imbalance, _calculate_wap, _calculate_depth ---
-    # --- Removed _calculate_true_volume_delta_from_trades, _calculate_vwap_from_trades ---
+        # --- Removed _calculate_true_volume_delta_from_trades, _calculate_vwap_from_trades ---
 
-
-    def _calculate_vwap_from_trades( # This method is still present in the provided code, but should be removed per instructions.
-        self, # Assuming this will be removed based on previous steps.
-        trades: deque, # This argument type should be deque, not pd.DataFrame.
-        current_bar_start_time: datetime,
-        bar_interval_seconds: int = 60,
-    ) -> Decimal | None:
-        """Calculate VWAP from a deque of recent trades relevant to the current OHLCV bar."""
-        self.logger.debug("Calculating VWAP from trades.", source_module=self._source_module)
-        if not trades:
-            return None
-
-        # Calculate the end time for the current bar
-        bar_end_time = current_bar_start_time + pd.Timedelta(seconds=bar_interval_seconds)
-
-        relevant_trades = [
-            trade
-            for trade in trades
-            if current_bar_start_time <= trade["timestamp"] < bar_end_time
-        ]
-
-        if not relevant_trades:
-            return None
-
-        sum_price_volume = sum(trade["price"] * trade["volume"] for trade in relevant_trades)
-        sum_volume = sum(trade["volume"] for trade in relevant_trades)
-
-        if sum_volume == Decimal("0"):
-            return None
-
-        result: Decimal | None = sum_price_volume / sum_volume
-        return result
 
     async def _calculate_and_publish_features(
         self,
@@ -1999,7 +1872,6 @@ class FeatureEngine:
         timestamp_features_for: str,
     ) -> None:
         """Calculate all configured features using pipelines and publish them."""
-
         ohlcv_df_full_history = self.ohlcv_history.get(trading_pair)
         min_history_req = self._get_min_history_required() # Get actual requirement
         if ohlcv_df_full_history is None or len(ohlcv_df_full_history) < min_history_req: # type: ignore
@@ -2037,11 +1909,11 @@ class FeatureEngine:
             return # Cannot proceed without data for this timestamp
 
         # Prepare standard input types based on Decimal data
-        close_series_for_pipelines = current_ohlcv_df_decimal['close'].astype('float64')
+        close_series_for_pipelines = current_ohlcv_df_decimal["close"].astype("float64")
         # Ensure 'open', 'high', 'low', 'close', 'volume' are float for OHLCV df inputs
         ohlcv_df_for_pipelines = current_ohlcv_df_decimal.astype({
-            'open': 'float64', 'high': 'float64', 'low': 'float64',
-            'close': 'float64', 'volume': 'float64'
+            "open": "float64", "high": "float64", "low": "float64",
+            "close": "float64", "volume": "float64",
         })
 
         # L2 book snapshot for the current bar
@@ -2064,27 +1936,27 @@ class FeatureEngine:
         else:
             self.logger.warning(
                 "Could not find close price for current bar %s in historical data. Features needing this fallback may fail or use 0.0.",
-                bar_start_datetime
+                bar_start_datetime,
             )
             # Create an empty series with the right index to prevent downstream errors if it's expected
-            ohlcv_close_for_dynamic_injection = pd.Series(dtype='float64', index=[bar_start_datetime])
+            ohlcv_close_for_dynamic_injection = pd.Series(dtype="float64", index=[bar_start_datetime])
 
 
         for pipeline_name, pipeline_info in self.feature_pipelines.items():
-            pipeline_obj: Pipeline = pipeline_info['pipeline']
-            spec: InternalFeatureSpec = pipeline_info['spec']
+            pipeline_obj: Pipeline = pipeline_info["pipeline"]
+            spec: InternalFeatureSpec = pipeline_info["spec"]
 
             pipeline_input_data: Any = None
             raw_pipeline_output: Any = None # Define here for clarity
 
             # Determine input data for the pipeline
-            if spec.input_type == 'close_series':
+            if spec.input_type == "close_series":
                 pipeline_input_data = close_series_for_pipelines
-            elif spec.input_type == 'ohlcv_df':
+            elif spec.input_type == "ohlcv_df":
                 pipeline_input_data = ohlcv_df_for_pipelines
-            elif spec.input_type == 'l2_book_series':
+            elif spec.input_type == "l2_book_series":
                 pipeline_input_data = l2_books_aligned_series # Single latest book snapshot in a Series
-            elif spec.input_type == 'trades_and_bar_starts':
+            elif spec.input_type == "trades_and_bar_starts":
                 # For these, X is the trade_history_deque. bar_start_times is injected dynamically.
                 pipeline_input_data = trades_deque
             else:
@@ -2095,7 +1967,7 @@ class FeatureEngine:
                 pipeline_to_run = pipeline_obj # By default, use the original pipeline
 
                 # Dynamic kwarg injection for specific calculators
-                if spec.calculator_type in ['l2_wap', 'vwap_trades', 'volume_delta']:
+                if spec.calculator_type in ["l2_wap", "vwap_trades", "volume_delta"]:
                     pipeline_to_run = clone(pipeline_obj) # Clone to modify kw_args safely
                     calculator_step_name = f"{spec.key}_calculator"
 
@@ -2105,14 +1977,14 @@ class FeatureEngine:
 
                         # Inject ohlcv_close_prices (aligned to the specific input type's index)
                         if ohlcv_close_for_dynamic_injection is not None and not ohlcv_close_for_dynamic_injection.empty:
-                            current_kw_args['ohlcv_close_prices'] = ohlcv_close_for_dynamic_injection
+                            current_kw_args["ohlcv_close_prices"] = ohlcv_close_for_dynamic_injection
                         else: # Pass None or an empty series if not available, function should handle it
-                            current_kw_args['ohlcv_close_prices'] = pd.Series(dtype='float64', index=[bar_start_datetime])
+                            current_kw_args["ohlcv_close_prices"] = pd.Series(dtype="float64", index=[bar_start_datetime])
 
 
                         # For trade-based features, also inject bar_start_times
-                        if spec.input_type == 'trades_and_bar_starts':
-                            current_kw_args['bar_start_times'] = bar_start_times_series
+                        if spec.input_type == "trades_and_bar_starts":
+                            current_kw_args["bar_start_times"] = bar_start_times_series
 
                         calculator_transformer.kw_args = current_kw_args
                     else:
@@ -2136,16 +2008,16 @@ class FeatureEngine:
             latest_features_values: Any = None
             if isinstance(raw_pipeline_output, pd.Series):
                 if not raw_pipeline_output.empty:
-                    if input_type not in ['l2_book_series', 'trades_and_bar_starts'] or len(raw_pipeline_output) > 1 : # If it processed history
+                    if spec.input_type not in ["l2_book_series", "trades_and_bar_starts"] or len(raw_pipeline_output) > 1 : # If it processed history
                         latest_features_values = raw_pipeline_output.iloc[-1]
                     else: # Already the single calculated value for the current bar
                         latest_features_values = raw_pipeline_output.iloc[0] if len(raw_pipeline_output) == 1 else np.nan
             elif isinstance(raw_pipeline_output, pd.DataFrame):
                 if not raw_pipeline_output.empty:
-                    if input_type not in ['l2_book_series'] or len(raw_pipeline_output) > 1: # If it processed history
+                    if spec.input_type not in ["l2_book_series"] or len(raw_pipeline_output) > 1: # If it processed history
                         latest_features_values = raw_pipeline_output.iloc[-1] # This gives a Series (one row)
                     else: # Already the single calculated row for the current bar
-                        latest_features_values = raw_pipeline_output.iloc[0] if len(raw_pipeline_output) == 1 else pd.Series(dtype='float64')
+                        latest_features_values = raw_pipeline_output.iloc[0] if len(raw_pipeline_output) == 1 else pd.Series(dtype="float64")
             elif isinstance(raw_pipeline_output, np.ndarray): # Should be rare due to PandasScalerTransformer
                  if raw_pipeline_output.ndim == 1 and raw_pipeline_output.size > 0:
                     latest_features_values = raw_pipeline_output[-1]
@@ -2222,7 +2094,6 @@ class FeatureEngine:
         if not self.feature_pipelines and not features_for_payload:
             self.logger.debug("No pipelines executed, attempting feature calculation with remaining old handlers.", source_module=self._source_module)
             # ... (old handler logic can be here if needed, but it's mostly empty now) ...
-            pass
 
 
         if not features_for_payload: # Check if any features were produced

@@ -1,7 +1,7 @@
 import asyncio
+import logging
 import os
 import sys
-import logging
 from logging.config import fileConfig
 
 from alembic import context  # type: ignore[import-not-found]

@@ -117,15 +117,22 @@ class HaltCoordinator:
         # Check if condition is triggered based on type
         was_triggered = condition.is_triggered
 
-        if isinstance(condition.threshold, (int, float, Decimal)):
-            # Numeric comparison
+        if isinstance(condition.threshold, (int, float, Decimal)) and isinstance(current_value, (int, float, Decimal)):
+            # Numeric comparison - both values must be numeric
             condition.is_triggered = current_value > condition.threshold
-        elif isinstance(condition.threshold, bool):
-            # Boolean comparison
+        elif isinstance(condition.threshold, bool) and isinstance(current_value, bool):
+            # Boolean comparison - both values must be boolean
+            condition.is_triggered = current_value == condition.threshold
+        elif isinstance(condition.threshold, str) and isinstance(current_value, str):
+            # String comparison - both values must be strings
             condition.is_triggered = current_value == condition.threshold
         else:
-            # String or other comparison
-            condition.is_triggered = current_value == condition.threshold
+            # Type mismatch or other comparison - log warning and don't trigger
+            self.logger.warning(
+                f"Type mismatch in condition '{condition.name}': threshold type {type(condition.threshold).__name__} vs current_value type {type(current_value).__name__}",
+                source_module=self._source_module,
+            )
+            condition.is_triggered = False
 
         # Log if condition state changed
         if condition.is_triggered != was_triggered:

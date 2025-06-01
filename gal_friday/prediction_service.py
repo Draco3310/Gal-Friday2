@@ -25,7 +25,6 @@ from gal_friday.core.events import (
     PredictionConfigUpdatedEvent,
     PredictionEvent,
 )
-from gal_friday.core.feature_models import PublishedFeaturesV1 # Added for Pydantic model
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.interfaces.predictor_interface import PredictorInterface  # Added
 from gal_friday.logger_service import LoggerService
@@ -563,8 +562,7 @@ class PredictionService:
         )
 
     async def _handle_feature_event(self, event: FeatureEvent) -> None:
-        """
-        Handles incoming `FeatureEvent` objects.
+        """Handles incoming `FeatureEvent` objects.
 
         The method performs the following actions:
         1.  Validates the event type.
@@ -1056,7 +1054,7 @@ class PredictionService:
                     "metadata": {
                         "source_feature_event_id": str(event.event_id),
                         "ensemble_strategy_used": ensemble_strategy,
-                    }
+                    },
                 },
             )
             # Await the async _publish_prediction method
@@ -1163,8 +1161,7 @@ class PredictionService:
         event_features: dict[str, float],
         expected_model_features: list[str],
     ) -> np.ndarray | None:
-        """
-        Converts a feature dictionary from a `FeatureEvent` into a 1D numpy array.
+        """Converts a feature dictionary from a `FeatureEvent` into a 1D numpy array.
 
         The input `event_features` is expected to be a dictionary mapping feature names
         to their float values, as produced by `PublishedFeaturesV1.model_dump()` in the

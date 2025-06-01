@@ -5,14 +5,12 @@ specifically for feature payloads published by the FeatureEngine and consumed
 by downstream services like the PredictionService.
 """
 
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
 
 class PublishedFeaturesV1(BaseModel):
-    """
-    Represents the structure of features calculated by the FeatureEngine and published
+    """Represents the structure of features calculated by the FeatureEngine and published
     as part of a `FeatureEvent`. This model ensures that the features payload is
     validated and adheres to a defined data contract before being published.
 
@@ -29,27 +27,27 @@ class PublishedFeaturesV1(BaseModel):
     """
 
     # From rsi_14_default in sample registry
-    rsi_14_default: float = Field(..., example=50.0)
+    rsi_14_default: float = Field(..., examples=[50.0])
 
     # From macd_default in sample registry
     # Assuming pandas_ta names MACD columns like: MACD_<fast>_<slow>_<signal>, MACDh..., MACDs...
     # The FeatureEngine's naming logic is base_feature_key + "_" + col_name
-    macd_default_MACD_12_26_9: float = Field(..., example=0.5)
-    macd_default_MACDh_12_26_9: float = Field(..., example=0.1)
-    macd_default_MACDs_12_26_9: float = Field(..., example=0.4)
+    macd_default_MACD_12_26_9: float = Field(..., examples=[0.5])
+    macd_default_MACDh_12_26_9: float = Field(..., examples=[0.1])
+    macd_default_MACDs_12_26_9: float = Field(..., examples=[0.4])
 
     # From l2_spread_basic in sample registry
     # _pipeline_compute_l2_spread outputs a DataFrame with "abs_spread" and "pct_spread"
-    l2_spread_basic_abs_spread: float = Field(..., example=0.01)
-    l2_spread_basic_pct_spread: float = Field(..., example=0.001)
+    l2_spread_basic_abs_spread: float = Field(..., examples=[0.01])
+    l2_spread_basic_pct_spread: float = Field(..., examples=[0.001])
 
     # From vwap_trades_60s in sample registry
-    vwap_trades_60s: float = Field(..., example=30000.0)
+    vwap_trades_60s: float = Field(..., examples=[30000.0])
 
     # Example of how an optional feature might be defined if needed in the future.
     # For now, all features defined in the sample registry are assumed to be produced
     # if activated, and thus are not Optional.
-    # optional_feature_example: Optional[float] = Field(None, example=42.0)
+    # optional_feature_example: Optional[float] = Field(None, examples=[42.0])
 
     class Config:
         # Example for generating schema
@@ -62,5 +60,5 @@ class PublishedFeaturesV1(BaseModel):
                 "l2_spread_basic_abs_spread": 0.02,
                 "l2_spread_basic_pct_spread": 0.0005,
                 "vwap_trades_60s": 30010.50,
-            }
+            },
         }

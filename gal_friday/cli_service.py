@@ -22,6 +22,7 @@ from typing import (
     TypeVar,
     Union,
 )
+
 from rich import print as rich_print
 
 # Create TYPE_CHECKING specific imports
@@ -568,6 +569,7 @@ class MockLoggerService(LoggerService):
     def info(
         self,
         message: str,
+        *args: object,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
     ) -> None:
@@ -577,6 +579,7 @@ class MockLoggerService(LoggerService):
     def debug(
         self,
         message: str,
+        *args: object,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
     ) -> None:
@@ -586,6 +589,7 @@ class MockLoggerService(LoggerService):
     def warning(
         self,
         message: str,
+        *args: object,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
     ) -> None:
@@ -595,6 +599,7 @@ class MockLoggerService(LoggerService):
     def error(
         self,
         message: str,
+        *args: object,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
         exc_info: ExcInfoType = None,
@@ -607,6 +612,7 @@ class MockLoggerService(LoggerService):
     def exception(
         self,
         message: str,
+        *args: object,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
     ) -> None:
@@ -616,6 +622,7 @@ class MockLoggerService(LoggerService):
     def critical(
         self,
         message: str,
+        *args: object,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
         exc_info: ExcInfoType = None,

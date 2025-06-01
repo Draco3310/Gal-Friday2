@@ -1,6 +1,7 @@
 """Demo script showing WebSocket and Reconciliation functionality."""
 
 from datetime import UTC, datetime
+
 from rich import print as rich_print
 
 

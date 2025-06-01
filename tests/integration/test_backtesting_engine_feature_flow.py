@@ -1,25 +1,22 @@
-import asyncio
-import unittest
-from unittest.mock import patch, AsyncMock, MagicMock
-from pathlib import Path
+import logging  # <-- Import logging
 import os
-import logging # <-- Import logging
-import pandas as pd
-from decimal import Decimal
-from datetime import datetime, timezone
+import unittest
 import uuid
+from datetime import UTC, datetime
+from decimal import Decimal
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from gal_friday.backtesting_engine import BacktestingEngine
 from gal_friday.config_manager import ConfigManager
-from gal_friday.core.events import EventType, FeatureEvent, PredictionEvent
-from gal_friday.core.feature_models import PublishedFeaturesV1 # For type hints if needed
+from gal_friday.core.events import EventType, PredictionEvent
+
+# from gal_friday.exchange_info_service import ExchangeInfoService # Not directly instantiated now
+from gal_friday.core.feature_registry_client import FeatureRegistryClient  # Added import
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
+from gal_friday.market_price_service import MarketPriceService  # StrategyArbitrator needs it
 from gal_friday.strategy_arbitrator import StrategyArbitrator
-from gal_friday.market_price_service import MarketPriceService # StrategyArbitrator needs it
-from gal_friday.simulated_market_price_service import SimulatedMarketPriceService # For actual use in test
-# from gal_friday.exchange_info_service import ExchangeInfoService # Not directly instantiated now
-from gal_friday.core.feature_registry_client import FeatureRegistryClient # Added import
 
 # A directory for temporary test files (like dummy data and configs)
 TEST_TEMP_DIR = Path(__file__).parent / "test_temp_output"
@@ -93,19 +90,19 @@ class MockPredictionService:
 
         # Reconstruct the FeatureEvent if necessary, or just grab the payload
         # For this mock, we'll assume the payload is what we need
-        if event_dict.get('event_type') != EventType.FEATURES_CALCULATED.name:
+        if event_dict.get("event_type") != EventType.FEATURES_CALCULATED.name:
             self.logger.warning(f"MockPredictionService received non-feature event: {event_dict.get('event_type')}")
             return
 
-        payload = event_dict.get('payload')
+        payload = event_dict.get("payload")
         if not payload or not isinstance(payload, dict):
             self.logger.error("Feature event payload missing or invalid.")
             return
 
-        features = payload.get('features') # This should be dict[str, float]
-        timestamp_features_for_str = payload.get('timestamp_features_for')
-        trading_pair = payload.get('trading_pair')
-        exchange = payload.get('exchange')
+        features = payload.get("features") # This should be dict[str, float]
+        timestamp_features_for_str = payload.get("timestamp_features_for")
+        trading_pair = payload.get("trading_pair")
+        exchange = payload.get("exchange")
 
         if not features or not trading_pair or not timestamp_features_for_str:
             self.logger.error("Essential data missing in feature event payload for prediction generation.")
@@ -118,7 +115,7 @@ class MockPredictionService:
         dummy_prediction_value = 0.75 # Example: 75% chance of price increase
 
         try:
-            timestamp_prediction_for = datetime.fromisoformat(timestamp_features_for_str.replace('Z', '+00:00'))
+            timestamp_prediction_for = datetime.fromisoformat(timestamp_features_for_str.replace("Z", "+00:00"))
         except ValueError:
             self.logger.error(f"Could not parse timestamp_features_for: {timestamp_features_for_str}")
             return
@@ -126,7 +123,7 @@ class MockPredictionService:
         prediction_event = PredictionEvent(
             source_module=self.source_module,
             event_id=uuid.uuid4(),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             trading_pair=trading_pair,
             exchange=exchange, # Use exchange from FeatureEvent
             timestamp_prediction_for=timestamp_prediction_for,
@@ -134,7 +131,7 @@ class MockPredictionService:
             prediction_target="price_up_prob",
             prediction_value=dummy_prediction_value,
             confidence=0.9,
-            associated_features={'triggering_features': features} # Key part for StrategyArbitrator
+            associated_features={"triggering_features": features}, # Key part for StrategyArbitrator
         )
 
         await self.pubsub.publish(prediction_event)
@@ -175,19 +172,19 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
                 "formatters": {"simple": {"format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"}},
                 "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "simple", "level": "DEBUG"}},
                 "root": {"handlers": ["console"], "level": "INFO"},
-                "loggers": {"gal_friday": {"level": "DEBUG", "propagate": False, "handlers": ["console"]}}
+                "loggers": {"gal_friday": {"level": "DEBUG", "propagate": False, "handlers": ["console"]}},
             },
             "feature_engine": {
                 "feature_registry_path": str(self.feature_registry_path),
                 "active_feature_rules": [ # Activate features from the registry
                     {"feature_key": "rsi_14_default", "active": True},
-                    {"feature_key": "macd_default", "active": True}
+                    {"feature_key": "macd_default", "active": True},
                 ],
                 "output_ohlcv_path": str(TEST_TEMP_DIR / "feature_engine_ohlcv_output.parquet"),
                 "output_trades_path": str(TEST_TEMP_DIR / "feature_engine_trades_output.parquet"),
             },
             "prediction_service": { # Config for MockPredictionService
-                "model_paths": {"mock_model_v1": "dummy_path"}
+                "model_paths": {"mock_model_v1": "dummy_path"},
             },
             "strategy_arbitrator": {
                 "strategies": [{
@@ -200,9 +197,9 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
                     "prediction_interpretation": "prob_up",
                     "confirmation_rules": [
                         {"feature": "rsi_14_default", "condition": "lt", "threshold": 70},
-                        {"feature": "macd_default_MACD_12_26_9", "condition": "gt", "threshold": -10} # Ensure it's a float
-                    ]
-                }]
+                        {"feature": "macd_default_MACD_12_26_9", "condition": "gt", "threshold": -10}, # Ensure it's a float
+                    ],
+                }],
             },
             "backtest": {
                 "data_path": str(self.historical_data_path),
@@ -211,7 +208,7 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
                 "trading_pairs": ["BTC/USD"],
                 "initial_capital": 10000.0,
                 "ohlcv_interval": "1min", # Matches data
-                 "output_dir": str(TEST_TEMP_DIR / "backtest_results")
+                 "output_dir": str(TEST_TEMP_DIR / "backtest_results"),
             },
             "exchange_name": "simulated_test_exchange",
              "exchange_info_service": { # Needed for SimulatedMarketPriceService
@@ -222,14 +219,14 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
                         "quantity_precision": 6,
                         "min_quantity": 0.00001,
                         "maker_fee_pct": 0.001, # 0.1%
-                        "taker_fee_pct": 0.002  # 0.2%
-                    }
-                }
-            }
+                        "taker_fee_pct": 0.002,  # 0.2%
+                    },
+                },
+            },
         }
         # Create a temporary app config file for ConfigManager
         temp_app_config_path = TEST_TEMP_DIR / "temp_app_config.yaml"
-        import yaml # Ensure yaml is imported
+        import yaml  # Ensure yaml is imported
         with open(temp_app_config_path, "w") as f:
             yaml.dump(app_config, f)
 
@@ -303,7 +300,7 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
         mock_prediction_service = MockPredictionService(
             config=config_manager.get("prediction_service", {}),
             pubsub_manager=pubsub_manager,
-            logger_service=logger_service
+            logger_service=logger_service,
         )
 
         # StrategyArbitrator
@@ -312,7 +309,7 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
             pubsub_manager=pubsub_manager,
             logger_service=logger_service,
             market_price_service=mock_market_price_service, # Use the mocked one
-            feature_registry_client=feature_registry_client # Pass the client
+            feature_registry_client=feature_registry_client, # Pass the client
         )
 
         # BacktestingEngine
@@ -336,7 +333,7 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
 
         # 3. Patch StrategyArbitrator._validate_confirmation_rule
         # We use `gal_friday.strategy_arbitrator.StrategyArbitrator` because that's where the class is defined.
-        with patch('gal_friday.strategy_arbitrator.StrategyArbitrator._validate_confirmation_rule',
+        with patch("gal_friday.strategy_arbitrator.StrategyArbitrator._validate_confirmation_rule",
                    wraps=strategy_arbitrator._validate_confirmation_rule) as mock_validate_rule:
 
             # 4. Initialize and Run BacktestingEngine
@@ -344,7 +341,7 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
             # but _execute_simulation is.
             backtesting_engine = BacktestingEngine(
                 config=config_manager, # Pass the ConfigManager instance
-                data_dir=str(TEST_TEMP_DIR) # Not directly used if data_path in config is absolute
+                data_dir=str(TEST_TEMP_DIR), # Not directly used if data_path in config is absolute
             )
 
             # Load data into the engine (mimicking part of run_backtest setup)
@@ -374,7 +371,7 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
             cleaned_data = backtesting_engine._clean_and_validate_data(
                 raw_data,
                 backtest_run_config["start_date"],
-                backtest_run_config["end_date"]
+                backtest_run_config["end_date"],
             )
             self.assertIsNotNone(cleaned_data, "Data cleaning failed.")
 
@@ -385,7 +382,7 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
             # Now, call the core simulation part
             await backtesting_engine._execute_simulation(
                 services=backtest_services_for_simulation,
-                run_config=backtest_run_config
+                run_config=backtest_run_config,
             )
 
             # 5. Assertions
@@ -463,5 +460,5 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
                 rsi_val = backtesting_engine.current_features["rsi_14_default"]
                 self.assertTrue(0.0 <= rsi_val <= 100.0, f"RSI value {rsi_val} out of expected 0-100 range.")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

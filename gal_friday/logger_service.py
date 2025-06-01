@@ -188,7 +188,7 @@ class ContextFormatter(logging.Formatter):
         """
         # Ensure 'context' attribute exists on the record before super().format()
         # if the main format string self._fmt (used by super().format()) contains '%(context)s'.
-        if not hasattr(record, 'context'):
+        if not hasattr(record, "context"):
             record.context = {} # Default to an empty dict if not present
 
         # Default formatting first

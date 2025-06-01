@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from gal_friday.config_manager import ConfigManager
+
 if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 class DatabaseConnectionPool:
     """Manages SQLAlchemy database engine and sessions."""
 
-    def __init__(self, config: ConfigManager, logger: 'LoggerService') -> None:
+    def __init__(self, config: ConfigManager, logger: "LoggerService") -> None:
         """Initialize the connection pool manager.
 
         Args:
@@ -31,8 +32,8 @@ class DatabaseConnectionPool:
         self.logger = logger
         self._source_module = self.__class__.__name__
 
-        self._engine: Optional[AsyncEngine] = None
-        self._session_maker: Optional[async_sessionmaker[AsyncSession]] = None
+        self._engine: AsyncEngine | None = None
+        self._session_maker: async_sessionmaker[AsyncSession] | None = None
         self._pool_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
@@ -61,7 +62,7 @@ class DatabaseConnectionPool:
                         echo=self.config.get_bool("database.echo_sql", False), # Optional: log SQL
                     )
                     self._session_maker = async_sessionmaker(
-                        self._engine, expire_on_commit=False, class_=AsyncSession
+                        self._engine, expire_on_commit=False, class_=AsyncSession,
                     )
                     self.logger.info(
                         "SQLAlchemy AsyncEngine initialized",
@@ -106,7 +107,7 @@ class DatabaseConnectionPool:
                 source_module=self._source_module,
             )
             raise RuntimeError(
-                "Session maker is not initialized. Call initialize() first."
+                "Session maker is not initialized. Call initialize() first.",
             )
 
         session = self._session_maker()

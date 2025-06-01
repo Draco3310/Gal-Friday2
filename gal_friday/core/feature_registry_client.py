@@ -7,7 +7,7 @@ to be a reusable component for any service that needs to query the feature regis
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
@@ -20,8 +20,7 @@ class RegistryLoadError(Exception):
     """Custom exception raised when the feature registry fails to load or parse."""
 
 class FeatureRegistryClient:
-    """
-    A client for loading and accessing feature definitions from a YAML registry file.
+    """A client for loading and accessing feature definitions from a YAML registry file.
 
     This client is responsible for parsing a YAML file that contains definitions
     for various features that can be computed by the `FeatureEngine`. It provides
@@ -65,20 +64,18 @@ class FeatureRegistryClient:
     """
 
     def __init__(self, registry_path: Path | str = DEFAULT_REGISTRY_PATH) -> None:
-        """
-        Initializes the FeatureRegistryClient and loads data from the registry.
+        """Initializes the FeatureRegistryClient and loads data from the registry.
 
         Args:
             registry_path: The path to the YAML feature registry file.
                            Defaults to `config/feature_registry.yaml`.
         """
         self.registry_path: Path = Path(registry_path)
-        self._registry_data: Optional[Dict[str, Any]] = None
+        self._registry_data: dict[str, Any] | None = None
         self._load_registry()
 
     def _load_registry(self) -> None:
-        """
-        Loads feature definitions from the YAML file specified by `self.registry_path`.
+        """Loads feature definitions from the YAML file specified by `self.registry_path`.
 
         This method is called during `__init__`. It populates `self._registry_data`
         with the loaded content from the YAML file.
@@ -105,13 +102,13 @@ class FeatureRegistryClient:
                 # Optionally raise RegistryLoadError("Feature registry file not found.")
                 return
 
-            with self.registry_path.open('r') as f:
+            with self.registry_path.open("r") as f:
                 data = yaml.safe_load(f)
 
             if not isinstance(data, dict):
                 logger.error(
                     "Feature registry content is not a dictionary. File: %s",
-                    self.registry_path
+                    self.registry_path,
                 )
                 self._registry_data = {}
                 # Optionally raise RegistryLoadError("Invalid registry format: not a dictionary.")
@@ -120,25 +117,24 @@ class FeatureRegistryClient:
             self._registry_data = data
             logger.info(
                 "Feature registry loaded successfully from %s. Found %d definitions.",
-                self.registry_path, len(self._registry_data)
+                self.registry_path, len(self._registry_data),
             )
 
         except yaml.YAMLError as e:
             logger.exception(
-                "Error parsing YAML in feature registry %s: %s", self.registry_path, e
+                "Error parsing YAML in feature registry %s: %s", self.registry_path, e,
             )
             self._registry_data = {}
             # Optionally raise RegistryLoadError(f"YAML parsing error: {e}")
         except Exception as e: # Catch any other unexpected errors during file I/O or loading
             logger.exception(
-                "Unexpected error loading feature registry %s: %s", self.registry_path, e
+                "Unexpected error loading feature registry %s: %s", self.registry_path, e,
             )
             self._registry_data = {}
             # Optionally raise RegistryLoadError(f"Unexpected loading error: {e}")
 
-    def get_feature_definition(self, feature_key: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieves the raw configuration dictionary for a given feature key.
+    def get_feature_definition(self, feature_key: str) -> dict[str, Any] | None:
+        """Retrieves the raw configuration dictionary for a given feature key.
 
         Args:
             feature_key: The unique key of the feature as defined in the registry
@@ -160,9 +156,8 @@ class FeatureRegistryClient:
             logger.debug("Feature key '%s' not found in registry.", feature_key)
         return definition
 
-    def get_all_feature_keys(self) -> List[str]:
-        """
-        Retrieves a list of all top-level feature keys defined in the registry.
+    def get_all_feature_keys(self) -> list[str]:
+        """Retrieves a list of all top-level feature keys defined in the registry.
 
         Returns:
             A list of strings, where each string is a unique feature key from the
@@ -174,9 +169,8 @@ class FeatureRegistryClient:
             return []
         return list(self._registry_data.keys())
 
-    def get_output_properties(self, feature_key: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieves the 'output_properties' dictionary for a given feature key.
+    def get_output_properties(self, feature_key: str) -> dict[str, Any] | None:
+        """Retrieves the 'output_properties' dictionary for a given feature key.
         This typically includes metadata about the feature's output, such as
         its value type, range, or if it's multidimensional.
 
@@ -191,14 +185,13 @@ class FeatureRegistryClient:
         """
         definition = self.get_feature_definition(feature_key)
         if definition and isinstance(definition.get("output_properties"), dict):
-            return definition["output_properties"]
+            return definition["output_properties"]  # type: ignore[no-any-return]
         if definition:
             logger.debug("Feature '%s' found, but 'output_properties' missing or not a dict.", feature_key)
         return None
 
-    def get_calculator_type(self, feature_key: str) -> Optional[str]:
-        """
-        Retrieves the 'calculator_type' string for a given feature key.
+    def get_calculator_type(self, feature_key: str) -> str | None:
+        """Retrieves the 'calculator_type' string for a given feature key.
         This string usually identifies the specific calculation logic or class
         responsible for computing the feature (e.g., "rsi", "macd", "custom_indicator").
 
@@ -213,14 +206,13 @@ class FeatureRegistryClient:
         """
         definition = self.get_feature_definition(feature_key)
         if definition and isinstance(definition.get("calculator_type"), str):
-            return definition["calculator_type"]
+            return definition["calculator_type"]  # type: ignore[no-any-return]
         if definition:
              logger.debug("Feature '%s' found, but 'calculator_type' missing or not a string.", feature_key)
         return None
 
-    def get_parameters(self, feature_key: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieves the 'parameters' dictionary for a given feature key.
+    def get_parameters(self, feature_key: str) -> dict[str, Any] | None:
+        """Retrieves the 'parameters' dictionary for a given feature key.
         These parameters are typically passed to the feature's calculation logic.
 
         Args:
@@ -245,8 +237,7 @@ class FeatureRegistryClient:
         return None
 
     def is_loaded(self) -> bool:
-        """
-        Checks if the registry data has been successfully loaded and contains content.
+        """Checks if the registry data has been successfully loaded and contains content.
 
         Returns:
             True if `_registry_data` is a non-empty dictionary, False otherwise.
@@ -256,8 +247,7 @@ class FeatureRegistryClient:
         return self._registry_data is not None and len(self._registry_data) > 0
 
     def reload_registry(self) -> None:
-        """
-        Forces a reload of the feature registry data from the file specified
+        """Forces a reload of the feature registry data from the file specified
         during client initialization. This can be used to pick up changes to the
         registry file without restarting the application.
         """

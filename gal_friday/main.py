@@ -219,6 +219,12 @@ except ImportError:
     startup_logger.error("Failed to import HistoricalDataService")
     HistoricalDataService = None  # type: ignore[assignment,misc]
 
+try:
+    from .core.feature_registry_client import FeatureRegistryClient
+except ImportError:
+    startup_logger.error("Failed to import FeatureRegistryClient")
+    FeatureRegistryClient = None  # type: ignore[assignment,misc]
+
 # --- DAL Imports ---
 try:
     from .dal.connection_pool import DatabaseConnectionPool
@@ -430,6 +436,7 @@ class GalFridayApp:
         self.feature_engine: FeatureEngineType | None = None
         self.prediction_service: PredictionServiceType | None = None
         self.strategy_arbitrator: StrategyArbitratorType | None = None
+        self.feature_registry_client: FeatureRegistryClient | None = None  # Added
 
         # Keep a direct reference to config_manager if needed by other methods
         self._config_manager_instance: ConfigManagerType | None = None
@@ -532,11 +539,12 @@ class GalFridayApp:
 
     def _init_strategy_arbitrator(self) -> None:
         """Instantiate the StrategyArbitrator."""
+        # Prerequisites will be checked in this order and fail fast
         self._ensure_strategy_arbitrator_prerequisites()
+
         if self.config is None:
-            self._raise_config_not_initialized()
-        if not isinstance(self.config, ConfigManagerType):
-            raise TypeError(f"Expected ConfigManagerType, got {type(self.config).__name__}")
+            raise RuntimeError("Configuration not initialized")
+
         strategy_arbitrator_config = self.config.get("strategy_arbitrator", {})
         if self.market_price_service is None:
             raise MarketPriceServiceError
@@ -545,11 +553,20 @@ class GalFridayApp:
         if self.logger_service is None:
             raise LoggerServiceError
 
+        # Create FeatureRegistryClient instance
+        if FeatureRegistryClient is not None:
+            self.feature_registry_client = FeatureRegistryClient()
+            log.debug("FeatureRegistryClient instantiated.")
+        else:
+            log.warning("FeatureRegistryClient not available, StrategyArbitrator will operate without feature validation.")
+            self.feature_registry_client = None
+
         self.strategy_arbitrator = StrategyArbitrator(
             config=strategy_arbitrator_config,
             pubsub_manager=self.pubsub,
             logger_service=self.logger_service,
             market_price_service=self.market_price_service,
+            feature_registry_client=self.feature_registry_client,  # Added parameter
         )
         log.debug("StrategyArbitrator instantiated.")
 

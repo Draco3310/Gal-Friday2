@@ -7,17 +7,20 @@ ensure type safety and consistency.
 
 from __future__ import annotations
 
+from collections.abc import (
+    Awaitable,  # For PubSubManagerProtocol
+    Callable,
+)
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Protocol, TypeVar, runtime_checkable, Callable
-from collections.abc import Awaitable # For PubSubManagerProtocol
+from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import pandas as pd
 
 # Type variables for generic types
 T = TypeVar("T")
 T_co = TypeVar("T_co", covariant=True)
-PredictionOutput = TypeVar('PredictionOutput') # For PredictionServiceProtocol
+PredictionOutput = TypeVar("PredictionOutput", covariant=True) # For PredictionServiceProtocol
 
 
 # Protocol for configuration management
@@ -92,7 +95,7 @@ class FeatureEngine(Protocol):
 
 
 # Protocol for prediction service
-class PredictionService(Protocol):
+class PredictionService(Protocol[PredictionOutput]):
     """Protocol for prediction service."""
 
     def predict(self, features: pd.DataFrame) -> PredictionOutput:

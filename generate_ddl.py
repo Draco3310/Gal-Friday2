@@ -29,7 +29,7 @@ try:
     sys.stderr.write("Successfully imported models.\n")
 except ImportError as e:
     sys.stderr.write(f"Error importing models: {e}. Check PYTHONPATH and script location.\n")
-    sys.stderr.write(f"Current sys.path: {str(sys.path)}\n")
+    sys.stderr.write(f"Current sys.path: {sys.path!s}\n")
     sys.exit(1)
 
 async def main():

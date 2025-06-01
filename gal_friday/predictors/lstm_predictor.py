@@ -443,12 +443,12 @@ class LSTMPredictor(PredictorInterface):
             logger.warning(
                 "scaler_asset provided to _process_features for model %s, "
                 "but it will be ignored as features are expected pre-scaled.",
-                model_id
+                model_id,
             )
 
         logger.debug(
             "Using pre-scaled feature sequence (shape: %s) directly.",
-            processed_sequence.shape
+            processed_sequence.shape,
         )
         return processed_sequence, ""
 
@@ -551,7 +551,7 @@ class LSTMPredictor(PredictorInterface):
                 logger.info(
                     "scaler_path '%s' provided for model %s but will be ignored "
                     "as features are expected pre-scaled by FeatureEngine.",
-                    scaler_path, model_id
+                    scaler_path, model_id,
                 )
             # scaler_asset remains None as it's not loaded for transformation purposes.
 

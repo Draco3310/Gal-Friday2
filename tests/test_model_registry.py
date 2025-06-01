@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 import xgboost as xgb
-from sklearn.preprocessing import StandardScaler
 from rich import print as rich_print
+from sklearn.preprocessing import StandardScaler
 
 from gal_friday.model_lifecycle import (
     ModelArtifact,

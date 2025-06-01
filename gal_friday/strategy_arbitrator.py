@@ -17,6 +17,9 @@ from typing import ClassVar
 # Event imports
 from .core.events import EventType, PredictionEvent, TradeSignalProposedEvent
 
+# Import FeatureRegistryClient
+from .core.feature_registry_client import FeatureRegistryClient
+
 # Import PubSubManager
 from .core.pubsub import PubSubManager
 
@@ -26,14 +29,10 @@ from .logger_service import LoggerService
 # Import MarketPriceService
 from .market_price_service import MarketPriceService
 
-# Import FeatureRegistryClient
-from .core.feature_registry_client import FeatureRegistryClient
-
 
 # --- StrategyArbitrator Class ---
 class StrategyArbitrator:
-    """
-    Consumes prediction events from models, applies trading strategy logic, and
+    """Consumes prediction events from models, applies trading strategy logic, and
     produces proposed trade signals.
 
     The arbitrator supports configurable threshold-based strategies with secondary
@@ -231,8 +230,7 @@ class StrategyArbitrator:
                 )
 
     def _validate_confirmation_rules_config(self) -> None:
-        """
-        Validate the structure of confirmation rules and check if feature names
+        """Validate the structure of confirmation rules and check if feature names
         exist in the Feature Registry.
         """
         if not self.feature_registry_client or not self.feature_registry_client.is_loaded():
@@ -240,7 +238,7 @@ class StrategyArbitrator:
                 "FeatureRegistryClient not available or not loaded. "
                 "Skipping feature name validation in confirmation rules for strategy '%s'.",
                 self._strategy_id,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             # Perform only structural validation if registry is not available
             for rule in self._confirmation_rules:
@@ -271,13 +269,13 @@ class StrategyArbitrator:
                         "which is not found in the Feature Registry. This rule may be "
                         "ineffective or cause errors during secondary confirmation.",
                         self._strategy_id, feature_name,
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
                 else:
                     self.logger.debug(
                         "Confirmation rule feature '%s' for strategy '%s' validated against Feature Registry.",
                         feature_name, self._strategy_id,
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
             # If feature_name is None or empty, the structural check above would have already caught it
             # if 'feature' was a required key with a non-empty value.
@@ -580,8 +578,7 @@ class StrategyArbitrator:
         trading_pair: str,
         primary_side: str,
     ) -> bool:
-        """
-        Validate a single confirmation rule against the provided features.
+        """Validate a single confirmation rule against the provided features.
 
         Args:
             rule: A dictionary defining the confirmation rule (feature, condition, threshold).
@@ -633,7 +630,7 @@ class StrategyArbitrator:
             op = self._CONDITION_OPERATORS.get(str(condition_key))
 
             if op:
-                condition_met = op(feature_value, threshold)
+                condition_met = op(feature_value_decimal, threshold)
                 if condition_met:
                     rule_passes = True
                 else:
@@ -644,7 +641,7 @@ class StrategyArbitrator:
                         feature_name,
                         condition_key,  # Use renamed variable
                         threshold,
-                        feature_value,
+                        feature_value_decimal,
                         source_module=self._source_module,
                     )
                     rule_passes = False
@@ -674,8 +671,7 @@ class StrategyArbitrator:
         prediction_event: PredictionEvent,
         primary_side: str,
     ) -> bool:
-        """
-        Check if secondary confirmation rules pass using features from the PredictionEvent.
+        """Check if secondary confirmation rules pass using features from the PredictionEvent.
 
         Args:
             prediction_event: The `PredictionEvent` containing associated features.
@@ -692,7 +688,7 @@ class StrategyArbitrator:
             return True  # No rules defined, confirmation passes by default
 
         associated_payload = getattr(prediction_event, "associated_features", None)
-        raw_features: Optional[Dict[str, float]] = None
+        raw_features: dict[str, float] | None = None
         if isinstance(associated_payload, dict):
             raw_features = associated_payload.get("triggering_features")
 

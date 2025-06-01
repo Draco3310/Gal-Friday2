@@ -1,17 +1,16 @@
 """Integration tests for FeatureEngine."""
 
-import pytest
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
 
-import pandas as pd # For type hints and creating Series inputs if needed by pipelines
-import numpy as np # For np.nan
+import numpy as np  # For np.nan
+import pandas as pd  # For type hints and creating Series inputs if needed by pipelines
+import pytest
 
-from gal_friday.feature_engine import FeatureEngine
 from gal_friday.core.events import EventType
-from gal_friday.interfaces.feature_engine_interface import FeatureCategory # For config
+from gal_friday.feature_engine import FeatureEngine
 
 # --- Mocks and Helpers ---
 
@@ -66,24 +65,24 @@ def sample_feature_config() -> dict:
             "calculator_type": "rsi", "input_type": "close_series", "category": "TECHNICAL",
             "parameters": {"period": 14},
             "imputation": {"strategy": "constant", "fill_value": 50.0}, # Output imputation
-            "scaling": {"method": "minmax", "feature_range": (0, 100)}
+            "scaling": {"method": "minmax", "feature_range": (0, 100)},
         },
         "macd_default": {
             "calculator_type": "macd", "input_type": "close_series", "category": "TECHNICAL",
             # Uses default params: 12, 26, 9
             "imputation": None, # Default (fillna(0) for MACD)
-            "scaling": "passthrough"
+            "scaling": "passthrough",
         },
         "l2_spread_test": {
             "calculator_type": "l2_spread", "input_type": "l2_book_series", "category": "L2_ORDER_BOOK",
             "imputation": {"strategy": "mean"}, # Fill NaNs with mean of spread values
-            "scaling": None # Default (StandardScaler)
+            "scaling": None, # Default (StandardScaler)
         },
         "vol_delta_60s": {
             "calculator_type": "volume_delta", "input_type": "trades_and_bar_starts", "category": "TRADE_DATA",
             "parameters": {"bar_interval_seconds": 60},
             "imputation": "passthrough", # Test passthrough, expect 0.0 for no trades or actual delta
-        }
+        },
     }
 
 @pytest.fixture
@@ -92,7 +91,7 @@ async def initialized_feature_engine(sample_feature_config, mock_pubsub, mock_lo
     config = {
         "exchange_name": "test_exchange",
         "feature_engine": {"trade_history_maxlen": 200}, # Increased for more trade history
-        "features": sample_feature_config
+        "features": sample_feature_config,
     }
     engine = FeatureEngine(config=config, pubsub_manager=mock_pubsub, logger_service=mock_logger)
     await engine.start() # Subscribes to events if FeatureEngine does that on start
@@ -105,9 +104,9 @@ def create_ohlcv_event(trading_pair: str, timestamp: datetime, o: float, h: floa
         "payload": {
             "trading_pair": trading_pair,
             "exchange": "test_exchange",
-            "timestamp_bar_start": timestamp.isoformat().replace('+00:00', 'Z'),
-            "open": str(o), "high": str(h), "low": str(l), "close": str(c), "volume": str(v)
-        }
+            "timestamp_bar_start": timestamp.isoformat().replace("+00:00", "Z"),
+            "open": str(o), "high": str(h), "low": str(l), "close": str(c), "volume": str(v),
+        },
     }
 
 def create_l2_event(trading_pair: str, timestamp: datetime, bids: list, asks: list) -> dict:
@@ -116,10 +115,10 @@ def create_l2_event(trading_pair: str, timestamp: datetime, bids: list, asks: li
         "payload": {
             "trading_pair": trading_pair,
             "exchange": "test_exchange",
-            "timestamp_exchange": timestamp.isoformat().replace('+00:00', 'Z'),
+            "timestamp_exchange": timestamp.isoformat().replace("+00:00", "Z"),
             "bids": [[str(p), str(v)] for p, v in bids],
-            "asks": [[str(p), str(v)] for p, v in asks]
-        }
+            "asks": [[str(p), str(v)] for p, v in asks],
+        },
     }
 
 def create_trade_event(trading_pair: str, timestamp: datetime, price: Decimal, volume: Decimal, side: str) -> dict:
@@ -128,11 +127,11 @@ def create_trade_event(trading_pair: str, timestamp: datetime, price: Decimal, v
         "payload": {
             "trading_pair": trading_pair,
             "exchange": "test_exchange",
-            "timestamp_exchange": timestamp.isoformat().replace('+00:00', 'Z'),
+            "timestamp_exchange": timestamp.isoformat().replace("+00:00", "Z"),
             "price": str(price),
             "volume": str(volume),
-            "side": side
-        }
+            "side": side,
+        },
     }
 
 @pytest.mark.asyncio
@@ -142,20 +141,20 @@ async def test_end_to_end_feature_calculation_single_bar(initialized_feature_eng
 
     # --- Setup Data History ---
     # Populate some history for OHLCV (at least > min_history_required)
-    base_time = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+    base_time = datetime(2023, 1, 1, 10, 0, 0, tzinfo=UTC)
     for i in range(30): # Create 30 bars of history
         ts = base_time - timedelta(minutes=(30-i))
         # Use direct call to _handle_ohlcv_update to bypass pubsub for setup data
         engine._handle_ohlcv_update(trading_pair, create_ohlcv_event(
-            trading_pair, ts, 100+i, 102+i, 99+i, 101+i, 10+i
-        )['payload'])
+            trading_pair, ts, 100+i, 102+i, 99+i, 101+i, 10+i,
+        )["payload"])
 
     # L2 data (send one snapshot, will be used as "latest" for the target bar)
     l2_ts = base_time + timedelta(minutes=1, seconds=50) # Just before OHLCV bar close
     l2_event = create_l2_event(trading_pair, l2_ts,
                                bids=[[Decimal("130.00"), Decimal("1.0")], [Decimal("129.95"), Decimal("2.0")]],
                                asks=[[Decimal("130.05"), Decimal("0.5")], [Decimal("130.10"), Decimal("1.5")]])
-    engine._handle_l2_update(trading_pair, l2_event['payload'])
+    engine._handle_l2_update(trading_pair, l2_event["payload"])
 
 
     # Trade data
@@ -182,12 +181,12 @@ async def test_end_to_end_feature_calculation_single_bar(initialized_feature_eng
     published_event = mock_pubsub.get_last_published_event()
 
     assert published_event is not None
-    assert published_event['event_type'] == EventType.FEATURES_CALCULATED.name
-    payload = published_event['payload']
-    assert payload['trading_pair'] == trading_pair
-    assert payload['timestamp_features_for'] == target_bar_ts.isoformat().replace('+00:00', 'Z')
+    assert published_event["event_type"] == EventType.FEATURES_CALCULATED.name
+    payload = published_event["payload"]
+    assert payload["trading_pair"] == trading_pair
+    assert payload["timestamp_features_for"] == target_bar_ts.isoformat().replace("+00:00", "Z")
 
-    features = payload['features']
+    features = payload["features"]
     print("Generated features:", features) # For debugging in test runner
 
     # Check presence of all configured features (names are based on pipeline_name.replace('_pipeline',''))
@@ -231,12 +230,12 @@ async def test_feature_calculation_with_passthrough_imputation(initialized_featu
     # If it results in NaN (e.g. no trades), it should be filtered out before formatting.
     # If it's 0.0 (no trades), it should be "0.00000000".
 
-    base_time = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+    base_time = datetime(2023, 1, 1, 10, 0, 0, tzinfo=UTC)
     for i in range(30):
         ts = base_time - timedelta(minutes=(30-i))
         engine._handle_ohlcv_update(trading_pair, create_ohlcv_event(
-            trading_pair, ts, 10+i, 12+i, 9+i, 11+i, 5+i
-        )['payload'])
+            trading_pair, ts, 10+i, 12+i, 9+i, 11+i, 5+i,
+        )["payload"])
 
     # No trades for this bar for vol_delta
     target_bar_ts = base_time + timedelta(minutes=1)
@@ -247,7 +246,7 @@ async def test_feature_calculation_with_passthrough_imputation(initialized_featu
 
     published_event = mock_pubsub.get_last_published_event()
     assert published_event is not None
-    features = published_event['payload']['features']
+    features = published_event["payload"]["features"]
 
     # Volume Delta with passthrough imputation and no trades for this bar should result in 0.0
     # (as per _pipeline_compute_volume_delta's logic for empty relevant_trades)
@@ -272,7 +271,7 @@ async def test_feature_calculation_with_passthrough_imputation(initialized_featu
     mock_pubsub.published_events.clear()
     await engine.process_market_data(ohlcv_event) # Re-process
     published_event_no_l2 = mock_pubsub.get_last_published_event()
-    features_no_l2 = published_event_no_l2['payload']['features']
+    features_no_l2 = published_event_no_l2["payload"]["features"]
 
     # l2_spread_test has mean imputation. Since there's no data to compute a mean from (single event processing),
     # its fillna(df.mean()) will result in NaNs for the means themselves, so the output is NaN.

@@ -176,7 +176,7 @@ class SKLearnPredictor(PredictorInterface):
         # Load Scaler
         self.scaler = None # Scaler is no longer loaded or used by this predictor.
         self.logger.info(
-            "Scaler attribute is set to None. Features are expected to be pre-scaled."
+            "Scaler attribute is set to None. Features are expected to be pre-scaled.",
         )
         # if self.scaler_path: # Removed scaler loading logic
         # else:

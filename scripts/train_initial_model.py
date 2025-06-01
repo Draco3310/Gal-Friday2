@@ -50,7 +50,7 @@ try:
 except ImportError as e:
     # Logging might not be set up here yet, but attempt to use it if possible,
     # otherwise default to stderr for this critical early error.
-    if 'logging' in sys.modules:
+    if "logging" in sys.modules:
         logging.error(f"Error importing ConfigManager: {e}")
         logging.error("Ensure the script is run from the project root or the PYTHONPATH is set correctly.")
     else:
