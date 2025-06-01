@@ -979,7 +979,7 @@ class LoggerService:
             valid_fields: dict[str, Any] = {} # Changed to Any for diagnosis
             for key, value in fields.items():
                 if isinstance(value, float | int | bool | str):
-                    valid_fields[key] = str(value)
+                    valid_fields[key] = value
                 elif isinstance(value, Decimal):
                     valid_fields[key] = float(value)
                 else:

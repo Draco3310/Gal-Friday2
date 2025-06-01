@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable, Sequence as TypingSequence
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable, Sequence as TypingSequence, Union, Optional
 
 import joblib
 import numpy as np
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     # from gal_friday.dal.repositories.model_repository import ModelRepository # Already imported above
     from gal_friday.logger_service import LoggerService
     from gal_friday.utils.secrets_manager import SecretsManager
+    from .cloud_storage import GCSBackend, S3Backend # Added for type hinting
 
 # Type variables for generic typing
 T = TypeVar("T", bound="Predictor")
@@ -54,7 +55,7 @@ class Predictor(Protocol):
         """
         ...
 
-    def fit(self, x: ArrayLike, y: ArrayLike | None = None) -> T:
+    def fit(self, x: ArrayLike, y: ArrayLike | None = None) -> "Predictor":
         """Fit the model to the training data.
 
         Args:
@@ -125,11 +126,13 @@ class ModelMetadata:
 
     # Training info
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime | None = None  # Added
     training_completed_at: datetime | None = None
     training_duration_seconds: float | None = None
     trained_by: str = "system"
 
     # Data info
+    training_data_path: str | None = None  # Added
     training_data_start: datetime | None = None
     training_data_end: datetime | None = None
     training_samples: int = 0
@@ -168,6 +171,7 @@ class ModelMetadata:
             "version": self.version,
             "model_type": self.model_type,
             "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,  # Added
             "training_completed_at": (
                 self.training_completed_at.isoformat()
                 if self.training_completed_at
@@ -175,6 +179,7 @@ class ModelMetadata:
             ),
             "training_duration_seconds": self.training_duration_seconds,
             "trained_by": self.trained_by,
+            "training_data_path": self.training_data_path,  # Added
             "training_data_start": (
                 self.training_data_start.isoformat()
                 if self.training_data_start
@@ -210,13 +215,18 @@ class ModelMetadata:
         # Parse dates
         date_fields = [
             "created_at",
+            "updated_at", # Added
             "training_completed_at",
             "training_data_start",
             "training_data_end",
         ]
         for date_field in date_fields:
             if data.get(date_field) and isinstance(data[date_field], str):
-                data[date_field] = datetime.fromisoformat(data[date_field])
+                dt_obj = datetime.fromisoformat(data[date_field])
+                # Ensure timezone awareness, assuming UTC if naive
+                if dt_obj.tzinfo is None:
+                    dt_obj = dt_obj.replace(tzinfo=UTC)
+                data[date_field] = dt_obj
 
         # Parse enums
         if "stage" in data and isinstance(data["stage"], str):
@@ -240,6 +250,8 @@ class ModelMetadata:
         data.setdefault("trained_by", "system")
         data.setdefault("artifact_size_bytes", 0)
         data.setdefault("artifact_hash", None)
+        data.setdefault("updated_at", None)  # Added
+        data.setdefault("training_data_path", None)  # Added
 
         return cls(**data)
 
@@ -335,16 +347,21 @@ class ModelArtifact:
                 metadata_dict = json.load(f)
                 # Parse dates
                 for date_field in [
-                    "created_at", "training_completed_at",
+                    "created_at", "updated_at", "training_completed_at", # Added updated_at
                     "training_data_start", "training_data_end",
                 ]:
-                    if metadata_dict.get(date_field):
-                        metadata_dict[date_field] = datetime.fromisoformat(
-                            str(metadata_dict[date_field]),
-                        )
+                    if metadata_dict.get(date_field) and isinstance(metadata_dict[date_field], str):
+                        dt_obj = datetime.fromisoformat(str(metadata_dict[date_field]))
+                        if dt_obj.tzinfo is None: # Make timezone aware
+                            dt_obj = dt_obj.replace(tzinfo=UTC)
+                        metadata_dict[date_field] = dt_obj
+
                 # Parse enums
                 metadata_dict["stage"] = ModelStage(metadata_dict["stage"])
                 metadata_dict["status"] = ModelStatus(metadata_dict["status"])
+                # Add new fields if they might be in the JSON
+                metadata_dict.setdefault("training_data_path", None)
+
                 metadata = ModelMetadata(**metadata_dict)
 
         return cls(
@@ -357,6 +374,7 @@ class ModelArtifact:
 
 class Registry: # Renamed from ModelRegistry for clarity as per plan
     """Centralized model registry with versioning and lifecycle management."""
+    cloud_storage: Optional[Union[GCSBackend, S3Backend]] = None # Added type hint
 
     def __init__(
         self,
@@ -436,7 +454,8 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             # Update metadata
             artifact.metadata.model_name = model_name
             artifact.metadata.version = version
-            artifact.metadata.created_at = datetime.now(UTC)
+            # artifact.metadata.created_at = datetime.now(UTC) # Already defaulted
+            artifact.metadata.updated_at = datetime.now(UTC) # Set updated_at on registration
             artifact.metadata.status = ModelStatus.READY
 
             # Calculate artifact hash
@@ -452,47 +471,33 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             artifact.metadata.artifact_size_bytes = self._get_directory_size(artifact_path)
 
             # Save to database
-            # ModelRepository.add_model_version expects a dict for ModelVersion
             model_version_data = {
-                "model_id": uuid.UUID(artifact.metadata.model_id), # Ensure UUID
+                "model_id": uuid.UUID(artifact.metadata.model_id),
                 "model_name": artifact.metadata.model_name,
                 "version": artifact.metadata.version,
-                # "model_type" is not in ModelVersion schema, but in ModelMetadata. Store in metrics/hyperparams if needed.
                 "created_at": artifact.metadata.created_at,
+                # ModelVersionModel does not have updated_at, training_data_path
                 "training_completed_at": artifact.metadata.training_completed_at,
-                "stage": artifact.metadata.stage.value, # Enum to value
+                "stage": artifact.metadata.stage.value,
                 "metrics": artifact.metadata.metrics,
                 "hyperparameters": artifact.metadata.hyperparameters,
                 "feature_importance": artifact.metadata.feature_importance,
                 "artifact_path": artifact.metadata.artifact_path,
-                # Other ModelMetadata fields like training_duration, trained_by, features, target_variable etc.
-                # would need to be part of the 'metrics' or 'hyperparameters' JSONB if to be stored,
-                # or ModelVersion schema needs to be extended.
             }
             created_model_version = await self.model_repo.add_model_version(model_version_data)
             
-            # Update artifact's metadata with the confirmed model_id (if it was generated by DB or repo)
-            # Here, we assume model_id is client-generated via uuid.uuid4() in ModelMetadata default_factory
-            # so created_model_version.model_id should match artifact.metadata.model_id.
-            # artifact.metadata.model_id = created_model_version.model_id.hex # if repo returns it
-
-            # If promoting to production, ModelRepository's update_model_version_stage handles deployment record.
             if artifact.metadata.stage == ModelStage.PRODUCTION:
                  await self.model_repo.update_model_version_stage(
-                     created_model_version.model_id, 
-                     ModelStage.PRODUCTION.value, # Ensure string value for stage
+                     uuid.UUID(str(created_model_version.model_id)),
+                     ModelStage.PRODUCTION.value,
                      deployed_by=artifact.metadata.trained_by
                  )
 
-
-            # Upload to cloud storage if enabled
             if self.use_cloud_storage:
                 await self._upload_to_cloud(artifact_path, model_name, version)
 
-            # Ensure model_id is a uuid.UUID object for type checking and runtime safety
             model_id_uuid = created_model_version.model_id
             if not isinstance(model_id_uuid, uuid.UUID):
-                # This case should ideally not be reached if data layer is consistent
                 error_msg = f"Returned model_id is not a UUID instance: {type(model_id_uuid)}"
                 self.logger.error(error_msg, source_module=self._source_module)
                 raise TypeError(error_msg)
@@ -502,8 +507,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                 source_module=self._source_module,
                 context={"model_id": model_id_uuid.hex},
             )
-
-            return model_id_uuid.hex # Return hex string of UUID
+            return model_id_uuid.hex
 
         except Exception:
             self.logger.exception(
@@ -518,39 +522,23 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         version: str | None = None,
         stage: ModelStage | None = None,
     ) -> ModelArtifact:
-        """Retrieve a model by name and version or stage.
-
-        Args:
-            model_name: Name of the model
-            version: Specific version (if not provided, gets latest)
-            stage: Get model in specific stage (production, staging)
-
-        Returns:
-            ModelArtifact
-        """
         try:
-            # Get ModelVersionModel from database
             model_version_model: ModelVersionModel | None = None
             if version:
-                # get_model_versions_by_name returns a sequence
                 versions = await self.model_repo.get_model_versions_by_name(model_name, version)
                 if versions: model_version_model = versions[0]
             elif stage:
-                # get_model_versions_by_stage returns a sequence
                 stages = await self.model_repo.get_model_versions_by_stage(model_name, stage.value)
                 if stages: model_version_model = stages[0]
             else:
-                # Get latest version
                 model_version_model = await self.model_repo.get_latest_model_version_by_name(model_name)
 
             if not model_version_model:
                 raise ValueError(f"Model not found: {model_name} (version={version}, stage={stage})")
 
-            # Convert ModelVersionModel to ModelMetadata DTO
             metadata_dto = self._model_version_to_metadata_dto(model_version_model)
             
-            # Fetch deployment history for this model version
-            deployments = await self.model_repo.get_deployments_for_model_version(model_version_model.model_id)
+            deployments = await self.model_repo.get_deployments_for_model_version(uuid.UUID(str(model_version_model.model_id)))
             metadata_dto.deployment_history = [
                 {
                     "deployed_at": dep.deployed_at.isoformat(), 
@@ -560,22 +548,18 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                 } for dep in deployments
             ]
 
-
-            # Load artifact from storage
             if metadata_dto.artifact_path is None:
                 raise ValueError(f"Model artifact path not found for: {model_name}")
 
             artifact_path = Path(metadata_dto.artifact_path)
 
-            # Download from cloud if needed
             if self.use_cloud_storage and not artifact_path.exists():
                 await self._download_from_cloud(
                     artifact_path, model_name, metadata_dto.version,
                 )
 
-            # Load artifact
             artifact = ModelArtifact.load(artifact_path)
-            artifact.metadata = metadata_dto # Attach the DTO
+            artifact.metadata = metadata_dto
 
             return artifact
 
@@ -591,15 +575,6 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         model_name: str | None = None,
         stage: ModelStage | None = None,
     ) -> list[ModelMetadata]:
-        """List registered models.
-
-        Args:
-            model_name: Filter by model name
-            stage: Filter by stage
-
-        Returns:
-            List of model metadata
-        """
         model_version_models = await self.model_repo.list_all_model_versions(
             model_name=model_name, 
             stage=stage.value if stage else None
@@ -607,7 +582,6 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         return [self._model_version_to_metadata_dto(mvm) for mvm in model_version_models]
 
     async def get_all_models(self) -> list[ModelMetadata]:
-        """Get all registered models."""
         model_version_models = await self.model_repo.list_all_model_versions()
         return [self._model_version_to_metadata_dto(mvm) for mvm in model_version_models]
 
@@ -615,50 +589,43 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         self,
         stage: ModelStage | None = None,
     ) -> int:
-        """Get count of registered models."""
         models_list = await self.model_repo.list_all_model_versions(stage=stage.value if stage else None)
         return len(models_list)
 
     async def promote_model(
         self,
-        model_id_str: str, # Changed to model_id_str to emphasize it's a string before UUID conversion
+        model_id_str: str,
         to_stage: ModelStage,
         promoted_by: str = "system",
     ) -> bool:
-        """Promote model to a different stage."""
         model_uuid = uuid.UUID(model_id_str)
         try:
-            # Get current ModelVersionModel
             model_version = await self.model_repo.get_model_version(model_uuid)
             if not model_version:
                 raise ValueError(f"Model not found: {model_id_str}")
 
             from_stage = ModelStage(model_version.stage) if model_version.stage else ModelStage.DEVELOPMENT
 
-
-            # Validate promotion path
             if not self._is_valid_promotion(from_stage, to_stage):
                 raise ValueError(
                     f"Invalid promotion: {from_stage.value} -> {to_stage.value}",
                 )
 
-            # If promoting to production, demote current production model
             if to_stage == ModelStage.PRODUCTION:
                 active_prod_deployments = await self.model_repo.get_active_deployment(model_version.model_name)
                 if active_prod_deployments and active_prod_deployments.model_id != model_uuid:
-                    # Demote by setting its ModelVersion stage, ModelRepository handles deactivating deployment
                     await self.model_repo.update_model_version_stage(
-                        active_prod_deployments.model_id, 
-                        ModelStage.STAGING.value, # Demote to staging
+                        uuid.UUID(str(active_prod_deployments.model_id)),
+                        ModelStage.STAGING.value,
                         deployed_by="system_demotion" 
                     )
             
-            # Update model stage - ModelRepository.update_model_version_stage handles creating deployment if to_stage is PROD
             updated_model = await self.model_repo.update_model_version_stage(
                 model_uuid, to_stage.value, promoted_by
             )
 
             if updated_model:
+                 # Update ModelMetadata's updated_at field if we were to fetch and return it here
                 self.logger.info(
                     f"Model promoted: {model_version.model_name} v{model_version.version} "
                     f"from {from_stage.value} to {to_stage.value}",
@@ -666,7 +633,6 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                 )
                 return True
             return False
-
         except Exception:
             self.logger.exception(
                 "Failed to promote model",
@@ -679,17 +645,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         model_id: str,
         force: bool = False,
     ) -> bool:
-        """Delete a model (or archive it).
-
-        Args:
-            model_id: Model to delete
-            force: Force deletion even if in production
-
-        Returns:
-            Success status
-        """
         try:
-            # Get ModelVersionModel
             model_uuid = uuid.UUID(model_id)
             model_version = await self.model_repo.get_model_version(model_uuid)
             if not model_version:
@@ -698,12 +654,9 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
 
             current_stage = ModelStage(model_version.stage) if model_version.stage else ModelStage.DEVELOPMENT
 
-            # Don't delete production models unless forced
             if current_stage == ModelStage.PRODUCTION and not force:
                 raise ValueError("Cannot delete/archive active production model without force=True. Demote first.")
 
-            # Archive instead of hard delete by default.
-            # ModelRepository.update_model_version_stage handles deactivating deployments.
             updated_model = await self.model_repo.update_model_version_stage(
                 model_uuid, ModelStage.ARCHIVED.value, "system_archive"
             )
@@ -712,21 +665,15 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                  self.logger.error(f"Failed to archive model {model_id}", source_module=self._source_module)
                  return False
 
-            # Optionally delete artifacts from local storage
             if self.config_manager.get_bool("model_registry.delete_archived_artifacts", False) and model_version.artifact_path:
                 artifact_path = Path(model_version.artifact_path)
-                if artifact_path.exists() and artifact_path.is_dir(): # Ensure it's a directory as expected
+                if artifact_path.exists() and artifact_path.is_dir():
                     try:
                         shutil.rmtree(artifact_path)
                         self.logger.info(f"Deleted local artifacts for archived model {model_id} at {artifact_path}", source_module=self._source_module)
                     except OSError as e:
                         self.logger.error(f"Error deleting artifacts for model {model_id} at {artifact_path}: {e}", source_module=self._source_module)
-            
-            # If true deletion from DB is needed, call self.model_repo.delete(model_uuid)
-            # For now, setting stage to ARCHIVED is sufficient.
-
             return True
-
         except Exception:
             self.logger.exception(
                 "Failed to delete model",
@@ -735,51 +682,35 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             raise
 
     async def _generate_version(self, model_name: str) -> str:
-        """Generate next version number for model."""
         latest_model_version = await self.model_repo.get_latest_model_version_by_name(model_name)
-
         if not latest_model_version:
-            return "1.0.0" # Default for new model
-
-        # Parse current version and increment (assuming semantic versioning like X.Y.Z)
+            return "1.0.0"
         current_version_str = latest_model_version.version
         try:
             parts = list(map(int, current_version_str.split(".")))
-            if len(parts) == 3: # Major.Minor.Patch
-                parts[2] += 1 # Increment patch
+            if len(parts) == 3:
+                parts[2] += 1
                 return ".".join(map(str, parts))
-            # Fallback for other versioning schemes or if parsing fails
             return f"{current_version_str}.{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-        except ValueError: # If version string is not X.Y.Z integers
+        except ValueError:
             return f"{current_version_str}.{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
 
-
-    def _get_artifact_path(self, model_name: str, version: str) -> Path: # No change needed
-        """Get storage path for model artifacts."""
+    def _get_artifact_path(self, model_name: str, version: str) -> Path:
         return self.storage_path / model_name / version
 
     def _calculate_artifact_hash(self, artifact: ModelArtifact) -> str:
-        """Calculate hash of model artifact for integrity checking."""
         hasher = hashlib.sha256()
-
-        # Hash model representation
         hasher.update(str(artifact.model.get_params()).encode())
         if hasattr(artifact.model, "coef_"):
             hasher.update(artifact.model.coef_.tobytes())
-
-        # Hash preprocessor if exists
         if artifact.preprocessor:
             hasher.update(str(artifact.preprocessor.get_params()).encode())
             if hasattr(artifact.preprocessor, "scale_"):
                 hasher.update(artifact.preprocessor.scale_.tobytes())
-
-        # Hash feature names
         hasher.update(json.dumps(sorted(artifact.feature_names)).encode())
-
         return hasher.hexdigest()
 
     def _get_directory_size(self, path: Path) -> int:
-        """Calculate total size of directory."""
         total_size = 0
         for file_path in path.rglob("*"):
             if file_path.is_file():
@@ -787,7 +718,6 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         return total_size
 
     def _is_valid_promotion(self, from_stage: ModelStage, to_stage: ModelStage) -> bool:
-        """Check if promotion path is valid."""
         valid_paths = {
             ModelStage.DEVELOPMENT: [ModelStage.STAGING, ModelStage.ARCHIVED],
             ModelStage.STAGING: [
@@ -796,57 +726,54 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                 ModelStage.ARCHIVED,
             ],
             ModelStage.PRODUCTION: [ModelStage.STAGING, ModelStage.ARCHIVED],
-            ModelStage.ARCHIVED: [ModelStage.DEVELOPMENT],  # Can restore archived models
+            ModelStage.ARCHIVED: [ModelStage.DEVELOPMENT],
         }
-
         return to_stage in valid_paths.get(from_stage, [])
 
     async def _demote_model(self, model_id: str) -> None:
-        """Demote model from production to staging."""
-        # This method in ModelRepository now handles deactivating related deployments.
         await self.model_repo.update_model_version_stage(
             uuid.UUID(model_id), ModelStage.STAGING.value, "system_demotion"
         )
 
-    # Helper to convert ModelVersion SQLAlchemy model to ModelMetadata DTO
     def _model_version_to_metadata_dto(self, model_version: ModelVersionModel) -> ModelMetadata:
-        # Ensure model_id is a uuid.UUID object
         model_id_uuid = model_version.model_id
         if not isinstance(model_id_uuid, uuid.UUID):
-            # This might indicate an issue with data retrieval or the model instance
             error_msg = f"ModelVersionModel.model_id is not a UUID instance: {type(model_id_uuid)} for model_name {model_version.model_name}"
             self.logger.error(error_msg, source_module=self._source_module)
-            # Depending on strictness, either raise error or try to handle (e.g. use str(model_id_uuid) if that's acceptable)
-            # For now, raising error as .hex is specifically requested by original code.
             raise TypeError(error_msg)
 
-        # This is a simplified mapping. A more robust one would handle all fields.
-        # Also, deployment_history needs to be fetched separately.
+        # Ensure created_at and training_completed_at are timezone-aware (UTC)
+        created_at_utc = model_version.created_at.replace(tzinfo=UTC if model_version.created_at.tzinfo is None else None)
+        training_completed_at_utc = None
+        if model_version.training_completed_at:
+            training_completed_at_utc = model_version.training_completed_at.replace(
+                tzinfo=UTC if model_version.training_completed_at.tzinfo is None else None
+            )
+
+        # updated_at does not exist on ModelVersionModel, so it defaults to None in ModelMetadata
+        # training_data_path also does not exist on ModelVersionModel
+
         return ModelMetadata(
             model_id=model_id_uuid.hex,
             model_name=model_version.model_name,
             version=model_version.version,
-            # model_type is not in ModelVersionModel, might be part of metrics/hyperparams
-            created_at=model_version.created_at.replace(tzinfo=UTC if model_version.created_at.tzinfo is None else None), # Ensure tz-aware
-            training_completed_at=model_version.training_completed_at.replace(tzinfo=UTC if model_version.training_completed_at and model_version.training_completed_at.tzinfo is None else None) if model_version.training_completed_at else None,
+            created_at=created_at_utc,
+            training_completed_at=training_completed_at_utc,
             stage=ModelStage(model_version.stage) if model_version.stage else ModelStage.DEVELOPMENT,
-            # status - ModelVersionModel doesn't have status, ModelMetadata does. Defaulting.
-            status=ModelStatus.READY, # Or derive based on stage/other fields
+            status=ModelStatus.READY,
             metrics=model_version.metrics or {},
             hyperparameters=model_version.hyperparameters or {},
             feature_importance=model_version.feature_importance or {},
             artifact_path=model_version.artifact_path,
-            # Other fields of ModelMetadata would need to be sourced or defaulted
+            updated_at=None,  # Explicitly set to None as it's not in ModelVersionModel
+            training_data_path=None  # Explicitly set to None as it's not in ModelVersionModel
+            # model_type, training_duration_seconds etc. will use defaults from ModelMetadata
         )
 
-
     async def _upload_to_cloud(self, local_path: Path, model_name: str, version: str) -> None:
-        """Upload model artifacts to cloud storage."""
         if not self.cloud_storage:
             return
-        
         remote_path = f"models/{model_name}/{version}"
-        
         success = await self.cloud_storage.upload(local_path, remote_path)
         if success:
             self.logger.info(
@@ -860,12 +787,9 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             )
 
     async def _download_from_cloud(self, local_path: Path, model_name: str, version: str) -> None:
-        """Download model artifacts from cloud storage."""
         if not self.cloud_storage:
             return
-        
         remote_path = f"models/{model_name}/{version}"
-        
         success = await self.cloud_storage.download(remote_path, local_path)
         if success:
             self.logger.info(
@@ -874,3 +798,5 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             )
         else:
             raise RuntimeError(f"Failed to download model from cloud: {remote_path}")
+REPLACE_BLOCK_LINE_START=1
+REPLACE_BLOCK_LINE_END=867

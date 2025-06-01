@@ -445,7 +445,100 @@ class RiskManager:
         )  # 1 minute default
 
         self.logger.info("RiskManager configured.", source_module=self._source_module)
-        self._validate_config()  # Added call to validate_config
+        # Note: _validate_config is called at the end of _load_config
+        # self._validate_config() # Call will be made at the end of _load_config
+
+    async def _stage1_initial_validation_and_price_rounding(
+        self, ctx: Stage1Context
+    ) -> tuple[Decimal | None, Decimal, Decimal | None]:
+        """
+        Stage 1: Initial Validation & Price Rounding.
+        Validates proposed prices, calculates SL if not provided, rounds prices to tick size.
+        Returns (rounded_entry_price, rounded_sl_price, rounded_tp_price).
+        SL price is guaranteed non-None if process continues.
+        """
+        # Basic validation of proposed prices (e.g., SL relative to entry)
+        if ctx.proposed_entry_price_decimal is not None and ctx.proposed_sl_price_decimal is not None:
+            if ctx.event.side.upper() == "BUY" and ctx.proposed_sl_price_decimal >= ctx.proposed_entry_price_decimal:
+                raise SignalValidationStageError("SL price must be below entry for BUY signal.", "Stage1")
+            if ctx.event.side.upper() == "SELL" and ctx.proposed_sl_price_decimal <= ctx.proposed_entry_price_decimal:
+                raise SignalValidationStageError("SL price must be above entry for SELL signal.", "Stage1")
+
+        effective_entry_for_calc = ctx.proposed_entry_price_decimal
+        sl_price_to_round = ctx.proposed_sl_price_decimal
+
+        if sl_price_to_round is None:
+            if effective_entry_for_calc is None:
+                 raise SignalValidationStageError("Stop-loss price is required or must be calculable from a Limit entry price in Stage 1.", "Stage1")
+
+            if ctx.event.side.upper() == "BUY":
+                sl_price_to_round = effective_entry_for_calc * (Decimal("1") - self._min_sl_distance_pct / Decimal("100"))
+            else:  # SELL
+                sl_price_to_round = effective_entry_for_calc * (Decimal("1") + self._min_sl_distance_pct / Decimal("100"))
+
+        rounded_entry_price = self._round_price_to_tick_size(effective_entry_for_calc, ctx.event.trading_pair)
+        rounded_sl_price = self._round_price_to_tick_size(sl_price_to_round, ctx.event.trading_pair)
+
+        if rounded_sl_price is None:
+            raise SignalValidationStageError("Failed to determine/round SL price.", "Stage1")
+
+        rounded_tp_price = None
+        if ctx.proposed_tp_price_decimal is not None:
+            rounded_tp_price = self._round_price_to_tick_size(ctx.proposed_tp_price_decimal, ctx.event.trading_pair)
+        elif rounded_entry_price is not None:
+            risk_per_unit = abs(rounded_entry_price - rounded_sl_price)
+            if risk_per_unit > Decimal("0"):
+                if ctx.event.side.upper() == "BUY":
+                    tp_calc = rounded_entry_price + (risk_per_unit * self._default_tp_rr_ratio)
+                else:  # SELL
+                    tp_calc = rounded_entry_price - (risk_per_unit * self._default_tp_rr_ratio)
+                rounded_tp_price = self._round_price_to_tick_size(tp_calc, ctx.event.trading_pair)
+
+        if rounded_entry_price is not None:
+            if rounded_entry_price == rounded_sl_price:
+                 raise SignalValidationStageError("Entry and SL prices are identical after rounding.", "Stage1")
+            sl_distance_pct = abs(rounded_sl_price - rounded_entry_price) / rounded_entry_price * Decimal("100")
+            if sl_distance_pct < self._min_sl_distance_pct:
+                raise SignalValidationStageError(
+                    f"Stop-loss distance ({sl_distance_pct:.2f}%) is less than minimum required ({self._min_sl_distance_pct:.2f}%).",
+                    "Stage1"
+                )
+        elif ctx.event.entry_type.upper() == "LIMIT":
+             raise SignalValidationStageError("Entry price required for LIMIT order validation in Stage1.", "Stage1")
+
+        return rounded_entry_price, rounded_sl_price, rounded_tp_price
+
+    async def _get_current_market_price(self, trading_pair: str) -> Decimal | None:
+        """Fetches the current market price for the given trading pair."""
+        try:
+            price = await self._market_price_service.get_latest_price(trading_pair)
+            if price is not None:
+                return Decimal(str(price))
+            self.logger.warning(
+                "Could not retrieve current market price for %(pair)s.",
+                source_module=self._source_module,
+                context={"pair": trading_pair},
+            )
+            return None
+        except Exception as e:
+            self.logger.exception(
+                "Error fetching current market price for %(pair)s: %(error)s",
+                source_module=self._source_module,
+                context={"pair": trading_pair, "error": str(e)},
+            )
+            return None
+
+    def _validate_and_raise_if_error(
+        self, error_condition: bool, failure_reason: str, stage_name: str, log_message: str, log_context: dict[str, Any]
+    ) -> None:
+        """Helper to validate a condition and raise SignalValidationStageError if true."""
+        if error_condition:
+            self.logger.error(
+                log_message,
+                source_module=self._source_module,
+                context=log_context,
+            )
+            raise SignalValidationStageError(failure_reason, stage_name)
 
     def _validate_config(self) -> None:
         """Validate risk parameters from configuration.
@@ -691,6 +784,8 @@ class RiskManager:
                 ),
                 log_context={"signal_id": str(event.signal_id)},
             )
+            assert ref_entry_for_calculation is not None, "ref_entry_for_calculation should be Decimal after validation"
+            assert final_rounded_entry_price is not None, "final_rounded_entry_price should be Decimal after validation"
 
             # --- Stage 3: Position Sizing & Portfolio Checks (Portfolio/Equity checks first) ---
             portfolio_state = self._portfolio_manager.get_current_state()
@@ -812,6 +907,7 @@ class RiskManager:
                     "Final effective entry price is None",
                     "final_validation",
                 )
+            assert final_effective_entry_price is not None, "final_effective_entry_price should be Decimal after validation"
 
             final_validation_ctx = FinalValidationDataContext(
                 event=event,
@@ -1013,15 +1109,16 @@ class RiskManager:
         breached_reason: str | None = None
 
         # Use PortfolioManager's drawdown if available and valid
-        if pm_provided_drawdown_pct_str is not None:
+        if pm_provided_drawdown_pct_str is not None:  # Check if string is not None
             try:
-                pm_provided_dd_val = Decimal(str(pm_provided_drawdown_pct_str))
+                # Attempt conversion only if string is not None and is a valid Decimal string
+                pm_provided_dd_val = Decimal(pm_provided_drawdown_pct_str)
                 if pm_provided_dd_val > max_period_drawdown_pct:
                     breached_reason = (
                         f"{period_name} drawdown limit breached (from PM): "
                         f"{pm_provided_dd_val:.2f}% > {max_period_drawdown_pct:.2f}%"
                     )
-            except InvalidOperation:
+            except InvalidOperation: # Catch error if conversion of a non-None string fails
                 self.logger.warning(
                     "Invalid %(period_name_lower)s_drawdown_pct '%(pm_val)s' from PM.",
                     source_module=self._source_module,
@@ -1769,7 +1866,7 @@ class RiskManager:
             trading_pair=event.trading_pair,
             exchange=event.exchange,
             side=event.side,
-            reason=reason,
+            reason=reason if reason is not None else "No reason provided.", # Ensure reason is not None
         )
         
         rejection_event = TradeSignalRejectedEvent.create(rejection_params)
