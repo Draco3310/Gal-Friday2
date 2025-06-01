@@ -336,36 +336,62 @@ class XGBoostPredictor(PredictorInterface):
 
         # Initialize result with model_id and default error state
         result: dict[str, Any] = {"model_id": model_id, "error": None}
-        model = None
-        scaler = None
-        processed_features = None
+        model: xgb.Booster | None = None # Added type hint for model
+        scaler: Any = None # Type hint for scaler (can be various types or None)
+        processed_features: np.ndarray | None = None # Typed initialization
+        feature_prep_error_info: dict[str, Any] | None = None # Initialize here
 
         try:
             # 1. Load Model
-            model, error = cls._load_model(model_path, model_id, logger)
-            if error:
-                result["error"] = error.get("error", "Failed to load model")
+            model, load_model_error_info = cls._load_model(model_path, model_id, logger)
+            if load_model_error_info: # Check if the error dict is populated from _load_model
+                result["error"] = load_model_error_info.get("error", "Failed to load model")
+                return result
+
+            # Explicit guard for mypy to ensure 'model' is not None past this point.
+            # Logically, if load_model_error_info was empty, model should be a Booster instance.
+            if model is None:
+                error_msg = "Model loading failed silently (model is None but no error info returned)."
+                logger.error(f"{error_msg} (model_id: {model_id})")
+                result["error"] = error_msg
                 return result
 
             # 2. Load Scaler if path is provided
             if scaler_path:
-                scaler, error = cls._load_scaler(scaler_path, model_id, logger)
-                if error:
-                    result["error"] = error.get("error", "Failed to load scaler")
+                scaler, scaler_error_info = cls._load_scaler(scaler_path, model_id, logger)
+                if scaler_error_info: # Check if the error dict is populated
+                    result["error"] = scaler_error_info.get("error", "Failed to load scaler")
                     return result
 
             # 3. Process features
+            # processed_features and feature_prep_error_info are now initialized in the outer scope
+
             if scaler is not None:
-                processed_features, error = XGBoostPredictor._prepare_features(
+                processed_features, feature_prep_error_info = XGBoostPredictor._prepare_features(
                     feature_vector=feature_vector,
                     scaler=scaler,
                     model_id=model_id,
                     logger=logger,
                 )
-                if error:
-                    result["error"] = error.get("error", "Failed to prepare features")
-            else:
-                processed_features = feature_vector.reshape(1, -1)
+            else: # scaler is None
+                processed_features, feature_prep_error_info = XGBoostPredictor._prepare_features(
+                    feature_vector=feature_vector,
+                    scaler=None,
+                    model_id=model_id,
+                    logger=logger,
+                )
+
+            # Now check feature_prep_error_info regardless of which path was taken
+            if feature_prep_error_info: # This is now well-defined
+                result["error"] = feature_prep_error_info.get("error", "Failed to prepare features")
+                return result
+
+            if processed_features is None:
+                # This case should ideally be covered by feature_prep_error_info having an error.
+                # If _prepare_features can return (None, {}) without error, this guard is important.
+                if not result.get("error"): # Check if error was already set by a previous step
+                    result["error"] = "Feature preparation returned None without explicit error info."
+                return result
 
             # 4. Make prediction if no errors so far
             if not result["error"] and processed_features is not None:

@@ -37,7 +37,7 @@ class TimeSeriesDB:
         self.query_api = self._client.query_api()
         self.bucket = config.get("influxdb.bucket", "market-data")
 
-    async def write_points(self, points: list[dict[str, Any]]) -> bool:
+    async def write_points(self, points: list[Point]) -> bool:
         """Write points to InfluxDB.
 
         Args:
@@ -61,7 +61,6 @@ class TimeSeriesDB:
             self.logger.exception(
                 "Error writing points to InfluxDB",
                 source_module=self._source_module,
-                error=e,
             )
             return False
 
@@ -167,7 +166,6 @@ class TimeSeriesDB:
             self.logger.exception(
                 "Error querying data from InfluxDB",
                 source_module=self._source_module,
-                error=e,
             )
             return []
 
