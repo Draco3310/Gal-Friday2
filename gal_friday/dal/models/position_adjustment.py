@@ -20,11 +20,19 @@ class PositionAdjustment(Base):
         UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
     )
     # reconciliation_id is a ForeignKey to reconciliation_events.reconciliation_id
-    reconciliation_id: Mapped[UUID | None] = mapped_column( # Schema in 001 allows NULL, 003 implies NOT NULL via REFERENCES. Assuming 001 version for FK nullability for now.
-        ForeignKey("reconciliation_events.reconciliation_id"), nullable=True, index=True, # Added index
+    reconciliation_id: Mapped[UUID | None] = mapped_column(
+        # Schema in 001 allows NULL, 003 implies NOT NULL via REFERENCES.
+        # Assuming 001 version for FK nullability for now.
+        ForeignKey("reconciliation_events.reconciliation_id"),
+        nullable=True,
+        index=True,  # Added index
     )
-    trading_pair: Mapped[str] = mapped_column(String(20), nullable=False) # From 003, added index
-    adjustment_type: Mapped[str] = mapped_column(String(50), nullable=False) # From 003
+    trading_pair: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # From 003, added index
+    adjustment_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # From 003
     old_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     new_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -42,6 +50,7 @@ class PositionAdjustment(Base):
     )
 
     def __repr__(self) -> str:
+        """Return a string representation of the PositionAdjustment."""
         return (
             f"<PositionAdjustment(adjustment_id={self.adjustment_id}, "
             f"reconciliation_id={self.reconciliation_id}, type='{self.adjustment_type}')>"

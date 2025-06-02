@@ -479,8 +479,8 @@ def _calculate_annualized_return(
         if len(equity_curve) >= min_points_for_duration:
             first_date = equity_curve.index[0]
             last_date = equity_curve.index[-1]
-            if isinstance(first_date, (pd.Timestamp, dt.datetime)) and isinstance( # F821
-                last_date, (pd.Timestamp, dt.datetime), # F821
+            if isinstance(first_date, pd.Timestamp | dt.datetime) and isinstance( # F821
+                last_date, pd.Timestamp | dt.datetime, # F821
             ):
                 duration_days = (last_date - first_date).total_seconds() / (60 * 60 * 24)
                 if duration_days > 0:
@@ -1259,7 +1259,7 @@ class BacktestingEngine:
                 except Exception as e:  # Catch errors within loop step
                     log.exception("Error processing timestamp %s", current_timestamp) # TRY400
                     # Continue processing unless it's a critical error
-                    if isinstance(e, (KeyboardInterrupt, SystemExit)): # type: ignore[arg-type]
+                    if isinstance(e, KeyboardInterrupt | SystemExit): # type: ignore[arg-type]
                         raise
                     continue
 

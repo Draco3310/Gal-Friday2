@@ -24,7 +24,8 @@ class RecoveryCheckItem:
 class HaltRecoveryManager:
     """Manages the recovery process after a HALT."""
 
-    def __init__(self, config_manager: ConfigManager, logger_service: LoggerService):
+    def __init__(self, config_manager: ConfigManager, logger_service: LoggerService) -> None:
+        """Initialize HaltRecovery."""
         self.config = config_manager
         self.logger = logger_service
         self._source_module = self.__class__.__name__
@@ -75,11 +76,11 @@ class HaltRecoveryManager:
 
     def complete_item(self, item_id: str, completed_by: str) -> bool:
         """Mark a checklist item as complete.
-        
+
         Args:
             item_id: ID of the checklist item
             completed_by: Name of person completing the item
-            
+
         Returns:
             bool: True if item was found and marked complete
         """
@@ -123,7 +124,7 @@ class HaltRecoveryManager:
 
     def get_checklist_status(self) -> dict:
         """Get current status of recovery checklist.
-        
+
         Returns:
             dict: Status information including completed count and items
         """

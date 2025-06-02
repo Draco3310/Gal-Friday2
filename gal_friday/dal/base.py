@@ -2,19 +2,22 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast # I001: Removed unused _BaseForTypeVar
 
 from sqlalchemy import asc, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 if TYPE_CHECKING:
-    from gal_friday.dal.models import Base  # Move import to TYPE_CHECKING block
+    from gal_friday.dal.models import Base # F401: _BaseForTypeVar removed
     from gal_friday.logger_service import LoggerService
+    # Ensure Base is imported within TYPE_CHECKING for type hinting T
+    # from gal_friday.dal.models import Base as _BaseForTypeVar # This alias is unused
 else:
-    from gal_friday.dal.models import Base
+    # This path is taken at runtime.
+    pass
 
-# Define a TypeVar bound to the SQLAlchemy Base model
-T = TypeVar("T", bound="Base")  # Use string literal for forward reference
+_BoundType = TypeVar("_BoundType", bound="Base")
+T = TypeVar("T", bound=_BoundType)
 
 
 class BaseRepository(Generic[T]):
@@ -52,18 +55,20 @@ class BaseRepository(Generic[T]):
         """
         try:
             async with self.session_maker() as session:
-                if isinstance(data, dict):
-                    instance = self.model_class(**data)
-                else:
-                    instance = data
+                # SIM108: Use ternary operator
+                instance = self.model_class(**data) if isinstance(data, dict) else data
 
                 session.add(instance)
                 await session.commit()  # Commit flushes and expires objects
-                await session.refresh(instance) # Refresh to get server-side defaults like ID, created_at
+                # Refresh to get server-side defaults like ID, created_at
+                await session.refresh(instance)
                 self.logger.debug(
-                    f"Created new {self.model_class.__name__} with ID {getattr(instance, 'id', None)}",
+                    (
+                        f"Created new {self.model_class.__name__} with ID "
+                        f"{getattr(instance, 'id', None)}"
+                    ),
                     source_module=self._source_module,
-                )
+                ) # COM812
                 return cast("T", instance)
         except Exception as e: # Catch generic Exception for logging, re-raise specific if needed
             self.logger.exception(
@@ -72,7 +77,7 @@ class BaseRepository(Generic[T]):
             )
             raise
 
-    async def get_by_id(self, entity_id: Any) -> T | None:
+    async def get_by_id(self, entity_id: Any) -> T | None:  # type: ignore[arg-type] # ANN401
         """Get an entity by its primary key.
 
         Args:
@@ -105,7 +110,7 @@ class BaseRepository(Generic[T]):
             )
             raise
 
-    async def update(self, entity_id: Any, updates: dict[str, Any]) -> T | None:
+    async def update(self, entity_id: Any, updates: dict[str, Any]) -> T | None:  # type: ignore[arg-type] # ANN401
         """Update an existing entity.
 
         Args:
@@ -134,11 +139,16 @@ class BaseRepository(Generic[T]):
                             setattr(entity, key, value)
                         else:
                             self.logger.warning(
-                                f"Attempted to update non-existent attribute '{key}' on {self.model_class.__name__}",
+                                (
+                                    f"Attempted to update non-existent attribute '{key}' "
+                                    f"on {self.model_class.__name__}"
+                                ),
                                 source_module=self._source_module,
                             )
                     if hasattr(entity, "updated_at"):
-                        entity.updated_at = datetime.now(UTC) # type: ignore
+                        # Assuming updated_at is a standard datetime field
+                        entity.updated_at = datetime.now(UTC) # B010: Direct assignment
+
 
                     await session.commit()
                     await session.refresh(entity)
@@ -148,9 +158,12 @@ class BaseRepository(Generic[T]):
                     )
                     return entity
                 self.logger.warning(
-                    f"Attempted to update non-existent {self.model_class.__name__} with ID {entity_id}",
+                    (
+                        f"Attempted to update non-existent {self.model_class.__name__} "
+                        f"with ID {entity_id}"
+                    ),
                     source_module=self._source_module,
-                )
+                ) # COM812
                 return None
         except Exception as e:
             self.logger.exception(
@@ -191,14 +204,19 @@ class BaseRepository(Generic[T]):
                             stmt = stmt.where(getattr(self.model_class, column_name) == value)
                         else:
                             self.logger.warning(
-                                f"Filter key '{column_name}' not found on model {self.model_class.__name__}",
+                                (
+                                    f"Filter key '{column_name}' not found on model " # E501
+                                    f"{self.model_class.__name__}"
+                                ),
                                 source_module=self._source_module,
-                            )
+                            ) # COM812
                 if order_by:
                     parts = order_by.strip().split()
                     col_name = parts[0]
                     if not hasattr(self.model_class, col_name):
-                        raise ValueError(f"Invalid order_by column: {col_name} on {self.model_class.__name__}")
+                        raise ValueError(
+                            f"Invalid order_by column: {col_name} on {self.model_class.__name__}"
+                        ) # COM812
 
                     col = getattr(self.model_class, col_name)
                     if len(parts) > 1 and parts[1].upper() == "DESC":
@@ -231,7 +249,7 @@ class BaseRepository(Generic[T]):
             )
             raise
 
-    async def delete(self, entity_id: Any) -> bool:
+    async def delete(self, entity_id: Any) -> bool:  # type: ignore[arg-type] # ANN401
         """Delete entity by ID.
 
         Args:
@@ -255,9 +273,12 @@ class BaseRepository(Generic[T]):
                     )
                     return True
                 self.logger.warning(
-                    f"Attempted to delete non-existent {self.model_class.__name__} with ID {entity_id}",
+                    (
+                        f"Attempted to delete non-existent {self.model_class.__name__} "
+                        f"with ID {entity_id}"
+                    ),
                     source_module=self._source_module,
-                )
+                ) # COM812
                 return False
         except Exception as e:
             self.logger.exception(

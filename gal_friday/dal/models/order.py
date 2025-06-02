@@ -55,6 +55,7 @@ class Order(Base):
     )
 
     def __repr__(self) -> str:
+        """Return a string representation of the Order."""
         return (
             f"<Order(id={self.id}, trading_pair='{self.trading_pair}', "
             f"status='{self.status}')>"

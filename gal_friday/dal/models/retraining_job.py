@@ -56,10 +56,14 @@ class RetrainingJob(Base):
     )
 
     __table_args__ = (
-        Index("idx_retraining_model", "model_id"), # Already covered by ForeignKey index for model_id
+        Index("idx_retraining_model", "model_id"),  # Covered by ForeignKey index for model_id
         Index("idx_retraining_status", "status"),
         Index("idx_retraining_created", "created_at"),
     )
 
     def __repr__(self) -> str:
-        return f"<RetrainingJob(job_id={self.job_id}, model_name='{self.model_name}', status='{self.status}')>"
+        """Return a string representation of the RetrainingJob."""
+        return (
+            f"<RetrainingJob(job_id={self.job_id}, model_name='{self.model_name}', "
+            f"status='{self.status}')>"
+        )

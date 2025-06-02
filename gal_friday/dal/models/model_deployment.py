@@ -20,15 +20,21 @@ class ModelDeployment(Base):
     )
     # model_id is a ForeignKey to model_versions.model_id
     model_id: Mapped[UUID] = mapped_column(
-        ForeignKey("model_versions.model_id"), nullable=True, index=True, # Schema allows NULL, added index
+        ForeignKey("model_versions.model_id"),
+        nullable=True,
+        index=True,  # Schema allows NULL, added index
     )
-    deployed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False) # No server_default in schema
+    deployed_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False
+    )  # No server_default in schema
     deployed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     deployment_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    is_active: Mapped[bool | None] = mapped_column(Boolean, server_default="true", index=True) # Added index
+    is_active: Mapped[bool | None] = mapped_column(
+        Boolean, server_default="true", index=True
+    )  # Added index
 
     # Relationship to ModelVersion
-    model_version = relationship("ModelVersion", back_populates="deployments")
+    model_version: Mapped["ModelVersion"] = relationship(  # noqa: F821
 
     __table_args__ = (
         Index("idx_deployments_model", "model_id"),
@@ -36,6 +42,7 @@ class ModelDeployment(Base):
     )
 
     def __repr__(self) -> str:
+        """Return a string representation of the ModelDeployment."""
         return (
             f"<ModelDeployment(deployment_id={self.deployment_id}, model_id={self.model_id}, "
             f"deployed_at='{self.deployed_at}', is_active={self.is_active})>"

@@ -28,17 +28,25 @@ class DriftDetectionEvent(Base):
     )
     # Assuming model_versions.model_id is UUID and ModelVersion model exists
     model_id: Mapped[UUID] = mapped_column(
-        ForeignKey("model_versions.model_id"), nullable=False, index=True, # Added index based on schema
+        ForeignKey("model_versions.model_id"),
+        nullable=False,
+        index=True,  # Added index based on schema
     )
-    drift_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True) # Added index
+    drift_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, index=True
+    )  # Added index
     metric_name: Mapped[str] = mapped_column(String(100), nullable=False)
     drift_score: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
-    is_significant: Mapped[bool | None] = mapped_column(Boolean, server_default="false", index=True) # Added index
+    is_significant: Mapped[bool | None] = mapped_column(
+        Boolean, server_default="false", index=True
+    )  # Added index
     details: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    detected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True) # Added index
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, index=True
+    )  # Added index
 
     # Relationship to ModelVersion
-    model_version = relationship("ModelVersion", backref="drift_events")
+    model_version: Mapped["ModelVersion"] = relationship(  # noqa: F821
 
     __table_args__ = (
         Index("idx_drift_model", "model_id"), # Already covered by FK index
@@ -48,6 +56,7 @@ class DriftDetectionEvent(Base):
     )
 
     def __repr__(self) -> str:
+        """Return a string representation of the DriftDetectionEvent."""
         return (
             f"<DriftDetectionEvent(event_id={self.event_id}, model_id={self.model_id}, "
             f"drift_type='{self.drift_type}', is_significant={self.is_significant})>"

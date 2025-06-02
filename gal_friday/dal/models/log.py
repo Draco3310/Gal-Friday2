@@ -27,10 +27,13 @@ class Log(Base):
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     lineno: Mapped[int | None] = mapped_column(Integer, nullable=True)
     func_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    context_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True) # Stored as dict, maps to JSONB
+    context_json: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )  # Stored as dict, maps to JSONB
     exception_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:
+        """Return a string representation of the Log entry."""
         return (
             f"<Log(id={self.id}, timestamp='{self.timestamp}', "
             f"logger_name='{self.logger_name}', level='{self.level_name}')>"

@@ -1,4 +1,4 @@
-"""Retrieve and process market data from the Kraken WebSocket API.
+"""Retrieve and process market data from the Kraken WebSocket API v2.
 
 This module implements a data ingestion service that connects to Kraken WebSocket API v2,
 subscribes to L2 order book and OHLCV data streams, handles parsing, validation and state
@@ -154,8 +154,10 @@ class DataIngestor:
         kraken_config = self._config.get("kraken", {})
 
         # WebSocket configuration
-        self._websocket_url = data_config.get("kraken_ws_url",
-            kraken_config.get("websocket", {}).get("url", "wss://ws.kraken.com/v2"))
+        self._websocket_url = data_config.get(
+            "kraken_ws_url",
+            kraken_config.get("websocket", {}).get("url", "wss://ws.kraken.com/v2")
+        )
         self._connection_timeout = data_config.get("connection_timeout_s", 15)
         self._max_heartbeat_interval = data_config.get("max_heartbeat_interval_s", 60)
         self._reconnect_delay = data_config.get("reconnect_delay_s", 5)
@@ -165,7 +167,9 @@ class DataIngestor:
         # Data processing configuration
         self._book_depth = data_config.get("book_depth", 10)
         self._ohlc_intervals = data_config.get("ohlc_intervals", [1, 5, 15, 60])
-        self._expected_ohlc_item_length = data_config.get("expected_ohlc_item_length", 7)
+        self._expected_ohlc_item_length = data_config.get(
+            "expected_ohlc_item_length", 7
+        )
         self._min_qty_threshold = data_config.get("min_qty_threshold", 1e-12)
 
         # Error handling configuration
@@ -561,7 +565,9 @@ class DataIngestor:
             f"heartbeat timeout: {self._max_heartbeat_interval}s)..."
         )
         self.logger.info(monitor_msg, source_module=self.__class__.__name__)
-        check_interval = max(1, min(self._connection_timeout, self._max_heartbeat_interval) / 2)
+        check_interval = max(
+            1, min(self._connection_timeout, self._max_heartbeat_interval) / 2
+        )
 
         while self._is_running and self._connection and not self._connection.closed:
             # Check if task was cancelled externally (e.g., during shutdown)
@@ -636,7 +642,9 @@ class DataIngestor:
             if general_timeout or heartbeat_timeout:
                 if self._connection and not self._connection.closed:
                     # Use create_task to avoid blocking the monitor loop
-                    self._cleanup_connection_task = asyncio.create_task(self._cleanup_connection())
+                    self._cleanup_connection_task = asyncio.create_task(
+                        self._cleanup_connection()
+                    )
                 break  # Exit monitor loop, main loop will handle reconnect
 
         self.logger.info(
@@ -814,8 +822,11 @@ class DataIngestor:
             event_id=uuid.uuid4(),
             timestamp=datetime.utcnow(),
             # Map Kraken status to internal state if needed
-            new_state=str(status) if status is not None else "unknown", # Ensure str
-            reason=f"Kraken WS Status Update: {str(status) if status is not None else 'unknown'}", # Ensure str in f-string part
+            new_state=str(status) if status is not None else "unknown",  # Ensure str
+            reason=(
+                f"Kraken WS Status Update: "
+                f"{str(status) if status is not None else 'unknown'}"
+            ),  # Ensure str in f-string part
         )
         try:
             await self.pubsub.publish(event)
@@ -929,7 +940,7 @@ class DataIngestor:
             if field_name not in book_item:
                 self.logger.warning(
                     "Book item missing required field: %s",
-                    field,
+                    field_name, # Corrected from `field` to `field_name`
                     source_module=self._source_module,
                     context={"book_item_keys": list(book_item.keys())},
                 )
@@ -1498,7 +1509,8 @@ class DataIngestor:
         # Trigger HALT for critical errors or too many consecutive errors
         should_halt = (
             isinstance(error, ConnectionError | TimeoutError | OSError) and
-            self._consecutive_errors >= self._critical_error_threshold # Changed from self.MAX_CONSECUTIVE_ERRORS
+            self._consecutive_errors >= self._critical_error_threshold
+            # Changed from self.MAX_CONSECUTIVE_ERRORS
         )
 
         if should_halt:
@@ -1612,7 +1624,7 @@ async def _run_test(
     config_manager = TestConfigManager(config)
 
     # Create PubSubManager with the config_manager parameter
-    pubsub = PubSubManager(logger, config_manager)
+    pubsub = PubSubManager(logger, config_manager) # type: ignore
 
     # Create and start the data ingestor with proper types
     data_ingestor = DataIngestor(config_manager, pubsub, logger_service)
@@ -1700,16 +1712,17 @@ class MockLoggerService(LoggerService):
         *args: object,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
-        exc_info: ExcInfoType = None, # Added exc_info
+        exc_info: ExcInfoType = None, # D417: Added exc_info to docstring
     ) -> None:
         """Log a message with the specified level.
 
         Args:
-            level: Logging level
-            message: Message to log
-            *args: Format arguments for the message
-            source_module: Name of the module generating the log
-            context: Additional context for the log message
+            level: Logging level.
+            message: Message to log.
+            *args: Format arguments for the message.
+            source_module: Name of the module generating the log.
+            context: Additional context for the log message.
+            exc_info: Exception info tuple, bool, or None.
         """
         if not hasattr(self, "_logger"):
             return
@@ -1732,7 +1745,13 @@ class MockLoggerService(LoggerService):
         context: Mapping[str, object] | None = None,
     ) -> None:
         """Log a debug message."""
-        self._log(logging.DEBUG, message, *args, source_module=source_module, context=context)
+        self._log(
+            logging.DEBUG,
+            message,
+            *args,
+            source_module=source_module,
+            context=context
+        )
 
     def info(
         self,
@@ -1742,7 +1761,13 @@ class MockLoggerService(LoggerService):
         context: Mapping[str, object] | None = None,
     ) -> None:
         """Log an info message."""
-        self._log(logging.INFO, message, *args, source_module=source_module, context=context)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            source_module=source_module,
+            context=context
+        )
 
     def warning(
         self,
@@ -1752,7 +1777,13 @@ class MockLoggerService(LoggerService):
         context: Mapping[str, object] | None = None,
     ) -> None:
         """Log a warning message."""
-        self._log(logging.WARNING, message, *args, source_module=source_module, context=context)
+        self._log(
+            logging.WARNING,
+            message,
+            *args,
+            source_module=source_module,
+            context=context
+        )
 
     def error(
         self,
@@ -1763,7 +1794,14 @@ class MockLoggerService(LoggerService):
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log an error message."""
-        self._log(logging.ERROR, message, *args, source_module=source_module, context=context, exc_info=exc_info)
+        self._log(
+            logging.ERROR,
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
+            exc_info=exc_info
+        )
 
     def critical(
         self,
@@ -1774,7 +1812,14 @@ class MockLoggerService(LoggerService):
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log a critical message."""
-        self._log(logging.CRITICAL, message, *args, source_module=source_module, context=context, exc_info=exc_info)
+        self._log(
+            logging.CRITICAL,
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
+            exc_info=exc_info
+        )
 
     def exception(
         self,

@@ -35,6 +35,7 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
 
     async def save_job(self, job_data: dict[str, Any]) -> RetrainingJob:
         """Saves a retraining job.
+
         `job_data` should contain fields for RetrainingJob model.
         job_id should be a UUID. model_id and new_model_id (if present) should be UUIDs.
         """
@@ -44,11 +45,14 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
 
         for key in ["start_time", "end_time", "created_at", "updated_at"]:
             if key in job_data and isinstance(job_data[key], str):
-                 dt_obj = datetime.fromisoformat(job_data[key])
-                 job_data[key] = dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
-            elif key in job_data and isinstance(job_data[key], datetime) and job_data[key].tzinfo is None:
-                 job_data[key] = job_data[key].replace(tzinfo=UTC)
-
+                dt_obj = datetime.fromisoformat(job_data[key])
+                job_data[key] = (
+                    dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
+                )
+            elif (key in job_data and
+                  isinstance(job_data[key], datetime) and
+                  job_data[key].tzinfo is None):
+                job_data[key] = job_data[key].replace(tzinfo=UTC)
 
         # Ensure job_id is present
         if "job_id" not in job_data:
@@ -56,17 +60,23 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
 
         return await self.create(job_data)
 
-    async def update_job_status(self, job_id: uuid.UUID, updates: dict[str, Any]) -> RetrainingJob | None:
+    async def update_job_status(
+        self, job_id: uuid.UUID, updates: dict[str, Any]
+    ) -> RetrainingJob | None:
         """Update job status and results."""
-        if "updated_at" not in updates: # Ensure updated_at is set
+        if "updated_at" not in updates:  # Ensure updated_at is set
             updates["updated_at"] = datetime.now(UTC)
 
         for key in ["start_time", "end_time", "updated_at"]:
             if key in updates and isinstance(updates[key], str):
-                 dt_obj = datetime.fromisoformat(updates[key])
-                 updates[key] = dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
-            elif key in updates and isinstance(updates[key], datetime) and updates[key].tzinfo is None:
-                 updates[key] = updates[key].replace(tzinfo=UTC)
+                dt_obj = datetime.fromisoformat(updates[key])
+                updates[key] = (
+                    dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
+                )
+            elif (key in updates and
+                  isinstance(updates[key], datetime) and
+                  updates[key].tzinfo is None):
+                updates[key] = updates[key].replace(tzinfo=UTC)
 
         if "new_model_id" in updates and isinstance(updates["new_model_id"], str):
             updates["new_model_id"] = uuid.UUID(updates["new_model_id"])
@@ -91,7 +101,9 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
 
     async def get_jobs_by_model(self, model_id: uuid.UUID) -> Sequence[RetrainingJob]:
         """Get all retraining jobs for a model."""
-        return await self.find_all(filters={"model_id": model_id}, order_by="created_at DESC")
+        return await self.find_all(
+            filters={"model_id": model_id}, order_by="created_at DESC"
+        )
 
     async def save_drift_detection_event(
         self, event_data: dict[str, Any],
@@ -104,10 +116,13 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
 
         if "detected_at" in event_data and isinstance(event_data["detected_at"], str):
             dt_obj = datetime.fromisoformat(event_data["detected_at"])
-            event_data["detected_at"] = dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
-        elif "detected_at" in event_data and isinstance(event_data["detected_at"], datetime) and event_data["detected_at"].tzinfo is None:
+            event_data["detected_at"] = (
+                dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
+            )
+        elif ("detected_at" in event_data and
+              isinstance(event_data["detected_at"], datetime) and
+              event_data["detected_at"].tzinfo is None):
             event_data["detected_at"] = event_data["detected_at"].replace(tzinfo=UTC)
-
 
         if "drift_score" in event_data and not isinstance(event_data["drift_score"], Decimal):
             event_data["drift_score"] = Decimal(str(event_data["drift_score"]))
@@ -138,12 +153,16 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
 
     async def get_retraining_metrics(self) -> dict[str, Any]:
         """Get aggregated retraining metrics using raw SQL for complex aggregation."""
-        # This query is complex and uses CTEs with specific PostgreSQL functions (row_to_json, json_agg).
-        # It's often easier to execute such queries directly with SQLAlchemy's text() construct
-        # and then process the results, rather than trying to build it entirely with the ORM/Query builder.
+        # This query is complex and uses CTEs with specific PostgreSQL functions
+        # (row_to_json, json_agg). It's often easier to execute such queries directly
+        # with SQLAlchemy's text() construct and then process the results,
+        # rather than trying to build it entirely with the ORM/Query builder.
 
         thirty_days_ago = (datetime.now(UTC) - timedelta(days=30)).isoformat()
 
+        # S608: SQL injection risk is low here as `thirty_days_ago` is an ISO formatted
+        # date string generated internally. For user-supplied input,
+        # parameterization would be essential using SQLAlchemy's bindparam.
         query = text(f"""
             WITH job_stats AS (
                 SELECT
@@ -183,9 +202,10 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
             row = result.one_or_none() # Expecting a single row with JSON aggregates
 
             if row:
-                # Access columns by name or index. For text() queries with labels, name is usually preferred.
+                # Access columns by name or index.
+                # For text() queries with labels, name is usually preferred.
                 # If using mappings(), keys will be strings.
-                row_mapping = row._mapping # Access the underlying mapping
+                row_mapping = row._mapping  # Access the underlying mapping
                 return {
                     "job_statistics": row_mapping.get("job_statistics", {}),
                     "trigger_distribution": row_mapping.get("trigger_distribution", []),

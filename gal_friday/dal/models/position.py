@@ -17,9 +17,13 @@ class Position(Base):
     __tablename__ = "positions"
 
     id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.uuid_generate_v4(),
     )
-    trading_pair: Mapped[str] = mapped_column(String(20), nullable=False, index=True) # Added index based on schema
+    trading_pair: Mapped[str] = mapped_column(
+        String(20), nullable=False, index=True
+    )  # Added index based on schema
     side: Mapped[str] = mapped_column(String(10), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     entry_price: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
@@ -31,7 +35,10 @@ class Position(Base):
         Numeric(20, 8), server_default="0",
     )
     opened_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.current_timestamp(), index=True, # Added index based on schema
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        index=True,  # Added index based on schema
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool | None] = mapped_column(
@@ -39,7 +46,8 @@ class Position(Base):
     )
 
     # If positions are related to orders (e.g., a position consists of multiple orders),
-    # a relationship could be defined here. For now, no direct FK from orders to positions in schema.
+    # a relationship could be defined here. For now, no direct FK from orders to
+    # positions in schema.
     # orders = relationship("Order", back_populates="position") # Example
 
     __table_args__ = (
@@ -49,6 +57,7 @@ class Position(Base):
     )
 
     def __repr__(self) -> str:
+        """Return a string representation of the Position."""
         return (
             f"<Position(id={self.id}, trading_pair='{self.trading_pair}', "
             f"side='{self.side}', is_active={self.is_active})>"

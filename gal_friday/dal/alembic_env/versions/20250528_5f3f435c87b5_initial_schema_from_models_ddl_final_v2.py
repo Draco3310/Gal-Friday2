@@ -1,4 +1,4 @@
-"""initial_schema_from_models_ddl_final_v2
+"""initial_schema_from_models_ddl_final_v2.
 
 Revision ID: 5f3f435c87b5
 Revises: dd043229e679

@@ -12,14 +12,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast # Added Callable
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    pass # No specific imports needed here for TYPE_CHECKING only for now
 
 import aiohttp
 import websockets
-from websockets import ClientConnection
+from websockets import ClientConnection # type: ignore[import-not-found] # websockets is untyped
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import (
@@ -69,6 +69,9 @@ MESSAGE_CHANNEL_INDEX = 2  # Index of channel name in message list
 MESSAGE_CHANNEL_NAME_INDEX = 2  # Index of channel name in message list
 MESSAGE_DATA_INDEX = 1  # Index of data in message list
 MESSAGE_PAIR_INDEX = 3  # Index of trading pair in message list
+KRAKEN_PAIR_XBT_PREFIX = "XBT"
+KRAKEN_PAIR_XXBT_PREFIX = "XXBT"
+INTERNAL_PAIR_BTC_PREFIX = "BTC"
 
 
 class KrakenWebSocketClient:
@@ -83,9 +86,9 @@ class KrakenWebSocketClient:
         """Initialize Kraken WebSocket client.
 
         Args:
-            config: Configuration manager instance
-            pubsub: PubSub manager for event publishing
-            logger: Logger service instance
+            config: Configuration manager instance.
+            pubsub: PubSub manager for event publishing.
+            logger: Logger service instance.
         """
         self.config = config
         self.pubsub = pubsub
@@ -118,7 +121,7 @@ class KrakenWebSocketClient:
 
         # Message handling
         self.sequence_numbers: dict[str, int] = {}
-        self.message_handlers: dict[str, Callable] = {
+        self.message_handlers: dict[str, Callable[[list[Any]], Coroutine[Any, Any, None]]] = {
             "ticker": self._handle_ticker,
             "book": self._handle_orderbook,
             "trade": self._handle_trades,
@@ -127,11 +130,12 @@ class KrakenWebSocketClient:
             "openOrders": self._handle_open_orders,
         }
 
+
         # Connection management
         self.reconnect_delay = 1.0
         self.max_reconnect_delay = 60.0
         self.heartbeat_interval = 30.0
-        self._connection_tasks: list[asyncio.Task] = []
+        self._connection_tasks: list[asyncio.Task[Any]] = []
 
     async def connect(self) -> None:
         """Establish WebSocket connections."""
@@ -171,7 +175,7 @@ class KrakenWebSocketClient:
         """Connect to public WebSocket."""
         while True:
             try:
-                async with websockets.connect(self.ws_url) as ws:
+                async with websockets.connect(self.ws_url) as ws: # type: ignore[attr-defined]
                     self.ws_public = ws
                     self.logger.info(
                         "Public WebSocket connected",
@@ -185,7 +189,7 @@ class KrakenWebSocketClient:
                     async for message in ws:
                         await self._process_public_message(str(message))
 
-            except websockets.exceptions.ConnectionClosed:
+            except websockets.exceptions.ConnectionClosed: # type: ignore[attr-defined]
                 self.logger.warning(
                     "Public WebSocket connection closed",
                     source_module=self._source_module,
@@ -206,7 +210,7 @@ class KrakenWebSocketClient:
                 # Get authentication token
                 token = await self._get_ws_token()
 
-                async with websockets.connect(self.ws_auth_url) as ws:
+                async with websockets.connect(self.ws_auth_url) as ws: # type: ignore[attr-defined]
                     self.ws_private = ws
 
                     # Authenticate
@@ -236,7 +240,7 @@ class KrakenWebSocketClient:
                     else:
                         raise Exception(f"Authentication failed: {auth_response}")
 
-            except websockets.exceptions.ConnectionClosed:
+            except websockets.exceptions.ConnectionClosed: # type: ignore[attr-defined]
                 self.logger.warning(
                     "Private WebSocket connection closed",
                     source_module=self._source_module,
@@ -252,14 +256,16 @@ class KrakenWebSocketClient:
 
     async def _get_ws_token(self) -> str:
         """Get WebSocket authentication token from Kraken API.
-        
+
         Implements caching to avoid unnecessary API calls.
         Tokens are valid for 900 seconds (15 minutes).
-        
+
         Returns:
+        -------
             Valid WebSocket authentication token
-            
+
         Raises:
+        ------
             ExecutionHandlerAuthenticationError: If token retrieval fails
         """
         current_time = time.time()
@@ -272,7 +278,8 @@ class KrakenWebSocketClient:
                 source_module=self._source_module,
                 context={"expires_in": self._ws_token_cache["expires_at"] - current_time},
             )
-            return self._ws_token_cache["token"]  # This is definitely a string based on our TokenCache type
+            # This is definitely a string based on our TokenCache type
+            return self._ws_token_cache["token"]
 
         # Generate new token
         try:
@@ -282,12 +289,12 @@ class KrakenWebSocketClient:
 
             # Create signature
             post_data = f"nonce={nonce}"
-            message = endpoint.encode() + hashlib.sha256(
+            message_to_hash = endpoint.encode() + hashlib.sha256(
                 f"{nonce}{post_data}".encode(),
             ).digest()
             signature = hmac.new(
                 self.api_secret,
-                message,  # message is already bytes
+                message_to_hash,
                 hashlib.sha512,
             ).digest()
 
@@ -297,14 +304,14 @@ class KrakenWebSocketClient:
                 "API-Sign": base64.b64encode(signature).decode(),
                 "Content-Type": "application/x-www-form-urlencoded",
             }
+            # SIM117: Use a single `with` statement
+            async with aiohttp.ClientSession() as session, session.post(
+                f"{self.api_base_url}{endpoint}",
+                headers=headers,
+                data=post_data,
+            ) as response:
+                result = await response.json()
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.api_base_url}{endpoint}",
-                    headers=headers,
-                    data=post_data,
-                ) as response:
-                    result = await response.json()
 
             # Handle response
             if result.get("error"):
@@ -365,8 +372,8 @@ class KrakenWebSocketClient:
 
     async def _resubscribe_public(self) -> None:
         """Resubscribe to all public channels after reconnection."""
-        for subscription in self.public_subscriptions:
-            channel, pairs_str = subscription.split(":", 1)
+        for subscription_str in self.public_subscriptions:
+            channel, pairs_str = subscription_str.split(":", 1)
             pairs = pairs_str.split(",")
             await self.subscribe_market_data(pairs, [channel])
 
@@ -468,7 +475,7 @@ class KrakenWebSocketClient:
                 source_module=self._source_module,
             )
 
-    async def _handle_open_orders(self, message: list) -> None:
+    async def _handle_open_orders(self, message: list[Any]) -> None:
         """Handle open orders updates."""
         orders_data = message[0]
 
@@ -494,7 +501,7 @@ class KrakenWebSocketClient:
                 exchange_order_id=order_id,
                 client_order_id=order_data.get("userref", ""),
                 order_status=status,
-                order_type="LIMIT",  # Default order type, should be extracted from order data
+                order_type="LIMIT",  # Default order type, should be extracted
                 trading_pair=order_data.get("descr", {}).get("pair", ""),
                 exchange="kraken",
                 side=order_data.get("descr", {}).get("type", "").upper(),
@@ -505,30 +512,31 @@ class KrakenWebSocketClient:
                     if order_data.get("avg_price")
                     else None
                 ),
-                commission=Decimal(order_data.get("fee", "0")) if order_data.get("fee") else None,
+                commission=(
+                    Decimal(order_data.get("fee", "0")) if order_data.get("fee") else None
+                ),
                 signal_id=uuid.UUID(order_data.get("userref", str(uuid.uuid4()))),
-                error_message=order_data.get("reason") if status == "CANCELLED" else None,
+                error_message=(
+                    order_data.get("reason") if status == "CANCELLED" else None
+                ),
             )
 
             await self.pubsub.publish(event)
 
-    async def _handle_orderbook(self, message: list) -> None:
-        """Handle order book updates. (Placeholder)"""
+    async def _handle_orderbook(self, message: list[Any]) -> None:
+        """Handle order book updates. (Placeholder)."""
         # Placeholder for actual order book handling logic
         # For now, just log that the message was received
+        # PLR2004: 3 is specific to Kraken message structure for pair index
         pair_info = message[3] if len(message) > 3 else "UnknownPair"
         self.logger.info(
-            f"Order book update received for {pair_info}. Processing not yet implemented.",
+            f"Order book update received for {pair_info}. "
+            "Processing not yet implemented.",
             source_module=self._source_module,
             context={"message_snippet": str(message)[:200]},
         )
-        # TODO: Implement full order book processing logic here, including:
-        # - Parsing snapshot and update messages
-        # - Maintaining local order book state (bids, asks)
-        # - Validating checksums if provided by Kraken
-        # - Publishing MarketDataL2Event to PubSub
 
-    async def _handle_own_trades(self, message: list) -> None:
+    async def _handle_own_trades(self, message: list[Any]) -> None:
         """Handle own trades updates."""
         trades_data = message[0]
 
@@ -544,10 +552,11 @@ class KrakenWebSocketClient:
                 context={"trade_data": trade_data},
             )
 
-    async def _handle_ticker(self, message: list) -> None:
+    async def _handle_ticker(self, message: list[Any]) -> None:
         """Handle ticker updates."""
         try:
-            if len(message) < 4:
+            # PLR2004: 4 is specific to Kraken message structure
+            if len(message) < MESSAGE_MIN_LENGTH:
                 self.logger.warning(
                     "Invalid ticker message format",
                     source_module=self._source_module,
@@ -556,8 +565,8 @@ class KrakenWebSocketClient:
                 return
 
             # Kraken ticker format: [channelID, data, "ticker", pair]
-            data = message[1]
-            pair = message[3]
+            data = message[MESSAGE_DATA_INDEX]
+            pair = message[MESSAGE_PAIR_INDEX]
 
             # Extract ticker data
             ticker_event = MarketDataTickerEvent(
@@ -577,7 +586,7 @@ class KrakenWebSocketClient:
                 high_24h=Decimal(data["h"][1]),  # 24h high
                 low_24h=Decimal(data["l"][1]),  # 24h low
                 trades_24h=int(data["t"][1]),  # 24h trade count
-                timestamp_exchange=datetime.now(UTC),
+                timestamp_exchange=datetime.now(UTC), # No specific exchange ts in this format
             )
 
             await self.pubsub.publish(ticker_event)
@@ -598,10 +607,11 @@ class KrakenWebSocketClient:
                 source_module=self._source_module,
             )
 
-    async def _handle_trades(self, message: list) -> None:
+    async def _handle_trades(self, message: list[Any]) -> None:
         """Handle public trades."""
         try:
-            if len(message) < 4:
+            # PLR2004: 4 is specific to Kraken message structure
+            if len(message) < MESSAGE_MIN_LENGTH:
                 self.logger.warning(
                     "Invalid trade message format",
                     source_module=self._source_module,
@@ -609,12 +619,14 @@ class KrakenWebSocketClient:
                 )
                 return
 
-            # Kraken trade format: [channelID, [[price, volume, time, side, orderType, misc]], "trade", pair]
-            trades_data = message[1]
-            pair = message[3]
+            # Kraken trade format:
+            # [channelID, [[price, volume, time, side, orderType, misc]], "trade", pair]
+            trades_data = message[MESSAGE_DATA_INDEX]
+            pair = message[MESSAGE_PAIR_INDEX]
 
             for trade in trades_data:
-                if len(trade) < 4:
+                # PLR2004: 4 is specific to Kraken trade item structure
+                if len(trade) < MESSAGE_MIN_LENGTH:
                     continue
 
                 trade_event = MarketDataTradeEvent(
@@ -623,7 +635,7 @@ class KrakenWebSocketClient:
                     timestamp=datetime.now(UTC),
                     trading_pair=self._map_kraken_pair(pair),
                     exchange="kraken",
-                    trade_id=str(uuid.uuid4()),  # Kraken doesn't provide trade IDs in stream
+                    trade_id=str(uuid.uuid4()),  # Kraken doesn't provide trade IDs
                     price=Decimal(trade[0]),
                     volume=Decimal(trade[1]),
                     side="buy" if trade[3] == "b" else "sell",
@@ -643,10 +655,11 @@ class KrakenWebSocketClient:
                 source_module=self._source_module,
             )
 
-    async def _handle_ohlc(self, message: list) -> None:
+    async def _handle_ohlc(self, message: list[Any]) -> None:
         """Handle OHLC candle updates."""
         try:
-            if len(message) < 4:
+            # PLR2004: 4 is specific to Kraken message structure
+            if len(message) < MESSAGE_MIN_LENGTH:
                 self.logger.warning(
                     "Invalid OHLC message format",
                     source_module=self._source_module,
@@ -654,16 +667,25 @@ class KrakenWebSocketClient:
                 )
                 return
 
-            # Kraken OHLC format: [channelID, [time, etime, open, high, low, close, vwap, volume, count], "ohlc-interval", pair]
-            ohlc_data = message[1]
-            pair = message[3]
+            # Kraken OHLC format:
+            # [channelID, [time, etime, open, high, low, close, vwap, volume, count],
+            # "ohlc-interval", pair]
+            ohlc_data = message[MESSAGE_DATA_INDEX]
+            pair = message[MESSAGE_PAIR_INDEX]
 
             # Extract interval from channel name (e.g., "ohlc-5" for 5 minutes)
-            channel_name = message[2] if len(message) > 2 else ""
-            interval = "1m"  # Default
+            # PLR2004: 2 is specific to Kraken message structure for channel name
+            channel_name = message[MESSAGE_CHANNEL_NAME_INDEX] if len(message) > 2 else ""
+            interval_val_str = "1" # Default to "1" if not found
             if "-" in channel_name:
-                interval_str = channel_name.split("-")[1]
-                interval = f"{interval_str}m"
+                try:
+                    interval_val_str = channel_name.split("-")[1]
+                except IndexError:
+                    self.logger.warning(f"Could not parse interval from OHLC channel: {channel_name}")
+            # Use INTERVAL_MAP to get the string representation
+            interval_minutes = int(interval_val_str) # Kraken uses integer minutes
+            interval_str_repr = self.INTERVAL_MAP.get(interval_minutes, f"{interval_minutes}m")
+
 
             ohlc_event = MarketDataOHLCVEvent(
                 source_module=self._source_module,
@@ -671,7 +693,7 @@ class KrakenWebSocketClient:
                 timestamp=datetime.now(UTC),
                 trading_pair=self._map_kraken_pair(pair),
                 exchange="kraken",
-                interval=interval,
+                interval=interval_str_repr,
                 timestamp_bar_start=datetime.fromtimestamp(float(ohlc_data[0]), tz=UTC),
                 open=str(ohlc_data[2]),
                 high=str(ohlc_data[3]),
@@ -683,7 +705,7 @@ class KrakenWebSocketClient:
             await self.pubsub.publish(ohlc_event)
 
             self.logger.debug(
-                f"Published OHLC event for {pair} ({interval})",
+                f"Published OHLC event for {pair} ({interval_str_repr})",
                 source_module=self._source_module,
                 context={
                     "open": str(ohlc_event.open),
@@ -700,20 +722,23 @@ class KrakenWebSocketClient:
 
     def _map_kraken_pair(self, kraken_pair: str) -> str:
         """Map Kraken pair format to internal format.
-        
+
         Args:
+        ----
             kraken_pair: Kraken pair (e.g., "XBT/USD" or "XXBTZUSD")
-            
+
         Returns:
+        -------
             Internal pair format (e.g., "BTC/USD")
         """
         # Common mappings
         mappings = {
-            "XBT": "BTC",
-            "XXBT": "BTC",
-            "XXRP": "XRP",
-            "XDOGE": "DOGE",
-            "ZUSD": "USD",
+            KRAKEN_PAIR_XBT_PREFIX: INTERNAL_PAIR_BTC_PREFIX,
+            KRAKEN_PAIR_XXBT_PREFIX: INTERNAL_PAIR_BTC_PREFIX,
+            "XXRP": "XRP", # Assuming XRP is the internal representation
+            "XDOGE": "DOGE", # Assuming DOGE is the internal representation
+            "ZUSD": "USD", # Example for fiat
+            "ZEUR": "EUR",
         }
 
         # Handle different formats
@@ -723,15 +748,37 @@ class KrakenWebSocketClient:
             base = mappings.get(base, base)
             quote = mappings.get(quote, quote)
             return f"{base}/{quote}"
-        # Format: XXBTZUSD
+
+        # Format: XXBTZUSD (no slash)
+        # Iteratively replace known prefixes/suffixes
+        temp_pair = kraken_pair
         for old, new in mappings.items():
-            kraken_pair = kraken_pair.replace(old, new)
+            if temp_pair.startswith(old):
+                temp_pair = new + temp_pair[len(old):]
+            # Check for suffixes like ZUSD (common for fiat)
+            # This part is tricky if currencies themselves are Zxx
+            if len(old) > 1 and temp_pair.endswith(old) and old.startswith("Z"):
+                 temp_pair = temp_pair[:-len(old)] + new
+            elif temp_pair.endswith(old): # General suffix replace
+                 temp_pair = temp_pair[:-len(old)] + new
 
-        # Try to split (assumes 3-letter currencies)
-        if len(kraken_pair) >= 6:
-            return f"{kraken_pair[:3]}/{kraken_pair[3:6]}"
 
-        return kraken_pair
+        # Try to split common 3-letter currency codes if no mapping fully resolved
+        # PLR2004: 6 is specific to a common pattern for concatenated pairs like BTCUSD
+        if len(temp_pair) == 6 and "/" not in temp_pair:
+            # Check if the first 3 chars are a known base or the last 3 are a known quote
+            # to avoid mis-splitting (e.g. "USDCAD" vs "EURUSD")
+            # This simple split is naive, a proper asset registry would be better.
+            return f"{temp_pair[:3]}/{temp_pair[3:]}"
+
+        if "/" not in temp_pair: # If still no slash, log warning
+            self.logger.warning(
+                f"Could not definitively map Kraken pair: {kraken_pair} to standard format.",
+                source_module=self._source_module,
+                context={"original_pair": kraken_pair, "mapped_attempt": temp_pair}
+            )
+        return temp_pair if "/" in temp_pair else kraken_pair
+
 
     def _get_next_sequence(self, channel: str) -> int:
         """Get next sequence number for channel."""
@@ -798,3 +845,5 @@ class KrakenWebSocketClient:
             "WebSocket connections closed",
             source_module=self._source_module,
         )
+
+[end of gal_friday/execution/websocket_client.py]
