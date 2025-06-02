@@ -149,7 +149,7 @@ class GapDetector:
             "total_gaps": len(gaps),
             "total_duration": total_duration,
             "average_duration": timedelta(
-                seconds=float(avg_duration_seconds)
+                seconds=float(avg_duration_seconds),
             ),  # Explicit float cast
             "max_duration": max((g.duration for g in gaps), default=timedelta()),
             "min_duration": min((g.duration for g in gaps), default=timedelta()),

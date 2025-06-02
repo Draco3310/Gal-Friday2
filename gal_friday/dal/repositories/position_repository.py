@@ -83,7 +83,7 @@ class PositionRepository(BaseRepository[Position]):
 
                 if summary:
                     self.logger.debug(
-                        "Retrieved position summary.", source_module=self._source_module
+                        "Retrieved position summary.", source_module=self._source_module,
                     )
                     # Convert Row to dict, handling None for sums if necessary
                     return {
@@ -98,7 +98,7 @@ class PositionRepository(BaseRepository[Position]):
                 # over a table unless it's entirely empty and SUM returns NULL for all.
                 self.logger.warning(
                     "Position summary query returned no rows or null sums.",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
                 return {
                     "active_positions": 0,

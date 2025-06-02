@@ -1,17 +1,16 @@
 """Database migration management system using Alembic."""
 
-import os
-import io # For capturing stdout
-import re # For parsing revision output
-from pathlib import Path # For PTH compliance
-from contextlib import redirect_stdout # For capturing stdout
+import io  # For capturing stdout
+import re  # For parsing revision output
 from collections.abc import Sequence
+from contextlib import redirect_stdout  # For capturing stdout
+from pathlib import Path  # For PTH compliance
 
 from alembic import command  # type: ignore[import-not-found]
 from alembic.config import Config  # type: ignore[import-not-found]
+
 # ScriptDirectory was unused after F841 fix, so removing if not needed.
 # from alembic.script import ScriptDirectory  # type: ignore[import-not-found]
-
 from gal_friday.logger_service import LoggerService
 
 
@@ -46,14 +45,14 @@ class MigrationManager:
         """Upgrade the database to the latest revision ('head')."""
         self.logger.info(
             "Attempting to upgrade database to head...",
-            source_module=self._source_module
+            source_module=self._source_module,
         )
         try:
             alembic_cfg = self._get_alembic_config()
             command.upgrade(alembic_cfg, "head")
             self.logger.info(
                 "Database upgrade to head completed successfully.",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
         except Exception as e:
             self.logger.exception(
@@ -86,11 +85,11 @@ class MigrationManager:
         """Get the current revision(s) of the database."""
         self.logger.debug(
             "Fetching current database revision(s)...",
-            source_module=self._source_module
+            source_module=self._source_module,
         )
         try:
             alembic_cfg = self._get_alembic_config()
-            
+
             s = io.StringIO()
             with redirect_stdout(s):
                 command.current(alembic_cfg, verbose=False)
@@ -98,7 +97,7 @@ class MigrationManager:
 
             if not output or "no migration detected" in output:
                 self.logger.info(
-                    "No current revision detected.", source_module=self._source_module
+                    "No current revision detected.", source_module=self._source_module,
                 )
                 return tuple()
 
@@ -107,7 +106,7 @@ class MigrationManager:
 
             self.logger.info(
                 f"Current database revision(s): {revisions}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return tuple(revisions)
 
@@ -122,7 +121,7 @@ class MigrationManager:
         """Stamp the database with a specific revision without running migrations."""
         self.logger.info(
             f"Stamping database with revision: {revision}",
-            source_module=self._source_module
+            source_module=self._source_module,
         )
         try:
             alembic_cfg = self._get_alembic_config()
@@ -139,7 +138,7 @@ class MigrationManager:
             raise
 
     def generate_revision(
-        self, message: str, autogenerate: bool = True, revision_id: str | None = None
+        self, message: str, autogenerate: bool = True, revision_id: str | None = None,
     ) -> None:
         """Generate a new revision file."""
         self.logger.info(

@@ -33,14 +33,14 @@ class ExperimentOutcome(Base):
     # If it should be, then add ForeignKey("experiment_assignments.event_id")
     event_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     variant: Mapped[str] = mapped_column(
-        String(20), nullable=False, index=True
+        String(20), nullable=False, index=True,
     )  # Added index based on schema
     outcome_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
     correct_prediction: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     signal_generated: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     trade_return: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
     recorded_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, index=True
+        DateTime, nullable=False, index=True,
     )  # Added index
 
     # Relationship to Experiment

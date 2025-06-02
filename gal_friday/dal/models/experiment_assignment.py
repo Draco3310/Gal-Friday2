@@ -18,11 +18,11 @@ class ExperimentAssignment(Base):
         ForeignKey("experiments.experiment_id"), primary_key=True,
     )
     event_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True
+        UUID(as_uuid=True), primary_key=True,
     )  # Assuming this is a generic UUID for an event
     variant: Mapped[str] = mapped_column(String(20), nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, index=True
+        DateTime, nullable=False, index=True,
     )  # Added index
 
     # Relationship to Experiment

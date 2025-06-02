@@ -80,7 +80,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             events = result.scalars().all()
             self.logger.debug(
                 f"Found {len(events)} reconciliation events from last {days} days.",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return events
 
@@ -98,7 +98,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
         if "reconciliation_id" not in adjustment_data:
             self.logger.error(
                 "Cannot save PositionAdjustment without reconciliation_id.",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             raise ValueError("reconciliation_id is required to save a PositionAdjustment.")
 
@@ -112,7 +112,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             await session.refresh(instance)
             self.logger.debug(
                 f"Saved new PositionAdjustment with ID {instance.adjustment_id}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return instance
 
@@ -133,7 +133,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             adjustments = result.scalars().all()
             self.logger.debug(
                 f"Found {len(adjustments)} adjustments for event {reconciliation_id}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return adjustments
 
@@ -152,7 +152,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             adjustments = result.scalars().all()
             self.logger.debug(
                 f"Retrieved adjustment history for last {days} days.",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return adjustments
 

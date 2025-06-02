@@ -28,7 +28,7 @@ class Log(Base):
     lineno: Mapped[int | None] = mapped_column(Integer, nullable=True)
     func_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     context_json: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True
+        JSONB, nullable=True,
     )  # Stored as dict, maps to JSONB
     exception_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 

@@ -68,7 +68,7 @@ class PositionNotFoundError(OperationalError):
         self,
         trading_pair: str | None = None,
         position_id: str | None = None,
-        message: str | None = None
+        message: str | None = None,
     ) -> None:
         """Initialize PositionNotFoundError."""
         if message is None:

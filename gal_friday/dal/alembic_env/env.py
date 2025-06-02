@@ -1,20 +1,20 @@
 """Alembic environment configuration script for Gal-Friday."""
 import asyncio
 import logging
-import sys # os import removed F401
+import sys  # os import removed F401
 from logging.config import fileConfig
 from pathlib import Path
-
-from alembic import context # type: ignore[import-not-found]
-from sqlalchemy import Column as SAColumn # Alias to avoid clash
-from sqlalchemy import create_engine, pool
-from sqlalchemy.ext.asyncio import create_async_engine # Added for F821
-from sqlalchemy.engine import Connection
-from sqlalchemy.sql.schema import SchemaItem
 from typing import Any, Literal, cast
 
-from alembic.autogenerate.api import AutogenContext, CompareTypeContext # type: ignore[import-not-found]
-from alembic.runtime.migration import MigrationContext # type: ignore[import-not-found]
+from alembic import context  # type: ignore[import-not-found]
+from alembic.autogenerate.api import (  # type: ignore[import-not-found]
+    AutogenContext,
+    CompareTypeContext,
+)
+from alembic.runtime.migration import MigrationContext  # type: ignore[import-not-found]
+from sqlalchemy import Column as SAColumn  # Alias to avoid clash
+from sqlalchemy.engine import Connection
+from sqlalchemy.sql.schema import SchemaItem
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.dal.models import Base

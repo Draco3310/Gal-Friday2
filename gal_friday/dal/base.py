@@ -2,13 +2,19 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast # I001: Removed unused _BaseForTypeVar
+from typing import (  # I001: Removed unused _BaseForTypeVar
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    TypeVar,
+    cast,
+)
 
 from sqlalchemy import asc, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 if TYPE_CHECKING:
-    from gal_friday.dal.models import Base # F401: _BaseForTypeVar removed
+    from gal_friday.dal.models import Base  # F401: _BaseForTypeVar removed
     from gal_friday.logger_service import LoggerService
     # Ensure Base is imported within TYPE_CHECKING for type hinting T
     # from gal_friday.dal.models import Base as _BaseForTypeVar # This alias is unused
@@ -215,7 +221,7 @@ class BaseRepository(Generic[T]):
                     col_name = parts[0]
                     if not hasattr(self.model_class, col_name):
                         raise ValueError(
-                            f"Invalid order_by column: {col_name} on {self.model_class.__name__}"
+                            f"Invalid order_by column: {col_name} on {self.model_class.__name__}",
                         ) # COM812
 
                     col = getattr(self.model_class, col_name)

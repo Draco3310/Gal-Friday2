@@ -28,10 +28,10 @@ class PositionAdjustment(Base):
         index=True,  # Added index
     )
     trading_pair: Mapped[str] = mapped_column(
-        String(20), nullable=False
+        String(20), nullable=False,
     )  # From 003, added index
     adjustment_type: Mapped[str] = mapped_column(
-        String(50), nullable=False
+        String(50), nullable=False,
     )  # From 003
     old_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     new_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)

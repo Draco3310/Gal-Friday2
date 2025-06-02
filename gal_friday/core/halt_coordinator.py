@@ -29,7 +29,7 @@ class HaltCoordinator:
     """Central coordinator for all HALT conditions and triggers."""
 
     def __init__(
-        self, config_manager: ConfigManager, pubsub_manager: PubSubManager, logger_service: LoggerService
+        self, config_manager: ConfigManager, pubsub_manager: PubSubManager, logger_service: LoggerService,
     ) -> None:
         """Initialize HaltCoordinator."""
         self.config = config_manager
@@ -90,7 +90,7 @@ class HaltCoordinator:
         )
 
     def register_condition(
-        self, condition_id: str, name: str, threshold: int | float | Decimal | str | bool
+        self, condition_id: str, name: str, threshold: int | float | Decimal | str | bool,
     ) -> None:
         """Register a new HALT condition."""
         self.conditions[condition_id] = HaltCondition(
@@ -123,7 +123,7 @@ class HaltCoordinator:
         was_triggered = condition.is_triggered
 
         if isinstance(condition.threshold, int | float | Decimal) and isinstance(
-            current_value, int | float | Decimal
+            current_value, int | float | Decimal,
         ):
             # Numeric comparison - both values must be numeric
             condition.is_triggered = current_value > condition.threshold

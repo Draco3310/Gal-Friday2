@@ -126,7 +126,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
         stmt = pg_insert(ExperimentAssignment).values(**assignment_data)
         stmt = stmt.on_conflict_do_nothing(
             index_elements=[
-                ExperimentAssignment.experiment_id, ExperimentAssignment.event_id
+                ExperimentAssignment.experiment_id, ExperimentAssignment.event_id,
             ],
         )
         async with self.session_maker() as session:
@@ -137,7 +137,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
             # ON CONFLICT DO NOTHING makes returning inserted tricky.
             return await session.get(
                 ExperimentAssignment,
-                (assignment_data["experiment_id"], assignment_data["event_id"])
+                (assignment_data["experiment_id"], assignment_data["event_id"]),
             )
 
 
@@ -184,14 +184,14 @@ class ExperimentRepository(BaseRepository[Experiment]):
                 ExperimentOutcome.variant,
                 func.count().label("sample_count"),
                 func.sum(
-                    cast(ExperimentOutcome.correct_prediction, Integer)
+                    cast(ExperimentOutcome.correct_prediction, Integer),
                 ).label("correct_predictions"),
                 func.sum(
-                    cast(ExperimentOutcome.signal_generated, Integer)
+                    cast(ExperimentOutcome.signal_generated, Integer),
                 ).label("signals_generated"),
                 func.sum(ExperimentOutcome.trade_return).label("total_return"),
                 func.avg(
-                    cast(ExperimentOutcome.correct_prediction, Numeric)
+                    cast(ExperimentOutcome.correct_prediction, Numeric),
                 ).label("accuracy"),
             )
             .where(ExperimentOutcome.experiment_id == experiment_id)
@@ -211,7 +211,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
         return performance_summary
 
     async def save_results(
-        self, experiment_id: uuid.UUID, results_data: dict[str, Any]
+        self, experiment_id: uuid.UUID, results_data: dict[str, Any],
     ) -> Experiment | None:
         """Save final experiment results by updating the Experiment model."""
         # Ensure 'completed_at' is a datetime object if provided, otherwise set to now

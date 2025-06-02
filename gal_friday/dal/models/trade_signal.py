@@ -27,7 +27,7 @@ class TradeSignal(Base):
     take_profit: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
     status: Mapped[str] = mapped_column(
-        String(20), nullable=False, index=True
+        String(20), nullable=False, index=True,
     )  # Added index based on schema
     created_at: Mapped[datetime] = mapped_column(
         DateTime,

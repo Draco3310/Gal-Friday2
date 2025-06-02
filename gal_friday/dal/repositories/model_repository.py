@@ -97,7 +97,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
         if stage:
             filters["stage"] = stage
         return await self.find_all(
-            filters=filters if filters else None, order_by="created_at DESC"
+            filters=filters if filters else None, order_by="created_at DESC",
         )
 
 
@@ -139,7 +139,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
                 .where(
                     ModelDeployment.model_id.in_(
                 select(ModelVersion.model_id).where(
-                    ModelVersion.model_name == model_version.model_name
+                    ModelVersion.model_name == model_version.model_name,
                 ),
                     ),
             ModelDeployment.is_active,  # E712
@@ -182,17 +182,17 @@ class ModelRepository(BaseRepository[ModelVersion]):
             if deployment:
                 self.logger.debug(
                     f"Found active deployment for model {model_name}",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
             else:
                 self.logger.debug(
                     f"No active deployment found for model {model_name}",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
             return deployment
 
     async def get_deployments_for_model_version(
-        self, model_id: uuid.UUID
+        self, model_id: uuid.UUID,
     ) -> Sequence[ModelDeployment]:
         """Get all deployment records for a specific model version ID."""
         # This uses a direct query on ModelDeployment,
@@ -205,6 +205,6 @@ class ModelRepository(BaseRepository[ModelVersion]):
             deployments = result.scalars().all()
             self.logger.debug(
                 f"Found {len(deployments)} deployments for model_id {model_id}",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return deployments

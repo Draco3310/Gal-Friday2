@@ -156,7 +156,7 @@ class DataIngestor:
         # WebSocket configuration
         self._websocket_url = data_config.get(
             "kraken_ws_url",
-            kraken_config.get("websocket", {}).get("url", "wss://ws.kraken.com/v2")
+            kraken_config.get("websocket", {}).get("url", "wss://ws.kraken.com/v2"),
         )
         self._connection_timeout = data_config.get("connection_timeout_s", 15)
         self._max_heartbeat_interval = data_config.get("max_heartbeat_interval_s", 60)
@@ -168,7 +168,7 @@ class DataIngestor:
         self._book_depth = data_config.get("book_depth", 10)
         self._ohlc_intervals = data_config.get("ohlc_intervals", [1, 5, 15, 60])
         self._expected_ohlc_item_length = data_config.get(
-            "expected_ohlc_item_length", 7
+            "expected_ohlc_item_length", 7,
         )
         self._min_qty_threshold = data_config.get("min_qty_threshold", 1e-12)
 
@@ -566,7 +566,7 @@ class DataIngestor:
         )
         self.logger.info(monitor_msg, source_module=self.__class__.__name__)
         check_interval = max(
-            1, min(self._connection_timeout, self._max_heartbeat_interval) / 2
+            1, min(self._connection_timeout, self._max_heartbeat_interval) / 2,
         )
 
         while self._is_running and self._connection and not self._connection.closed:
@@ -643,7 +643,7 @@ class DataIngestor:
                 if self._connection and not self._connection.closed:
                     # Use create_task to avoid blocking the monitor loop
                     self._cleanup_connection_task = asyncio.create_task(
-                        self._cleanup_connection()
+                        self._cleanup_connection(),
                     )
                 break  # Exit monitor loop, main loop will handle reconnect
 
@@ -1750,7 +1750,7 @@ class MockLoggerService(LoggerService):
             message,
             *args,
             source_module=source_module,
-            context=context
+            context=context,
         )
 
     def info(
@@ -1766,7 +1766,7 @@ class MockLoggerService(LoggerService):
             message,
             *args,
             source_module=source_module,
-            context=context
+            context=context,
         )
 
     def warning(
@@ -1782,7 +1782,7 @@ class MockLoggerService(LoggerService):
             message,
             *args,
             source_module=source_module,
-            context=context
+            context=context,
         )
 
     def error(
@@ -1800,7 +1800,7 @@ class MockLoggerService(LoggerService):
             *args,
             source_module=source_module,
             context=context,
-            exc_info=exc_info
+            exc_info=exc_info,
         )
 
     def critical(
@@ -1818,7 +1818,7 @@ class MockLoggerService(LoggerService):
             *args,
             source_module=source_module,
             context=context,
-            exc_info=exc_info
+            exc_info=exc_info,
         )
 
     def exception(

@@ -22,7 +22,7 @@ class Position(Base):
         server_default=func.uuid_generate_v4(),
     )
     trading_pair: Mapped[str] = mapped_column(
-        String(20), nullable=False, index=True
+        String(20), nullable=False, index=True,
     )  # Added index based on schema
     side: Mapped[str] = mapped_column(String(10), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)

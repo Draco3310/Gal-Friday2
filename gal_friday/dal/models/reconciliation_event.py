@@ -21,27 +21,27 @@ class ReconciliationEvent(Base):
     # It's expected to be provided by the application.
     reconciliation_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, index=True
+        DateTime, nullable=False, index=True,
     )  # Added index based on schema
     reconciliation_type: Mapped[str] = mapped_column(
-        String(50), nullable=False
+        String(50), nullable=False,
     )  # From 003
     status: Mapped[str] = mapped_column(
-        String(50), nullable=False, index=True
+        String(50), nullable=False, index=True,
     )  # From 003, added index
     discrepancies_found: Mapped[int | None] = mapped_column(
-        Integer, server_default="0"
+        Integer, server_default="0",
     )
     auto_corrected: Mapped[int | None] = mapped_column(Integer, server_default="0")
     manual_review_required: Mapped[int | None] = mapped_column(
-        Integer, server_default="0"
+        Integer, server_default="0",
     )
     report: Mapped[dict] = mapped_column(JSONB, nullable=False)  # From 003
     duration_seconds: Mapped[Decimal | None] = mapped_column(
-        Numeric(10, 3), nullable=True
+        Numeric(10, 3), nullable=True,
     )  # Precision from 003
     created_at: Mapped[datetime | None] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime, server_default=func.current_timestamp(),
     )
 
     # Relationship to PositionAdjustment

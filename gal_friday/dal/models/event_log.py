@@ -2,7 +2,6 @@
 
 
 from sqlalchemy import JSON, Column, DateTime, Index, String
-from sqlalchemy.dialects.postgresql import UUID as POSTGRES_UUID
 
 from gal_friday.dal.models.models_base import Base
 

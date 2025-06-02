@@ -61,7 +61,7 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
         return await self.create(job_data)
 
     async def update_job_status(
-        self, job_id: uuid.UUID, updates: dict[str, Any]
+        self, job_id: uuid.UUID, updates: dict[str, Any],
     ) -> RetrainingJob | None:
         """Update job status and results."""
         if "updated_at" not in updates:  # Ensure updated_at is set
@@ -102,7 +102,7 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
     async def get_jobs_by_model(self, model_id: uuid.UUID) -> Sequence[RetrainingJob]:
         """Get all retraining jobs for a model."""
         return await self.find_all(
-            filters={"model_id": model_id}, order_by="created_at DESC"
+            filters={"model_id": model_id}, order_by="created_at DESC",
         )
 
     async def save_drift_detection_event(
