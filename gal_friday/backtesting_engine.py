@@ -398,7 +398,7 @@ class BacktestHistoricalDataProviderImpl:
                     )
                     if not resampled.empty:
                         result = resampled
-                except Exception as resample_error:  # noqa: BLE001 # Resampling can raise various errors
+                except Exception as resample_error:  # Resampling can raise various errors
                     self.logger.warning(
                         "Error resampling data to %s interval: %s",
                         interval,
@@ -607,7 +607,7 @@ def _calculate_average_holding_period(trade_log: list[dict[str, Any]], results: 
                     exit_time = pd.to_datetime(trade["exit_time"])
                     duration_hours = (exit_time - entry_time).total_seconds() / 3600
                     holding_periods.append(duration_hours)
-                except Exception as e:  # noqa: BLE001 # Date parsing or arithmetic errors
+                except Exception as e:  # Date parsing or arithmetic errors
                     log.warning("Error parsing trade times for holding period: %s", e)
 
         if holding_periods:

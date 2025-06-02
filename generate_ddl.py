@@ -65,7 +65,7 @@ async def main() -> None:
             # Compile DDL using the engine's dialect
             ddl_statement = str(CreateTable(table).compile(dialect=pg_dialect)).strip()
             sys.stdout.write(f"{ddl_statement};\n")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             sys.stderr.write(f"-- Error compiling CREATE for table {table.name}: {e}\n")
 
 
@@ -75,7 +75,7 @@ async def main() -> None:
             # Compile DDL using the engine's dialect
             ddl_statement = str(DropTable(table).compile(dialect=pg_dialect)).strip()
             sys.stdout.write(f"{ddl_statement};\n")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             sys.stderr.write(f"-- Error compiling DROP for table {table.name}: {e}\n")
 
 if __name__ == "__main__":

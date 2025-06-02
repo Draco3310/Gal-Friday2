@@ -108,7 +108,7 @@ class EventStore:
                     # Optionally, raise an error or handle as appropriate
                     # For now, let's attempt to get a default or raise
                     error_msg = f"Event {event.event_id} is missing a valid event_type."
-                    raise TypeError(error_msg) # TRY004, # noqa: TRY301
+                    raise TypeError(error_msg) # TRY004,
 
                 event_log = EventLog(
                     event_id=event.event_id,
