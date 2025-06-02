@@ -1,4 +1,3 @@
-"""Database connection and session management for Gal-Friday."""
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -6,11 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 # Placeholder function for getting the database connection string
 def get_database_connection_string() -> str:
-    """Get the database connection string.
-    
-    In a real application, this would fetch from config/config.yaml.
-    For now, using a placeholder value.
-    """
+    # In a real application, this would fetch from config/config.yaml
+    # For now, using a placeholder value.
     # Ensure this matches the expected format, e.g., "postgresql+asyncpg://user:password@host/dbname"
     return "postgresql+asyncpg://user:password@host/dbname_placeholder"
 
@@ -23,10 +19,5 @@ AsyncSessionFactory = async_sessionmaker(
 )
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Provide an asynchronous database session.
-
-    Yields:
-        AsyncSession: An SQLAlchemy AsyncSession.
-    """
     async with AsyncSessionFactory() as session:
         yield session

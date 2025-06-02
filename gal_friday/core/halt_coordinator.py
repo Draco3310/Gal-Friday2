@@ -28,10 +28,7 @@ class HaltCondition:
 class HaltCoordinator:
     """Central coordinator for all HALT conditions and triggers."""
 
-    def __init__(
-        self, config_manager: ConfigManager, pubsub_manager: PubSubManager, logger_service: LoggerService,
-    ) -> None:
-        """Initialize HaltCoordinator."""
+    def __init__(self, config_manager: ConfigManager, pubsub_manager: PubSubManager, logger_service: LoggerService):
         self.config = config_manager
         self.pubsub = pubsub_manager
         self.logger = logger_service
@@ -89,9 +86,7 @@ class HaltCoordinator:
             context={"conditions": list(self.conditions.keys())},
         )
 
-    def register_condition(
-        self, condition_id: str, name: str, threshold: int | float | Decimal | str | bool,
-    ) -> None:
+    def register_condition(self, condition_id: str, name: str, threshold: int | float | Decimal | str | bool) -> None:
         """Register a new HALT condition."""
         self.conditions[condition_id] = HaltCondition(
             condition_id=condition_id,
@@ -104,7 +99,7 @@ class HaltCoordinator:
 
     def update_condition(self, condition_id: str, current_value: int | float | Decimal | str | bool) -> bool:
         """Update a condition's current value and check if triggered.
-
+        
         Returns:
             bool: True if condition is triggered
         """
@@ -122,9 +117,7 @@ class HaltCoordinator:
         # Check if condition is triggered based on type
         was_triggered = condition.is_triggered
 
-        if isinstance(condition.threshold, int | float | Decimal) and isinstance(
-            current_value, int | float | Decimal,
-        ):
+        if isinstance(condition.threshold, (int, float, Decimal)) and isinstance(current_value, (int, float, Decimal)):
             # Numeric comparison - both values must be numeric
             condition.is_triggered = current_value > condition.threshold
         elif isinstance(condition.threshold, bool) and isinstance(current_value, bool):
@@ -136,11 +129,7 @@ class HaltCoordinator:
         else:
             # Type mismatch or other comparison - log warning and don't trigger
             self.logger.warning(
-                (
-                    f"Type mismatch in condition '{condition.name}': "
-                    f"threshold type {type(condition.threshold).__name__} vs "
-                    f"current_value type {type(current_value).__name__}"
-                ),
+                f"Type mismatch in condition '{condition.name}': threshold type {type(condition.threshold).__name__} vs current_value type {type(current_value).__name__}",
                 source_module=self._source_module,
             )
             condition.is_triggered = False
@@ -148,10 +137,7 @@ class HaltCoordinator:
         # Log if condition state changed
         if condition.is_triggered != was_triggered:
             self.logger.warning(
-                (
-                    f"HALT condition '{condition.name}' state changed: "
-                    f"{was_triggered} -> {condition.is_triggered}"
-                ),
+                f"HALT condition '{condition.name}' state changed: {was_triggered} -> {condition.is_triggered}",
                 source_module=self._source_module,
                 context={
                     "condition_id": condition_id,

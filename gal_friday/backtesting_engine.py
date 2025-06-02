@@ -398,7 +398,7 @@ class BacktestHistoricalDataProviderImpl:
                     )
                     if not resampled.empty:
                         result = resampled
-                except Exception as resample_error:  # Resampling can raise various errors
+                except Exception as resample_error:  # noqa: BLE001 # Resampling can raise various errors
                     self.logger.warning(
                         "Error resampling data to %s interval: %s",
                         interval,
@@ -479,8 +479,8 @@ def _calculate_annualized_return(
         if len(equity_curve) >= min_points_for_duration:
             first_date = equity_curve.index[0]
             last_date = equity_curve.index[-1]
-            if isinstance(first_date, pd.Timestamp | dt.datetime) and isinstance( # F821
-                last_date, pd.Timestamp | dt.datetime, # F821
+            if isinstance(first_date, (pd.Timestamp, dt.datetime)) and isinstance( # F821
+                last_date, (pd.Timestamp, dt.datetime), # F821
             ):
                 duration_days = (last_date - first_date).total_seconds() / (60 * 60 * 24)
                 if duration_days > 0:
@@ -607,7 +607,7 @@ def _calculate_average_holding_period(trade_log: list[dict[str, Any]], results: 
                     exit_time = pd.to_datetime(trade["exit_time"])
                     duration_hours = (exit_time - entry_time).total_seconds() / 3600
                     holding_periods.append(duration_hours)
-                except Exception as e:  # Date parsing or arithmetic errors
+                except Exception as e:  # noqa: BLE001 # Date parsing or arithmetic errors
                     log.warning("Error parsing trade times for holding period: %s", e)
 
         if holding_periods:
@@ -1259,7 +1259,7 @@ class BacktestingEngine:
                 except Exception as e:  # Catch errors within loop step
                     log.exception("Error processing timestamp %s", current_timestamp) # TRY400
                     # Continue processing unless it's a critical error
-                    if isinstance(e, KeyboardInterrupt | SystemExit): # type: ignore[arg-type]
+                    if isinstance(e, (KeyboardInterrupt, SystemExit)): # type: ignore[arg-type]
                         raise
                     continue
 

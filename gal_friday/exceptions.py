@@ -64,13 +64,7 @@ class OperationalError(GalFridayError):
 class PositionNotFoundError(OperationalError):
     """Exception raised when a trading position is not found."""
 
-    def __init__(
-        self,
-        trading_pair: str | None = None,
-        position_id: str | None = None,
-        message: str | None = None,
-    ) -> None:
-        """Initialize PositionNotFoundError."""
+    def __init__(self, trading_pair: str | None = None, position_id: str | None = None, message: str | None = None) -> None:
         if message is None:
             if trading_pair:
                 message = f"Position not found for trading pair: {trading_pair}"

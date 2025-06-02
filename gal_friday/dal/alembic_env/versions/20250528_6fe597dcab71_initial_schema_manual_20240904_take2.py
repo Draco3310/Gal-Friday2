@@ -1,4 +1,4 @@
-"""initial_schema_manual_20240904_take2.
+"""initial_schema_manual_20240904_take2
 
 Revision ID: 6fe597dcab71
 Revises: c84200ac0af7

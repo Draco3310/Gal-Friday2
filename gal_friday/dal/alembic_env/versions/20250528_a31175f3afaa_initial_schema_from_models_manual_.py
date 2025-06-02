@@ -1,4 +1,4 @@
-"""initial_schema_from_models_manual_20240905.
+"""initial_schema_from_models_manual_20240905
 
 Revision ID: a31175f3afaa
 Revises: 6fe597dcab71

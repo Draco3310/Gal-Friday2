@@ -1,7 +1,7 @@
 """Gap detection for time series data."""
 
 from datetime import datetime, timedelta
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple  # Added typing_cast
 from typing import cast as typing_cast
 
 import numpy as np
@@ -22,7 +22,7 @@ class DataGap(NamedTuple):
 
 class GapDetector:
     """Detects and analyzes gaps in time series data.
-
+    
     Features:
     - Configurable gap thresholds
     - Multiple severity levels
@@ -32,7 +32,7 @@ class GapDetector:
 
     def __init__(self, logger: LoggerService) -> None:
         """Initialize gap detector.
-
+        
         Args:
             logger: Logger service
         """
@@ -51,12 +51,12 @@ class GapDetector:
         expected_interval: timedelta | None = None,
     ) -> list[DataGap]:
         """Detect gaps in time series data.
-
+        
         Args:
             data: DataFrame with time series data
             timestamp_col: Name of timestamp column
             expected_interval: Expected time between data points
-
+            
         Returns:
             List of detected gaps
         """
@@ -120,10 +120,10 @@ class GapDetector:
         gaps: list[DataGap],
     ) -> dict[str, Any]:
         """Analyze patterns in detected gaps.
-
+        
         Args:
             gaps: List of detected gaps
-
+            
         Returns:
             Gap analysis statistics
         """
@@ -136,24 +136,17 @@ class GapDetector:
 
         # Basic statistics
         total_duration = sum((g.duration for g in gaps), timedelta())
-        # F841: durations = [g.duration.total_seconds() for g in gaps] # Unused
+        durations = [g.duration.total_seconds() for g in gaps]
 
-        durations_seconds = [
-            g.duration.total_seconds() for g in gaps
-        ]  # ensure list is not empty before np.mean
+        durations_seconds = [g.duration.total_seconds() for g in gaps] # ensure list is not empty before np.mean
         avg_duration_seconds = np.mean(durations_seconds) if durations_seconds else 0.0
-        median_duration_seconds = np.median(durations_seconds) if durations_seconds else 0.0
-
 
         stats = {
             "total_gaps": len(gaps),
             "total_duration": total_duration,
-            "average_duration": timedelta(
-                seconds=float(avg_duration_seconds),
-            ),  # Explicit float cast
-            "max_duration": max((g.duration for g in gaps), default=timedelta()),
-            "min_duration": min((g.duration for g in gaps), default=timedelta()),
-            "median_duration": timedelta(seconds=float(median_duration_seconds)),
+            "average_duration": timedelta(seconds=float(avg_duration_seconds)), # Explicit float cast
+            "max_duration": max(g.duration for g in gaps),
+            "min_duration": min(g.duration for g in gaps),
             "severity_distribution": {
                 "minor": sum(1 for g in gaps if g.severity == "minor"),
                 "major": sum(1 for g in gaps if g.severity == "major"),
@@ -175,13 +168,13 @@ class GapDetector:
         method: str = "interpolate",
     ) -> pd.DataFrame:
         """Fill detected gaps in data.
-
+        
         Args:
             data: Original DataFrame
             gaps: List of gaps to fill
             timestamp_col: Name of timestamp column
             method: Gap filling method ('interpolate', 'forward', 'zero')
-
+            
         Returns:
             DataFrame with filled gaps
         """
@@ -262,10 +255,7 @@ class GapDetector:
 
         if intervals.empty:
             self.logger.warning(
-                (
-                    "Could not determine interval from timestamps (empty after diff/dropna), "
-                    "defaulting to 1 minute."
-                ),
+                "Could not determine interval from timestamps (empty after diff/dropna), defaulting to 1 minute.",
                 source_module=self._source_module,
             )
             return timedelta(minutes=1)
@@ -279,7 +269,7 @@ class GapDetector:
 
         # Fallback to median if mode is empty (e.g., all intervals are unique)
         median_val = intervals.median()
-        if pd.isna(median_val):  # Check if median itself is NaT
+        if pd.isna(median_val): # Check if median itself is NaT (e.g., if intervals was empty, though covered above)
             self.logger.warning(
                 "Median interval calculation resulted in NaT, defaulting to 1 minute.",
                 source_module=self._source_module,

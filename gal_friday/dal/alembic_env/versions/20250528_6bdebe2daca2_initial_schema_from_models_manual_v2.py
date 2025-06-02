@@ -1,4 +1,4 @@
-"""initial_schema_from_models_manual_v2.
+"""initial_schema_from_models_manual_v2
 
 Revision ID: 6bdebe2daca2
 Revises: 1d03e90d0571

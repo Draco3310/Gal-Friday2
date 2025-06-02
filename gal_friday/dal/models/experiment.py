@@ -70,8 +70,7 @@ class Experiment(Base):
         "ModelVersion", foreign_keys=[treatment_model_id], backref="treatment_experiments",
     )
 
-    # Consider relationships to experiment_assignments and experiment_outcomes
-    # if those models are also created.
+    # Consider relationships to experiment_assignments and experiment_outcomes if those models are also created.
     # assignments = relationship("ExperimentAssignment", back_populates="experiment")
     # outcomes = relationship("ExperimentOutcome", back_populates="experiment")
 
@@ -84,8 +83,4 @@ class Experiment(Base):
     )
 
     def __repr__(self) -> str:
-        """Return a string representation of the Experiment."""
-        return (
-            f"<Experiment(experiment_id={self.experiment_id}, "
-            f"name='{self.name}', status='{self.status}')>"
-        )
+        return f"<Experiment(experiment_id={self.experiment_id}, name='{self.name}', status='{self.status}')>"

@@ -73,33 +73,25 @@ class PositionRepository(BaseRepository[Position]):
         try:
             async with self.session_maker() as session:
                 stmt = select(
-                    func.count(Position.id).filter(Position.is_active).label("active_positions"), # E712
-                    func.count(Position.id).filter(not_(Position.is_active)).label("closed_positions"), # E712
+                    func.count(Position.id).filter(Position.is_active == True).label("active_positions"),
+                    func.count(Position.id).filter(Position.is_active == False).label("closed_positions"),
                     func.sum(cast(Position.realized_pnl, Numeric)).label("total_realized_pnl"),
-                    func.sum(cast(Position.unrealized_pnl, Numeric)).filter(Position.is_active).label("total_unrealized_pnl"), # E712
+                    func.sum(cast(Position.unrealized_pnl, Numeric)).filter(Position.is_active == True).label("total_unrealized_pnl"),
                 )
                 result = await session.execute(stmt)
-                summary = result.one_or_none()  # SUM can return None if no rows
+                summary = result.one_or_none() # Using one_or_none() as SUM can return None if no rows
 
                 if summary:
-                    self.logger.debug(
-                        "Retrieved position summary.", source_module=self._source_module,
-                    )
+                    self.logger.debug("Retrieved position summary.", source_module=self._source_module)
                     # Convert Row to dict, handling None for sums if necessary
                     return {
                         "active_positions": summary.active_positions or 0,
                         "closed_positions": summary.closed_positions or 0,
                         "total_realized_pnl": summary.total_realized_pnl or Decimal("0"),
-                        "total_unrealized_pnl": (
-                            summary.total_unrealized_pnl or Decimal("0")
-                        ),
+                        "total_unrealized_pnl": summary.total_unrealized_pnl or Decimal("0"),
                     }
-                # This case (summary is None) should ideally not happen with COUNT/SUM
-                # over a table unless it's entirely empty and SUM returns NULL for all.
-                self.logger.warning(
-                    "Position summary query returned no rows or null sums.",
-                    source_module=self._source_module,
-                )
+                # Should not happen with COUNT/SUM over a table unless it's empty and SUM returns NULL
+                self.logger.warning("Position summary query returned no rows.", source_module=self._source_module)
                 return {
                     "active_positions": 0,
                     "closed_positions": 0,

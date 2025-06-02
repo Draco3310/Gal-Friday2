@@ -17,16 +17,12 @@ class ExperimentAssignment(Base):
     experiment_id: Mapped[UUID] = mapped_column(
         ForeignKey("experiments.experiment_id"), primary_key=True,
     )
-    event_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True,
-    )  # Assuming this is a generic UUID for an event
+    event_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True) # Assuming this is a generic UUID for an event
     variant: Mapped[str] = mapped_column(String(20), nullable=False)
-    assigned_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, index=True,
-    )  # Added index
+    assigned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True) # Added index
 
     # Relationship to Experiment
-    experiment = relationship("Experiment")  # Add back_populates="assignments" to Experiment if needed
+    experiment = relationship("Experiment") # Add back_populates="assignments" to Experiment if needed
 
     __table_args__ = (
         PrimaryKeyConstraint("experiment_id", "event_id"),
@@ -35,7 +31,6 @@ class ExperimentAssignment(Base):
     )
 
     def __repr__(self) -> str:
-        """Return a string representation of the ExperimentAssignment."""
         return (
             f"<ExperimentAssignment(experiment_id={self.experiment_id}, "
             f"event_id={self.event_id}, variant='{self.variant}')>"

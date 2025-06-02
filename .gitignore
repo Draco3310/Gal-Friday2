@@ -171,8 +171,9 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
-# TODO directory - work in progress items not ready for git
-TODO/
-
 # PyPI configuration file
+<<<<<<< HEAD
 .pypirc
+=======
+.pypirc
+>>>>>>> 07611cf8c7e9042128077d1f581f2c421f7d2118

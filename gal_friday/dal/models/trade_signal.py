@@ -26,14 +26,9 @@ class TradeSignal(Base):
     stop_loss: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     take_profit: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, index=True,
-    )  # Added index based on schema
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True) # Added index based on schema
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.current_timestamp(),
-        index=True,  # Added index based on schema
+        DateTime, nullable=False, server_default=func.current_timestamp(), index=True, # Added index based on schema
     )
     executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -46,7 +41,6 @@ class TradeSignal(Base):
     )
 
     def __repr__(self) -> str:
-        """Return a string representation of the TradeSignal."""
         return (
             f"<TradeSignal(id={self.id}, trading_pair='{self.trading_pair}', "
             f"strategy_id='{self.strategy_id}', status='{self.status}')>"
