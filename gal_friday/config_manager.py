@@ -28,6 +28,7 @@ class ConfigManager:
     """Manage loading, accessing, and explicit reloading of app configuration."""
 
     _EXPECTED_TRADING_PAIR_COMPONENTS = 2
+    _MAX_RISK_PERCENTAGE = 100.0
 
     def __init__(
         self,
@@ -187,7 +188,7 @@ class ConfigManager:
         if not isinstance(default, Decimal):
             try:
                 default = Decimal(str(default))
-            except Exception:
+            except (ValueError, TypeError): # BLE001
                 self._logger.warning(
                     "Invalid default value '%s' for get_decimal, using 0.0",
                     default,
@@ -198,7 +199,7 @@ class ConfigManager:
         try:
             # Convert to string first to handle floats/ints correctly
             return Decimal(str(value))
-        except Exception as e:
+        except (ValueError, TypeError) as e: # BLE001
             self._logger.warning(
                 "Could not convert value for key '%s' ('%s') to Decimal. "
                 "Returning default %s. Error: %s",
@@ -209,7 +210,7 @@ class ConfigManager:
             )
             return default
 
-    def get_bool(self, key: str, default: bool = False) -> bool:
+    def get_bool(self, key: str, *, default: bool = False) -> bool: # FBT001, FBT002
         """Retrieve a config value and attempt to cast it to a boolean."""
         value = self.get(key, default)
         if isinstance(value, bool):
@@ -282,9 +283,13 @@ class ConfigManager:
         if not isinstance(pairs, list) or len(pairs) == 0:
             errors.append("'trading.pairs' must be a non-empty list")
         else:
-            for pair in pairs:
-                if not self._is_valid_trading_pair(pair):
-                    errors.append(f"Invalid trading pair format: '{pair}' (expected format: 'BASE/QUOTE')")
+            invalid_pair_errors = [
+                f"Invalid trading pair format: '{pair}' (expected format: 'BASE/QUOTE')"
+                for pair in pairs
+                if not self._is_valid_trading_pair(pair)
+            ]
+            if invalid_pair_errors:
+                errors.extend(invalid_pair_errors) # PERF401
 
         # Validate exchange
         exchange = trading_config.get("exchange")
@@ -299,7 +304,12 @@ class ConfigManager:
             return
 
         # Validate key risk parameters
-        required_fields = ["max_total_drawdown_pct", "max_daily_drawdown_pct", "risk_per_trade_pct"]
+        # E501
+        required_fields = [
+            "max_total_drawdown_pct",
+            "max_daily_drawdown_pct",
+            "risk_per_trade_pct",
+        ]
         for field in required_fields:
             value = risk_config.get(field)
             if value is None:
@@ -307,7 +317,8 @@ class ConfigManager:
             else:
                 try:
                     float_val = float(value)
-                    if float_val <= 0 or float_val >= 100:
+                    # PLR2004: Using Decimal for comparison if values are financial
+                    if float_val <= 0 or float_val >= self._MAX_RISK_PERCENTAGE:
                         errors.append(f"'risk.{field}' must be between 0 and 100 (exclusive)")
                 except (ValueError, TypeError):
                     errors.append(f"'risk.{field}' must be a valid number")
@@ -328,10 +339,13 @@ class ConfigManager:
             else:
                 # Check for required API fields (keys may be in environment variables)
                 required_api_fields = ["api_key", "api_secret"]
-                missing_fields = []
-                for field in required_api_fields:
-                    if not exchange_api_config.get(field) and not os.getenv(f"{exchange.upper()}_{field.upper()}"):
-                        missing_fields.append(field)
+                # PERF401: Use list comprehension
+                missing_fields = [ # E501 will be fixed by reformatting comprehension
+                    field
+                    for field in required_api_fields
+                    if not exchange_api_config.get(field)
+                    and not os.getenv(f"{exchange.upper()}_{field.upper()}")
+                ]
                 if missing_fields:
                     errors.append(
                         f"Missing {exchange} API configuration. "
@@ -355,8 +369,10 @@ class ConfigManager:
         service_config = self.get_dict(f"api.{service_name.lower()}", {})
 
         # Check environment variables as fallback/override
-        api_key = service_config.get("api_key") or os.getenv(f"{service_name.upper()}_API_KEY")
-        api_secret = service_config.get("api_secret") or os.getenv(f"{service_name.upper()}_API_SECRET")
+        api_key = service_config.get("api_key") or \
+                  os.getenv(f"{service_name.upper()}_API_KEY") # E501
+        api_secret = service_config.get("api_secret") or \
+                     os.getenv(f"{service_name.upper()}_API_SECRET") # E501
 
         return {
             "api_key": api_key,
@@ -365,11 +381,11 @@ class ConfigManager:
 
     def reload_config(self) -> list[str]:
         """Explicitly reload configuration from file.
-        
+
         This method provides controlled configuration reloading that requires
         explicit user action (CLI command or system restart) rather than
         automatic file watching.
-        
+
         Returns:
             List of validation errors (empty if successful)
         """
@@ -391,16 +407,16 @@ class ConfigManager:
                     "Configuration reload failed validation. Restored previous configuration.",
                 )
                 return new_validation_errors
-            self.validation_errors = new_validation_errors
-            self._logger.info("Configuration reloaded successfully.")
-            return []
-
         except Exception as e:
             # Restore backup on any error
             self._config = backup_config
             self.validation_errors = backup_errors
             self._logger.exception("Configuration reload failed. Restored previous configuration.")
             return [f"Configuration reload failed: {e!s}"]
+        else: # TRY300: This block executes if the try block completes with no exceptions
+            self.validation_errors = new_validation_errors # Should be empty if we reach here
+            self._logger.info("Configuration reloaded successfully.")
+            return []
 
     def is_valid(self) -> bool:
         """Check if the current configuration is valid."""
@@ -408,14 +424,14 @@ class ConfigManager:
 
     def get_secure_value(self, key: str, default: str | None = None) -> str | None:
         """Get a secure value (API key, secret, etc.) from config or environment.
-        
+
         This method checks the configuration file first, then falls back to
         environment variables using a standardized naming convention.
-        
+
         Args:
             key: Configuration key (e.g., 'kraken.api_key')
             default: Default value if not found
-            
+
         Returns:
             The secure value or default
         """
@@ -434,7 +450,7 @@ class ConfigManager:
 
         # Check alternative naming patterns
         parts = key.split(".")
-        if len(parts) >= 2:
+        if len(parts) >= self._EXPECTED_TRADING_PAIR_COMPONENTS: # PLR2004 (using class const)
             alt_env_key = f"{parts[0].upper()}_{parts[-1].upper()}"
             alt_env_value = os.getenv(alt_env_key)
             if alt_env_value:

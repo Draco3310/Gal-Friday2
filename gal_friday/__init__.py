@@ -2,5 +2,8 @@
 
 import logging
 
+# Set up a logger for the package
+logger = logging.getLogger(__name__)
+
 # Make the directory a package
-logging.info("Gal Friday Package Initialized")  # You can keep or remove this print
+logger.info("Gal Friday Package Initialized")  # You can keep or remove this print

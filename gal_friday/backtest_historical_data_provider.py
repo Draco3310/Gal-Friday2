@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-import pandas as pd
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    import pandas as pd
 
 
 class BacktestHistoricalDataProvider:
@@ -15,18 +18,18 @@ class BacktestHistoricalDataProvider:
 
     def get_historical_data(
         self,
-        symbol: str,
-        start_time: datetime,
-        end_time: datetime,
-        interval: str = "1d",
+        _symbol: str,
+        _start_time: datetime,
+        _end_time: datetime,
+        _interval: str = "1d",
     ) -> pd.DataFrame | None:
         """Get historical data for the given symbol and time range.
 
         Args:
-            symbol: The trading symbol to get data for
-            start_time: Start of the time range
-            end_time: End of the time range
-            interval: Data interval (e.g., '1d', '1h', '1m')
+            _symbol: The trading symbol to get data for
+            _start_time: Start of the time range
+            _end_time: End of the time range
+            _interval: Data interval (e.g., '1d', '1h', '1m')
 
         Returns:
         -------

@@ -20,23 +20,27 @@ from typing import (
     Optional,
     Protocol,
     TypeVar,
-    Union,
 )
 
+# Third-party imports (Typer needs to be available at runtime)
+import typer
 from rich import print as rich_print
+from rich.console import Console  # Keep for runtime if FallbackLogger uses it directly
+from rich.table import Table  # Keep for runtime if status command uses it directly
+
+# Local application imports
+from .config_manager import ConfigManager
+from .core.pubsub import PubSubManager
+from .logger_service import (  # LoggerService for hints, ExcInfoType for runtime
+    ExcInfoType,
+    LoggerService,
+)
 
 # Create TYPE_CHECKING specific imports
 if TYPE_CHECKING:
-    import typer
-    from rich.console import Console
-    from rich.table import Table
-
-    from .config_manager import ConfigManager
     from .core.halt_recovery import HaltRecoveryManager
-    from .core.pubsub import PubSubManager
-    from .logger_service import ExcInfoType, LoggerService
     # Define a protocol for connection pools
-    class PoolProtocol(Protocol):
+    class PoolProtocol(Protocol): # type: ignore[misc]
         """Protocol for connection pools."""
 
     # Type variable for connection pools
@@ -59,7 +63,7 @@ if TYPE_CHECKING:
             raise NotImplementedError
 
     # Allow GalFridayApp to be used where MainAppController is expected
-    MainAppControllerType = Union[MainAppController, "GalFridayApp"]
+    MainAppControllerType = MainAppController | "GalFridayApp" # UP007
 else:
     # Non-type checking imports
     # Import mock implementations
@@ -75,7 +79,7 @@ else:
 
     # For non-type checking compatibility
     GalFridayApp = MainAppController
-    MainAppControllerType = Union[MainAppController, GalFridayApp]
+    MainAppControllerType = MainAppController | GalFridayApp # UP007
     T = TypeVar("T")
 
 # Create Typer application instance
@@ -187,7 +191,10 @@ class CLIService:
                 source_module=self.__class__.__name__,
             )
             console.print("\n--- Gal-Friday CLI Ready (Fallback Mode) ---")
-            console.print("Type a command (e.g., 'status', 'halt', 'stop') or '--help' and press Enter.")
+            console.print(
+                "Type a command (e.g., 'status', 'halt', 'stop') or '--help' " # E501
+                "and press Enter.",
+            )
             console.print("(Note: CLI runs in a separate thread)")
             console.print("---")
             self._input_thread = threading.Thread(target=self._threaded_input_loop, daemon=True)
@@ -271,7 +278,7 @@ class CLIService:
                 source_module=self.__class__.__name__,
                 context={"command": " ".join(args)},
             )
-            self.logger.error(
+            self.logger.exception( # TRY400
                 "Command execution failed - check logs for details",
                 source_module=self.__class__.__name__,
             )
@@ -569,9 +576,9 @@ class MockLoggerService(LoggerService):
     def info(
         self,
         message: str,
-        *args: object,
+        *_args: object, # ARG002
         source_module: str | None = None,
-        context: Mapping[str, object] | None = None,
+        _context: Mapping[str, object] | None = None, # ARG002
     ) -> None:
         """Log info message."""
         rich_print(f"INFO [{source_module}]: {message}")
@@ -579,9 +586,9 @@ class MockLoggerService(LoggerService):
     def debug(
         self,
         message: str,
-        *args: object,
+        *_args: object, # ARG002
         source_module: str | None = None,
-        context: Mapping[str, object] | None = None,
+        _context: Mapping[str, object] | None = None, # ARG002
     ) -> None:
         """Log debug message."""
         rich_print(f"DEBUG [{source_module}]: {message}")
@@ -589,9 +596,9 @@ class MockLoggerService(LoggerService):
     def warning(
         self,
         message: str,
-        *args: object,
+        *_args: object, # ARG002
         source_module: str | None = None,
-        context: Mapping[str, object] | None = None,
+        _context: Mapping[str, object] | None = None, # ARG002
     ) -> None:
         """Log warning message."""
         rich_print(f"WARN [{source_module}]: {message}")
@@ -599,9 +606,9 @@ class MockLoggerService(LoggerService):
     def error(
         self,
         message: str,
-        *args: object,
+        *_args: object, # ARG002
         source_module: str | None = None,
-        context: Mapping[str, object] | None = None,
+        _context: Mapping[str, object] | None = None, # ARG002
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log error message."""
@@ -612,9 +619,9 @@ class MockLoggerService(LoggerService):
     def exception(
         self,
         message: str,
-        *args: object,
+        *_args: object, # ARG002
         source_module: str | None = None,
-        context: Mapping[str, object] | None = None,
+        context: Mapping[str, object] | None = None, # Keep context if used by self.error
     ) -> None:
         """Log exception message with traceback."""
         self.error(message, source_module=source_module, context=context, exc_info=True)
@@ -622,9 +629,9 @@ class MockLoggerService(LoggerService):
     def critical(
         self,
         message: str,
-        *args: object,
+        *_args: object, # ARG002
         source_module: str | None = None,
-        context: Mapping[str, object] | None = None,
+        _context: Mapping[str, object] | None = None, # ARG002
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log critical message."""

@@ -5,10 +5,11 @@ system components, including market data events, trading signals, and execution 
 All events are implemented as immutable dataclasses with comprehensive validation.
 """
 
+import contextlib  # For SIM105
+import datetime as dt  # For DTZ003
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
 from typing import Any
@@ -43,6 +44,7 @@ class CommissionAssetMissingError(ValidationError):
     """Error raised when commission is specified but commission_asset is missing."""
 
     def __init__(self) -> None:
+        """Initialize CommissionAssetMissingError."""
         super().__init__("Commission asset must be provided when commission is specified")
 
 
@@ -50,6 +52,7 @@ class NegativeCommissionError(ValidationError):
     """Error raised when commission is negative."""
 
     def __init__(self, commission: Decimal) -> None:
+        """Initialize NegativeCommissionError."""
         super().__init__(f"Commission cannot be negative: {commission}")
 
 
@@ -57,6 +60,7 @@ class MissingAverageFillPriceError(ValidationError):
     """Error raised when average_fill_price is missing for filled or partially filled orders."""
 
     def __init__(self) -> None:
+        """Initialize MissingAverageFillPriceError."""
         super().__init__(
             "Average fill price must be provided for filled or partially filled orders",
         )
@@ -66,6 +70,7 @@ class MissingLimitPriceError(ValidationError):
     """Error raised when limit_price is missing for LIMIT orders."""
 
     def __init__(self) -> None:
+        """Initialize MissingLimitPriceError."""
         super().__init__("Limit price must be provided for LIMIT orders")
 
 
@@ -73,6 +78,7 @@ class NonPositiveLimitPriceError(ValidationError):
     """Error raised when limit_price is not positive."""
 
     def __init__(self, limit_price: Decimal) -> None:
+        """Initialize NonPositiveLimitPriceError."""
         super().__init__(f"Limit price must be positive: {limit_price}")
 
 
@@ -80,6 +86,7 @@ class NonPositiveAverageFillPriceError(ValidationError):
     """Error raised when average_fill_price is not positive."""
 
     def __init__(self, average_fill_price: Decimal) -> None:
+        """Initialize NonPositiveAverageFillPriceError."""
         super().__init__(f"Average fill price must be positive: {average_fill_price}")
 
 
@@ -87,6 +94,7 @@ class QuantityFilledExceedsOrderedError(ValidationError):
     """Error raised when quantity_filled exceeds quantity_ordered."""
 
     def __init__(self, quantity_filled: Decimal, quantity_ordered: Decimal) -> None:
+        """Initialize QuantityFilledExceedsOrderedError."""
         message = (
             f"Quantity filled ({quantity_filled}) cannot exceed "
             f"quantity ordered ({quantity_ordered})"
@@ -98,6 +106,7 @@ class NonPositiveQuantityOrderedError(ValidationError):
     """Error raised when quantity_ordered is not positive."""
 
     def __init__(self, quantity_ordered: Decimal) -> None:
+        """Initialize NonPositiveQuantityOrderedError."""
         super().__init__(f"Quantity ordered must be positive: {quantity_ordered}")
 
 
@@ -105,6 +114,7 @@ class NegativeQuantityFilledError(ValidationError):
     """Error raised when quantity_filled is negative."""
 
     def __init__(self, quantity_filled: Decimal) -> None:
+        """Initialize NegativeQuantityFilledError."""
         super().__init__(f"Quantity filled cannot be negative: {quantity_filled}")
 
 
@@ -112,6 +122,7 @@ class InvalidOrderStatusError(ValidationError):
     """Error raised when order_status is invalid."""
 
     def __init__(self, order_status: str, valid_statuses: list[str]) -> None:
+        """Initialize InvalidOrderStatusError."""
         super().__init__(f"Invalid order_status: {order_status}. Must be one of {valid_statuses}")
 
 
@@ -119,6 +130,7 @@ class InvalidOrderTypeError(ValidationError):
     """Error raised when order_type is invalid."""
 
     def __init__(self, order_type: str, valid_order_types: list[str]) -> None:
+        """Initialize InvalidOrderTypeError."""
         super().__init__(f"Invalid order_type: {order_type}. Must be one of {valid_order_types}")
 
 
@@ -126,6 +138,7 @@ class InvalidSideError(ValidationError):
     """Error raised when side is invalid."""
 
     def __init__(self, side: str) -> None:
+        """Initialize InvalidSideError."""
         super().__init__(f"Invalid side: {side}. Must be 'BUY' or 'SELL'.")
 
 
@@ -133,6 +146,7 @@ class SellTakeProfitNotBelowEntryError(ValidationError):
     """Error raised for SELL orders when take profit is not below entry price."""
 
     def __init__(self, tp_price: Decimal, limit_price: Decimal) -> None:
+        """Initialize SellTakeProfitNotBelowEntryError."""
         message = (
             f"For SELL orders, take profit price ({tp_price}) must be below "
             f"entry price ({limit_price})"
@@ -144,6 +158,7 @@ class SellStopLossNotAboveEntryError(ValidationError):
     """Error raised for SELL orders when stop loss is not above entry price."""
 
     def __init__(self, sl_price: Decimal, limit_price: Decimal) -> None:
+        """Initialize SellStopLossNotAboveEntryError."""
         message = (
             f"For SELL orders, stop loss price ({sl_price}) must be above "
             f"entry price ({limit_price})"
@@ -155,6 +170,7 @@ class InvalidTradeSignalSideError(ValidationError):
     """Error raised for invalid side in a trade signal."""
 
     def __init__(self, side: str) -> None:
+        """Initialize InvalidTradeSignalSideError."""
         super().__init__(f"Invalid side: {side}. Must be 'BUY' or 'SELL'.")
 
 
@@ -162,6 +178,7 @@ class InvalidTradeSignalEntryTypeError(ValidationError):
     """Error raised for invalid entry_type in a trade signal."""
 
     def __init__(self, entry_type: str) -> None:
+        """Initialize InvalidTradeSignalEntryTypeError."""
         super().__init__(f"Invalid entry_type: {entry_type}. Must be 'LIMIT' or 'MARKET'.")
 
 
@@ -169,6 +186,7 @@ class MissingProposedEntryPriceError(ValidationError):
     """Error raised when proposed_entry_price is missing for a LIMIT order."""
 
     def __init__(self) -> None:
+        """Initialize MissingProposedEntryPriceError."""
         super().__init__("proposed_entry_price must be provided for LIMIT entry type.")
 
 
@@ -176,6 +194,7 @@ class NonPositiveStopLossPriceError(ValidationError):
     """Error raised when a stop loss price is not positive."""
 
     def __init__(self, sl_price: Decimal) -> None:
+        """Initialize NonPositiveStopLossPriceError."""
         super().__init__(f"Stop loss price must be positive: {sl_price}")
 
 
@@ -183,6 +202,7 @@ class NonPositiveTakeProfitPriceError(ValidationError):
     """Error raised when a take profit price is not positive."""
 
     def __init__(self, tp_price: Decimal) -> None:
+        """Initialize NonPositiveTakeProfitPriceError."""
         super().__init__(f"Take profit price must be positive: {tp_price}")
 
 
@@ -190,6 +210,7 @@ class NonPositiveProposedEntryPriceError(ValidationError):
     """Error raised when a proposed entry price is not positive."""
 
     def __init__(self, entry_price: Decimal) -> None:
+        """Initialize NonPositiveProposedEntryPriceError."""
         super().__init__(f"Entry price must be positive: {entry_price}")
 
 
@@ -197,6 +218,7 @@ class BuyStopLossNotBelowEntryError(ValidationError):
     """Error for BUY orders when stop loss is not below entry price."""
 
     def __init__(self, sl_price: Decimal, entry_price: Decimal) -> None:
+        """Initialize BuyStopLossNotBelowEntryError."""
         message = (
             f"For BUY orders, stop loss price ({sl_price}) must be below "
             f"entry price ({entry_price})"
@@ -208,6 +230,7 @@ class BuyTakeProfitNotAboveEntryError(ValidationError):
     """Error for BUY orders when take profit is not above entry price."""
 
     def __init__(self, tp_price: Decimal, entry_price: Decimal) -> None:
+        """Initialize BuyTakeProfitNotAboveEntryError."""
         message = (
             f"For BUY orders, take profit price ({tp_price}) must be above "
             f"entry price ({entry_price})"
@@ -219,6 +242,7 @@ class SellStopLossNotAboveProposedEntryError(ValidationError):
     """Error for SELL orders when stop loss is not above proposed entry price."""
 
     def __init__(self, sl_price: Decimal, entry_price: Decimal) -> None:
+        """Initialize SellStopLossNotAboveProposedEntryError."""
         message = (
             f"For SELL orders, stop loss price ({sl_price}) must be above "
             f"proposed entry price ({entry_price})"
@@ -230,6 +254,7 @@ class SellTakeProfitNotBelowProposedEntryError(ValidationError):
     """Error for SELL orders when take profit is not below proposed entry price."""
 
     def __init__(self, tp_price: Decimal, entry_price: Decimal) -> None:
+        """Initialize SellTakeProfitNotBelowProposedEntryError."""
         message = (
             f"For SELL orders, take profit price ({tp_price}) must be below "
             f"proposed entry price ({entry_price})"
@@ -241,6 +266,7 @@ class NonPositiveApprovedQuantityError(ValidationError):
     """Error raised when quantity is not positive for an approved signal."""
 
     def __init__(self, quantity: Decimal) -> None:
+        """Initialize NonPositiveApprovedQuantityError."""
         super().__init__(f"Quantity must be positive: {quantity}")
 
 
@@ -248,6 +274,7 @@ class NonPositiveApprovedStopLossPriceError(ValidationError):
     """Error raised when stop loss price is not positive for an approved signal."""
 
     def __init__(self, sl_price: Decimal) -> None:
+        """Initialize NonPositiveApprovedStopLossPriceError."""
         super().__init__(f"Stop loss price must be positive: {sl_price}")
 
 
@@ -255,6 +282,7 @@ class NonPositiveApprovedTakeProfitPriceError(ValidationError):
     """Error raised when take profit price is not positive for an approved signal."""
 
     def __init__(self, tp_price: Decimal) -> None:
+        """Initialize NonPositiveApprovedTakeProfitPriceError."""
         super().__init__(f"Take profit price must be positive: {tp_price}")
 
 
@@ -262,6 +290,7 @@ class BuyStopLossNotBelowApprovedLimitError(ValidationError):
     """Error for BUY orders when stop loss is not below the approved limit price."""
 
     def __init__(self, sl_price: Decimal, limit_price: Decimal) -> None:
+        """Initialize BuyStopLossNotBelowApprovedLimitError."""
         message = (
             f"For BUY orders, stop loss price ({sl_price}) must be below "
             f"entry price ({limit_price})"
@@ -273,6 +302,7 @@ class BuyTakeProfitNotAboveApprovedLimitError(ValidationError):
     """Error for BUY orders when take profit is not above the approved limit price."""
 
     def __init__(self, tp_price: Decimal, limit_price: Decimal) -> None:
+        """Initialize BuyTakeProfitNotAboveApprovedLimitError."""
         message = (
             f"For BUY orders, take profit price ({tp_price}) must be above "
             f"entry price ({limit_price})"
@@ -310,7 +340,8 @@ class EventType(Enum):
     # Additional Events
     MARKET_DATA_RAW = auto()  # Raw market data before processing
     FEATURE_CALCULATED = auto()  # Alias for FEATURES_CALCULATED (for backward compatibility)
-    MARKET_DATA_TICKER = auto()  # Event carrying ticker/quote data with best bid/ask and 24h statistics
+    # Event carrying ticker/quote data with best bid/ask and 24h statistics (E501)
+    MARKET_DATA_TICKER = auto()
 
 
 # --- Base Event ---
@@ -327,7 +358,7 @@ class Event:
 
     source_module: str
     event_id: uuid.UUID
-    timestamp: datetime
+    timestamp: dt.datetime
 
     def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary for serialization."""
@@ -348,7 +379,7 @@ class Event:
         for key, value in data.items():
             if isinstance(value, uuid.UUID):
                 data[key] = str(value)
-            elif isinstance(value, datetime):
+            elif isinstance(value, dt.datetime): # F821
                 data[key] = value.isoformat()
             elif isinstance(value, Decimal):
                 data[key] = str(value)
@@ -366,28 +397,25 @@ class Event:
 
         # Convert ISO strings back to datetime
         if "timestamp" in data:
-            data["timestamp"] = datetime.fromisoformat(data["timestamp"])
+            data["timestamp"] = dt.datetime.fromisoformat(data["timestamp"])
 
         # Handle specific field conversions based on event type
         for key, value in data.items():
             if key.endswith("_id") and isinstance(value, str) and value:
-                try:
+                with contextlib.suppress(ValueError): # SIM105
                     data[key] = uuid.UUID(value)
-                except ValueError:
-                    pass
             elif "timestamp" in key and isinstance(value, str):
-                try:
-                    data[key] = datetime.fromisoformat(value)
-                except ValueError:
-                    pass
+                with contextlib.suppress(ValueError): # SIM105
+                    data[key] = dt.datetime.fromisoformat(value)
+            # SIM102: Combined nested if
             elif key in ["price", "volume", "quantity", "sl_price", "tp_price",
                          "limit_price", "bid", "ask", "bid_size", "ask_size",
                          "last_price", "last_size", "volume_24h", "vwap_24h",
                          "high_24h", "low_24h", "quantity_ordered", "quantity_filled",
                          "average_fill_price", "stop_price", "commission",
-                         "proposed_sl_price", "proposed_tp_price", "proposed_entry_price"]:
-                if value is not None and value != "None":
-                    data[key] = Decimal(str(value))
+                         "proposed_sl_price", "proposed_tp_price", "proposed_entry_price"] \
+                 and value is not None and value != "None":
+                data[key] = Decimal(str(value))
 
         # Remove event_type if present (it's set by the class)
         data.pop("event_type", None)
@@ -428,7 +456,7 @@ class MarketDataL2Event(Event):
     bids: Sequence[tuple[str, str]]  # [[price_str, volume_str], ...]
     asks: Sequence[tuple[str, str]]  # [[price_str, volume_str], ...]
     is_snapshot: bool
-    timestamp_exchange: datetime | None = None
+    timestamp_exchange: dt.datetime | None = None
     event_type: EventType = field(default=EventType.MARKET_DATA_L2, init=False)
 
 
@@ -439,7 +467,7 @@ class MarketDataOHLCVEvent(Event):
     trading_pair: str
     exchange: str
     interval: str  # e.g., "1m", "5m"
-    timestamp_bar_start: datetime
+    timestamp_bar_start: dt.datetime
     open: str  # Using string representation from inter_module_comm doc
     high: str
     low: str
@@ -454,7 +482,7 @@ class MarketDataTradeEvent(Event):
 
     trading_pair: str
     exchange: str
-    timestamp_exchange: datetime  # Timestamp from the exchange for the trade
+    timestamp_exchange: dt.datetime  # Timestamp from the exchange for the trade
     price: Decimal
     volume: Decimal
     side: str  # Aggressor side: "buy" or "sell"
@@ -482,7 +510,7 @@ class MarketDataTickerEvent(Event):
 
     trading_pair: str
     exchange: str
-    timestamp_exchange: datetime  # Timestamp from the exchange
+    timestamp_exchange: dt.datetime  # Timestamp from the exchange
     bid: Decimal  # Best bid price
     bid_size: Decimal  # Best bid size
     ask: Decimal  # Best ask price
@@ -515,7 +543,9 @@ class MarketDataTickerEvent(Event):
 
         for field_name, price in price_fields:
             if price <= Decimal("0"):
-                raise ValueError(self._NON_POSITIVE_PRICE_MSG.format(field=field_name, price=price))
+                # E501
+                error_msg = self._NON_POSITIVE_PRICE_MSG.format(field=field_name, price=price)
+                raise ValueError(error_msg)
 
         # Validate sizes
         size_fields = [
@@ -535,7 +565,8 @@ class MarketDataTickerEvent(Event):
 
         # Validate bid/ask spread
         if self.bid >= self.ask:
-            raise ValueError(f"Invalid bid/ask spread: bid={self.bid} >= ask={self.ask}")
+            error_msg = f"Invalid bid/ask spread: bid={self.bid} >= ask={self.ask}" # EM102, TRY003
+            raise ValueError(error_msg)
 
 
 @dataclass(frozen=True)
@@ -544,7 +575,7 @@ class FeatureEvent(Event):
 
     trading_pair: str
     exchange: str
-    timestamp_features_for: datetime
+    timestamp_features_for: dt.datetime
     # Feature values (consider specific types if known)
     features: dict
     event_type: EventType = field(default=EventType.FEATURES_CALCULATED, init=False)
@@ -556,7 +587,7 @@ class PredictionEvent(Event):
 
     trading_pair: str
     exchange: str
-    timestamp_prediction_for: datetime
+    timestamp_prediction_for: dt.datetime
     model_id: str
     prediction_target: str  # e.g., "prob_price_up_0.1pct_5min"
     # Use float or Decimal for probability/value
@@ -695,7 +726,7 @@ class TradeSignalProposedEvent(Event):
         return cls(
             source_module=params.source_module,
             event_id=uuid.uuid4(),
-            timestamp=datetime.utcnow(),
+            timestamp=dt.datetime.now(dt.UTC), # DTZ003
             signal_id=uuid.uuid4(),  # Generate a new UUID for this signal
             trading_pair=params.trading_pair,
             exchange=params.exchange,
@@ -850,7 +881,7 @@ class TradeSignalApprovedEvent(Event):
         return cls(
             source_module=params.source_module,
             event_id=uuid.uuid4(),
-            timestamp=datetime.utcnow(),
+            timestamp=dt.datetime.now(dt.UTC), # DTZ003
             signal_id=params.signal_id,
             trading_pair=params.trading_pair,
             exchange=params.exchange,
@@ -902,7 +933,7 @@ class TradeSignalRejectedEvent(Event):
         return cls(
             source_module=params.source_module,
             event_id=uuid.uuid4(),
-            timestamp=datetime.utcnow(),
+            timestamp=dt.datetime.now(dt.UTC), # F821, DTZ003
             signal_id=params.signal_id,
             trading_pair=params.trading_pair,
             exchange=params.exchange,
@@ -931,7 +962,7 @@ class ExecutionReportParams:
     stop_price: Decimal | None = None
     commission: Decimal | None = None
     commission_asset: str | None = None
-    timestamp_exchange: datetime | None = None
+    timestamp_exchange: dt.datetime | None = None
     error_message: str | None = None
 
 
@@ -970,7 +1001,7 @@ class ExecutionReportEvent(Event):
     stop_price: Decimal | None = None
     commission: Decimal | None = None
     commission_asset: str | None = None
-    timestamp_exchange: datetime | None = None
+    timestamp_exchange: dt.datetime | None = None
     error_message: str | None = None
     event_type: EventType = field(default=EventType.EXECUTION_REPORT, init=False)
 
@@ -1095,7 +1126,7 @@ class ExecutionReportEvent(Event):
         return cls(
             source_module=params.source_module,
             event_id=uuid.uuid4(),
-            timestamp=datetime.utcnow(),
+            timestamp=dt.datetime.now(dt.UTC), # DTZ003
             exchange_order_id=params.exchange_order_id,
             trading_pair=params.trading_pair,
             exchange=params.exchange,
@@ -1154,7 +1185,7 @@ class APIErrorEvent(Event):
         return cls(
             source_module=source_module,
             event_id=uuid.uuid4(),
-            timestamp=datetime.utcnow(),
+            timestamp=dt.datetime.now(dt.UTC), # DTZ003
             error_message=error_message,
             **details,
         )
@@ -1194,7 +1225,7 @@ class ClosePositionCommand(Event):
         return cls(
             source_module=source_module,
             event_id=uuid.uuid4(),
-            timestamp=datetime.utcnow(),
+            timestamp=dt.datetime.now(dt.UTC), # DTZ003
             trading_pair=trading_pair,
             quantity=quantity,
             side=side,
@@ -1230,7 +1261,7 @@ class PredictionConfigUpdatedEvent(Event):
         return cls(
             source_module=source_module,
             event_id=uuid.uuid4(),
-            timestamp=datetime.utcnow(),
+            timestamp=dt.datetime.now(dt.UTC), # DTZ003
             new_prediction_service_config=new_config,
         )
 

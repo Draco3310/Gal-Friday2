@@ -122,13 +122,17 @@ class FeatureRegistryClient:
 
         except yaml.YAMLError as e:
             logger.exception(
-                "Error parsing YAML in feature registry %s: %s", self.registry_path, e,
+                "Error parsing YAML in feature registry %s",
+                self.registry_path,
+                exc_info=e,
             )
             self._registry_data = {}
             # Optionally raise RegistryLoadError(f"YAML parsing error: {e}")
         except Exception as e: # Catch any other unexpected errors during file I/O or loading
             logger.exception(
-                "Unexpected error loading feature registry %s: %s", self.registry_path, e,
+                "Unexpected error loading feature registry %s",
+                self.registry_path,
+                exc_info=e,
             )
             self._registry_data = {}
             # Optionally raise RegistryLoadError(f"Unexpected loading error: {e}")
@@ -148,7 +152,10 @@ class FeatureRegistryClient:
             error during `_load_registry`).
         """
         if self._registry_data is None:
-            logger.warning("Attempted to get feature definition ('%s'), but registry is not loaded.", feature_key)
+            logger.warning(
+                "Attempted to get feature definition ('%s'), but registry is not loaded.",
+                feature_key,
+            )
             return None
 
         definition = self._registry_data.get(feature_key)
@@ -171,6 +178,7 @@ class FeatureRegistryClient:
 
     def get_output_properties(self, feature_key: str) -> dict[str, Any] | None:
         """Retrieves the 'output_properties' dictionary for a given feature key.
+
         This typically includes metadata about the feature's output, such as
         its value type, range, or if it's multidimensional.
 
@@ -187,11 +195,15 @@ class FeatureRegistryClient:
         if definition and isinstance(definition.get("output_properties"), dict):
             return definition["output_properties"]  # type: ignore[no-any-return]
         if definition:
-            logger.debug("Feature '%s' found, but 'output_properties' missing or not a dict.", feature_key)
+            logger.debug(
+                "Feature '%s' found, but 'output_properties' missing or not a dict.",
+                feature_key,
+            )
         return None
 
     def get_calculator_type(self, feature_key: str) -> str | None:
         """Retrieves the 'calculator_type' string for a given feature key.
+
         This string usually identifies the specific calculation logic or class
         responsible for computing the feature (e.g., "rsi", "macd", "custom_indicator").
 
@@ -208,11 +220,15 @@ class FeatureRegistryClient:
         if definition and isinstance(definition.get("calculator_type"), str):
             return definition["calculator_type"]  # type: ignore[no-any-return]
         if definition:
-             logger.debug("Feature '%s' found, but 'calculator_type' missing or not a string.", feature_key)
+            logger.debug(
+                "Feature '%s' found, but 'calculator_type' missing or not a string.",
+                feature_key,
+            )
         return None
 
     def get_parameters(self, feature_key: str) -> dict[str, Any] | None:
         """Retrieves the 'parameters' dictionary for a given feature key.
+
         These parameters are typically passed to the feature's calculation logic.
 
         Args:
@@ -233,7 +249,11 @@ class FeatureRegistryClient:
                 return params
             if params is None: # If parameters is explicitly null or not set
                 return {}
-            logger.debug("Feature '%s' found, but 'parameters' is not a dictionary (found type: %s).", feature_key, type(params).__name__)
+            logger.debug(
+                "Feature '%s' has 'parameters' defined, but it's not a dictionary "
+                "(found type: %s).",
+                feature_key, type(params).__name__,
+            )
         return None
 
     def is_loaded(self) -> bool:
@@ -247,69 +267,10 @@ class FeatureRegistryClient:
         return self._registry_data is not None and len(self._registry_data) > 0
 
     def reload_registry(self) -> None:
-        """Forces a reload of the feature registry data from the file specified
-        during client initialization. This can be used to pick up changes to the
-        registry file without restarting the application.
+        """Forces a reload of the feature registry data from the file.
+
+        This can be used to pick up changes to the registry file specified
+        during client initialization without restarting the application.
         """
         logger.info("Reloading feature registry from %s", self.registry_path)
         self._load_registry()
-
-# Example usage code commented out or removed for typical module usage.
-# If needed for standalone testing, it can be uncommented or moved to a separate script.
-# if __name__ == '__main__':
-#     # Example Usage (assuming config/feature_registry.yaml exists and is populated)
-#     logging.basicConfig(level=logging.INFO)
-
-#     # Create a dummy config/feature_registry.yaml for this example to run
-#     example_registry_content = """
-# rsi_14_default:
-#   description: "Default 14-period Relative Strength Index."
-#   calculator_type: "rsi"
-#   input_type: "close_series"
-#   parameters: {"period": 14}
-#   output_properties: {"value_type": "float", "range": [0, 100]}
-#   version: "1.0"
-
-# macd_default:
-#   description: "Default MACD (12, 26, 9)."
-#   calculator_type: "macd"
-#   input_type: "close_series"
-#   parameters: {"fast": 12, "slow": 26, "signal": 9}
-#   version: "1.0"
-# """
-#     example_registry_dir = Path("config")
-#     example_registry_dir.mkdir(exist_ok=True)
-#     with open(example_registry_dir / "feature_registry.yaml", "w") as f:
-#         f.write(example_registry_content)
-
-#     client = FeatureRegistryClient() # Uses default path
-
-#     if client.is_loaded():
-#         logger.info("Registry loaded successfully for example.")
-#         all_keys = client.get_all_feature_keys()
-#         logger.info(f"All feature keys: {all_keys}")
-
-#         rsi_def = client.get_feature_definition("rsi_14_default")
-#         if rsi_def:
-#             logger.info(f"RSI Definition: {rsi_def}")
-#             logger.info(f"RSI Output Properties: {client.get_output_properties('rsi_14_default')}")
-#             logger.info(f"RSI Calculator Type: {client.get_calculator_type('rsi_14_default')}")
-#             logger.info(f"RSI Parameters: {client.get_parameters('rsi_14_default')}")
-
-#         macd_params = client.get_parameters("macd_default")
-#         if macd_params is not None: # Note: get_parameters returns {} if params are null/missing
-#              logger.info(f"MACD Parameters: {macd_params}")
-
-#         non_existent_def = client.get_feature_definition("non_existent_feature")
-#         logger.info(f"Non-existent feature: {non_existent_def}")
-
-#         # Clean up dummy file
-#         # (Path(example_registry_dir / "feature_registry.yaml")).unlink()
-#         # (example_registry_dir).rmdir() # Careful if config dir is used for real things
-#     else:
-#         logger.error("Registry failed to load for example.")
-
-#     # Example of client with a non-existent file
-#     # non_existent_client = FeatureRegistryClient("config/does_not_exist.yaml")
-#     # logger.info(f"Is non_existent_client loaded? {non_existent_client.is_loaded()}")
-#     # logger.info(f"Keys from non_existent_client: {non_existent_client.get_all_feature_keys()}")

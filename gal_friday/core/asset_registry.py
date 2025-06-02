@@ -133,9 +133,12 @@ class AssetRegistry:
     """Central registry for asset and exchange specifications."""
 
     def __init__(self) -> None:
-        self._assets: dict[str, dict[str, AssetSpecification]] = {}  # exchange_id -> symbol -> spec
+        """Initialize the AssetRegistry."""
+        # E501: exchange_id -> symbol -> AssetSpecification
+        self._assets: dict[str, dict[str, AssetSpecification]] = {}
         self._exchanges: dict[str, ExchangeSpecification] = {}
-        self._symbol_mappings: dict[str, dict[str, dict[str, str]]] = {}  # from_exchange -> to_exchange -> symbol_map
+        # E501: from_exchange -> to_exchange -> symbol_map
+        self._symbol_mappings: dict[str, dict[str, dict[str, str]]] = {}
 
     def register_exchange(self, exchange: ExchangeSpecification) -> None:
         """Register an exchange with its specifications."""
@@ -144,7 +147,8 @@ class AssetRegistry:
     def register_asset(self, asset: AssetSpecification, exchange_id: str) -> None:
         """Register an asset with exchange-specific details."""
         if exchange_id not in self._exchanges:
-            raise ValueError(f"Exchange {exchange_id} not registered")
+            error_msg = f"Exchange {exchange_id} not registered" # EM102/TRY003
+            raise ValueError(error_msg)
 
         if exchange_id not in self._assets:
             self._assets[exchange_id] = {}
@@ -193,13 +197,14 @@ class AssetRegistry:
                           exchange_id: str | None = None) -> list[AssetSpecification]:
         """Get all assets of a specific type, optionally filtered by exchange."""
         assets = []
-        exchanges_to_check = [exchange_id] if exchange_id else self._assets.keys()
+        exchanges_to_check = [exchange_id] if exchange_id else list(self._assets.keys())
 
         for exch_id in exchanges_to_check:
-            for asset in self._assets.get(exch_id, {}).values():
-                if asset.asset_type == asset_type:
-                    assets.append(asset)
-
+            # PERF401: Use extend with a list comprehension
+            assets.extend([
+                asset_spec for asset_spec in self._assets.get(exch_id, {}).values()
+                if asset_spec.asset_type == asset_type
+            ])
         return assets
 
     def validate_trading_pair(self, symbol: str, exchange_id: str) -> bool:
@@ -211,10 +216,8 @@ class AssetRegistry:
             return False
 
         # Add more sophisticated validation based on asset type and exchange capabilities
-        if asset.asset_type == AssetType.OPTIONS and not exchange.provides_options_chain:
-            return False
-
-        return True
+        # SIM103: Return the negated condition directly
+        return not (asset.asset_type == AssetType.OPTIONS and not exchange.provides_options_chain)
 
 
 # Global asset registry instance
@@ -290,7 +293,6 @@ def initialize_default_assets() -> None:
             )
         ]
     )
-    
     # Options exchange example
     cboe_exchange = ExchangeSpecification(
         exchange_id="cboe",

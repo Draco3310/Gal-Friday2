@@ -1,9 +1,10 @@
 """Enterprise-grade event store with persistence and caching."""
 
 import asyncio
+import contextlib  # For SIM105
 from collections import deque
 from datetime import datetime, timedelta
-from typing import Any, TypeVar, cast  # Added cast
+from typing import Any, TypeVar, cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -17,7 +18,7 @@ T = TypeVar("T", bound=Event)
 
 class EventStore:
     """Enterprise-grade event store with persistence and caching.
-    
+
     Features:
     - Async PostgreSQL persistence
     - In-memory LRU cache for recent events
@@ -34,7 +35,7 @@ class EventStore:
         cache_ttl_seconds: int = 3600,
     ) -> None:
         """Initialize event store.
-        
+
         Args:
             session_maker: SQLAlchemy async session maker
             logger: Logger service
@@ -69,10 +70,8 @@ class EventStore:
         """Stop the event store and cleanup resources."""
         if self._cleanup_task:
             self._cleanup_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError): # SIM105
                 await self._cleanup_task
-            except asyncio.CancelledError:
-                pass
 
         self._cache.clear()
         self._cache_order.clear()
@@ -84,7 +83,7 @@ class EventStore:
 
     async def store_event(self, event: Event) -> None:
         """Store an event in both cache and database.
-        
+
         Args:
             event: Event to store
         """
@@ -96,13 +95,20 @@ class EventStore:
             async with self.session_maker() as session:
                 event_type_attr = getattr(event, "event_type", None)
                 if not isinstance(event_type_attr, EventType):
+                    log_msg = ( # G004, E501
+                        "Event %s (source: %s, type: %s) "
+                        "is missing a valid 'event_type' attribute of type EventType."
+                    )
                     self.logger.error(
-                        f"Event {event.event_id} (source: {event.source_module}, type: {type(event).__name__}) "
-                        f"is missing a valid 'event_type' attribute of type EventType.",
+                        log_msg,
+                        event.event_id,
+                        event.source_module,
+                        type(event).__name__,
                     )
                     # Optionally, raise an error or handle as appropriate
                     # For now, let's attempt to get a default or raise
-                    raise ValueError(f"Event {event.event_id} is missing a valid event_type.")
+                    error_msg = f"Event {event.event_id} is missing a valid event_type."
+                    raise TypeError(error_msg) # TRY004, # noqa: TRY301
 
                 event_log = EventLog(
                     event_id=event.event_id,
@@ -114,11 +120,12 @@ class EventStore:
                 session.add(event_log)
                 await session.commit()
 
-            self.logger.debug(
-                f"Stored event {event.event_id}",
+            self.logger.debug( # G004
+                "Stored event %s",
+                event.event_id,
                 source_module=self._source_module,
                 context={
-                    "event_type": event_type_attr.value, # Use the validated variable
+                    "event_type": event_type_attr.value,
                     "source": event.source_module,
                 },
             )
@@ -137,11 +144,11 @@ class EventStore:
         event_type: type[T] | None = None,
     ) -> T | None:
         """Retrieve a single event by ID.
-        
+
         Args:
             event_id: Event ID to retrieve
             event_type: Expected event type for type safety
-            
+
         Returns:
             Event if found, None otherwise
         """
@@ -149,13 +156,14 @@ class EventStore:
         cached = self._get_from_cache(event_id)
         if cached:
             if event_type and not isinstance(cached, event_type):
-                self.logger.warning(
-                    f"Event type mismatch: expected {event_type.__name__}, "
-                    f"got {type(cached).__name__}",
+                self.logger.warning( # G004
+                    "Event type mismatch: expected %s, got %s",
+                    event_type.__name__,
+                    type(cached).__name__,
                     source_module=self._source_module,
                 )
                 return None
-            return cached  # type: ignore
+            return cached  # type: ignore[return-value]
 
         # Load from database
         try:
@@ -172,9 +180,10 @@ class EventStore:
 
                 # Validate type if specified
                 if event_type and not isinstance(event, event_type):
-                    self.logger.warning(
-                        f"Event type mismatch: expected {event_type.__name__}, "
-                        f"got {type(event).__name__}",
+                    self.logger.warning( # G004
+                        "Event type mismatch: expected %s, got %s",
+                        event_type.__name__,
+                        type(event).__name__,
                         source_module=self._source_module,
                     )
                     return None
@@ -183,7 +192,7 @@ class EventStore:
                 if event is not None:
                     self._add_to_cache(event)
 
-                return event  # type: ignore
+                return event  # type: ignore[return-value]
 
         except Exception:
             self.logger.exception(
@@ -201,13 +210,13 @@ class EventStore:
         until: datetime | None = None,
     ) -> list[Event]:
         """Retrieve all events with a specific correlation ID.
-        
+
         Args:
             correlation_id: Correlation ID (e.g., signal_id)
             event_types: Filter by event types
             since: Start timestamp filter
             until: End timestamp filter
-            
+
         Returns:
             List of matching events ordered by timestamp
         """
@@ -257,13 +266,13 @@ class EventStore:
         limit: int = 100,
     ) -> list[T]:
         """Retrieve events of a specific type.
-        
+
         Args:
             event_type: Event type to retrieve
             since: Start timestamp filter
             until: End timestamp filter
             limit: Maximum number of events to return
-            
+
         Returns:
             List of matching events ordered by timestamp desc
         """
@@ -309,7 +318,7 @@ class EventStore:
 
         # Remove oldest if at capacity
         current_maxlen = self._cache_order.maxlen
-        assert current_maxlen is not None, "Deque maxlen should be set during initialization"
+        assert current_maxlen is not None, "Deque maxlen should be set during initialization" # noqa: S101
         if len(self._cache) >= current_maxlen:
             oldest_id = self._cache_order[0]
             self._cache.pop(oldest_id, None)
@@ -353,8 +362,9 @@ class EventStore:
                     self._cache.pop(event_id, None)
 
                 if expired_ids:
-                    self.logger.debug(
-                        f"Cleaned {len(expired_ids)} expired cache entries",
+                    self.logger.debug( # G004
+                        "Cleaned %s expired cache entries",
+                        len(expired_ids),
                         source_module=self._source_module,
                     )
 
@@ -385,15 +395,17 @@ class EventStore:
             event_type_str = cast("str", event_log.event_type)
             event_class = self._event_registry.get(event_type_str)
             if not event_class:
-                self.logger.warning(
-                    f"Unknown event type: {event_log.event_type}",
+                self.logger.warning( # G004
+                    "Unknown event type: %s",
+                    event_log.event_type,
                     source_module=self._source_module,
                 )
                 return None
 
             # Ensure event_log.data is treated as dict for from_dict method
             event_data_dict = cast("dict[str, Any]", event_log.data)
-            # The cast to Event was redundant, event_class.from_dict should return correctly typed event
+            # The cast to Event was redundant, event_class.from_dict should
+            # return correctly typed event (E501)
             return event_class.from_dict(event_data_dict)
 
         except Exception:

@@ -16,11 +16,11 @@ in the event-driven simulation.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt  # For dt.datetime and dt.timezone.utc
 import json
 import logging
 import uuid
 from collections.abc import Callable, Coroutine
-from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import (
@@ -34,9 +34,10 @@ from typing import (
 import numpy as np
 import pandas as pd
 
+# Local application imports
+from .core.events import Event, EventType  # E402: Moved up
+
 # Type variables for generic types - defined at module level
-_T = TypeVar("_T")
-_T_co = TypeVar("_T_co", covariant=True)
 ConfigValue = str | int | float | bool | dict | list | None  # Type alias for config values
 
 
@@ -79,14 +80,14 @@ if TYPE_CHECKING:
     # Use Protocol from typing_extensions for better compatibility
     from typing_extensions import Protocol as ProtocolType
 
-    Protocol = ProtocolType  # type: ignore
+    Protocol = ProtocolType  # type: ignore[misc]
 else:
     try:
-        from typing import Protocol as TypingProtocol  # type: ignore
+        from typing import Protocol as TypingProtocol  # type: ignore[misc]
 
         ProtocolType = TypingProtocol
     except ImportError:
-        from typing_extensions import Protocol as TypingProtocol  # type: ignore
+        from typing_extensions import Protocol as TypingProtocol  # type: ignore[misc]
 
         ProtocolType = TypingProtocol
 
@@ -103,8 +104,8 @@ else:
 AsyncFunction = TypeVar("AsyncFunction", bound=Callable[..., Coroutine[Any, Any, Any]])
 
 # Type aliases
+
 if TYPE_CHECKING:
-    from .core.events import Event, EventType
     from .core.feature_registry_client import FeatureRegistryClient
 
 # Runtime imports - Import service implementations
@@ -192,34 +193,34 @@ except ImportError:
 
 
 # Define stubs for optional dependencies
-class PubSubManagerBase:  # type: ignore
+class PubSubManagerBase:  # type: ignore[misc]
     """Base stub for PubSubManager when not available."""
 
 
-class RiskManagerBase:  # type: ignore
+class RiskManagerBase:  # type: ignore[misc]
     """Base stub for RiskManager when not available."""
 
 
 # Import optional dependencies if available
 if "PubSubManager" not in globals():
-    PubSubManager: type[PubSubManagerBase] = PubSubManagerBase  # type: ignore
+    PubSubManager: type[PubSubManagerBase] = PubSubManagerBase  # type: ignore[assignment]
 
 if "RiskManager" not in globals():
-    RiskManager: type[RiskManagerBase] = RiskManagerBase  # type: ignore
+    RiskManager: type[RiskManagerBase] = RiskManagerBase  # type: ignore[assignment]
 
 try:
-    from gal_friday.core.pubsub import PubSubManager as _PubSubManager  # type: ignore
+    from gal_friday.core.pubsub import PubSubManager as _PubSubManager  # type: ignore[misc]
 
-    if "PubSubManager" in globals() and globals()["PubSubManager"] is not Any:  # type: ignore
-        PubSubManager = _PubSubManager  # type: ignore
+    if "PubSubManager" in globals() and globals()["PubSubManager"] is not Any:  # type: ignore[misc]
+        PubSubManager = _PubSubManager  # type: ignore[assignment]
 except ImportError:
     pass
 
 try:
-    from gal_friday.risk_manager import RiskManager as _RiskManager  # type: ignore
+    from gal_friday.risk_manager import RiskManager as _RiskManager  # type: ignore[misc]
 
-    if "RiskManager" in globals() and globals()["RiskManager"] is not Any:  # type: ignore
-        RiskManager = _RiskManager  # type: ignore
+    if "RiskManager" in globals() and globals()["RiskManager"] is not Any:  # type: ignore[misc]
+        RiskManager = _RiskManager  # type: ignore[assignment]
 except ImportError:
     pass
 
@@ -227,10 +228,9 @@ except ImportError:
 # Configure logging
 log = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from .core.events import Event
 
-    class ExchangeInfoServiceImpl:  # type: ignore
+if TYPE_CHECKING:
+    class ExchangeInfoServiceImpl:  # type: ignore[misc]
         """Stub implementation of ExchangeInfoService for type checking."""
 
 
@@ -256,6 +256,14 @@ class BacktestHistoricalDataProviderImpl:
         all_historical_data: dict[str, pd.DataFrame],
         logger: logging.Logger,
     ) -> None:
+        """Initialize the BacktestHistoricalDataProviderImpl.
+
+        Args:
+            all_historical_data: A dictionary where keys are trading pairs (str)
+                                 and values are pandas DataFrames containing
+                                 OHLCV data for that pair.
+            logger: A logging.Logger instance for logging messages.
+        """
         self._data: dict[str, pd.DataFrame] = all_historical_data
         self.logger = logger
         self._validate_data()
@@ -267,7 +275,7 @@ class BacktestHistoricalDataProviderImpl:
             raise ValueError(msg)
         for pair, df in self._data.items():
             if not isinstance(df, pd.DataFrame):
-                msg = f"Expected DataFrame for pair {pair}, got {type(df)}"
+                msg = f"Expected DataFrame for pair {pair}, got {type(df)}" # type: ignore[unreachable]
                 raise TypeError(msg)
             required_columns = {"open", "high", "low", "close", "volume"}
             missing = required_columns - set(df.columns)
@@ -275,7 +283,7 @@ class BacktestHistoricalDataProviderImpl:
                 msg = f"Missing required columns {missing} for pair {pair}"
                 raise ValueError(msg)
 
-    def get_next_bar(self, trading_pair: str, timestamp: datetime) -> pd.Series | None:
+    def get_next_bar(self, trading_pair: str, timestamp: dt.datetime) -> pd.Series | None: # F821
         """Get the next bar after the given timestamp for the trading pair.
 
         Args:
@@ -291,8 +299,8 @@ class BacktestHistoricalDataProviderImpl:
                 self.logger.warning("No data for trading pair: %s", trading_pair)
                 return None
 
-            df = self._data[trading_pair]
-            next_bars = df[df.index > timestamp].head(1)
+            pair_data_df = self._data[trading_pair] # PD901
+            next_bars = pair_data_df[pair_data_df.index > timestamp].head(1)
             return next_bars.iloc[0] if not next_bars.empty else None
 
         except Exception:
@@ -303,13 +311,15 @@ class BacktestHistoricalDataProviderImpl:
             )
             return None
 
-    def get_atr(self, trading_pair: str, timestamp: datetime, period: int = 14) -> float | None:
+    def get_atr( # E501
+        self, _trading_pair: str, _timestamp: dt.datetime, _period: int = 14,
+    ) -> float | None:
         """Get the ATR (Average True Range) value for the given timestamp.
 
         Args:
-            trading_pair: The trading pair to get ATR for
-            timestamp: The timestamp to get ATR at
-            period: The ATR period (default: 14)
+            _trading_pair: The trading pair to get ATR for
+            _timestamp: The timestamp to get ATR at
+            _period: The ATR period (default: 14)
 
         Returns:
         -------
@@ -322,43 +332,12 @@ class BacktestHistoricalDataProviderImpl:
             "and accessed from its published events. Returning None.",
         )
         return None
-        # MIN_BARS_FOR_ATR = 2  # Old constant
-        # try: # Old logic commented out
-            # if trading_pair not in self._data:
-            #     self.logger.warning("No data for trading pair: %s", trading_pair)
-            #     return None
-            # df = self._data[trading_pair]
-            # if "atr" in df.columns:
-            #     atr_series = df.loc[df.index <= timestamp, "atr"]
-            #     if not atr_series.empty:
-            #         return float(atr_series.iloc[-1])
-            # required_cols = {"high", "low", "close"}
-            # if not required_cols.issubset(df.columns):
-            #     self.logger.warning("Missing required columns for ATR calculation")
-            #     return None
-            # df_slice = df[df.index <= timestamp].tail(period + 1)
-            # if len(df_slice) < MIN_BARS_FOR_ATR:
-            #     return None
-            # tr = pd.DataFrame()
-            # tr["h-l"] = df_slice["high"] - df_slice["low"]
-            # tr["h-pc"] = abs(df_slice["high"] - df_slice["close"].shift(1))
-            # tr["l-pc"] = abs(df_slice["low"] - df_slice["close"].shift(1))
-            # tr["tr"] = tr[["h-l", "h-pc", "l-pc"]].max(axis=1)
-            # atr = tr["tr"].rolling(window=period).mean().iloc[-1]
-            # return float(atr) if pd.notnull(atr) else None
-        # except Exception: # Keep general exception handling for unexpected issues, though less likely now
-            # self.logger.exception(
-                # "Unexpected error in deprecated get_atr for %s at %s",
-                # trading_pair,
-                # timestamp,
-            # )
-            # return None
 
     async def get_historical_ohlcv(
         self,
         trading_pair: str,
-        start_time: datetime,
-        end_time: datetime,
+        start_time: dt.datetime, # F821
+        end_time: dt.datetime, # F821
         interval: str = "1d",
     ) -> pd.DataFrame | None:
         """Retrieve historical OHLCV data for a given pair and time range.
@@ -419,7 +398,7 @@ class BacktestHistoricalDataProviderImpl:
                     )
                     if not resampled.empty:
                         result = resampled
-                except Exception as resample_error:
+                except Exception as resample_error:  # noqa: BLE001 # Resampling can raise various errors
                     self.logger.warning(
                         "Error resampling data to %s interval: %s",
                         interval,
@@ -427,7 +406,7 @@ class BacktestHistoricalDataProviderImpl:
                     )
                     # If resampling fails, fall through to return filtered data if not empty
 
-        except Exception:
+        except Exception:  # Broad exception for OHLCV retrieval
             self.logger.exception(
                 "Error getting historical OHLCV for %s",
                 trading_pair,
@@ -442,8 +421,8 @@ class BacktestHistoricalDataProviderImpl:
     async def get_historical_trades(
         self,
         _trading_pair: str,  # Unused, kept for interface compatibility
-        _start_time: datetime,  # Unused, kept for interface compatibility
-        _end_time: datetime,  # Unused, kept for interface compatibility
+        _start_time: dt.datetime,  # F821 # Unused, kept for interface compatibility
+        _end_time: dt.datetime,  # F821 # Unused, kept for interface compatibility
     ) -> pd.DataFrame | None:
         """Retrieve historical trade data for a given pair and time range.
 
@@ -500,8 +479,8 @@ def _calculate_annualized_return(
         if len(equity_curve) >= min_points_for_duration:
             first_date = equity_curve.index[0]
             last_date = equity_curve.index[-1]
-            if isinstance(first_date, (pd.Timestamp, datetime)) and isinstance(
-                last_date, (pd.Timestamp, datetime),
+            if isinstance(first_date, (pd.Timestamp, dt.datetime)) and isinstance( # F821
+                last_date, (pd.Timestamp, dt.datetime), # F821
             ):
                 duration_days = (last_date - first_date).total_seconds() / (60 * 60 * 24)
                 if duration_days > 0:
@@ -628,7 +607,7 @@ def _calculate_average_holding_period(trade_log: list[dict[str, Any]], results: 
                     exit_time = pd.to_datetime(trade["exit_time"])
                     duration_hours = (exit_time - entry_time).total_seconds() / 3600
                     holding_periods.append(duration_hours)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 # Date parsing or arithmetic errors
                     log.warning("Error parsing trade times for holding period: %s", e)
 
         if holding_periods:
@@ -810,9 +789,9 @@ class BacktestingEngine:
         # Initialize data storage
         self._data: dict[str, pd.DataFrame] = {}
         self._current_step = 0
-        self._current_time: datetime | None = None
-        self._start_time: datetime | None = None
-        self._end_time: datetime | None = None
+        self._current_time: dt.datetime | None = None # F821
+        self._start_time: dt.datetime | None = None # F821
+        self._end_time: dt.datetime | None = None # F821
 
         # Initialize services with proper type annotations
         self.pubsub_manager: PubSubManager | None = None # Use actual PubSubManager type
@@ -857,22 +836,25 @@ class BacktestingEngine:
             # Create a minimal logger for PubSubManager if self.logger isn't suitable
             pubsub_logger = logging.getLogger("gal_friday.backtesting.pubsub")
             self.pubsub_manager = PubSubManager(
-                config=self.config if hasattr(self.config, "get") else {}, # type: ignore
-                logger_service=pubsub_logger, # type: ignore # Pass a basic logger
+                config=self.config if hasattr(self.config, "get") else {}, # type: ignore[arg-type]
+                logger_service=pubsub_logger, # type: ignore[arg-type] # Pass a basic logger
             )
             # If PubSubManager has async start, call it
-            if hasattr(self.pubsub_manager, "start") and asyncio.iscoroutinefunction(self.pubsub_manager.start):
+            if hasattr(self.pubsub_manager, "start") and \
+               asyncio.iscoroutinefunction(self.pubsub_manager.start):
                 await self.pubsub_manager.start()
             self.logger.info("PubSubManager initialized for backtesting.")
         else:
-            self.logger.warning("PubSubManager class not available. Event-based features disabled.")
+            self.logger.warning(
+                "PubSubManager class not available. Event-based features disabled.",
+            )
 
         # --- 2. LoggerService ---
         if LoggerService is not None and self.logger_service is None:
             # Create LoggerService without database support for backtesting
             self.logger_service = LoggerService(
-                config_manager=self.config, # type: ignore
-                pubsub_manager=self.pubsub_manager, # type: ignore
+                config_manager=self.config, # type: ignore[arg-type]
+                pubsub_manager=self.pubsub_manager, # type: ignore[arg-type]
                 db_session_maker=None, # No database support for backtesting
             )
             self.logger.info("LoggerService initialized for backtesting (no DB support).")
@@ -881,8 +863,8 @@ class BacktestingEngine:
 
         # --- 3. FeatureEngine ---
         # Create feature_engine if not provided externally
-        # Note: FeatureEngine doesn't use FeatureRegistryClient - it loads features from YAML directly
-
+        # Note: FeatureEngine doesn't use FeatureRegistryClient - it loads
+        # features from YAML directly
         self.feature_engine = FeatureEngine(
             config=self.config.get_all() if hasattr(self.config, "get_all") else {},
             pubsub_manager=self.pubsub_manager,
@@ -890,13 +872,17 @@ class BacktestingEngine:
             historical_data_service=None,
         )
         await self.feature_engine.start()
-        self.logger.info("FeatureEngine initialized and _backtest_feature_event_handler subscribed.")
+        self.logger.info(
+            "FeatureEngine initialized and "
+            "_backtest_feature_event_handler subscribed.",
+        )
 
     async def _backtest_feature_event_handler(self, event_dict: dict[str, Any]) -> None:
-        """Handles FEATURES_CALCULATED events specifically for the BacktestingEngine's internal use.
+        """Handles FEATURES_CALCULATED events specifically for BacktestingEngine.
 
-        This handler captures the latest features and their timestamp, making them available
-        on `self.current_features` and `self.last_features_timestamp`. This can be useful
+        This handler captures the latest features and their timestamp, making them
+        available on `self.current_features` and `self.last_features_timestamp`.
+        This can be useful
         for debugging the backtest itself or for internal assertions after a run.
 
         This handler is NOT essential for the primary flow of features to downstream services
@@ -910,14 +896,15 @@ class BacktestingEngine:
             if payload and isinstance(payload, dict):
                 self.current_features = payload.get("features") # This is dict[str, float]
                 self.last_features_timestamp = payload.get("timestamp_features_for")
-                # self.logger.debug(
-                #     f"Backtest captured features for {self.last_features_timestamp}: "
-                #     f"{self.current_features is not None}"
-                # )
             else:
-                self.logger.warning("FEATURES_CALCULATED event received with missing or invalid payload.")
+                self.logger.warning(
+                    "FEATURES_CALCULATED event received with missing or invalid payload.",
+                )
         else:
-            self.logger.debug(f"Backtest handler received non-feature event: {event_dict.get('event_type')}")
+            self.logger.debug(
+                "Backtest handler received non-feature event: %s",
+                event_dict.get("event_type"),
+            )
 
 
     async def _stop_services(self) -> None:
@@ -926,7 +913,8 @@ class BacktestingEngine:
         if self.feature_engine:
             await self.feature_engine.stop()
             self.logger.info("FeatureEngine stopped.")
-        if self.pubsub_manager and hasattr(self.pubsub_manager, "stop_consuming"): # PubSubManager has stop_consuming
+        if self.pubsub_manager and \
+           hasattr(self.pubsub_manager, "stop_consuming"): # PubSubManager has stop_consuming
             await self.pubsub_manager.stop_consuming()
             self.logger.info("PubSubManager stopped.")
         # Add other services to stop here if necessary
@@ -960,7 +948,11 @@ class BacktestingEngine:
             local_df = pd.read_csv(path, parse_dates=["timestamp"])
 
             if not isinstance(local_df, pd.DataFrame):
-                log.error("pd.read_csv did not return a DataFrame for path %s. Got type: %s", data_path, type(local_df))
+                log.error(
+                    "pd.read_csv did not return a DataFrame for path %s. Got type: %s",
+                    data_path,
+                    type(local_df),
+                )
                 return None
 
             if "pair" not in local_df.columns:
@@ -972,8 +964,11 @@ class BacktestingEngine:
             import builtins as local_builtins
             return local_builtins.dict(grouped_data)
 
-        except Exception as e: # More specific logging for the exception
-            log.exception("Error during data loading/processing in _load_raw_data (path: %s): %s", data_path, str(e))
+        except Exception: # File I/O or parsing errors
+            log.exception(
+                "Error during data loading/processing in _load_raw_data (path: %s)",
+                 data_path,
+            ) # TRY401
             return None
 
     def _clean_and_validate_data(
@@ -1112,7 +1107,7 @@ class BacktestingEngine:
             output_dir = Path(run_config.get("output_dir", "results"))
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d_%H%M%S")
             results_file = output_dir / f"backtest_results_{timestamp}.json"
 
             # Save results to JSON file with decimal conversion
@@ -1128,7 +1123,7 @@ class BacktestingEngine:
 
         return results
 
-    async def _execute_simulation(  # noqa: PLR0912
+    async def _execute_simulation(  # noqa: C901, PLR0915, PLR0912
         self,
         services: dict[str, Any],
         run_config: dict[str, Any],
@@ -1156,23 +1151,25 @@ class BacktestingEngine:
         market_price_service = services.get("market_price_service")
         portfolio_manager = services.get("portfolio_manager")
         execution_handler = services.get("execution_handler")
-        feature_engine = services.get("feature_engine")
-        prediction_service = services.get("prediction_service")
-        strategy_arbitrator = services.get("strategy_arbitrator")
-        risk_manager = services.get("risk_manager")
 
+        _emsg_required_services = "Required services not available for simulation." # N806
         if not all([market_price_service, portfolio_manager, execution_handler]):
-            raise ValueError("Required services not available for simulation")
+            raise ValueError(_emsg_required_services) # EM101, TRY003
 
         # Initialize services (PubSub, FeatureEngine, etc.)
         await self._initialize_services()
 
-        # Original service startup loop (ensure it doesn't re-init FE/PubSub if they are among `services`)
+        # Original service startup loop (ensure it doesn't re-init FE/PubSub
+        # if they are among `services`)
         for service_name, service in services.items():
             # Avoid re-initializing services that _initialize_services is now responsible for
             if service_name in ["feature_engine", "pubsub_manager", "logger_service"] and \
                getattr(self, service_name, None) is not None:
-                log.info(f"Service {service_name} already initialized by BacktestingEngine. Skipping general start.")
+                log.info(
+                    "Service %s already initialized by BacktestingEngine. "
+                    "Skipping general start.",
+                    service_name,
+                )
                 continue
 
             if hasattr(service, "start") and callable(service.start):
@@ -1190,7 +1187,7 @@ class BacktestingEngine:
 
         try:
             # Get unified timeline from all trading pairs
-            all_timestamps = set() # type: ignore
+            all_timestamps = set()  # type: ignore[var-annotated]
             for pair in trading_pairs:
                 if pair in self._data:
                     pair_data = self._data[pair]
@@ -1206,7 +1203,7 @@ class BacktestingEngine:
 
             # Sort timestamps for proper time progression
             sorted_timestamps = sorted(all_timestamps)
-            log.info(f"Simulation will process {len(sorted_timestamps)} time steps")
+            log.info("Simulation will process %s time steps", len(sorted_timestamps)) # G004
 
             # Initialize equity curve tracking
             equity_curve_data = []
@@ -1216,11 +1213,12 @@ class BacktestingEngine:
                 self._current_step = i
                 self._current_time = current_timestamp
 
-                log.debug(f"Processing timestamp {current_timestamp} (step {i})")
+                log.debug("Processing timestamp %s (step %s)", current_timestamp, i) # G004
 
                 try:
                     # 1. Update market price service with current timestamp
-                    if market_price_service is not None and hasattr(market_price_service, "update_time"):
+                    if market_price_service is not None and \
+                       hasattr(market_price_service, "update_time"):
                         market_price_service.update_time(current_timestamp)
 
                     # 2. Generate market data events for all pairs at this timestamp
@@ -1230,7 +1228,8 @@ class BacktestingEngine:
                         )
 
                     # 3. Process any pending limit orders and stop-loss/take-profit
-                    if execution_handler is not None and hasattr(execution_handler, "check_active_limit_orders"):
+                    if execution_handler is not None and \
+                       hasattr(execution_handler, "check_active_limit_orders"):
                         # Get current bar data for limit order processing
                         for pair in trading_pairs:
                             current_bar = self._get_bar_at_timestamp(pair, current_timestamp)
@@ -1244,7 +1243,8 @@ class BacktestingEngine:
                                     )
 
                     # 4. Update portfolio value and record equity curve
-                    if portfolio_manager is not None and hasattr(portfolio_manager, "get_current_state"):
+                    if portfolio_manager is not None and \
+                       hasattr(portfolio_manager, "get_current_state"):
                         portfolio_state = portfolio_manager.get_current_state()
                         if portfolio_state and "total_value" in portfolio_state:
                             equity_curve_data.append({
@@ -1256,19 +1256,22 @@ class BacktestingEngine:
                     if i % 1000 == 0:  # Every 1000 steps
                         await asyncio.sleep(0.001)  # Minimal delay
 
-                except Exception as e:
-                    log.error(f"Error processing timestamp {current_timestamp}: {e}")
+                except Exception as e:  # Catch errors within loop step
+                    log.exception("Error processing timestamp %s", current_timestamp) # TRY400
                     # Continue processing unless it's a critical error
-                    if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                    if isinstance(e, (KeyboardInterrupt, SystemExit)): # type: ignore[arg-type]
                         raise
                     continue
 
             # Store final equity curve in services for metrics calculation
             if equity_curve_data:
                 equity_df = pd.DataFrame(equity_curve_data)
-                equity_df.set_index("timestamp", inplace=True)
+                equity_df = equity_df.set_index("timestamp") # PD002
                 services["equity_curve"] = equity_df["equity"]
-                log.info(f"Simulation completed. Final equity: {equity_df['equity'].iloc[-1]}")
+                log.info(
+                    "Simulation completed. Final equity: %s",
+                    equity_df["equity"].iloc[-1],
+                )
             else:
                 log.warning("No equity curve data collected during simulation")
 
@@ -1285,8 +1288,8 @@ class BacktestingEngine:
             # Stop other services that were passed in
             original_services_to_stop = {
                 name: svc for name, svc in services.items()
-                if name not in ["feature_engine", "pubsub_manager", "logger_service"] # Exclude already stopped
-            }
+                if name not in ["feature_engine", "pubsub_manager", "logger_service"]
+            }  # Exclude already stopped
             for service_name in reversed(list(original_services_to_stop.keys())):
                 service = original_services_to_stop[service_name]
                 if hasattr(service, "stop") and callable(service.stop):
@@ -1307,31 +1310,36 @@ class BacktestingEngine:
     async def _process_market_data_for_timestamp(
         self,
         trading_pair: str,
-        timestamp: datetime,
-        services: dict[str, Any], # services dict is passed for context if needed
+        timestamp: dt.datetime, # F821
+        _services: dict[str, Any], # services dict is passed for context if needed
     ) -> None:
         """Process market data for a specific trading pair and timestamp.
+
         This will involve creating a MarketDataOHLCVEvent and passing it to the FeatureEngine.
-        
+
         Args:
             trading_pair: The trading pair to process.
             timestamp: Current simulation timestamp.
-            services: Dictionary of initialized services (used to access FeatureEngine).
+            _services: Dictionary of initialized services (used to access FeatureEngine).
         """
         try:
             bar_data = self._get_bar_at_timestamp(trading_pair, timestamp)
             if bar_data is None:
-                # self.logger.debug(f"No bar data for {trading_pair} at {timestamp}")
                 return
 
             # Create MarketDataOHLCVEvent dictionary payload
             # Ensure bar_data["timestamp"] is used for timestamp_bar_start
-            # Values for OHLCV are expected as strings by MarketDataOHLCVEvent according to its definition
+            # Values for OHLCV are expected as strings by MarketDataOHLCVEvent
+            # according to its definition
             market_event_payload = {
                 "trading_pair": trading_pair,
                 "exchange": self.config.get("exchange_name", "simulated_exchange"),
-                "interval": self.config.get("ohlcv_interval", "1d"), # Make interval configurable or use a default
-                "timestamp_bar_start": bar_data["timestamp"].isoformat() + "Z", # Timestamp of the bar itself
+                "interval": self.config.get(
+                    "ohlcv_interval", "1d",
+                ),  # Make interval configurable or use a default
+                "timestamp_bar_start": (
+                    bar_data["timestamp"].isoformat() + "Z"
+                ),  # Timestamp of the bar itself
                 "open": str(bar_data["open"]),
                 "high": str(bar_data["high"]),
                 "low": str(bar_data["low"]),
@@ -1342,27 +1350,35 @@ class BacktestingEngine:
             market_event_dict = {
                 "event_id": str(uuid.uuid4()),
                 "event_type": EventType.MARKET_DATA_OHLCV.name,
-                "timestamp": datetime.utcnow().isoformat() + "Z", # Timestamp of event creation
+                "timestamp": dt.datetime.now(dt.UTC).isoformat() + "Z", # DTZ003
                 "source_module": self.__class__.__name__,
                 "payload": market_event_payload,
             }
 
             if self.feature_engine:
                 await self.feature_engine.process_market_data(market_event_dict)
-                # self.logger.debug(f"Sent market data for {trading_pair} at {timestamp} to FeatureEngine.")
             else:
-                self.logger.warning("FeatureEngine not initialized. Cannot process market data for feature generation.")
+                self.logger.warning(
+                    "FeatureEngine not initialized. "
+                    "Cannot process market data for feature generation.",
+                )
 
-        except Exception as e:
-            self.logger.error(f"Error processing market data for {trading_pair} at {timestamp}: {e}", exc_info=True)
+        except Exception:  # Broad catch for market data processing step
+            self.logger.exception(
+                "Error processing market data for %s at %s",
+                trading_pair,
+                timestamp,
+            )
 
-    def _get_bar_at_timestamp(self, trading_pair: str, timestamp: datetime) -> pd.Series | None:
+    def _get_bar_at_timestamp(  # E501
+        self, trading_pair: str, timestamp: dt.datetime,
+    ) -> pd.Series | None:
         """Get OHLCV bar data for a specific trading pair and timestamp.
-        
+
         Args:
             trading_pair: Trading pair to get data for
             timestamp: Timestamp to look up
-            
+
         Returns:
             Series containing OHLCV data or None if not found
         """
@@ -1380,6 +1396,6 @@ class BacktestingEngine:
 
             return matching_rows.iloc[0]
 
-        except Exception as e:
-            log.error(f"Error getting bar data for {trading_pair} at {timestamp}: {e}")
+        except Exception:  # Data lookup can fail in various ways
+            log.exception("Error getting bar data for %s at %s", trading_pair, timestamp) # TRY400
             return None
