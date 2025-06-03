@@ -12,24 +12,24 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_DOWN, Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 
-from gal_friday.core.feature_registry_client import FeatureRegistryClient  # Added
-
-# Event Definitions
+# Direct imports of actual service implementations
 from .core.events import (
-    EventType,  # Added for subscription
+    EventType,
     PotentialHaltTriggerEvent,
     TradeSignalProposedEvent,
 )
 
-# Import PubSubManager
+# First-party (Gal-Friday) core component imports
+from .core.feature_registry_client import FeatureRegistryClient
 from .core.pubsub import PubSubManager
-
-# Import logger service
+from .exchange_info_service import ExchangeInfoService
 from .logger_service import LoggerService
+from .market_price_service import MarketPriceService
+from .portfolio_manager import PortfolioManager
 
 
 # Custom exceptions
@@ -56,142 +56,8 @@ class SignalValidationStageError(RiskManagerError):
         self.stage_name = stage_name
 
 
-# Type hint for PortfolioManager without circular import
-if TYPE_CHECKING:
-    from .exchange_info_service import ExchangeInfoService
-    from .market_price_service import MarketPriceService
-    from .portfolio_manager import PortfolioManager
-else:
-    # Define placeholder or attempt runtime import carefully
-    try:
-        from .portfolio_manager import PortfolioManager
-    except ImportError:
-        # Define a minimal placeholder if import fails at runtime
-        # This allows basic script execution but will fail if methods are called
-        class PortfolioManager:  # type: ignore
-            """Placeholder for PortfolioManager when not available at runtime.
-
-            Provides minimal implementations of methods used by RiskManager.
-            """
-
-            def get_current_state(self) -> dict[str, Any]:
-                """Return empty portfolio state dictionary.
-
-                Returns:
-                -------
-                    dict: Empty dictionary representing portfolio state
-                """
-                return {}
-
-    try:
-        from .market_price_service import MarketPriceService
-    except ImportError:
-
-        class MarketPriceService:  # type: ignore
-            """Placeholder for MarketPriceService when not available at runtime.
-
-            This allows the RiskManager to be imported and used without the actual service.
-            """
-
-            async def get_latest_price(self, trading_pair: str) -> Decimal | None:
-                """Return None as placeholder for latest price."""
-                _ = trading_pair  # Unused parameter
-                return None
-
-            async def get_volatility(
-                self,
-                trading_pair: str,
-                lookback_hours: int = 24,
-            ) -> float | None:
-                """Return None as placeholder for volatility calculation.
-
-                Args:
-                    trading_pair: The trading pair to calculate volatility for
-                    lookback_hours: Number of hours to look back for calculation
-
-                Returns:
-                -------
-                    None as placeholder
-                """
-                _ = (trading_pair, lookback_hours)  # Unused parameters
-                return None
-
-            async def convert_amount(
-                self,
-                from_amount: Decimal,
-                from_currency: str,
-                to_currency: str,
-            ) -> Decimal | None:
-                """Return None as placeholder for currency conversion.
-
-                Args:
-                    from_amount: Amount to convert
-                    from_currency: Source currency
-                    to_currency: Target currency
-
-                Returns:
-                -------
-                    None as placeholder
-                """
-                _ = (from_amount, from_currency, to_currency)  # Unused parameters
-                return None
-
-            async def get_historical_ohlcv(
-                self,
-                trading_pair: str,
-                timeframe: str,
-                since: datetime,
-                limit: int | None = None,
-            ) -> list[dict[str, Any]] | None:
-                """Define a placeholder docstring for get_historical_ohlcv."""
-                _ = (trading_pair, timeframe, since, limit)
-                return None
-
-    try:  # Added for ExchangeInfoService
-        from .exchange_info_service import ExchangeInfoService
-    except ImportError:
-
-        class ExchangeInfoService:  # type: ignore
-            """Placeholder for ExchangeInfoService."""
-
-            def get_symbol_info(self, trading_pair: str) -> dict[str, Any] | None:
-                """Get information for a specific symbol.
-
-                Args:
-                    trading_pair: The trading symbol to get info for
-
-                Returns:
-                -------
-                    Dictionary with symbol information or None if not found
-                """
-                _ = trading_pair  # Unused
-                return None
-
-            def get_tick_size(self, trading_pair: str) -> Decimal | None:
-                """Get the minimum price movement for a trading pair.
-
-                Args:
-                    trading_pair: The trading pair to get tick size for
-
-                Returns:
-                -------
-                    The minimum price movement or None if not available
-                """
-                _ = trading_pair  # Unused parameter
-                return None
-
-            def get_step_size(self, trading_pair: str) -> Decimal | None:
-                """Get the minimum trade size for a trading pair.
-
-                Args:
-                    trading_pair: The trading pair to get step size for
-
-                Returns:
-                -------
-                    The minimum trade size or None if not available
-                """
-                _ = trading_pair  # Unused parameter
-                return None
+# The TYPE_CHECKING block is now only used for genuine type-hint-only
+# forward references if absolutely necessary to break typing cycles
 
 
 # Using default Decimal precision
@@ -358,10 +224,10 @@ class RiskManager:
         self,
         config: dict[str, Any],
         pubsub_manager: PubSubManager,
-        portfolio_manager: "PortfolioManager",
+        portfolio_manager: PortfolioManager,
         logger_service: LoggerService,
-        market_price_service: "MarketPriceService",
-        exchange_info_service: "ExchangeInfoService",
+        market_price_service: MarketPriceService,
+        exchange_info_service: ExchangeInfoService,
     ) -> None:
         """Initialize the RiskManager with configuration and dependencies.
 

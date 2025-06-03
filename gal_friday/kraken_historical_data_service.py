@@ -1,17 +1,22 @@
-"""Concrete implementation of HistoricalDataService for Kraken exchange."""
+"""Kraken historical data service implementation."""
+
+from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, ParamSpec, TypeVar, cast  # Added cast
+from typing import Any, ParamSpec, TypeVar, cast
 
 import aiohttp
 import pandas as pd
 import pandas_ta as ta
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
+
+from gal_friday.data_ingestion.gap_detector import GapDetector
+from gal_friday.interfaces.historical_data_service_interface import HistoricalDataService
+from gal_friday.logger_service import LoggerService
 
 from .historical_data_service import HistoricalDataService
 from .logger_service import LoggerService
@@ -136,47 +141,49 @@ class KrakenHistoricalDataService(HistoricalDataService):
     """Kraken implementation of the HistoricalDataService interface."""
 
     def __init__(self, config: dict[str, Any], logger_service: LoggerService) -> None:
-        """Initialize the Kraken historical data service.
-
-        Args:
-        ----
-            config: Configuration dict with settings for API and storage
-            logger_service: Logger service for logging
-        """
+        """Initialize the Kraken historical data service."""
         self.config = config
         self.logger = logger_service
         self._source_module = self.__class__.__name__
 
-        # Initialize InfluxDB client
-        influx_config = config.get("influxdb", {})
-        self.influx_client = InfluxDBClient(
-            url=influx_config.get("url", "http://localhost:8086"),
-            token=influx_config.get("token", ""),
-            org=influx_config.get("org", "gal_friday"),
-            debug=config.get("debug", False),
+        # InfluxDB configuration
+        influxdb_config = self.config.get("influxdb", {})
+        self.influxdb_client = InfluxDBClient(
+            url=influxdb_config.get("url", "http://localhost:8086"),
+            token=influxdb_config.get("token"),
+            org=influxdb_config.get("org", "gal_friday"),
         )
-        self.write_api = self.influx_client.write_api(write_options=SYNCHRONOUS)
-        self.query_api = self.influx_client.query_api()
+        self.write_api = self.influxdb_client.write_api(write_options=SYNCHRONOUS)
+        self.query_api = self.influxdb_client.query_api()
 
-        # Measurement settings
+        # API configuration
+        self.api_base_url = self.config.get("kraken", {}).get("api_url", "https://api.kraken.com")
+
+        # Measurement names for InfluxDB
         self.ohlcv_measurement = "market_data_ohlcv"
         self.trades_measurement = "market_data_trades"
 
-        # Initialize rate limiter
-        self.rate_limiter = RateLimitTracker(
-            tier=config.get("api_tier", "default"),
-            logger=logger_service,
-        )
-
-        # Initialize circuit breaker
+        # Initialize circuit breaker and rate limiter
+        kraken_config = self.config.get("kraken_api", {})
         self.circuit_breaker = CircuitBreaker(
-            failure_threshold=config.get("failure_threshold", 3),
-            reset_timeout=config.get("reset_timeout", 60),
-            logger=logger_service,
+            failure_threshold=kraken_config.get("circuit_breaker_threshold", 3),
+            reset_timeout=kraken_config.get("circuit_breaker_timeout", 60),
+            logger=self.logger,
         )
 
-        # API base URL
-        self.api_base_url = config.get("api_base_url", "https://api.kraken.com")
+        tier = kraken_config.get("tier", "default")
+        self.rate_limiter = RateLimitTracker(tier=tier, logger=self.logger)
+
+        # API configuration
+        self.api_key = self.config.get("kraken", {}).get("api_key")
+        self.api_secret = self.config.get("kraken", {}).get("api_secret")
+
+        # Initialize GapDetector for enhanced gap detection
+        self.gap_detector = GapDetector(logger=self.logger)
+        self.logger.info(
+            "GapDetector initialized for enhanced data gap detection",
+            source_module=self._source_module,
+        )
 
         # Cache for frequently accessed data
         self._ohlcv_cache: dict[Any, pd.DataFrame] = {}  # Simple cache for OHLCV data
@@ -231,7 +238,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
                 return df[(df.index >= start_time) & (df.index <= end_time)]
 
         # Determine what data is missing
-        missing_ranges = self._get_missing_ranges(df, start_time, end_time)
+        missing_ranges = self._get_missing_ranges(df, start_time, end_time, interval)
         if not missing_ranges:
             # Should have data but is empty
             self.logger.warning(
@@ -310,7 +317,11 @@ class KrakenHistoricalDataService(HistoricalDataService):
         start_time: datetime,
         end_time: datetime,
     ) -> pd.DataFrame | None:
-        """Get historical trade data for a given pair and time range."""
+        """Get historical trade data for a given pair and time range.
+        
+        This method first checks InfluxDB for stored data, then fetches any missing
+        data from the Kraken API using the self.fetch_trades() method.
+        """
         self.logger.info(
             "Getting historical trades for %s from %s to %s",
             trading_pair,
@@ -319,33 +330,119 @@ class KrakenHistoricalDataService(HistoricalDataService):
             source_module=self._source_module,
         )
 
-        # First check InfluxDB for stored trade data
-        df = await self._query_trades_data_from_influxdb(trading_pair, start_time, end_time)
+        # 1. Ensure times are timezone-aware (UTC)
+        start_time_utc = start_time.replace(tzinfo=UTC) if start_time.tzinfo is None else start_time
+        end_time_utc = end_time.replace(tzinfo=UTC) if end_time.tzinfo is None else end_time
 
-        # If complete data is available in InfluxDB, return it
-        if df is not None and not df.empty:
-            available_start = df.index.min()
-            available_end = df.index.max()
+        # 2. Attempt to fetch from InfluxDB first
+        db_df = await self._query_trades_data_from_influxdb(trading_pair, start_time_utc, end_time_utc)
 
-            # If we have all the data needed
-            if available_start <= start_time and available_end >= end_time:
+        # 3. Check if data from DB is complete for the requested range
+        if db_df is not None and not db_df.empty:
+            # Ensure DataFrame index is timezone-aware (UTC) for comparison
+            if db_df.index.tz is None:
+                db_df.index = db_df.index.tz_localize(UTC)
+
+            available_start = db_df.index.min()
+            available_end = db_df.index.max()
+
+            if available_start <= start_time_utc and available_end >= end_time_utc:
                 self.logger.info(
-                    "Complete trade data found in InfluxDB for %s",
-                    trading_pair,
+                    "Complete trade data found in InfluxDB for %s in range %s to %s.",
+                    trading_pair, start_time_utc, end_time_utc,
                     source_module=self._source_module,
                 )
-                # Slice to exact range and return
-                return df[(df.index >= start_time) & (df.index <= end_time)]
+                # Slice to exact requested range and return
+                return db_df[(db_df.index >= start_time_utc) & (db_df.index <= end_time_utc)]
 
-        # TODO: Implement fetching trade data from Kraken API
-        # This would be similar to _fetch_ohlcv_data but for trades
-
-        self.logger.warning(
-            "Trade data fetching not fully implemented for %s",
-            trading_pair,
+        self.logger.info(
+            "Trade data in InfluxDB for %s is incomplete or missing for range %s to %s. Will attempt API fetch.",
+            trading_pair, start_time_utc, end_time_utc,
             source_module=self._source_module,
         )
-        return df
+
+        # 4. Fetch missing data from Kraken API
+        self.logger.info(
+            "Fetching historical trades from Kraken API for %s from %s to %s",
+            trading_pair, start_time_utc, end_time_utc,
+            source_module=self._source_module,
+        )
+
+        # Call the existing self.fetch_trades method to get data from Kraken API
+        api_trades_list = await self.fetch_trades(
+            trading_pair=trading_pair,
+            since=start_time_utc,
+            until=end_time_utc,
+            limit=None,  # Fetch all available in the range
+        )
+
+        api_df = None
+        if api_trades_list:
+            try:
+                api_df = pd.DataFrame(api_trades_list)
+                if not api_df.empty:
+                    api_df["timestamp"] = pd.to_datetime(api_df["timestamp"], utc=True)
+                    api_df = api_df.set_index("timestamp")
+                    # Sort by timestamp as API might not guarantee order with pagination
+                    api_df = api_df.sort_index()
+
+                    self.logger.info(
+                        "Fetched %s trades from API for %s.", len(api_df), trading_pair,
+                        source_module=self._source_module,
+                    )
+
+                    # 5. Store fetched data into InfluxDB
+                    await self._store_trades_data_in_influxdb(api_df, trading_pair)
+                else:
+                    api_df = None
+            except Exception as e:
+                self.logger.error(
+                    "Failed to process trades from API into DataFrame for %s: %s",
+                    trading_pair, e, exc_info=True, source_module=self._source_module,
+                )
+                api_df = None
+        else:
+            self.logger.info(
+                "No new trades fetched from API for %s in range %s to %s.",
+                trading_pair, start_time_utc, end_time_utc,
+                source_module=self._source_module,
+            )
+
+        # 6. Combine with existing InfluxDB data (if any)
+        combined_df = None
+        if db_df is not None and not db_df.empty and api_df is not None and not api_df.empty:
+            combined_df = pd.concat([db_df, api_df])
+            # Remove duplicates, keeping the first occurrence
+            combined_df = combined_df[~combined_df.index.duplicated(keep="first")]
+            combined_df = combined_df.sort_index()
+        elif api_df is not None and not api_df.empty:
+            combined_df = api_df
+        elif db_df is not None and not db_df.empty:
+            combined_df = db_df
+
+        if combined_df is not None and not combined_df.empty:
+            # Ensure index is timezone-aware UTC before slicing
+            if combined_df.index.tz is None:
+                combined_df.index = combined_df.index.tz_localize(UTC)
+            # Slice to the exact requested range
+            final_df = combined_df[(combined_df.index >= start_time_utc) & (combined_df.index <= end_time_utc)]
+            if not final_df.empty:
+                self.logger.info(
+                    "Returning %s combined trades for %s.", len(final_df), trading_pair,
+                    source_module=self._source_module,
+                )
+                return final_df
+            self.logger.info(
+                "Combined trades for %s resulted in an empty DataFrame for the requested range.",
+                trading_pair, source_module=self._source_module,
+            )
+            return None
+        self.logger.warning(
+            "No trade data available for %s after DB query and API fetch for range %s to %s.",
+            trading_pair, start_time_utc, end_time_utc,
+            source_module=self._source_module,
+        )
+        return None
 
     def get_next_bar(self, trading_pair: str, timestamp: datetime) -> pd.Series | None:
         """Get the next available OHLCV bar after the given timestamp."""
@@ -496,82 +593,230 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
     async def _fetch_ohlcv_data_from_api(
         self,
-        _trading_pair: str,
+        trading_pair: str,
         start_time: datetime,
         end_time: datetime,
         interval: str,
     ) -> pd.DataFrame | None:
-        """Actual implementation of API call to Kraken."""
-        # TODO: Implement actual API call using aiohttp or ccxt
-        # This is a placeholder for the actual implementation
-
-        # For testing purposes, generate some dummy data
-        self.logger.warning(
-            "Using dummy data for testing purposes",
+        """Fetch OHLCV data directly from Kraken API for the given range and interval."""
+        self.logger.info(
+            "Fetching OHLCV from API for %s: %s to %s, interval %s",
+            trading_pair, start_time, end_time, interval,
             source_module=self._source_module,
         )
 
-        # Create date range with appropriate interval
-        interval_seconds = self._interval_to_seconds(interval)
-        date_range = pd.date_range(start=start_time, end=end_time, freq=f"{interval_seconds}S")
-
-        if len(date_range) == 0:
+        kraken_pair_name = self._get_kraken_pair_name(trading_pair)
+        if not kraken_pair_name:
+            self.logger.error(
+                "Could not get Kraken pair name for %s", trading_pair,
+                source_module=self._source_module,
+            )
             return None
 
-        # Generate dummy data
-        import numpy as np
-        rng = np.random.default_rng()
+        kraken_interval_code = self._map_interval_to_kraken_code(interval)
+        if kraken_interval_code is None:
+            self.logger.error(
+                "Unsupported interval string for Kraken API: %s", interval,
+                source_module=self._source_module,
+            )
+            return None
 
-        # More precise typing for the list of dictionaries
-        data_element_type = dict[str, pd.Timestamp | float | int]  # numpy can yield int/float
-        data: list[data_element_type] = []
-        base_price = 100.0
+        all_ohlcv_data = []
+        current_since_timestamp = int(start_time.timestamp()) # Kraken API uses Unix timestamp for 'since'
 
-        for timestamp in date_range:  # timestamp is pd.Timestamp
-            # Random price movement using modern numpy random generator
-            price_change = (rng.random() - 0.5) * 2  # float
-            close_price = base_price * (1 + price_change * 0.01)  # float
-            high_price = close_price * (1 + rng.random() * 0.005)  # float
-            low_price = close_price * (1 - rng.random() * 0.005)  # float
-            open_price = close_price * (1 + (rng.random() - 0.5) * 0.01)  # float
-            volume = rng.random() * 100  # float
+        # Kraken returns a max of 720 data points per call for OHLC.
+        # We need to paginate if the requested range is larger.
+        MAX_API_CALLS = self.config.get("kraken_api", {}).get("ohlcv_max_pagination_calls", 20) # Safety break
+        api_calls_count = 0
 
-            data.append(
-                {
-                    "timestamp": timestamp,  # pd.Timestamp
-                    "open": open_price,  # float
-                    "high": high_price,  # float
-                    "low": low_price,  # float
-                    "close": close_price,  # float
-                    "volume": volume,  # float
-                },
+        while api_calls_count < MAX_API_CALLS:
+            api_calls_count += 1
+            params = {
+                "pair": kraken_pair_name,
+                "interval": kraken_interval_code,
+                "since": current_since_timestamp,
+            }
+
+            self.logger.debug(
+                "Kraken API OHLC request for %s: params=%s", trading_pair, params,
+                source_module=self._source_module,
             )
 
-            # Update base price for next iteration
-            base_price = close_price
+            response_data = await self._make_public_request("/0/public/OHLC", params)
 
-        # Cast was redundant here, mypy can infer pd.DataFrame(data) is DataFrame
-        constructed_df: pd.DataFrame = pd.DataFrame(data)
-        constructed_df.set_index("timestamp", inplace=True)
+            if not response_data or response_data.get("error"):
+                error_messages = response_data.get("error", ["Unknown API error"]) if response_data else ["No response from API"]
+                self.logger.error(
+                    "Kraken API error fetching OHLCV for %s (call %s): %s. Params: %s",
+                    trading_pair, api_calls_count, error_messages, params,
+                    source_module=self._source_module,
+                )
+                break # Exit pagination loop on error
 
-        # Simulate network delay
-        await asyncio.sleep(0.5)
+            result = response_data.get("result", {})
+            pair_data = result.get(kraken_pair_name) # Kraken nests data under the pair key
 
-        return constructed_df
+            if not pair_data:
+                self.logger.info(
+                    "No more OHLCV data returned from Kraken API for %s (call %s, since: %s).",
+                    trading_pair, api_calls_count, current_since_timestamp,
+                    source_module=self._source_module,
+                )
+                break # No more data for this pair
 
-    def _interval_to_seconds(self, interval: str) -> int:
-        """Convert interval string to seconds."""
-        unit = interval[-1].lower()
-        value = int(interval[:-1])
+            # Process the candle data
+            # Each item in pair_data is: [<time>, <open>, <high>, <low>, <close>, <vwap>, <volume>, <count>]
+            data_beyond_end = False
+            for candle in pair_data:
+                try:
+                    timestamp_unix = int(candle[0])
+                    dt_object = datetime.fromtimestamp(timestamp_unix, tz=UTC)
 
+                    # Stop if we've fetched data beyond the requested end_time
+                    if dt_object > end_time:
+                        self.logger.debug("Fetched OHLCV data beyond requested end_time for %s. Stopping pagination.", trading_pair)
+                        data_beyond_end = True
+                        break
+
+                    # Only add data within the original [start_time, end_time] inclusive range
+                    if dt_object >= start_time:
+                         all_ohlcv_data.append({
+                            "timestamp": dt_object,
+                            "open": Decimal(str(candle[1])),
+                            "high": Decimal(str(candle[2])),
+                            "low": Decimal(str(candle[3])),
+                            "close": Decimal(str(candle[4])),
+                            "volume": Decimal(str(candle[6])), # candle[5] is vwap, candle[7] is count
+                        })
+                except (IndexError, ValueError, TypeError) as e:
+                    self.logger.warning(
+                        "Error processing individual OHLCV candle data for %s: %s. Candle: %s",
+                        trading_pair, e, candle, source_module=self._source_module,
+                    )
+                    continue # Skip this malformed candle
+
+            if data_beyond_end:
+                break
+
+            # Update 'since' for the next iteration using the 'last' timestamp from the response
+            last_timestamp_in_response = result.get("last")
+            if last_timestamp_in_response is None:
+                self.logger.warning(
+                    "Kraken API OHLCV response for %s missing 'last' key for pagination. Stopping.",
+                    trading_pair, source_module=self._source_module,
+                )
+                break
+
+            # If the 'last' timestamp is not advancing, it means no more new data or stuck.
+            if int(last_timestamp_in_response) <= current_since_timestamp and len(pair_data) < 720:
+                self.logger.info(
+                    "Kraken API 'last' timestamp (%s) did not advance from 'since' (%s) for %s and not a full page. Assuming end of data.",
+                    last_timestamp_in_response, current_since_timestamp, trading_pair,
+                    source_module=self._source_module,
+                )
+                break
+
+            current_since_timestamp = int(last_timestamp_in_response)
+
+            # Small delay to respect potential implicit rate limits
+            await asyncio.sleep(self.config.get("kraken_api", {}).get("ohlcv_pagination_delay_s", 0.2))
+
+        if api_calls_count >= MAX_API_CALLS:
+            self.logger.warning(
+                "Reached max API calls (%s) for OHLCV pagination for %s. Data might be incomplete.",
+                MAX_API_CALLS, trading_pair, source_module=self._source_module,
+            )
+
+        if not all_ohlcv_data:
+            self.logger.info(
+                "No OHLCV data points collected from API for %s in the specified range.",
+                trading_pair, source_module=self._source_module,
+            )
+            return None
+
+        # Create DataFrame
+        try:
+            df = pd.DataFrame(all_ohlcv_data)
+            if df.empty:
+                return None
+            df = df.set_index("timestamp")
+            df = df.sort_index() # Ensure chronological order
+            # Remove potential duplicates that might arise from pagination logic
+            df = df[~df.index.duplicated(keep="first")]
+
+            # Convert Decimal columns to float for pandas compatibility
+            for col in ["open", "high", "low", "close", "volume"]:
+                df[col] = df[col].astype(float)
+
+            self.logger.info(
+                "Successfully fetched and processed %s OHLCV data points from API for %s.",
+                len(df), trading_pair, source_module=self._source_module,
+            )
+            return df
+        except Exception as e:
+            self.logger.error(
+                "Failed to create DataFrame from fetched OHLCV data for %s: %s",
+                trading_pair, e, exc_info=True, source_module=self._source_module,
+            )
+            return None
+
+    def _map_interval_to_kraken_code(self, interval_str: str) -> int | None:
+        """Maps human-readable interval string to Kraken API integer code."""
+        # Kraken intervals: 1, 5, 15, 30, 60 (1h), 240 (4h), 1440 (1d), 10080 (1w), 21600 (15d)
+        mapping = {
+            "1m": 1, "1min": 1,
+            "5m": 5, "5min": 5,
+            "15m": 15, "15min": 15,
+            "30m": 30, "30min": 30,
+            "1h": 60, "60m": 60, "60min": 60,
+            "4h": 240, "240m": 240, "240min": 240,
+            "1d": 1440, "1day": 1440,
+            "1w": 10080, "1week": 10080, "7d": 10080,
+            "15d": 21600, "15day": 21600,
+        }
+        return mapping.get(interval_str.lower())
+
+    def _interval_str_to_timedelta(self, interval_str: str) -> timedelta | None:
+        """Convert an interval string (e.g., "1m", "1h", "1d") to a timedelta object.
+        
+        Args:
+            interval_str: Human-readable interval string
+            
+        Returns:
+            timedelta object or None if invalid format
+        """
+        if not interval_str or len(interval_str) < 2:
+            self.logger.error(
+                f"Invalid interval format: {interval_str}",
+                source_module=self._source_module,
+            )
+            return None
+
+        unit = interval_str[-1].lower()
+        try:
+            value = int(interval_str[:-1])
+        except ValueError:
+            self.logger.error(
+                f"Invalid interval value in: {interval_str}",
+                source_module=self._source_module,
+            )
+            return None
+
+        if unit == "s":
+            return timedelta(seconds=value)
         if unit == "m":
-            return value * 60
+            return timedelta(minutes=value)
         if unit == "h":
-            return value * 60 * 60
+            return timedelta(hours=value)
         if unit == "d":
-            return value * 24 * 60 * 60
-        self.logger.warning("Unknown interval unit: %s", unit, source_module=self._source_module)
-        return 60  # Default to 1 minute
+            return timedelta(days=value)
+        if unit == "w":
+            return timedelta(weeks=value)
+        self.logger.error(
+            f"Unsupported interval unit: {unit} in {interval_str}",
+            source_module=self._source_module,
+        )
+        return None
 
     def _validate_ohlcv_data(self, df: pd.DataFrame) -> bool:
         """Validate OHLCV data for correctness and completeness."""
@@ -676,6 +921,73 @@ class KrakenHistoricalDataService(HistoricalDataService):
             return False
         else:
             return True
+
+    async def _store_trades_data_in_influxdb(self, df: pd.DataFrame, trading_pair: str) -> bool:
+        """Store trade data in InfluxDB.
+        
+        Args:
+            df: DataFrame with trades data containing price, volume, and side columns
+            trading_pair: Trading pair identifier
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if df is None or df.empty:
+            return False
+
+        # Ensure required columns exist
+        required_cols = ["price", "volume", "side"]
+        if not all(col in df.columns for col in required_cols):
+            self.logger.error(
+                f"DataFrame for InfluxDB trade storage for {trading_pair} is missing one of required columns: {required_cols}. Columns present: {df.columns.tolist()}",
+                source_module=self._source_module,
+            )
+            return False
+
+        try:
+            bucket = self.config.get("influxdb", {}).get("bucket", "gal_friday")
+            points = []
+
+            for timestamp, row in df.iterrows():
+                # Ensure timestamp is timezone-aware (UTC) before writing
+                ts_to_write = timestamp
+                if timestamp.tzinfo is None:
+                    ts_to_write = timestamp.tz_localize(UTC)
+
+                point = (
+                    Point(self.trades_measurement)
+                    .tag("trading_pair", trading_pair)
+                    .tag("exchange", "kraken")
+                    .field("price", float(row["price"]))
+                    .field("volume", float(row["volume"]))
+                    .field("side", str(row["side"]))
+                    .time(ts_to_write)
+                )
+
+                # Add optional fields if present
+                if "order_type" in row:
+                    point = point.field("order_type", str(row.get("order_type", "")))
+                if "misc" in row:
+                    point = point.field("misc", str(row.get("misc", "")))
+
+                points.append(point)
+
+            if points:
+                self.write_api.write(bucket=bucket, record=points)
+                self.logger.info(
+                    "Stored %s trade points in InfluxDB for %s",
+                    len(points), trading_pair,
+                    source_module=self._source_module,
+                )
+                return True
+            return False
+        except Exception as e:
+            self.logger.exception(
+                "Error storing trade data in InfluxDB for %s: %s",
+                trading_pair, e,
+                source_module=self._source_module,
+            )
+            return False
 
     async def _query_ohlcv_data_from_influxdb(
         self,
@@ -800,24 +1112,172 @@ class KrakenHistoricalDataService(HistoricalDataService):
         df: pd.DataFrame | None,
         start_time: datetime,
         end_time: datetime,
+        expected_interval_str: str | None = None,
     ) -> list[tuple[datetime, datetime]]:
-        """Determine what date ranges are missing from the data."""
+        """Determine what date ranges are missing from the data, including intra-range gaps.
+        
+        Args:
+            df: DataFrame with time series data (index should be datetime)
+            start_time: Start of the requested range
+            end_time: End of the requested range  
+            expected_interval_str: Expected interval between data points (e.g., "1m", "5m")
+            
+        Returns:
+            List of tuples (start, end) representing missing data ranges
+        """
+        self.logger.debug(
+            "Getting missing ranges for data between %s and %s, expected interval: %s",
+            start_time, end_time, expected_interval_str,
+            source_module=self._source_module,
+        )
+
+        # Ensure start_time and end_time are timezone-aware (UTC)
+        start_time = start_time.replace(tzinfo=UTC) if start_time.tzinfo is None else start_time
+        end_time = end_time.replace(tzinfo=UTC) if end_time.tzinfo is None else end_time
+
         if df is None or df.empty:
-            # All data is missing
+            self.logger.info(
+                "DataFrame is empty or None. Entire range %s to %s is missing.",
+                start_time, end_time,
+                source_module=self._source_module,
+            )
             return [(start_time, end_time)]
 
-        missing_ranges = []
+        # Ensure DataFrame index is a DatetimeIndex and timezone-aware (UTC)
+        if not isinstance(df.index, pd.DatetimeIndex):
+            try:
+                df.index = pd.to_datetime(df.index, utc=True)
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to convert DataFrame index to DatetimeIndex: {e}",
+                    exc_info=True,
+                    source_module=self._source_module,
+                )
+                return [(start_time, end_time)]
+        elif df.index.tz is None:
+            df.index = df.index.tz_localize(UTC)
+        elif df.index.tz != UTC:
+            df.index = df.index.tz_convert(UTC)
 
-        # Check if data starts after requested start time
-        if df.index.min() > start_time:
-            missing_ranges.append((start_time, df.index.min()))
+        # Sort DataFrame by timestamp index
+        df = df.sort_index()
 
-        # Check if data ends before requested end time
-        if df.index.max() < end_time:
-            missing_ranges.append((df.index.max(), end_time))
+        missing_ranges: list[tuple[datetime, datetime]] = []
+        current_check_start = start_time
 
-        # TODO: Check for gaps within the data range
-        # This would require sorting the data and checking for expected intervals
+        # 1. Check if data starts after the requested start_time
+        if not df.empty and df.index.min() > current_check_start:
+            gap_end = df.index.min()
+            if gap_end > current_check_start:
+                missing_ranges.append((current_check_start, gap_end))
+            current_check_start = gap_end
+
+        # 2. Check for intra-range gaps using GapDetector (if available and interval provided)
+        if self.gap_detector and expected_interval_str:
+            expected_interval_td = self._interval_str_to_timedelta(expected_interval_str)
+            if expected_interval_td:
+                # GapDetector expects a 'timestamp' column
+                df_for_gap_detection = df.reset_index()
+                df_for_gap_detection.rename(columns={df_for_gap_detection.columns[0]: "timestamp"}, inplace=True)
+
+                # Filter to the relevant range for accurate gap detection
+                df_in_range = df_for_gap_detection[
+                    (df_for_gap_detection["timestamp"] >= start_time) &
+                    (df_for_gap_detection["timestamp"] <= end_time)
+                ]
+
+                if not df_in_range.empty:
+                    detected_gaps = self.gap_detector.detect_gaps(
+                        data=df_in_range,
+                        timestamp_col="timestamp",
+                        expected_interval=expected_interval_td,
+                    )
+
+                    # Convert DataGap objects to missing ranges
+                    for gap_info in detected_gaps:
+                        # The gap_info.start is the last data point before the gap
+                        # The gap_info.end is the first data point after the gap
+                        # The actual missing data is between these points
+                        actual_gap_start = gap_info.start + expected_interval_td
+                        actual_gap_end = gap_info.end
+
+                        if actual_gap_end > actual_gap_start:
+                            missing_ranges.append((
+                                actual_gap_start.to_pydatetime() if hasattr(actual_gap_start, "to_pydatetime") else actual_gap_start,
+                                actual_gap_end.to_pydatetime() if hasattr(actual_gap_end, "to_pydatetime") else actual_gap_end,
+                            ))
+                        else:
+                            self.logger.debug(
+                                f"Skipping zero or negative duration detected gap: {gap_info}",
+                                source_module=self._source_module,
+                            )
+                else:
+                    self.logger.debug(
+                        "No data within the specified range for intra-range gap detection.",
+                        source_module=self._source_module,
+                    )
+            else:
+                self.logger.warning(
+                    f"Could not determine timedelta for expected_interval_str: {expected_interval_str}. "
+                    "Skipping intra-range gap detection.",
+                    source_module=self._source_module,
+                )
+        elif not self.gap_detector:
+            self.logger.info(
+                "GapDetector not initialized, skipping detailed intra-range gap check.",
+                source_module=self._source_module,
+            )
+        elif not expected_interval_str:
+            self.logger.info(
+                "Expected interval not provided, skipping detailed intra-range gap check.",
+                source_module=self._source_module,
+            )
+
+        # 3. Check if data ends before the requested end_time
+        last_data_point_ts = df.index.max() if not df.empty else start_time
+
+        if last_data_point_ts < end_time:
+            # Calculate the actual missing start considering the expected interval
+            actual_missing_start = last_data_point_ts
+            if expected_interval_str and self._interval_str_to_timedelta(expected_interval_str):
+                actual_missing_start = last_data_point_ts + self._interval_str_to_timedelta(expected_interval_str)
+
+            if end_time > actual_missing_start:
+                missing_ranges.append((actual_missing_start, end_time))
+
+        # 4. Post-process missing_ranges: Sort and merge overlapping/contiguous ranges
+        if missing_ranges:
+            # Sort by start time
+            missing_ranges.sort(key=lambda x: x[0])
+
+            # Merge overlapping or contiguous ranges
+            merged_ranges = []
+            current_start, current_end = missing_ranges[0]
+
+            for i in range(1, len(missing_ranges)):
+                next_start, next_end = missing_ranges[i]
+                # If ranges overlap or are contiguous
+                if next_start <= current_end:
+                    current_end = max(current_end, next_end)
+                else:
+                    merged_ranges.append((current_start, current_end))
+                    current_start, current_end = next_start, next_end
+
+            merged_ranges.append((current_start, current_end))
+            missing_ranges = merged_ranges
+
+            self.logger.info(
+                "Detected %s missing ranges: %s",
+                len(missing_ranges),
+                [(str(s), str(e)) for s, e in missing_ranges],
+                source_module=self._source_module,
+            )
+        else:
+            self.logger.debug(
+                "No missing ranges detected for %s to %s.",
+                start_time, end_time,
+                source_module=self._source_module,
+            )
 
         return missing_ranges
 

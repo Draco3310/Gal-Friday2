@@ -933,7 +933,7 @@ class LoggerService:
         tags: dict[str, str],
         fields: dict[str, Any],
         timestamp: datetime,
-    ) -> "InfluxDBPoint" | None:  # Returns InfluxDB Point or None
+    ) -> Optional["InfluxDBPoint"]:  # Returns InfluxDB Point or None
         """Prepare a data point for InfluxDB.
 
         Args:

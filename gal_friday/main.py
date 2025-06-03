@@ -567,6 +567,7 @@ class GalFridayApp:
             logger_service=self.logger_service,
             market_price_service=self.market_price_service,
             feature_registry_client=self.feature_registry_client,  # Added parameter
+            session_maker=self.session_maker,  # Pass session_maker as a parameter
         )
         log.debug("StrategyArbitrator instantiated.")
 
@@ -922,8 +923,8 @@ class GalFridayApp:
         # Example: self.portfolio_manager = PortfolioManager(..., session_maker=self.session_maker)
         # For now, these init methods are called; they would need internal updates
         # to accept and use the session_maker in subsequent refactoring.
-        self._init_strategy_arbitrator() # TODO: Refactor to take session_maker if needed
-        self._init_cli_service()         # TODO: Refactor to take session_maker if needed
+        self._init_strategy_arbitrator()
+        self._init_cli_service()
 
         log.info("Initialization phase complete.")
 

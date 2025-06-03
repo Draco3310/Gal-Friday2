@@ -249,7 +249,7 @@ class ReconciliationService:
             await self._reconcile_orders(report)
 
             # 4. Apply auto-corrections if enabled
-            if self.config.get_bool("reconciliation.auto_correct", True):
+            if self.config.get_bool("reconciliation.auto_correct", default=True):
                 await self._apply_auto_corrections(report)
 
             # 5. Determine final status

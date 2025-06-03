@@ -189,7 +189,7 @@ class ExperimentManager:
         # Configuration
         self.max_concurrent_experiments = self.config_manager.get_int("experiments.max_concurrent", 3)
         self.auto_stop_on_significance = self.config_manager.get_bool(
-            "experiments.auto_stop_on_significance", True,
+            "experiments.auto_stop_on_significance", default=True,
         )
         self.check_interval_minutes = self.config_manager.get_int("experiments.check_interval_minutes", 60)
 

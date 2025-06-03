@@ -29,7 +29,6 @@ from gal_friday.core.events import (
     MarketDataTradeEvent,
 )
 from gal_friday.core.pubsub import PubSubManager
-from gal_friday.execution_handler import ExecutionHandlerAuthenticationError
 from gal_friday.logger_service import LoggerService
 
 
@@ -69,6 +68,23 @@ MESSAGE_CHANNEL_INDEX = 2  # Index of channel name in message list
 MESSAGE_CHANNEL_NAME_INDEX = 2  # Index of channel name in message list
 MESSAGE_DATA_INDEX = 1  # Index of data in message list
 MESSAGE_PAIR_INDEX = 3  # Index of trading pair in message list
+
+
+class ExecutionHandlerAuthenticationError(ValueError):
+    """Raised when an API credential is not in the expected format or other auth issue.
+
+    Args:
+        message: Custom error message. Defaults to API secret format error.
+        *args: Additional arguments to pass to the parent class.
+    """
+    def __init__(self, message: str = "API secret must be base64 encoded.", *args: object) -> None:
+        """Initialize the error with a custom message.
+
+        Args:
+            message: Custom error message. Defaults to API secret format error.
+            *args: Additional arguments to pass to the parent class.
+        """
+        super().__init__(message, *args)
 
 
 class KrakenWebSocketClient:

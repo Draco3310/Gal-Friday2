@@ -437,8 +437,159 @@ class SimulatedExecutionHandler:
             )
             return False
 
-        # TODO: Implement min/max order size validation when these features
-        # are fully implemented (ERA001: intentional placeholder for future implementation)
+        # Enterprise-grade min/max order size validation
+        # Get exchange-specific order size limits from configuration
+        exchange_config = self.config.get(f"exchanges.{event.exchange.lower()}", {})
+        pair_limits = exchange_config.get("order_limits", {}).get(event.trading_pair, {})
+
+        # Get min/max values with defaults
+        min_order_size = Decimal(str(pair_limits.get("min_size", "0.00001")))
+        max_order_size = Decimal(str(pair_limits.get("max_size", "1000000.0")))
+        min_notional_value = Decimal(str(pair_limits.get("min_notional", "1.0")))
+        max_notional_value = Decimal(str(pair_limits.get("max_notional", "10000000.0")))
+
+        # Validate order size
+        if event.quantity < min_order_size:
+            error_msg = (
+                f"Order size {event.quantity} below minimum {min_order_size} "
+                f"for {event.trading_pair}"
+            )
+            self.logger.warning(
+                error_msg,
+                source_module=self.__class__.__name__,
+                context={
+                    "signal_id": str(event.signal_id),
+                    "quantity": str(event.quantity),
+                    "min_size": str(min_order_size),
+                },
+            )
+            await self._publish_simulated_report(
+                event,
+                SimulatedReportParams(
+                    status="REJECTED",
+                    qty_filled=Decimal(0),
+                    avg_price=None,
+                    commission=Decimal(0),
+                    commission_asset=None,
+                    error_msg=error_msg,
+                ),
+            )
+            return False
+
+        if event.quantity > max_order_size:
+            error_msg = (
+                f"Order size {event.quantity} exceeds maximum {max_order_size} "
+                f"for {event.trading_pair}"
+            )
+            self.logger.warning(
+                error_msg,
+                source_module=self.__class__.__name__,
+                context={
+                    "signal_id": str(event.signal_id),
+                    "quantity": str(event.quantity),
+                    "max_size": str(max_order_size),
+                },
+            )
+            await self._publish_simulated_report(
+                event,
+                SimulatedReportParams(
+                    status="REJECTED",
+                    qty_filled=Decimal(0),
+                    avg_price=None,
+                    commission=Decimal(0),
+                    commission_asset=None,
+                    error_msg=error_msg,
+                ),
+            )
+            return False
+
+        # Validate notional value if price is available
+        if hasattr(event, "limit_price") and event.limit_price is not None:
+            notional_value = event.quantity * event.limit_price
+        else:
+            # For market orders, try to get current price from data service
+            try:
+                current_bar = self.data_service.get_next_bar(
+                    event.trading_pair,
+                    event.timestamp,
+                )
+                if current_bar is not None and "close" in current_bar:
+                    notional_value = event.quantity * Decimal(str(current_bar["close"]))
+                else:
+                    # Skip notional validation if we can't get price
+                    self.logger.debug(
+                        "Cannot determine notional value for market order validation",
+                        source_module=self.__class__.__name__,
+                    )
+                    return True
+            except Exception:
+                self.logger.exception(
+                    "Error getting price for notional validation",
+                    source_module=self.__class__.__name__,
+                )
+                return True  # Don't reject on price lookup failure
+
+        # Check notional limits
+        if notional_value < min_notional_value:
+            error_msg = (
+                f"Order notional value {notional_value:.2f} below minimum "
+                f"{min_notional_value:.2f} for {event.trading_pair}"
+            )
+            self.logger.warning(
+                error_msg,
+                source_module=self.__class__.__name__,
+                context={
+                    "signal_id": str(event.signal_id),
+                    "notional": str(notional_value),
+                    "min_notional": str(min_notional_value),
+                },
+            )
+            await self._publish_simulated_report(
+                event,
+                SimulatedReportParams(
+                    status="REJECTED",
+                    qty_filled=Decimal(0),
+                    avg_price=None,
+                    commission=Decimal(0),
+                    commission_asset=None,
+                    error_msg=error_msg,
+                ),
+            )
+            return False
+
+        if notional_value > max_notional_value:
+            error_msg = (
+                f"Order notional value {notional_value:.2f} exceeds maximum "
+                f"{max_notional_value:.2f} for {event.trading_pair}"
+            )
+            self.logger.warning(
+                error_msg,
+                source_module=self.__class__.__name__,
+                context={
+                    "signal_id": str(event.signal_id),
+                    "notional": str(notional_value),
+                    "max_notional": str(max_notional_value),
+                },
+            )
+            await self._publish_simulated_report(
+                event,
+                SimulatedReportParams(
+                    status="REJECTED",
+                    qty_filled=Decimal(0),
+                    avg_price=None,
+                    commission=Decimal(0),
+                    commission_asset=None,
+                    error_msg=error_msg,
+                ),
+            )
+            return False
+
+        self.logger.debug(
+            "Order passed size validation: quantity=%s, notional=%s",
+            event.quantity,
+            notional_value if "notional_value" in locals() else "N/A",
+            source_module=self.__class__.__name__,
+        )
 
         return True
 

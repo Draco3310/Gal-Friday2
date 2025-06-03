@@ -404,7 +404,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
         # Cloud storage backend (optional)
-        self.use_cloud_storage = self.config_manager.get_bool("model_registry.use_cloud_storage", False)
+        self.use_cloud_storage = self.config_manager.get_bool("model_registry.use_cloud_storage", default=False)
         self.cloud_storage = None
         if self.use_cloud_storage:
             self._init_cloud_storage()
@@ -666,7 +666,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                  self.logger.error(f"Failed to archive model {model_id}", source_module=self._source_module)
                  return False
 
-            if self.config_manager.get_bool("model_registry.delete_archived_artifacts", False) and model_version.artifact_path:
+            if self.config_manager.get_bool("model_registry.delete_archived_artifacts", default=False) and model_version.artifact_path:
                 artifact_path = Path(model_version.artifact_path)
                 if artifact_path.exists() and artifact_path.is_dir():
                     try:

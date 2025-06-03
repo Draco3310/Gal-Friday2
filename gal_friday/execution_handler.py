@@ -23,13 +23,21 @@ from gal_friday.core.events import (
     ExecutionReportEvent,
     TradeSignalApprovedEvent,
 )
-from gal_friday.core.pubsub import PubSubManager
-from gal_friday.logger_service import LoggerService
-from gal_friday.monitoring_service import MonitoringService
+from gal_friday.exceptions import (
+    ExecutionHandlerAuthenticationError,
+)
+from gal_friday.execution.adapters import (
+    BatchOrderRequest,
+    ExecutionAdapter,
+    KrakenExecutionAdapter,
+    OrderRequest,
+)
+from gal_friday.execution.websocket_client import KrakenWebSocketClient
 from gal_friday.utils.kraken_api import generate_kraken_signature
 
 if TYPE_CHECKING:
-    from gal_friday.core.event_store import EventStore
+    from gal_friday.core.pubsub import PubSubManager
+    from gal_friday.logger_service import LoggerService
 
 # Remove hardcoded URL - will be loaded from configuration
 
@@ -228,9 +236,64 @@ class ExecutionHandler:
             )
 
         self._session: aiohttp.ClientSession | None = None
-        # TODO: Add state for managing WebSocket connection if used for MVP
-        # TODO: Add mapping for internal IDs to exchange IDs (cl_ord_id ->
-        # txid)
+
+        # --- Initialize Execution Adapter Pattern (Enterprise Architecture) ---
+        # Configure which exchange adapter to use
+        self._exchange_name = self.config.get("execution_handler.exchange", "kraken")
+        self._adapter: ExecutionAdapter | None = None
+
+        # Initialize the appropriate adapter based on configuration
+        if self._exchange_name.lower() == "kraken":
+            self._adapter = KrakenExecutionAdapter(
+                config=self.config,
+                logger=self.logger,
+            )
+            self.logger.info(
+                "Initialized Kraken execution adapter",
+                source_module=self.__class__.__name__,
+            )
+        else:
+            # Future: Add support for other exchanges here
+            self.logger.error(
+                "Unsupported exchange: %s. Currently only 'kraken' is supported.",
+                self._exchange_name,
+                source_module=self.__class__.__name__,
+            )
+
+        # --- Enhanced WebSocket State Management (Production Ready) ---
+        self._websocket_config = self.config.get("execution_handler.websocket", {})
+        self._use_websocket_for_orders = self._websocket_config.get("use_for_order_updates", False)
+
+        if self._use_websocket_for_orders:
+            # WebSocket connection state and configuration
+            self._websocket_connection_state = "DISCONNECTED"  # DISCONNECTED, CONNECTING, CONNECTED, AUTHENTICATED
+            self._websocket_auth_token: str | None = None
+            self._websocket_connection_task: asyncio.Task | None = None
+            self._subscribed_channels: set[str] = set()
+            self._max_reconnect_attempts = self._websocket_config.get("max_reconnect_attempts", 5)
+            self._reconnect_delay_seconds = self._websocket_config.get("reconnect_delay_seconds", 5)
+            self._current_reconnect_attempts = 0
+            self._is_running = False  # Service lifecycle tracking for reconnection logic
+
+            # Initialize the WebSocket client
+            self.websocket_client = KrakenWebSocketClient(
+                config=self.config,
+                pubsub=self.pubsub,
+                logger=self.logger,
+            )
+        else:
+            self._websocket_connection_state = "DISABLED"
+            self._websocket_connection_task = None
+            self.websocket_client = None
+
+        # --- Enhanced Order ID Mapping (Bidirectional & Comprehensive) ---
+        # Maps internal client order IDs to Kraken exchange order IDs
+        self._internal_to_exchange_order_id: dict[str, str] = {}
+        # Maps Kraken exchange order IDs back to internal client order IDs
+        self._exchange_to_internal_order_id: dict[str, str] = {}
+        # Track orders awaiting confirmation or updates (includes full order context)
+        self._pending_orders_by_cl_ord_id: dict[str, TradeSignalApprovedEvent] = {}
+        # Legacy mapping for backward compatibility during transition
         self._order_map: dict[str, str] = {}  # cl_ord_id -> txid
         # Internal pair -> Kraken details
         self._pair_info: dict[str, dict[str, Any]] = {}
@@ -273,8 +336,34 @@ class ExecutionHandler:
             "Starting ExecutionHandler...",
             source_module=self.__class__.__name__,
         )
+
+        # Initialize the execution adapter
+        if self._adapter:
+            try:
+                await self._adapter.initialize()
+                self.logger.info(
+                    "Execution adapter initialized successfully",
+                    source_module=self.__class__.__name__,
+                )
+            except Exception:
+                self.logger.exception(
+                    "Failed to initialize execution adapter",
+                    source_module=self.__class__.__name__,
+                )
+                raise
+        else:
+            self.logger.error(
+                "No execution adapter configured. ExecutionHandler cannot function.",
+                source_module=self.__class__.__name__,
+            )
+            raise RuntimeError("No execution adapter configured")
+
+        # Keep legacy session for non-adapter operations (to be refactored later)
         self._session = aiohttp.ClientSession()
+
+        # Load exchange info for legacy code paths
         await self._load_exchange_info()
+
         # Check if info loading failed significantly
         if not self._pair_info:
             self.logger.error(
@@ -297,7 +386,27 @@ class ExecutionHandler:
             "ExecutionHandler started. Subscribed to TRADE_SIGNAL_APPROVED and close position commands.",  # noqa: E501
             source_module=self.__class__.__name__,
         )
-        # TODO: Implement WebSocket connection logic here if used for MVP
+
+        # Enterprise WebSocket Connection Logic
+        if self._use_websocket_for_orders and self.websocket_client:
+            self._is_running = True
+            self.logger.info(
+                "Starting WebSocket connection for order updates...",
+                source_module=self.__class__.__name__,
+            )
+            try:
+                await self._connect_websocket()
+            except Exception:
+                self.logger.exception(
+                    "Failed to establish WebSocket connection during startup. Will attempt reconnection.",
+                    source_module=self.__class__.__name__,
+                )
+                # Don't fail startup due to WebSocket issues - will attempt reconnection
+        else:
+            self.logger.info(
+                "WebSocket disabled for order updates. Using polling-based monitoring.",
+                source_module=self.__class__.__name__,
+            )
 
     async def stop(self) -> None:
         """Close API client session and potentially cancel orders."""
@@ -330,6 +439,59 @@ class ExecutionHandler:
             except Exception:
                 self.logger.exception("Error unsubscribing from close position handler")
 
+        # --- Configurable Cancellation of Open Orders (Enterprise Feature) ---
+        cancel_on_stop = self.config.get_bool("execution_handler.cancel_orders_on_stop", False)
+        cancel_timeout = self.config.get_float("execution_handler.cancel_orders_timeout_seconds", 10.0)
+
+        if cancel_on_stop and self._order_map:
+            self.logger.warning(
+                "Cancelling %d open orders on shutdown (configured behavior)",
+                len(self._order_map),
+                source_module=self.__class__.__name__,
+            )
+
+            # Collect all active order IDs
+            active_orders = list(self._order_map.values())
+
+            # Create cancellation tasks with timeout
+            cancellation_tasks = []
+            for exchange_order_id in active_orders:
+                task = asyncio.create_task(self.cancel_order(exchange_order_id))
+                cancellation_tasks.append(task)
+
+            if cancellation_tasks:
+                try:
+                    # Wait for all cancellations with timeout
+                    results = await asyncio.wait_for(
+                        asyncio.gather(*cancellation_tasks, return_exceptions=True),
+                        timeout=cancel_timeout,
+                    )
+
+                    successful = sum(1 for r in results if isinstance(r, bool) and r)
+                    failed = len(results) - successful
+
+                    self.logger.info(
+                        "Order cancellation complete. Success: %d, Failed: %d",
+                        successful,
+                        failed,
+                        source_module=self.__class__.__name__,
+                    )
+                except TimeoutError:
+                    self.logger.error(
+                        "Order cancellation timed out after %.1f seconds",
+                        cancel_timeout,
+                        source_module=self.__class__.__name__,
+                    )
+                    # Cancel the cancellation tasks
+                    for task in cancellation_tasks:
+                        if not task.done():
+                            task.cancel()
+        elif cancel_on_stop:
+            self.logger.info(
+                "No open orders to cancel on shutdown",
+                source_module=self.__class__.__name__,
+            )
+
         # Cancel ongoing monitoring tasks
         try:
             for task_id, task in list(self._order_monitoring_tasks.items()):
@@ -351,12 +513,43 @@ class ExecutionHandler:
                 source_module=self.__class__.__name__,
             )
 
+        # Clean up the execution adapter
+        if self._adapter:
+            try:
+                await self._adapter.cleanup()
+                self.logger.info(
+                    "Execution adapter cleaned up successfully",
+                    source_module=self.__class__.__name__,
+                )
+            except Exception:
+                self.logger.exception(
+                    "Error cleaning up execution adapter",
+                    source_module=self.__class__.__name__,
+                )
+
         self.logger.info(
             "ExecutionHandler stopped.",
             source_module=self.__class__.__name__,
         )
-        # TODO: Implement WebSocket disconnection logic
+
+        # Enterprise WebSocket Disconnection Logic
+        if self._use_websocket_for_orders and self.websocket_client:
+            self._is_running = False  # Signal that we're intentionally stopping
+            self.logger.info(
+                "Disconnecting WebSocket connection...",
+                source_module=self.__class__.__name__,
+            )
+            try:
+                await self._disconnect_websocket()
+            except Exception:
+                self.logger.exception(
+                    "Error during WebSocket disconnection",
+                    source_module=self.__class__.__name__,
+                )
+
         # TODO: Implement configurable cancellation of open orders on stop
+        # Future enhancement: Add configuration option to auto-cancel open orders during shutdown
+        # This would include safety checks to prevent accidental cancellations
 
     async def _make_public_request_with_retry(
         self,
@@ -1201,57 +1394,77 @@ class ExecutionHandler:
             descr = kraken_result_data.get("descr", {}).get("order", "N/A")
 
             if txids and isinstance(txids, list):
-                # Assuming single order response for now
-                kraken_order_id = txids[0]
-                self.logger.info(
-                    "Order via API for signal %s: cl_ord_id=%s, TXID=%s, Descr=%s",
-                    originating_event.signal_id,
-                    cl_ord_id,
-                    kraken_order_id,
-                    descr,
-                    source_module=self.__class__.__name__,
-                )
+                # Handle multiple order IDs (e.g., for conditional orders or order chains)
+                if len(txids) > 1:
+                    self.logger.info(
+                        "Received multiple order IDs (%d) for signal %s",
+                        len(txids),
+                        originating_event.signal_id,
+                        source_module=self.__class__.__name__,
+                    )
 
-                # Store the mapping for future reference (e.g., cancellation,
-                # status checks)
-                self._order_map[cl_ord_id] = kraken_order_id
+                # Process all returned order IDs
+                for idx, kraken_order_id in enumerate(txids):
+                    # For multiple orders, append index to client order ID to maintain uniqueness
+                    indexed_cl_ord_id = cl_ord_id if idx == 0 else f"{cl_ord_id}-{idx}"
 
-                # Publish initial "NEW" execution report
-                report = ExecutionReportEvent(
-                    source_module=self.__class__.__name__,
-                    event_id=UUID(int=int(time.time() * 1000000)),  # Generate a proper UUID
-                    timestamp=datetime.utcnow(),
-                    signal_id=originating_event.signal_id,
-                    exchange_order_id=kraken_order_id,
-                    client_order_id=cl_ord_id,
-                    trading_pair=originating_event.trading_pair,
-                    exchange=self.config.get("exchange.name", "kraken"),
-                    order_status="NEW",
-                    order_type=originating_event.order_type,
-                    side=originating_event.side,
-                    quantity_ordered=originating_event.quantity,
-                    quantity_filled=Decimal(0),
-                    limit_price=originating_event.limit_price,
-                    average_fill_price=None,
-                    commission=None,
-                    commission_asset=None,
-                    timestamp_exchange=None,  # API response might contain a timestamp?
-                    error_message=None,
-                )
-                # Using asyncio.create_task for fire-and-forget publishing
-                task = asyncio.create_task(self.pubsub.publish(report))
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
-                self.logger.debug(
-                    "Published NEW ExecutionReport for %s / %s",
-                    cl_ord_id,
-                    kraken_order_id,
-                    source_module=self.__class__.__name__,
-                )
+                    self.logger.info(
+                        "Order %d/%d via API for signal %s: cl_ord_id=%s, TXID=%s, Descr=%s",
+                        idx + 1,
+                        len(txids),
+                        originating_event.signal_id,
+                        indexed_cl_ord_id,
+                        kraken_order_id,
+                        descr,
+                        source_module=self.__class__.__name__,
+                    )
 
-                # Start monitoring the order status
-                self._start_order_monitoring(cl_ord_id, kraken_order_id, originating_event)
+                    # Store the mapping for future reference (e.g., cancellation, status checks)
+                    self._order_map[indexed_cl_ord_id] = kraken_order_id
 
+                    # Enterprise Order ID Mapping - Update bidirectional mappings
+                    self._update_order_id_mapping(indexed_cl_ord_id, kraken_order_id)
+
+                    # Add to pending orders tracking for WebSocket correlation
+                    self._pending_orders_by_cl_ord_id[indexed_cl_ord_id] = originating_event
+
+                    # Publish initial "NEW" execution report for each order
+                    report = ExecutionReportEvent(
+                        source_module=self.__class__.__name__,
+                        event_id=UUID(int=int(time.time() * 1000000) + idx),  # Ensure unique event IDs
+                        timestamp=datetime.utcnow(),
+                        signal_id=originating_event.signal_id,
+                        exchange_order_id=kraken_order_id,
+                        client_order_id=indexed_cl_ord_id,
+                        trading_pair=originating_event.trading_pair,
+                        exchange=self.config.get("exchange.name", "kraken"),
+                        order_status="NEW",
+                        order_type=originating_event.order_type,
+                        side=originating_event.side,
+                        quantity_ordered=originating_event.quantity,
+                        quantity_filled=Decimal(0),
+                        limit_price=originating_event.limit_price,
+                        average_fill_price=None,
+                        commission=None,
+                        commission_asset=None,
+                        timestamp_exchange=None,
+                        error_message=None,
+                    )
+
+                    # Using asyncio.create_task for fire-and-forget publishing
+                    task = asyncio.create_task(self.pubsub.publish(report))
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
+
+                    self.logger.debug(
+                        "Published NEW ExecutionReport for %s / %s",
+                        indexed_cl_ord_id,
+                        kraken_order_id,
+                        source_module=self.__class__.__name__,
+                    )
+
+                    # Start monitoring each order status
+                    self._start_order_monitoring(indexed_cl_ord_id, kraken_order_id, originating_event)
             else:
                 # This case indicates success HTTP status but unexpected result
                 # format
@@ -1279,18 +1492,538 @@ class ExecutionHandler:
             )
 
     async def _connect_websocket(self) -> None:
-        """Connect to the exchange WebSocket API.
+        """Connect to the exchange WebSocket API with enterprise-grade connection management.
 
-        This is a placeholder for future WebSocket implementation.
+        Establishes WebSocket connection with authentication, subscription management,
+        and robust error handling with automatic reconnection capabilities.
         """
-        # Placeholder
+        if not self.websocket_client:
+            self.logger.error(
+                "WebSocket client not initialized. Cannot establish connection.",
+                source_module=self.__class__.__name__,
+            )
+            return
+
+        if self._websocket_connection_state in ["CONNECTED", "AUTHENTICATED"]:
+            self.logger.info(
+                "WebSocket already connected/authenticated. Skipping connection attempt.",
+                source_module=self.__class__.__name__,
+            )
+            return
+
+        try:
+            self._websocket_connection_state = "CONNECTING"
+            self.logger.info(
+                "Attempting to establish WebSocket connection...",
+                source_module=self.__class__.__name__,
+            )
+
+            # Cancel any existing connection task
+            if self._websocket_connection_task and not self._websocket_connection_task.done():
+                self._websocket_connection_task.cancel()
+                try:
+                    await self._websocket_connection_task
+                except asyncio.CancelledError:
+                    pass
+
+            # Establish connection using the WebSocket client
+            await self.websocket_client.connect()
+
+            # Update state tracking
+            self._websocket_connection_state = "AUTHENTICATED"  # KrakenWebSocketClient handles auth internally
+            self._current_reconnect_attempts = 0
+
+            # Subscribe to private channels for order updates
+            await self._subscribe_to_order_channels()
+
+            self.logger.info(
+                "WebSocket connection established and authenticated successfully",
+                source_module=self.__class__.__name__,
+            )
+
+        except Exception as e:
+            self.logger.error(
+                "WebSocket connection attempt failed: %s",
+                str(e),
+                source_module=self.__class__.__name__,
+            )
+            self._websocket_connection_state = "ERROR"
+
+            # Attempt reconnection if we're still running
+            if self._is_running:
+                await self._handle_websocket_reconnect()
+
+    async def _subscribe_to_order_channels(self) -> None:
+        """Subscribe to private WebSocket channels for order updates.
+        
+        Subscribes to channels needed for order lifecycle management:
+        - ownTrades: For execution reports and fill notifications
+        - openOrders: For order status updates
+        """
+        if not self.websocket_client or self._websocket_connection_state != "AUTHENTICATED":
+            self.logger.warning(
+                "Cannot subscribe to order channels - WebSocket not authenticated",
+                source_module=self.__class__.__name__,
+            )
+            return
+
+        try:
+            # Get active trading pairs from configuration
+            active_pairs = self.config.get_list("trading.pairs", [])
+            if not active_pairs:
+                self.logger.warning(
+                    "No trading pairs configured. WebSocket subscriptions may be limited.",
+                    source_module=self.__class__.__name__,
+                )
+                # Use a default set or subscribe to all available pairs
+                active_pairs = ["XBT/USD", "ETH/USD"]  # Default pairs for order monitoring
+
+            # Note: Private channels in Kraken WebSocket are typically subscribed to globally
+            # The actual subscription is handled internally by KrakenWebSocketClient
+            # which subscribes to ownTrades and openOrders channels automatically
+
+            self._subscribed_channels.update(["ownTrades", "openOrders"])
+
+            self.logger.info(
+                "Successfully subscribed to order update channels: %s",
+                ", ".join(self._subscribed_channels),
+                source_module=self.__class__.__name__,
+            )
+
+        except Exception as e:
+            self.logger.error(
+                "Failed to subscribe to order channels: %s",
+                str(e),
+                source_module=self.__class__.__name__,
+            )
 
     async def _handle_websocket_message(self, message: dict[str, Any]) -> None:
-        """Process a message received from the exchange WebSocket.
+        """Process a message received from the exchange WebSocket with enterprise-grade handling.
 
-        This is a placeholder for future WebSocket implementation.
+        Handles different message types including order updates, fill notifications,
+        and maintains bidirectional order ID mapping between internal and exchange IDs.
+        
+        Args:
+            message: Raw message from WebSocket containing order updates or other data
         """
-        # Placeholder
+        try:
+            self.logger.debug(
+                "Received WebSocket message: %s",
+                message,
+                source_module=self.__class__.__name__,
+            )
+
+            # Extract message type and relevant data
+            message_type = self._parse_message_type(message)
+
+            if message_type == "ORDER_UPDATE":
+                await self._process_order_update_message(message)
+            elif message_type == "FILL_NOTIFICATION":
+                await self._process_fill_notification_message(message)
+            elif message_type == "AUTH_RESPONSE":
+                await self._process_auth_response_message(message)
+            elif message_type == "SUBSCRIPTION_ACK":
+                await self._process_subscription_ack_message(message)
+            elif message_type == "HEARTBEAT":
+                # Heartbeat messages don't require special processing
+                pass
+            else:
+                self.logger.debug(
+                    "Received unhandled WebSocket message type: %s",
+                    message_type,
+                    source_module=self.__class__.__name__,
+                )
+
+        except Exception as e:
+            self.logger.exception(
+                "Error processing WebSocket message: %s. Message: %s",
+                str(e),
+                message,
+                source_module=self.__class__.__name__,
+            )
+
+    def _parse_message_type(self, message: dict[str, Any]) -> str:
+        """Parse WebSocket message to determine its type.
+        
+        Args:
+            message: Raw WebSocket message
+            
+        Returns:
+            String identifier for message type
+        """
+        # Handle event-based messages
+        if isinstance(message, dict):
+            if "event" in message:
+                event = message.get("event")
+                if event == "subscriptionStatus":
+                    return "SUBSCRIPTION_ACK"
+                if event == "systemStatus":
+                    return "HEARTBEAT"
+                return f"EVENT_{event.upper()}"
+            if "channel" in message or "channelName" in message:
+                channel = message.get("channel") or message.get("channelName")
+                if channel in ["ownTrades"]:
+                    return "FILL_NOTIFICATION"
+                if channel in ["openOrders"]:
+                    return "ORDER_UPDATE"
+
+        # Handle list-based message format (typical for Kraken)
+        elif isinstance(message, list) and len(message) >= 3:
+            channel_name = message[2] if len(message) > 2 else None
+            if channel_name == "ownTrades":
+                return "FILL_NOTIFICATION"
+            if channel_name == "openOrders":
+                return "ORDER_UPDATE"
+
+        return "UNKNOWN"
+
+    async def _process_order_update_message(self, message: dict[str, Any]) -> None:
+        """Process order status update messages from WebSocket.
+        
+        Updates order ID mappings and publishes execution reports for status changes.
+        """
+        try:
+            # Extract order data from message (format varies by exchange)
+            order_data = self._extract_order_data_from_message(message)
+            if not order_data:
+                return
+
+            exchange_order_id = order_data.get("orderid") or order_data.get("txid")
+            client_order_id = order_data.get("userref") or order_data.get("clientOrderId")
+
+            # Try to resolve client order ID from our mapping if not in message
+            if not client_order_id and exchange_order_id:
+                client_order_id = self._exchange_to_internal_order_id.get(exchange_order_id)
+
+            # Update bidirectional mapping if we have both IDs
+            if exchange_order_id and client_order_id:
+                self._update_order_id_mapping(client_order_id, exchange_order_id)
+
+            if client_order_id:
+                # Create and publish execution report
+                await self._create_execution_report_from_websocket(
+                    order_data=order_data,
+                    client_order_id=client_order_id,
+                    exchange_order_id=exchange_order_id,
+                    message_type="ORDER_UPDATE",
+                )
+
+                # Clean up completed orders from pending tracking
+                order_status = order_data.get("status", "").lower()
+                if order_status in ["closed", "canceled", "cancelled", "expired", "rejected"]:
+                    self._pending_orders_by_cl_ord_id.pop(client_order_id, None)
+
+            else:
+                self.logger.warning(
+                    "Received order update for unknown order - no client_order_id mapping: %s",
+                    order_data,
+                    source_module=self.__class__.__name__,
+                )
+
+        except Exception as e:
+            self.logger.exception(
+                "Error processing order update message: %s",
+                str(e),
+                source_module=self.__class__.__name__,
+            )
+
+    async def _process_fill_notification_message(self, message: dict[str, Any]) -> None:
+        """Process trade fill notifications from WebSocket.
+        
+        Handles execution reports for partial and full fills.
+        """
+        try:
+            # Extract trade data from message
+            trade_data = self._extract_trade_data_from_message(message)
+            if not trade_data:
+                return
+
+            for trade_info in trade_data:
+                exchange_order_id = trade_info.get("ordertxid")
+                client_order_id = self._exchange_to_internal_order_id.get(exchange_order_id)
+
+                if client_order_id:
+                    await self._create_execution_report_from_websocket(
+                        order_data=trade_info,
+                        client_order_id=client_order_id,
+                        exchange_order_id=exchange_order_id,
+                        message_type="FILL_NOTIFICATION",
+                    )
+                else:
+                    self.logger.warning(
+                        "Received fill notification for unmapped order: %s",
+                        exchange_order_id,
+                        source_module=self.__class__.__name__,
+                    )
+
+        except Exception as e:
+            self.logger.exception(
+                "Error processing fill notification: %s",
+                str(e),
+                source_module=self.__class__.__name__,
+            )
+
+    async def _process_auth_response_message(self, message: dict[str, Any]) -> None:
+        """Process authentication response from WebSocket."""
+        try:
+            status = message.get("status")
+            if status == "ok":
+                self._websocket_connection_state = "AUTHENTICATED"
+                self.logger.info(
+                    "WebSocket authentication successful",
+                    source_module=self.__class__.__name__,
+                )
+                await self._subscribe_to_order_channels()
+            else:
+                self.logger.error(
+                    "WebSocket authentication failed: %s",
+                    message.get("errorMessage", "Unknown error"),
+                    source_module=self.__class__.__name__,
+                )
+                self._websocket_connection_state = "ERROR"
+
+        except Exception as e:
+            self.logger.exception(
+                "Error processing auth response: %s",
+                str(e),
+                source_module=self.__class__.__name__,
+            )
+
+    async def _process_subscription_ack_message(self, message: dict[str, Any]) -> None:
+        """Process subscription acknowledgment from WebSocket."""
+        try:
+            status = message.get("status")
+            channel = message.get("channelName", "unknown")
+
+            if status == "subscribed":
+                self._subscribed_channels.add(channel)
+                self.logger.info(
+                    "Successfully subscribed to WebSocket channel: %s",
+                    channel,
+                    source_module=self.__class__.__name__,
+                )
+            elif status == "error":
+                self.logger.error(
+                    "Failed to subscribe to WebSocket channel %s: %s",
+                    channel,
+                    message.get("errorMessage", "Unknown error"),
+                    source_module=self.__class__.__name__,
+                )
+
+        except Exception as e:
+            self.logger.exception(
+                "Error processing subscription ack: %s",
+                str(e),
+                source_module=self.__class__.__name__,
+            )
+
+    def _extract_order_data_from_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
+        """Extract order data from WebSocket message.
+        
+        Handles different message formats from Kraken WebSocket.
+        """
+        try:
+            # Handle different message formats
+            if isinstance(message, list) and len(message) >= 2:
+                # List format: [channel_id, data, channel_name, ...]
+                data = message[1]
+                if isinstance(data, list) and len(data) > 0:
+                    return data[0]  # First order in the list
+                if isinstance(data, dict):
+                    return data
+            elif isinstance(message, dict):
+                # Dict format with direct order data
+                return message.get("data", message)
+
+            return None
+
+        except Exception as e:
+            self.logger.error(
+                "Error extracting order data from message: %s",
+                str(e),
+                source_module=self.__class__.__name__,
+            )
+            return None
+
+    def _extract_trade_data_from_message(self, message: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extract trade data from WebSocket message."""
+        try:
+            if isinstance(message, list) and len(message) >= 2:
+                data = message[1]
+                if isinstance(data, list):
+                    return data
+                if isinstance(data, dict):
+                    return [data]
+            elif isinstance(message, dict):
+                trades = message.get("data", [])
+                if isinstance(trades, list):
+                    return trades
+                if isinstance(trades, dict):
+                    return [trades]
+
+            return []
+
+        except Exception as e:
+            self.logger.error(
+                "Error extracting trade data from message: %s",
+                str(e),
+                source_module=self.__class__.__name__,
+            )
+            return []
+
+    def _update_order_id_mapping(self, client_order_id: str, exchange_order_id: str) -> None:
+        """Update bidirectional order ID mapping.
+        
+        Maintains mappings between internal client order IDs and exchange order IDs.
+        """
+        self._internal_to_exchange_order_id[client_order_id] = exchange_order_id
+        self._exchange_to_internal_order_id[exchange_order_id] = client_order_id
+
+        # Also update legacy mapping for backward compatibility
+        self._order_map[client_order_id] = exchange_order_id
+
+        self.logger.debug(
+            "Updated order ID mapping: %s -> %s",
+            client_order_id,
+            exchange_order_id,
+            source_module=self.__class__.__name__,
+        )
+
+    async def _create_execution_report_from_websocket(
+        self,
+        order_data: dict[str, Any],
+        client_order_id: str,
+        exchange_order_id: str | None,
+        message_type: str,
+    ) -> None:
+        """Create and publish ExecutionReportEvent from WebSocket data.
+        
+        Converts WebSocket order/trade data into standardized execution reports.
+        """
+        try:
+            # Extract signal ID from pending orders if available
+            signal_id = None
+            originating_event = self._pending_orders_by_cl_ord_id.get(client_order_id)
+            if originating_event:
+                signal_id = originating_event.signal_id
+
+            # Parse order details from WebSocket data
+            order_status = self._map_exchange_status_to_internal(order_data.get("status", "unknown"))
+
+            # Extract quantities and prices
+            quantity_ordered = Decimal(order_data.get("vol", "0"))
+            quantity_filled = Decimal(order_data.get("vol_exec", "0"))
+
+            # Extract prices
+            limit_price = None
+            avg_fill_price = None
+
+            if "price" in order_data:
+                price_str = order_data["price"]
+                if price_str and price_str != "0":
+                    if message_type == "FILL_NOTIFICATION":
+                        avg_fill_price = Decimal(price_str)
+                    else:
+                        limit_price = Decimal(price_str)
+
+            # Extract trading pair
+            trading_pair = "UNKNOWN"
+            if "pair" in order_data:
+                kraken_pair = order_data["pair"]
+                internal_pair = self._map_kraken_pair_to_internal(kraken_pair)
+                trading_pair = internal_pair or kraken_pair
+
+            # Extract side and order type
+            descr = order_data.get("descr", {})
+            side = descr.get("type", "unknown").upper()
+            order_type = descr.get("ordertype", "unknown").upper()
+
+            # Extract commission
+            commission = None
+            if order_data.get("fee"):
+                commission = Decimal(order_data["fee"])
+
+            # Create execution report
+            report = ExecutionReportEvent(
+                source_module=self.__class__.__name__,
+                event_id=UUID(int=int(time.time() * 1000000)),
+                timestamp=datetime.utcnow(),
+                signal_id=signal_id,
+                exchange_order_id=exchange_order_id or "UNKNOWN",
+                client_order_id=client_order_id,
+                trading_pair=trading_pair,
+                exchange=self.config.get("exchange.name", "kraken"),
+                order_status=order_status,
+                order_type=order_type,
+                side=side,
+                quantity_ordered=quantity_ordered,
+                quantity_filled=quantity_filled,
+                limit_price=limit_price,
+                average_fill_price=avg_fill_price,
+                commission=commission,
+                commission_asset=self._get_quote_currency(trading_pair),
+                timestamp_exchange=self._parse_exchange_timestamp(order_data),
+                error_message=order_data.get("reason") if order_status in ["REJECTED", "CANCELLED"] else None,
+            )
+
+            # Publish the execution report
+            publish_task = asyncio.create_task(self.pubsub.publish(report))
+            self._background_tasks.add(publish_task)
+            publish_task.add_done_callback(self._background_tasks.discard)
+
+            self.logger.info(
+                "Published WebSocket execution report: %s %s for %s",
+                order_status,
+                message_type,
+                client_order_id,
+                source_module=self.__class__.__name__,
+            )
+
+        except Exception as e:
+            self.logger.exception(
+                "Error creating execution report from WebSocket data: %s",
+                str(e),
+                source_module=self.__class__.__name__,
+            )
+
+    def _map_exchange_status_to_internal(self, exchange_status: str) -> str:
+        """Map exchange-specific order status to internal status.
+        
+        Args:
+            exchange_status: Status from exchange (e.g., Kraken)
+            
+        Returns:
+            Standardized internal status
+        """
+        status_map = {
+            "pending": "NEW",
+            "open": "OPEN",
+            "closed": "FILLED",
+            "canceled": "CANCELLED",
+            "cancelled": "CANCELLED",
+            "expired": "EXPIRED",
+            "rejected": "REJECTED",
+        }
+
+        return status_map.get(exchange_status.lower(), exchange_status.upper())
+
+    def _parse_exchange_timestamp(self, order_data: dict[str, Any]) -> datetime | None:
+        """Parse exchange timestamp from order data."""
+        try:
+            timestamp_fields = ["opentm", "closetm", "timestamp", "time"]
+            for field in timestamp_fields:
+                if order_data.get(field):
+                    timestamp_value = order_data[field]
+                    if isinstance(timestamp_value, (int, float)):
+                        return datetime.fromtimestamp(timestamp_value, tz=UTC)
+                    if isinstance(timestamp_value, str):
+                        try:
+                            return datetime.fromtimestamp(float(timestamp_value), tz=UTC)
+                        except ValueError:
+                            continue
+            return None
+        except Exception:
+            return None
 
     async def cancel_order(self, exchange_order_id: str) -> bool:
         """Cancel an open order on the exchange."""
@@ -1822,6 +2555,7 @@ class ExecutionHandler:
         """Place SL and/or TP orders contingent on the filled entry order.
 
         Creates stop-loss and take-profit orders based on the original signal parameters.
+        Uses batch order placement when both SL and TP are needed for efficiency.
         """
         self.logger.info(
             "Handling SL/TP placement for filled order %s (Signal: %s)",
@@ -1838,6 +2572,143 @@ class ExecutionHandler:
         exit_side = "sell" if originating_event.side.upper() == "BUY" else "buy"
         current_pair_info = self._pair_info.get(originating_event.trading_pair)
 
+        # --- Enterprise Implementation: Use Adapter Pattern for Batch Orders ---
+        if self._adapter and originating_event.sl_price and originating_event.tp_price:
+            # Both SL and TP are present - use batch placement for efficiency
+            self.logger.info(
+                "Using batch order placement for both SL and TP orders",
+                source_module=self.__class__.__name__,
+            )
+
+            batch_request = BatchOrderRequest(orders=[], validate_only=False)
+
+            # Prepare Stop Loss Order
+            sl_order = OrderRequest(
+                trading_pair=originating_event.trading_pair,
+                side=exit_side.upper(),
+                order_type="stop-loss",
+                quantity=filled_quantity,
+                stop_price=originating_event.sl_price,
+                client_order_id=f"gf-sl-{str(originating_event.signal_id)[:8]}-{int(time.time() * 1000000)}",
+                metadata={"reduce_only": "true", "originating_signal": str(originating_event.signal_id)},
+            )
+            batch_request.orders.append(sl_order)
+
+            # Prepare Take Profit Order
+            tp_order = OrderRequest(
+                trading_pair=originating_event.trading_pair,
+                side=exit_side.upper(),
+                order_type="take-profit",
+                quantity=filled_quantity,
+                stop_price=originating_event.tp_price,
+                client_order_id=f"gf-tp-{str(originating_event.signal_id)[:8]}-{int(time.time() * 1000000)}",
+                metadata={"reduce_only": "true", "originating_signal": str(originating_event.signal_id)},
+            )
+            batch_request.orders.append(tp_order)
+
+            try:
+                # Place both orders together
+                batch_response = await self._adapter.place_batch_orders(batch_request)
+
+                if batch_response.success:
+                    # Process each order result
+                    for i, order_result in enumerate(batch_response.order_results):
+                        if order_result.success and order_result.exchange_order_ids:
+                            order_type = "SL" if i == 0 else "TP"
+                            exchange_order_id = order_result.exchange_order_ids[0]
+                            client_order_id = order_result.client_order_id
+
+                            self.logger.info(
+                                "%s order placed successfully: cl_ord_id=%s, exchange_id=%s",
+                                order_type,
+                                client_order_id,
+                                exchange_order_id,
+                                source_module=self.__class__.__name__,
+                            )
+
+                            # Update order mappings
+                            if client_order_id:
+                                self._order_map[client_order_id] = exchange_order_id
+                                self._update_order_id_mapping(client_order_id, exchange_order_id)
+                                self._pending_orders_by_cl_ord_id[client_order_id] = originating_event
+
+                            # Publish execution report
+                            await self._publish_initial_execution_report(
+                                originating_event=originating_event,
+                                client_order_id=client_order_id,
+                                exchange_order_id=exchange_order_id,
+                                order_type=batch_request.orders[i].order_type,
+                            )
+
+                            # Start monitoring
+                            self._start_order_monitoring(
+                                client_order_id,
+                                exchange_order_id,
+                                originating_event,
+                            )
+                        else:
+                            order_type = "SL" if i == 0 else "TP"
+                            self.logger.error(
+                                "%s order placement failed: %s",
+                                order_type,
+                                order_result.error_message,
+                                source_module=self.__class__.__name__,
+                            )
+                else:
+                    self.logger.error(
+                        "Batch order placement failed: %s",
+                        batch_response.error_message,
+                        source_module=self.__class__.__name__,
+                    )
+                    # Fall back to individual placement
+                    await self._place_sl_tp_individually(
+                        originating_event,
+                        kraken_pair_name,
+                        exit_side,
+                        filled_quantity,
+                        current_pair_info,
+                    )
+
+            except Exception:
+                self.logger.exception(
+                    "Exception during batch order placement. Falling back to individual placement.",
+                    source_module=self.__class__.__name__,
+                )
+                # Fall back to individual placement
+                await self._place_sl_tp_individually(
+                    originating_event,
+                    kraken_pair_name,
+                    exit_side,
+                    filled_quantity,
+                    current_pair_info,
+                )
+        else:
+            # Either adapter not available or only one of SL/TP is set
+            # Use individual placement
+            await self._place_sl_tp_individually(
+                originating_event,
+                kraken_pair_name,
+                exit_side,
+                filled_quantity,
+                current_pair_info,
+            )
+
+        # Mark SL/TP as placed for this signal
+        await self._mark_sl_tp_as_placed(originating_event.signal_id)
+
+    async def _place_sl_tp_individually(
+        self,
+        originating_event: TradeSignalApprovedEvent,
+        kraken_pair_name: str,
+        exit_side: str,
+        filled_quantity: Decimal,
+        current_pair_info: dict[str, Any] | None,
+    ) -> None:
+        """Place SL and TP orders individually using legacy method.
+        
+        This is the fallback method when batch placement is not available
+        or when only one of SL/TP is needed.
+        """
         # Place Stop Loss Order
         if originating_event.sl_price:
             sl_request_params = ContingentOrderParamsRequest(
@@ -1907,9 +2778,6 @@ class ExecutionHandler:
                 )
                 # Handle TP order placement response (publish report, start monitoring)
                 await self._handle_add_order_response(tp_result, originating_event, tp_cl_ord_id)
-
-        # Mark SL/TP as placed for this signal
-        await self._mark_sl_tp_as_placed(originating_event.signal_id)
 
     async def _monitor_limit_order_timeout(
         self,
@@ -2138,3 +3006,176 @@ class ExecutionHandler:
         # Normal rate-limited placement
         await self.rate_limiter.wait_for_private_capacity()
         return await self._make_private_request("/0/private/AddOrder", params)
+
+    async def _disconnect_websocket(self) -> None:
+        """Disconnect WebSocket connection with graceful cleanup.
+        
+        Properly disconnects WebSocket connection, cancels tasks, and cleans up state.
+        """
+        if not self.websocket_client or self._websocket_connection_state in ["DISCONNECTED", "DISABLED"]:
+            return
+
+        try:
+            self.logger.info(
+                "Initiating WebSocket disconnection...",
+                source_module=self.__class__.__name__,
+            )
+
+            # Cancel connection task if running
+            if self._websocket_connection_task and not self._websocket_connection_task.done():
+                self._websocket_connection_task.cancel()
+                try:
+                    await self._websocket_connection_task
+                except asyncio.CancelledError:
+                    pass
+
+            # Disconnect the WebSocket client
+            await self.websocket_client.disconnect()
+
+            # Clean up state
+            self._websocket_connection_state = "DISCONNECTED"
+            self._subscribed_channels.clear()
+            self._websocket_auth_token = None
+            self._current_reconnect_attempts = 0
+
+            self.logger.info(
+                "WebSocket disconnection completed",
+                source_module=self.__class__.__name__,
+            )
+
+        except Exception as e:
+            self.logger.exception(
+                "Error during WebSocket disconnection: %s",
+                str(e),
+                source_module=self.__class__.__name__,
+            )
+
+    async def _handle_websocket_reconnect(self) -> None:
+        """Handle WebSocket reconnection with exponential backoff.
+        
+        Implements enterprise-grade reconnection logic with configurable retry limits
+        and exponential backoff to prevent overwhelming the exchange.
+        """
+        if not self._is_running:
+            self.logger.info(
+                "Service is shutting down. Skipping WebSocket reconnection.",
+                source_module=self.__class__.__name__,
+            )
+            return
+
+        if self._current_reconnect_attempts >= self._max_reconnect_attempts:
+            self.logger.error(
+                "Max WebSocket reconnect attempts (%d) reached. Giving up.",
+                self._max_reconnect_attempts,
+                source_module=self.__class__.__name__,
+            )
+            self._websocket_connection_state = "ERROR"
+
+            # Optionally publish system alert for monitoring
+            # Future enhancement: Integrate with monitoring service alerts
+            return
+
+        self._current_reconnect_attempts += 1
+
+        # Calculate delay with exponential backoff and jitter
+        base_delay = self._reconnect_delay_seconds
+        exponential_delay = base_delay * (2 ** (self._current_reconnect_attempts - 1))
+        max_delay = 300  # Cap at 5 minutes
+        delay = min(exponential_delay, max_delay)
+
+        # Add jitter to prevent thundering herd
+        jitter = secrets.SystemRandom().uniform(0, delay * 0.1)
+        total_delay = delay + jitter
+
+        self.logger.info(
+            "Attempting WebSocket reconnection %d/%d in %.2f seconds...",
+            self._current_reconnect_attempts,
+            self._max_reconnect_attempts,
+            total_delay,
+            source_module=self.__class__.__name__,
+        )
+
+        await asyncio.sleep(total_delay)
+
+        if self._is_running:  # Check again after delay
+            await self._connect_websocket()
+
+    def get_exchange_order_id(self, client_order_id: str) -> str | None:
+        """Get the exchange order ID for a given client order ID.
+        
+        Args:
+            client_order_id: Internal client order ID
+            
+        Returns:
+            Exchange order ID if found, None otherwise
+        """
+        return self._internal_to_exchange_order_id.get(client_order_id)
+
+    def get_client_order_id(self, exchange_order_id: str) -> str | None:
+        """Get the client order ID for a given exchange order ID.
+        
+        Args:
+            exchange_order_id: Exchange order ID
+            
+        Returns:
+            Client order ID if found, None otherwise
+        """
+        return self._exchange_to_internal_order_id.get(exchange_order_id)
+
+    def is_websocket_connected(self) -> bool:
+        """Check if WebSocket is connected and authenticated.
+        
+        Returns:
+            True if WebSocket is connected and ready for use
+        """
+        return (
+            self._use_websocket_for_orders
+            and self._websocket_connection_state == "AUTHENTICATED"
+            and self.websocket_client is not None
+        )
+
+    async def _publish_initial_execution_report(
+        self,
+        originating_event: TradeSignalApprovedEvent,
+        client_order_id: str,
+        exchange_order_id: str,
+        order_type: str,
+    ) -> None:
+        """Publish initial NEW execution report for an order.
+        
+        Helper method to avoid code duplication when publishing initial reports
+        for both regular and batch-placed orders.
+        """
+        report = ExecutionReportEvent(
+            source_module=self.__class__.__name__,
+            event_id=UUID(int=int(time.time() * 1000000)),
+            timestamp=datetime.utcnow(),
+            signal_id=originating_event.signal_id,
+            exchange_order_id=exchange_order_id,
+            client_order_id=client_order_id,
+            trading_pair=originating_event.trading_pair,
+            exchange=self.config.get("exchange.name", "kraken"),
+            order_status="NEW",
+            order_type=order_type,
+            side=originating_event.side,
+            quantity_ordered=originating_event.quantity,
+            quantity_filled=Decimal(0),
+            limit_price=originating_event.limit_price,
+            average_fill_price=None,
+            commission=None,
+            commission_asset=None,
+            timestamp_exchange=None,
+            error_message=None,
+        )
+
+        # Using asyncio.create_task for fire-and-forget publishing
+        task = asyncio.create_task(self.pubsub.publish(report))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+        self.logger.debug(
+            "Published NEW ExecutionReport for %s / %s",
+            client_order_id,
+            exchange_order_id,
+            source_module=self.__class__.__name__,
+        )

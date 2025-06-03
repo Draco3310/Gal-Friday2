@@ -130,6 +130,11 @@ class PredictionService:
         self._source_module = self.__class__.__name__
         self.configuration_manager = configuration_manager  # Store it
 
+        # Enhanced shutdown handling
+        self._shutting_down = asyncio.Event()
+        self._shutdown_timeout = self._service_config.get("shutdown_timeout_seconds", 30.0)
+        self._in_flight_tasks: dict[str, asyncio.Task] = {}  # task_id -> Task
+
         self._feature_event_handler: Callable[
             [FeatureEvent], Coroutine[Any, Any, None],
         ] = self._handle_feature_event
@@ -490,13 +495,21 @@ class PredictionService:
             )
 
     async def stop(self) -> None:
-        """Stop event processing and cancel pending inferences."""
+        """Stop event processing and cancel pending inferences with graceful shutdown."""
         if not self._is_running:
             self.logger.info(
                 "PredictionService already stopped or not started.",
                 source_module=self._source_module,
             )
             return
+
+        self.logger.info(
+            "Initiating graceful shutdown of PredictionService...",
+            source_module=self._source_module,
+        )
+
+        # Set shutdown flag to prevent new tasks
+        self._shutting_down.set()
         self._is_running = False
 
         # Unsubscribe from FeatureEvent first
@@ -536,30 +549,155 @@ class PredictionService:
                     context={"event_type": EventType.PREDICTION_CONFIG_UPDATED.name},
                 )
 
-        if self._active_inference_tasks:
-            pending_count = len(self._active_inference_tasks)
-            log_msg = (
-                "Stopping PredictionService. Cancelling %(pending_count)s " "pending inferences..."
-            )
-            self.logger.info(
-                log_msg,
-                source_module=self._source_module,
-                context={"pending_inferences": pending_count, "pending_count": pending_count},
-            )
-            for task in list(self._active_inference_tasks):  # Iterate over a copy
-                if not task.done():
-                    task.cancel()
-            # Wait for cancellations
-            await asyncio.gather(*self._active_inference_tasks, return_exceptions=True)
-            self._active_inference_tasks.clear()
-            self.logger.info(
-                "Pending inferences cancelled.",
-                source_module=self._source_module,
-            )
+        # Handle in-flight tasks gracefully
+        await self._graceful_shutdown_tasks()
+
         self.logger.info(
             "PredictionService stopped.",
             source_module=self._source_module,
         )
+
+    async def _graceful_shutdown_tasks(self) -> None:
+        """Gracefully shutdown in-flight prediction tasks."""
+        # Get all active tasks
+        all_tasks = list(self._active_inference_tasks) + list(self._in_flight_tasks.values())
+
+        if not all_tasks:
+            self.logger.info(
+                "No in-flight prediction tasks to wait for.",
+                source_module=self._source_module,
+            )
+            return
+
+        self.logger.info(
+            "Waiting for %(task_count)s in-flight prediction tasks to complete...",
+            source_module=self._source_module,
+            context={"task_count": len(all_tasks)},
+        )
+
+        # Wait for tasks to complete with timeout
+        try:
+            done, pending = await asyncio.wait(
+                all_tasks,
+                timeout=self._shutdown_timeout,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+
+            # Handle completed tasks
+            for task in done:
+                try:
+                    await task  # Re-raise any exceptions for logging
+                except asyncio.CancelledError:
+                    self.logger.debug(
+                        "Prediction task was cancelled during shutdown",
+                        source_module=self._source_module,
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        "Prediction task failed during shutdown: %(error)s",
+                        source_module=self._source_module,
+                        context={"error": str(e)},
+                    )
+
+            # Cancel any remaining tasks
+            if pending:
+                self.logger.warning(
+                    "Cancelling %(pending_count)s prediction tasks that didn't complete in time",
+                    source_module=self._source_module,
+                    context={"pending_count": len(pending)},
+                )
+                for task in pending:
+                    task.cancel()
+
+                # Wait a short time for cancellation to propagate
+                await asyncio.sleep(0.1)
+
+        except Exception:
+            self.logger.exception(
+                "Error during graceful shutdown of prediction tasks",
+                source_module=self._source_module,
+            )
+
+        # Clear tracking sets
+        self._active_inference_tasks.clear()
+        self._in_flight_tasks.clear()
+
+        self.logger.info(
+            "Prediction task shutdown complete",
+            source_module=self._source_module,
+        )
+
+    def _apply_confidence_floor(
+        self,
+        predictions: list[dict[str, Any]],
+        confidence_floor: float,
+        target: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Apply confidence floor filtering to predictions.
+        
+        Args:
+            predictions: List of prediction dictionaries
+            confidence_floor: Minimum confidence threshold (0.0 to 1.0)
+            target: Optional target name for logging context
+            
+        Returns:
+            Filtered list of predictions that meet the confidence floor
+        """
+        if confidence_floor <= 0.0:
+            return predictions  # No filtering needed
+
+        passed_predictions = []
+        target_context = f" for target {target}" if target else ""
+
+        for prediction in predictions:
+            model_id = prediction.get("model_id", "unknown")
+            model_confidence = prediction.get("confidence")
+
+            if model_confidence is None:
+                # Policy: Assume predictions without confidence pass the floor
+                self.logger.debug(
+                    "Prediction from %(model_id)s%(target_context)s has no confidence score. Assuming it passes the floor.",
+                    source_module=self._source_module,
+                    context={
+                        "model_id": model_id,
+                        "target_context": target_context,
+                    },
+                )
+                passed_predictions.append(prediction)
+                continue
+
+            if model_confidence >= confidence_floor:
+                passed_predictions.append(prediction)
+            else:
+                self.logger.info(
+                    "Prediction from %(model_id)s%(target_context)s (confidence: %(confidence).3f) dropped. Below floor of %(floor).3f.",
+                    source_module=self._source_module,
+                    context={
+                        "model_id": model_id,
+                        "target_context": target_context,
+                        "confidence": model_confidence,
+                        "floor": confidence_floor,
+                    },
+                )
+
+        return passed_predictions
+
+    def _get_confidence_floor_for_target(self, target: str) -> float:
+        """Get the confidence floor for a specific prediction target.
+        
+        Args:
+            target: The prediction target name
+            
+        Returns:
+            Confidence floor value (0.0 to 1.0)
+        """
+        # Check for per-target configuration first
+        confidence_floors = self._service_config.get("confidence_floors", {})
+        if isinstance(confidence_floors, dict) and target in confidence_floors:
+            return float(confidence_floors[target])
+
+        # Fall back to global confidence floor
+        return float(self._service_config.get("confidence_floor", 0.0))
 
     async def _handle_feature_event(self, event: FeatureEvent) -> None:
         """Handles incoming `FeatureEvent` objects.
@@ -990,8 +1128,6 @@ class PredictionService:
         """Apply ensembling strategy and publish final predictions."""
         ensemble_strategy = self._service_config.get("ensemble_strategy", "none").lower()
         ensemble_weights = self._service_config.get("ensemble_weights", {})
-        # TODO: Implement confidence floor in future versions
-        _ = float(self._service_config.get("confidence_floor", 0.1))  # Will be used later
 
         # Group predictions by target for ensembling
         predictions_by_target: dict[str, list[dict[str, Any]]] = {}
@@ -1004,12 +1140,32 @@ class PredictionService:
         final_predictions_to_publish: list[dict[str, Any]] = []
 
         if ensemble_strategy == "none" or not predictions_by_target:
-            # Publish individual predictions
-            final_predictions_to_publish = successful_predictions
+            # Apply confidence floor to individual predictions
+            global_confidence_floor = self._get_confidence_floor_for_target("global")
+            final_predictions_to_publish = self._apply_confidence_floor(
+                successful_predictions,
+                global_confidence_floor,
+            )
         else:
             # Apply ensembling for each target group
             for target, preds_for_target in predictions_by_target.items():
                 if not preds_for_target:
+                    continue
+
+                # Apply confidence floor before ensembling
+                target_confidence_floor = self._get_confidence_floor_for_target(target)
+                filtered_preds = self._apply_confidence_floor(
+                    preds_for_target,
+                    target_confidence_floor,
+                    target,
+                )
+
+                if not filtered_preds:
+                    self.logger.info(
+                        "No predictions for target %(target)s met confidence floor for ensembling. No ensemble prediction will be generated.",
+                        source_module=self._source_module,
+                        context={"target": target},
+                    )
                     continue
 
                 target_cleaned = target.replace("_", "")[:15]
@@ -1017,14 +1173,14 @@ class PredictionService:
 
                 if ensemble_strategy == "average":
                     self._apply_average_ensembling(
-                        preds_for_target,
+                        filtered_preds,
                         target,
                         ensemble_id,
                         final_predictions_to_publish,
                     )
                 elif ensemble_strategy == "weighted_average":
                     self._apply_weighted_average_ensembling(
-                        preds_for_target,
+                        filtered_preds,
                         target,
                         ensemble_id,
                         ensemble_weights,
@@ -1317,12 +1473,8 @@ class PredictionService:
                 "Service may become inactive if all models are removed.",
             )
 
-        # TODO: Consider more graceful handling of in-flight tasks
-        # for models being removed/changed.
-        # For now, active tasks for old/removed models will complete
-        # or be cancelled on service stop/timeout. New FeatureEvents
-        # arriving *during* _initialize_predictors might be slightly
-        # delayed or use new predictors.
+        # Enhanced handling of in-flight tasks during reconfiguration
+        await self._handle_reconfiguration_with_in_flight_tasks()
 
         try:
             # This will clear and repopulate predictors & buffers
@@ -1371,3 +1523,72 @@ class PredictionService:
                 context={"error": str(e)},
                 exc_info=True,
             )
+
+    async def _handle_reconfiguration_with_in_flight_tasks(self) -> None:
+        """Handle in-flight tasks during reconfiguration more gracefully."""
+        current_tasks = list(self._active_inference_tasks) + list(self._in_flight_tasks.values())
+
+        if not current_tasks:
+            return
+
+        self.logger.info(
+            "Waiting for %(task_count)s in-flight tasks to complete before reconfiguration...",
+            source_module=self._source_module,
+            context={"task_count": len(current_tasks)},
+        )
+
+        # Give current tasks a shorter timeout during reconfiguration
+        reconfig_timeout = min(self._shutdown_timeout, 10.0)  # Max 10 seconds
+
+        try:
+            done, pending = await asyncio.wait(
+                current_tasks,
+                timeout=reconfig_timeout,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+
+            if pending:
+                self.logger.warning(
+                    "Cancelling %(pending_count)s tasks that didn't complete before reconfiguration",
+                    source_module=self._source_module,
+                    context={"pending_count": len(pending)},
+                )
+                for task in pending:
+                    task.cancel()
+
+                # Wait briefly for cancellation
+                await asyncio.sleep(0.1)
+
+        except Exception:
+            self.logger.exception(
+                "Error handling in-flight tasks during reconfiguration",
+                source_module=self._source_module,
+            )
+
+    async def _create_prediction_task(self, task_coro: Any, task_name: str = "") -> str:
+        """Create a new prediction task with proper tracking.
+        
+        Args:
+            task_coro: The coroutine to run as a task
+            task_name: Optional name for the task
+            
+        Returns:
+            Task ID for tracking
+            
+        Raises:
+            RuntimeError: If service is shutting down
+        """
+        if self._shutting_down.is_set():
+            raise RuntimeError("Cannot start new prediction: service is shutting down")
+
+        task_id = str(uuid.uuid4())
+        task_name_final = task_name or f"prediction-{task_id[:8]}"
+
+        task = asyncio.create_task(task_coro, name=task_name_final)
+
+        # Add callback to clean up the task when done
+        task.add_done_callback(lambda t: self._in_flight_tasks.pop(task_id, None))
+
+        # Store the task
+        self._in_flight_tasks[task_id] = task
+        return task_id

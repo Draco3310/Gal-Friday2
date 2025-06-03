@@ -1400,7 +1400,7 @@ class DataIngestor:
                 event_id=uuid.uuid4(),
                 timestamp=datetime.utcnow(),  # Event creation time
                 trading_pair=symbol,
-                exchange="kraken",  # Hardcoded for now
+                exchange=self._config.get("data_ingestion.default_exchange", "kraken"),
                 bids=bids_list,
                 asks=asks_list,
                 is_snapshot=is_snapshot,

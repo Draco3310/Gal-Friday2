@@ -1,26 +1,37 @@
 """Dashboard service providing aggregated system metrics."""
 
 from datetime import UTC, datetime
-from typing import Any
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any
 
 import psutil
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
 
+if TYPE_CHECKING:
+    from gal_friday.portfolio_manager import PortfolioManager
+
 
 class DashboardService:
     """Service for aggregating and providing dashboard metrics."""
 
-    def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
+    def __init__(
+        self,
+        config: ConfigManager,
+        logger: LoggerService,
+        portfolio_manager: "PortfolioManager",
+    ) -> None:
         """Initialize the DashboardService.
 
         Args:
             config: The configuration manager instance.
             logger: The logger service instance.
+            portfolio_manager: The portfolio manager instance.
         """
         self.config = config
         self.logger = logger
+        self.portfolio_manager = portfolio_manager
         self._start_time = datetime.now(UTC)
 
     async def get_all_metrics(self) -> dict[str, Any]:
@@ -54,22 +65,64 @@ class DashboardService:
         }
 
     async def _get_portfolio_metrics(self) -> dict[str, Any]:
-        """Get portfolio metrics."""
-        # Placeholder metrics - in real implementation would connect to portfolio manager
-        return {
-            "total_pnl": 1250.75,
-            "daily_pnl": 45.20,
-            "win_rate": 0.68,
-            "total_trades": 127,
-            "active_positions": 3,
-            "positions": [
-                {"symbol": "XRP/USD", "size": 1000, "pnl": 23.45},
-                {"symbol": "BTC/USD", "size": 0.1, "pnl": -5.67},
-                {"symbol": "ETH/USD", "size": 2.5, "pnl": 12.89},
-            ],
-            "max_drawdown": 0.05,
-            "sharpe_ratio": 1.85,
-        }
+        """Get portfolio metrics from the real portfolio manager."""
+        try:
+            # Get current portfolio state
+            portfolio_state = self.portfolio_manager.get_current_state()
+
+            # Extract key metrics
+            total_equity = portfolio_state.get("total_equity", Decimal("0"))
+            total_pnl = portfolio_state.get("total_unrealized_pnl", Decimal("0"))
+            daily_pnl = portfolio_state.get("daily_pnl", Decimal("0"))
+
+            # Get positions
+            positions_dict = portfolio_state.get("positions", {})
+            active_positions = []
+            for symbol, pos_data in positions_dict.items():
+                if pos_data.get("quantity", 0) != 0:
+                    active_positions.append({
+                        "symbol": symbol,
+                        "size": float(pos_data.get("quantity", 0)),
+                        "pnl": float(pos_data.get("unrealized_pnl", 0)),
+                    })
+
+            # Calculate metrics
+            trades_today = portfolio_state.get("trades_today", [])
+            winning_trades = [t for t in trades_today if t.get("pnl", 0) > 0]
+            win_rate = len(winning_trades) / len(trades_today) if trades_today else 0.0
+
+            max_drawdown = portfolio_state.get("max_drawdown_pct", Decimal("0"))
+
+            return {
+                "total_pnl": float(total_pnl),
+                "daily_pnl": float(daily_pnl),
+                "win_rate": win_rate,
+                "total_trades": portfolio_state.get("total_trades", 0),
+                "active_positions": len(active_positions),
+                "positions": active_positions,
+                "max_drawdown": float(max_drawdown) / 100,  # Convert percentage to decimal
+                "sharpe_ratio": float(portfolio_state.get("sharpe_ratio", 0)),
+                "total_equity": float(total_equity),
+            }
+
+        except Exception as e:
+            self.logger.error(
+                f"Failed to get portfolio metrics: {e}",
+                source_module="DashboardService",
+                exc_info=True,
+            )
+            # Return safe defaults on error
+            return {
+                "total_pnl": 0.0,
+                "daily_pnl": 0.0,
+                "win_rate": 0.0,
+                "total_trades": 0,
+                "active_positions": 0,
+                "positions": [],
+                "max_drawdown": 0.0,
+                "sharpe_ratio": 0.0,
+                "total_equity": 0.0,
+            }
 
     async def _get_model_metrics(self) -> dict[str, Any]:
         """Get ML model metrics."""

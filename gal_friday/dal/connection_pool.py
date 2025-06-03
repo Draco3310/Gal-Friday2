@@ -53,13 +53,19 @@ class DatabaseConnectionPool:
                     # handled differently in SQLAlchemy or have defaults.
                     # `pool_size` and `max_overflow` are common SQLAlchemy pool params.
                     # We can expose these via config if needed.
+                    pool_size = self.config.get_int("database.pool.min_size", 5)
+                    max_overflow = self.config.get_int("database.pool.max_size", 10) - self.config.get_int("database.pool.min_size", 5)
+                    pool_recycle_seconds = 300
+                    pool_timeout_seconds = 10
+                    echo_sql = self.config.get_bool("database.echo_sql", default=False)
+
                     self._engine = create_async_engine(
                         db_url,
-                        pool_size=self.config.get_int("database.pool.min_size", 5), # SQLAlchemy uses pool_size
-                        max_overflow=self.config.get_int("database.pool.max_size", 10) - self.config.get_int("database.pool.min_size", 5), # max_overflow is additional connections beyond pool_size
-                        pool_recycle=300, # Corresponds to max_inactive_connection_lifetime
-                        pool_timeout=10, # Corresponds to command_timeout (for connection acquisition)
-                        echo=self.config.get_bool("database.echo_sql", False), # Optional: log SQL
+                        pool_size=pool_size,
+                        max_overflow=max_overflow,
+                        pool_recycle=pool_recycle_seconds,
+                        pool_timeout=pool_timeout_seconds,
+                        echo=echo_sql,
                     )
                     self._session_maker = async_sessionmaker(
                         self._engine, expire_on_commit=False, class_=AsyncSession,

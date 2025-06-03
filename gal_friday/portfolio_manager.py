@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from .execution_handler import ExecutionHandler
+
 from .config_manager import ConfigManager
 from .core.events import EventType, ExecutionReportEvent
 from .core.pubsub import PubSubManager
@@ -25,7 +27,6 @@ from .exceptions import (
     InsufficientFundsError,
     PriceNotAvailableError,
 )
-from .execution_handler import ExecutionHandler
 from .interfaces.market_price_service_interface import MarketPriceService
 from .logger_service import LoggerService
 from .portfolio.funds_manager import FundsManager, TradeParams
@@ -78,7 +79,7 @@ class PortfolioManager:
         pubsub_manager: PubSubManager,
         market_price_service: MarketPriceService,
         logger_service: LoggerService,
-        execution_handler: ExecutionHandler | None = None,
+        execution_handler: "ExecutionHandler | None" = None,
         session_maker: "async_sessionmaker[AsyncSession]", # Added session_maker
     ) -> None:
         """Initialize the PortfolioManager with required dependencies.
@@ -196,7 +197,7 @@ class PortfolioManager:
             )
             self._auto_reconcile = self.config_manager.get_bool(
                 "portfolio.reconciliation.auto_update",
-                False,
+                default=False,
             )
             self.logger.info("Reconciliation configured.", source_module=self._source_module)
         except Exception:
@@ -1166,6 +1167,8 @@ class PortfolioManager:
         """Compare internal and exchange balances, return discrepancies.
 
         Identifies balance differences that exceed configured thresholds.
+        Uses both absolute and relative thresholds to better handle balances
+        of different magnitudes.
 
         Args:
         ----
@@ -1178,16 +1181,34 @@ class PortfolioManager:
         """
         discrepancies = {}
         all_currencies = set(internal.keys()) | set(exchange.keys())
+
+        # Define relative threshold for larger balances (0.1% = 0.001)
+        relative_threshold = Decimal("0.001")
+
         for currency in all_currencies:
             internal_bal = internal.get(currency, Decimal(0))
             exchange_bal = exchange.get(currency, Decimal(0))
             diff = abs(internal_bal - exchange_bal)
-            # Use a relative threshold for larger balances? For now, use absolute.
-            if diff > self._reconciliation_threshold:  # Simple absolute threshold
+
+            # Use the larger balance as the reference for relative threshold
+            reference_balance = max(internal_bal, exchange_bal)
+
+            # Calculate dynamic threshold: max of absolute threshold or relative threshold
+            if reference_balance > 0:
+                dynamic_threshold = max(
+                    self._reconciliation_threshold,
+                    reference_balance * relative_threshold,
+                )
+            else:
+                dynamic_threshold = self._reconciliation_threshold
+
+            if diff > dynamic_threshold:
                 discrepancies[currency] = {
                     "internal": internal_bal,
                     "exchange": exchange_bal,
                     "diff": diff,
+                    "threshold_used": dynamic_threshold,
+                    "threshold_type": "relative" if dynamic_threshold > self._reconciliation_threshold else "absolute",
                 }
         return discrepancies
 

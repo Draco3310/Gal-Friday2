@@ -9,6 +9,9 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
+import numpy as np
+from scipy import stats
+
 from gal_friday.core.events import LogEvent
 from gal_friday.core.pubsub import PubSubManager
 
@@ -278,15 +281,57 @@ class DriftDetector:
 
     def _calculate_prediction_drift_score(self, baseline: list[float],
                                         current: list[float]) -> float:
-        """Calculate drift score between prediction distributions."""
+        """Calculate drift score between prediction distributions using KL divergence.
+        
+        Args:
+            baseline: List of baseline prediction values
+            current: List of current prediction values
+            
+        Returns:
+            KL divergence score normalized to 0-1 range
+        """
         if not baseline or not current:
             return 0.0
 
-        baseline_mean = sum(baseline) / len(baseline)
-        current_mean = sum(current) / len(current)
+        try:
+            # Convert to numpy arrays for easier manipulation
+            baseline_arr = np.array(baseline)
+            current_arr = np.array(current)
 
-        # Simple difference for now - could use KL divergence
-        return abs(baseline_mean - current_mean)
+            # Ensure predictions are in valid probability range [0, 1]
+            baseline_arr = np.clip(baseline_arr, 1e-10, 1 - 1e-10)
+            current_arr = np.clip(current_arr, 1e-10, 1 - 1e-10)
+
+            # Create histograms to approximate distributions
+            n_bins = min(10, len(baseline) // 5)  # Adaptive binning
+            bins = np.linspace(0, 1, n_bins + 1)
+
+            baseline_hist, _ = np.histogram(baseline_arr, bins=bins, density=True)
+            current_hist, _ = np.histogram(current_arr, bins=bins, density=True)
+
+            # Normalize histograms to get probability distributions
+            baseline_hist = baseline_hist + 1e-10  # Avoid zero probabilities
+            current_hist = current_hist + 1e-10
+            baseline_hist = baseline_hist / baseline_hist.sum()
+            current_hist = current_hist / current_hist.sum()
+
+            # Calculate KL divergence
+            kl_divergence = stats.entropy(current_hist, baseline_hist)
+
+            # Normalize to 0-1 range (KL divergence can be unbounded)
+            # Using tanh to map [0, inf) to [0, 1)
+            normalized_score = np.tanh(kl_divergence / 2.0)
+
+            return float(normalized_score)
+
+        except Exception as e:
+            # Fall back to simple mean difference if KL calculation fails
+            self.logger.warning(
+                f"KL divergence calculation failed, using mean difference: {e}",
+            )
+            baseline_mean = sum(baseline) / len(baseline)
+            current_mean = sum(current) / len(current)
+            return abs(baseline_mean - current_mean)
 
 
 class RetrainingPipeline:

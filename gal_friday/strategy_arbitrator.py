@@ -91,45 +91,43 @@ class StrategyArbitrator:
             self.logger.error(err_msg, source_module=self._source_module)
             raise StrategyConfigurationError(err_msg)
 
-        # For now, continue with MVP using the first strategy.
-        # Robust implementation would iterate or select based on criteria.
-        self._mvp_strategy_config = self._strategies[0]
-        self._strategy_id = self._mvp_strategy_config.get("id", "default_strategy")
+        # Select the best strategy based on configuration or default to the first one
+        self._primary_strategy_config = self._select_best_strategy(self._strategies)
+        self._strategy_id = self._primary_strategy_config.get("id", "default_strategy")
+
+        # Extract strategy parameters from the MVP strategy configuration
+        self._buy_threshold = Decimal(str(self._primary_strategy_config["buy_threshold"]))
+        self._sell_threshold = Decimal(str(self._primary_strategy_config["sell_threshold"]))
+        self._entry_type = self._primary_strategy_config.get("entry_type", "MARKET").upper()
+
+        sl_pct_conf = self._primary_strategy_config.get("sl_pct")
+        tp_pct_conf = self._primary_strategy_config.get("tp_pct")
+
+        # Validation and additional processing
+        self._sl_pct = Decimal(str(sl_pct_conf)) if sl_pct_conf is not None else None
+        self._tp_pct = Decimal(str(tp_pct_conf)) if tp_pct_conf is not None else None
+        self._confirmation_rules = self._primary_strategy_config.get("confirmation_rules", [])
+        self._limit_offset_pct = Decimal(
+            str(self._primary_strategy_config.get("limit_offset_pct", "0.0001")),
+        )
+        self._prediction_interpretation = self._primary_strategy_config.get(
+            "prediction_interpretation",
+            "directional",
+        )
+        default_rr_ratio_str = self._primary_strategy_config.get(
+            "stop_loss_to_take_profit_ratio", "1.0",
+        )
+        self._stop_loss_to_take_profit_ratio = Decimal(default_rr_ratio_str)
+
+        # Price change thresholds
+        self._price_change_buy_threshold_pct = Decimal(
+            str(self._primary_strategy_config["price_change_buy_threshold_pct"]),
+        )
+        self._price_change_sell_threshold_pct = Decimal(
+            str(self._primary_strategy_config["price_change_sell_threshold_pct"]),
+        )
 
         try:
-            self._buy_threshold = Decimal(str(self._mvp_strategy_config["buy_threshold"]))
-            self._sell_threshold = Decimal(str(self._mvp_strategy_config["sell_threshold"]))
-            self._entry_type = self._mvp_strategy_config.get("entry_type", "MARKET").upper()
-
-            sl_pct_conf = self._mvp_strategy_config.get("sl_pct")
-            tp_pct_conf = self._mvp_strategy_config.get("tp_pct")
-            self._sl_pct = Decimal(str(sl_pct_conf)) if sl_pct_conf is not None else None
-            self._tp_pct = Decimal(str(tp_pct_conf)) if tp_pct_conf is not None else None
-
-            # New config options from whiteboard
-            self._confirmation_rules = self._mvp_strategy_config.get("confirmation_rules", [])
-            self._limit_offset_pct = Decimal(
-                str(self._mvp_strategy_config.get("limit_offset_pct", "0.0001")),
-            )  # e.g. 0.01% = 0.0001
-            self._prediction_interpretation = self._mvp_strategy_config.get(
-                "prediction_interpretation",
-                "prob_up",
-            )
-            default_rr_ratio_str = self._mvp_strategy_config.get(
-                "default_reward_risk_ratio",
-                "2.0",
-            )
-            self._default_reward_risk_ratio = Decimal(str(default_rr_ratio_str))
-
-            # Specific config for price_change_pct interpretation
-            if self._prediction_interpretation == "price_change_pct":
-                self._price_change_buy_threshold_pct = Decimal(
-                    str(self._mvp_strategy_config["price_change_buy_threshold_pct"]),
-                )
-                self._price_change_sell_threshold_pct = Decimal(
-                    str(self._mvp_strategy_config["price_change_sell_threshold_pct"]),
-                )
-
             self._validate_configuration()
 
         except KeyError as key_error:
@@ -350,18 +348,18 @@ class StrategyArbitrator:
                 risk_amount_per_unit = sl_price - current_price
         elif (
             tp_price_for_rr_calc is not None  # Check if TP is provided for derivation
-            and self._default_reward_risk_ratio is not None
-            and self._default_reward_risk_ratio > 0
+            and self._stop_loss_to_take_profit_ratio is not None
+            and self._stop_loss_to_take_profit_ratio > 0
         ):
             if side == "BUY":
                 reward_amount_per_unit = tp_price_for_rr_calc - current_price
                 if reward_amount_per_unit > 0:  # Ensure positive reward
-                    risk_amount_per_unit = reward_amount_per_unit / self._default_reward_risk_ratio
+                    risk_amount_per_unit = reward_amount_per_unit / self._stop_loss_to_take_profit_ratio
                     sl_price = current_price - risk_amount_per_unit
             elif side == "SELL":
                 reward_amount_per_unit = current_price - tp_price_for_rr_calc
                 if reward_amount_per_unit > 0:  # Ensure positive reward
-                    risk_amount_per_unit = reward_amount_per_unit / self._default_reward_risk_ratio
+                    risk_amount_per_unit = reward_amount_per_unit / self._stop_loss_to_take_profit_ratio
                     sl_price = current_price + risk_amount_per_unit
         return sl_price, risk_amount_per_unit
 
@@ -385,10 +383,10 @@ class StrategyArbitrator:
             sl_price_for_rr_calc is not None
             and risk_amount_for_rr_calc is not None
             and risk_amount_for_rr_calc > 0
-            and self._default_reward_risk_ratio is not None
-            and self._default_reward_risk_ratio > 0
+            and self._stop_loss_to_take_profit_ratio is not None
+            and self._stop_loss_to_take_profit_ratio > 0
         ):
-            reward_adjustment = risk_amount_for_rr_calc * self._default_reward_risk_ratio
+            reward_adjustment = risk_amount_for_rr_calc * self._stop_loss_to_take_profit_ratio
             if side == "BUY":
                 tp_price = current_price + reward_adjustment
             elif side == "SELL":
@@ -993,6 +991,26 @@ class StrategyArbitrator:
                 event.trading_pair,
                 source_module=self._source_module,
             )
+
+    def _select_best_strategy(self, strategies: list[dict]) -> dict:
+        """Select the best strategy from available strategies.
+        
+        For now, returns the first strategy, but can be extended to include
+        more sophisticated selection logic based on:
+        - Historical performance metrics
+        - Current market conditions
+        - Risk parameters
+        - Strategy-specific criteria
+        
+        Args:
+            strategies: List of strategy configurations
+            
+        Returns:
+            The selected strategy configuration
+        """
+        # TODO: Implement strategy selection logic based on performance metrics
+        # For initial production, we use the first configured strategy
+        return strategies[0]
 
 
 # Custom Exception for configuration errors

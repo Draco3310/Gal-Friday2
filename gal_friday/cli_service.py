@@ -19,6 +19,7 @@ from typing import (
     Any,
     Optional,
     Protocol,
+    TypeAlias,
     TypeVar,
 )
 
@@ -55,15 +56,15 @@ if TYPE_CHECKING:
     T = TypeVar("T", bound=PoolProtocol)
 
     # Define MainAppController interface for type hinting
-    class MainAppController:
+    class MainAppController(Protocol):
         """Interface for the main application controller."""
 
         async def stop(self) -> None:
             """Stop the application."""
-            raise NotImplementedError
+            ...
 
-    # Allow GalFridayApp to be used where MainAppController is expected
-    MainAppControllerType = MainAppController | "GalFridayApp" # UP007
+    # Type alias for main app controller
+    MainAppControllerType: TypeAlias = MainAppController | GalFridayApp
 else:
     # Non-type checking imports
     # Import mock implementations
@@ -79,7 +80,7 @@ else:
 
     # For non-type checking compatibility
     GalFridayApp = MainAppController
-    MainAppControllerType = MainAppController | GalFridayApp # UP007
+    MainAppControllerType: TypeAlias = MainAppController
     T = TypeVar("T")
 
 # Create Typer application instance
@@ -576,9 +577,9 @@ class MockLoggerService(LoggerService):
     def info(
         self,
         message: str,
-        *_args: object, # ARG002
+        *args: object, # ARG002
         source_module: str | None = None,
-        _context: Mapping[str, object] | None = None, # ARG002
+        context: Mapping[str, object] | None = None, # ARG002
     ) -> None:
         """Log info message."""
         rich_print(f"INFO [{source_module}]: {message}")
@@ -586,9 +587,9 @@ class MockLoggerService(LoggerService):
     def debug(
         self,
         message: str,
-        *_args: object, # ARG002
+        *args: object, # ARG002
         source_module: str | None = None,
-        _context: Mapping[str, object] | None = None, # ARG002
+        context: Mapping[str, object] | None = None, # ARG002
     ) -> None:
         """Log debug message."""
         rich_print(f"DEBUG [{source_module}]: {message}")
@@ -596,9 +597,9 @@ class MockLoggerService(LoggerService):
     def warning(
         self,
         message: str,
-        *_args: object, # ARG002
+        *args: object, # ARG002
         source_module: str | None = None,
-        _context: Mapping[str, object] | None = None, # ARG002
+        context: Mapping[str, object] | None = None, # ARG002
     ) -> None:
         """Log warning message."""
         rich_print(f"WARN [{source_module}]: {message}")
@@ -606,9 +607,9 @@ class MockLoggerService(LoggerService):
     def error(
         self,
         message: str,
-        *_args: object, # ARG002
+        *args: object, # ARG002
         source_module: str | None = None,
-        _context: Mapping[str, object] | None = None, # ARG002
+        context: Mapping[str, object] | None = None, # ARG002
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log error message."""
@@ -619,9 +620,9 @@ class MockLoggerService(LoggerService):
     def exception(
         self,
         message: str,
-        *_args: object, # ARG002
+        *args: object, # ARG002
         source_module: str | None = None,
-        context: Mapping[str, object] | None = None, # Keep context if used by self.error
+        context: Mapping[str, object] | None = None, # ARG002
     ) -> None:
         """Log exception message with traceback."""
         self.error(message, source_module=source_module, context=context, exc_info=True)
@@ -629,9 +630,9 @@ class MockLoggerService(LoggerService):
     def critical(
         self,
         message: str,
-        *_args: object, # ARG002
+        *args: object, # ARG002
         source_module: str | None = None,
-        _context: Mapping[str, object] | None = None, # ARG002
+        context: Mapping[str, object] | None = None, # ARG002
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log critical message."""

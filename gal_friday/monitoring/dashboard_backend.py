@@ -160,7 +160,7 @@ class MetricsCollector:
                 if latency_metrics
                 else 0
             ),
-            "uptime_pct": 99.9,  # Placeholder
+            "uptime_pct": self.calculate_uptime(),
         }
 
     async def _calculate_trading_performance(self) -> dict:
@@ -207,8 +207,55 @@ class MetricsCollector:
                 abs(float(p.get("value", 0)))
                 for p in latest_positions.values()
             ) if latest_positions else 0,
-            "correlation_risk": 0,  # Placeholder for correlation calculation
+            "correlation_risk": self.calculate_correlation_risk(latest_positions),
         }
+
+    def calculate_uptime(self) -> float:
+        """Calculate system uptime percentage.
+        
+        Returns:
+            float: Uptime percentage (0-100)
+        """
+        # This is a simplified calculation
+        # In production, this would track actual downtime events
+        total_downtime_minutes = len([m for m in self.metrics_buffer
+                                     if m["type"] == "system_down"])
+
+        # Calculate uptime based on the last 24 hours
+        total_minutes = 24 * 60
+        uptime_minutes = total_minutes - total_downtime_minutes
+
+        return round((uptime_minutes / total_minutes) * 100, 2)
+
+    def calculate_correlation_risk(self, positions: dict) -> float:
+        """Calculate correlation risk for current positions.
+        
+        Args:
+            positions: Dictionary of current positions
+            
+        Returns:
+            float: Correlation risk score (0-100)
+        """
+        if not positions or len(positions) < 2:
+            return 0.0
+
+        # Simplified correlation risk calculation
+        # In production, this would use actual price correlation data
+        # For now, calculate based on position concentration
+        position_values = [abs(float(p.get("value", 0))) for p in positions.values()]
+        total_value = sum(position_values)
+
+        if total_value == 0:
+            return 0.0
+
+        # Calculate concentration using Herfindahl index
+        concentration_index = sum((v/total_value)**2 for v in position_values)
+
+        # Convert to risk score (0-100)
+        # Higher concentration = higher risk
+        correlation_risk = round(concentration_index * 100, 2)
+
+        return min(correlation_risk, 100.0)  # Cap at 100
 
 
 # Global instances
