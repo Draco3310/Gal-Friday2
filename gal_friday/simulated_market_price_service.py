@@ -9,11 +9,12 @@ It also supports volatility-adjusted spread calculation and market depth simulat
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
+import numpy as np
 
 # Import the base class
 from .market_price_service import MarketPriceService
@@ -104,69 +105,96 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         self.historical_data = historical_data
         self._current_timestamp: datetime | None = None
 
-        # self.logger and self.config are set by the
-        # MarketPriceService ABC if it has a base __init__
-        # or set directly if no super().__init__ is called or if it's called appropriately.
-        # The current Kraken implementation does not call super().__init__.
-        # For now, we assume direct assignment or
-        # specific handling in subclasses if base has __init__.
-        self.logger = (
-            logger if logger else logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        )
-        self.config = config_manager
+        # Properly handle logger and config initialization
+        # Check if MarketPriceService ABC has set these attributes
+        if hasattr(self, 'logger') and self.logger is not None:
+            # Logger was set by parent class
+            pass
+        elif logger is not None:
+            # Use provided logger
+            self.logger = logger
+        else:
+            # Create default logger
+            self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+            
+        if hasattr(self, 'config') and self.config is not None:
+            # Config was set by parent class
+            pass
+        elif config_manager is not None:
+            # Use provided config
+            self.config = config_manager
+        else:
+            # Create dummy config manager for defaults
+            self.config = _DummyConfigManager()
+            
         self._source_module = _SOURCE_MODULE
 
         self._load_simulation_config()
 
         # Validate data format, including HLC columns if volatility is enabled
-        for pair, df in historical_data.items():
-            if not isinstance(df.index, pd.DatetimeIndex):
-                self.logger.warning(
-                    "Historical data for %s does not have a DatetimeIndex.",
-                    pair,
-                    extra={"source_module": self._source_module},
-                )
-
-            required_cols = {self._price_column}
-            if self._volatility_enabled and ta is not None:  # Check ta availability too
-                required_cols.add(self._atr_high_col)
-                required_cols.add(self._atr_low_col)
-                required_cols.add(self._atr_close_col)
-
-            for col in required_cols:
-                if col not in df.columns:
-                    self.logger.warning(
-                        "Historical data for %s is missing required column '%s'.",
-                        pair,
-                        col,
-                        extra={"source_module": self._source_module},
-                    )
-
+        self._validate_historical_data(historical_data)
+        
         self.logger.info(
             "SimulatedMarketPriceService initialized.",
             extra={"source_module": self._source_module},
         )
 
-    async def get_volatility(
-        self,
-        trading_pair: str,
-        lookback_hours: int = 24,
-    ) -> float | None:
-        """Calculate the price volatility for a trading pair.
+    def _validate_historical_data(self, historical_data: dict[str, pd.DataFrame]) -> None:
+        """Validate the format and content of historical data."""
+        for pair, df in historical_data.items():
+            if not isinstance(df.index, pd.DatetimeIndex):
+                self.logger.warning(
+                    "Historical data for %s does not have a DatetimeIndex. "
+                    "This may cause issues with time-based lookups.",
+                    pair,
+                    extra={"source_module": self._source_module},
+                )
+                # Attempt to convert index to DatetimeIndex if possible
+                try:
+                    df.index = pd.to_datetime(df.index, utc=True)
+                    historical_data[pair] = df
+                    self.logger.info(
+                        "Successfully converted index to DatetimeIndex for %s",
+                        pair,
+                        extra={"source_module": self._source_module},
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        "Failed to convert index to DatetimeIndex for %s: %s",
+                        pair,
+                        str(e),
+                        extra={"source_module": self._source_module},
+                    )
 
-        This is a simulated service and does not implement real volatility calculation.
-        """
-        self.logger.warning(
-            "get_volatility is not implemented in SimulatedMarketPriceService. "
-            "Trading Pair: %s, Lookback: %s hours",
-            trading_pair,
-            lookback_hours,
-            extra={"source_module": self._source_module},
-        )
-        # Option 1: Raise NotImplementedError
-        # raise NotImplementedError("get_volatility is not implemented in the simulated service")
-        # Option 2: Return None (as per original plan consideration)
-        return None
+            required_cols = {self._price_column}
+            if self._volatility_enabled and ta is not None:  # Check ta availability too
+                required_cols.update({self._atr_high_col, self._atr_low_col, self._atr_close_col})
+
+            missing_cols = required_cols - set(df.columns)
+            if missing_cols:
+                self.logger.warning(
+                    "Historical data for %s is missing required columns: %s. "
+                    "Available columns: %s",
+                    pair,
+                    missing_cols,
+                    list(df.columns),
+                    extra={"source_module": self._source_module},
+                )
+                # Disable features that require missing columns
+                if self._price_column in missing_cols:
+                    self.logger.error(
+                        "Critical: Price column '%s' missing for %s. "
+                        "This pair may not function properly.",
+                        self._price_column,
+                        pair,
+                        extra={"source_module": self._source_module},
+                    )
+                if any(col in missing_cols for col in [self._atr_high_col, self._atr_low_col, self._atr_close_col]):
+                    self.logger.warning(
+                        "Disabling volatility features for %s due to missing HLC columns",
+                        pair,
+                        extra={"source_module": self._source_module},
+                    )
 
     def _apply_config_values_from_manager(self) -> None:
         """Apply configuration values from the ConfigManager."""
@@ -1184,6 +1212,93 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
         return result
 
+    async def get_volatility(
+        self,
+        trading_pair: str,
+        lookback_hours: int = 24,
+    ) -> float | None:
+        """Calculate the price volatility for a trading pair.
+
+        For the simulated service, this returns the normalized ATR if available,
+        which represents volatility as a percentage of the current price.
+        """
+        # Try to calculate volatility using ATR
+        try:
+            normalized_atr = self._calculate_normalized_atr(trading_pair)
+            if normalized_atr is not None:
+                # Convert to percentage
+                volatility_pct = float(normalized_atr * Decimal("100"))
+                self.logger.debug(
+                    "Calculated volatility for %s: %.2f%% (lookback: %d hours)",
+                    trading_pair,
+                    volatility_pct,
+                    lookback_hours,
+                    extra={"source_module": self._source_module},
+                )
+                return volatility_pct
+        except Exception as e:
+            self.logger.error(
+                "Error calculating volatility for %s: %s",
+                trading_pair,
+                str(e),
+                extra={"source_module": self._source_module},
+                exc_info=True,
+            )
+        
+        # Fallback: calculate simple standard deviation of returns
+        try:
+            if self._current_timestamp is None:
+                self.logger.warning(
+                    "Cannot calculate volatility: current timestamp not set",
+                    extra={"source_module": self._source_module},
+                )
+                return None
+                
+            pair_data = self.historical_data.get(trading_pair)
+            if pair_data is None or pair_data.empty:
+                self.logger.warning(
+                    "No historical data available for %s to calculate volatility",
+                    trading_pair,
+                    extra={"source_module": self._source_module},
+                )
+                return None
+            
+            # Get data for lookback period
+            lookback_start = self._current_timestamp - timedelta(hours=lookback_hours)
+            recent_data = pair_data.loc[lookback_start:self._current_timestamp]
+            
+            if len(recent_data) < 2:
+                self.logger.warning(
+                    "Insufficient data points for volatility calculation for %s",
+                    trading_pair,
+                    extra={"source_module": self._source_module},
+                )
+                return None
+            
+            # Calculate returns
+            prices = recent_data[self._price_column]
+            returns = prices.pct_change().dropna()
+            
+            if len(returns) == 0:
+                return None
+                
+            # Calculate annualized volatility (assuming 365 days for crypto)
+            # Hourly returns -> annualize by sqrt(24 * 365)
+            hourly_volatility = returns.std()
+            annualized_volatility = hourly_volatility * np.sqrt(24 * 365)
+            
+            return float(annualized_volatility * 100)  # Return as percentage
+            
+        except Exception as e:
+            self.logger.error(
+                "Error in fallback volatility calculation for %s: %s",
+                trading_pair,
+                str(e),
+                extra={"source_module": self._source_module},
+                exc_info=True,
+            )
+            return None
+
 
 # Example Usage
 
@@ -1455,9 +1570,40 @@ async def main() -> None:  # Made async
     await _test_order_book_snapshot(price_service, main_logger, ts1)
     await _test_currency_conversions(price_service, main_logger, ts1)
 
-    # Original comment: Test with a zero-spread scenario if possible by manipulating data or config
-    # For now, this test relies on the default 0.1% spread which likely won't be zero.
-    # (This test was not explicitly implemented, can be added to a helper if desired)
+    # Test zero-spread scenario
+    main_logger.info("--- Testing Zero-Spread Scenario ---")
+    # Temporarily set spread to zero for a specific pair
+    original_spread = price_service._default_spread_pct
+    price_service._default_spread_pct = Decimal("0")
+    price_service._pair_specific_spread_config["BTC/USD"] = Decimal("0")
+    
+    zero_spread_result = await price_service.get_bid_ask_spread("BTC/USD")
+    if zero_spread_result:
+        bid, ask = zero_spread_result
+        if bid == ask:
+            main_logger.info("Zero spread confirmed: Bid=%s, Ask=%s", bid, ask)
+        else:
+            main_logger.warning("Expected zero spread but got: Bid=%s, Ask=%s", bid, ask)
+    else:
+        main_logger.error("Failed to get bid/ask spread for zero-spread test")
+    
+    # Restore original spread
+    price_service._default_spread_pct = original_spread
+    price_service._pair_specific_spread_config.pop("BTC/USD", None)
+
+    # Test edge cases
+    main_logger.info("--- Testing Edge Cases ---")
+    
+    # Test with future timestamp
+    future_ts = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+    price_service.update_time(future_ts)
+    future_price = await price_service.get_latest_price("BTC/USD")
+    main_logger.info("Price at future time %s: %s", future_ts, future_price)
+    
+    # Test volatility calculation
+    if hasattr(price_service, 'get_volatility'):
+        volatility = await price_service.get_volatility("BTC/USD", lookback_hours=1)
+        main_logger.info("BTC/USD volatility (1hr lookback): %s%%", volatility)
 
     await price_service.stop()
 
@@ -1471,15 +1617,33 @@ if __name__ == "__main__":
     )
     logger = logging.getLogger(__name__)
 
-    # Note: Need pandas installed (`pip install pandas`)
-    # No longer need pytz directly if using timezone.utc and pd.to_datetime with utc=True
+    # Check for required dependencies
+    missing_deps = []
     try:
         import pandas  # noqa
-        import asyncio  # Add back asyncio import
-
-        # import pandas_ta # - ensure this is also handled if used directly in main
-        asyncio.run(main())  # Run the async main function
-    except ImportError as e:
-        logger.error("Could not run example: %s", e)
-    except Exception:
-        logger.exception("An error occurred during example execution")
+    except ImportError:
+        missing_deps.append("pandas")
+    
+    try:
+        import numpy  # noqa
+    except ImportError:
+        missing_deps.append("numpy")
+        
+    try:
+        import asyncio
+    except ImportError:
+        missing_deps.append("asyncio")
+    
+    if missing_deps:
+        logger.error(
+            "Missing required dependencies: %s. Install with: pip install %s",
+            ", ".join(missing_deps),
+            " ".join(missing_deps)
+        )
+    else:
+        try:
+            asyncio.run(main())  # Run the async main function
+        except KeyboardInterrupt:
+            logger.info("Example interrupted by user")
+        except Exception:
+            logger.exception("An error occurred during example execution")

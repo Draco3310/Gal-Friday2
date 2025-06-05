@@ -18,19 +18,26 @@ from ..logger_service import LoggerService
 
 
 @dataclass
-class TradeInfo: # This can remain for representing a trade, not a DB entity
-    """Represents information about a single trade."""
+class TradeInfo:
+    """Represents information about a single trade.
+    
+    This is a business logic representation of a trade that may include
+    fields not directly stored in the Position model. Trade-specific
+    details like fees and commissions should ideally be stored in a
+    separate Trade/Order table in the database.
+    """
 
     timestamp: datetime
-    trade_id: str # Could be linked to an Order ID or Exchange Trade ID
-    side: str  # "BUY" or "SELL"
+    trade_id: str  # Could be linked to an Order ID or Exchange Trade ID
+    side: str  # "BUY" or "SELL" 
     quantity: Decimal
     price: Decimal
     fee: Decimal = Decimal(0)
     fee_currency: str | None = None
-    # commission and commission_asset are not standard on Position model,
-    # might be part of order/trade details if stored separately.
-    # For now, keeping if PositionManager logic uses them directly.
+    # Note: commission and commission_asset are trade-specific details
+    # that are typically stored in a Trade/Order table, not in Position.
+    # They're included here for business logic calculations but won't
+    # be persisted directly to the Position model.
     commission: Decimal = Decimal(0)
     commission_asset: str | None = None
 
@@ -39,6 +46,20 @@ class TradeInfo: # This can remain for representing a trade, not a DB entity
 # However, it can still be useful for business logic or as a DTO if its structure differs
 # from the DB model or if we want to decouple business logic from DB schema.
 # For this refactor, we'll primarily use PositionModel from the DB.
+
+# Note: The Position model in the database represents the current state
+# of a position (quantity, average entry price, PnL, etc.) but does not
+# store individual trade history. Trade history should be maintained in
+# a separate table for audit and reconciliation purposes.
+
+# ARCHITECTURAL DECISION:
+# - Position table: Stores current state (quantity, avg price, PnL)
+# - Trade/Order table: Stores individual trade records with fees/commissions
+# - This separation allows for:
+#   1. Efficient position queries without loading full trade history
+#   2. Detailed audit trail of all trades
+#   3. Proper handling of partial fills and trade corrections
+#   4. Compliance with regulatory requirements for trade record keeping
 
 class PositionManager:
     """Manages trading positions, including updates from trades and PnL calculations, using SQLAlchemy."""

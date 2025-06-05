@@ -259,6 +259,13 @@ class FeatureEngine:
             lambda: deque(maxlen=trade_history_maxlen),
         )
 
+        # Store L2 book history for better alignment with bar timestamps
+        # Each entry: {"timestamp": datetime, "book": {"bids": [...], "asks": [...]}}
+        l2_history_maxlen = config.get("feature_engine", {}).get("l2_history_maxlen", 100)
+        self.l2_books_history: dict[str, deque] = defaultdict(
+            lambda: deque(maxlen=l2_history_maxlen),
+        )
+
         self.feature_pipelines: dict[str, dict[str, Any]] = {} # Stores {'pipeline': Pipeline, 'spec': InternalFeatureSpec}
         self._build_feature_pipelines()
 
@@ -1003,8 +1010,25 @@ class FeatureEngine:
                     utc=True,
                 ),
             }
+            
+            # Store in L2 history with timestamp for better time alignment
+            timestamp_str = l2_payload.get("timestamp_exchange") or l2_payload.get("timestamp")
+            if timestamp_str:
+                try:
+                    timestamp = pd.to_datetime(timestamp_str, utc=True)
+                    self.l2_books_history[trading_pair].append({
+                        "timestamp": timestamp,
+                        "book": {"bids": processed_bids, "asks": processed_asks}
+                    })
+                except Exception as e:
+                    self.logger.warning(
+                        "Failed to parse L2 timestamp for history: %s",
+                        e,
+                        source_module=self._source_module,
+                    )
+
             self.logger.debug(
-                "Processed L2 update for %s. Num bids: %s, Num asks: %s",
+                "Updated L2 book for %s: %s bids, %s asks",
                 trading_pair,
                 len(processed_bids),
                 len(processed_asks),
@@ -1919,8 +1943,8 @@ class FeatureEngine:
         # L2 book snapshot for the current bar
         # Assuming self.l2_books[trading_pair] holds the latest book, or one aligned by a separate process
         # For pipeline processing, we need a Series (even if single-element)
-        latest_l2_book_snapshot = self.l2_books.get(trading_pair) # This is the overall latest
-        # TODO: A more robust way would be to fetch L2 book aligned with bar_start_datetime
+        latest_l2_book_snapshot = self._get_aligned_l2_book(trading_pair, bar_start_datetime)
+        # Use the aligned L2 book for better accuracy
         l2_books_aligned_series = pd.Series([latest_l2_book_snapshot], index=[bar_start_datetime])
 
         # Trade data for trade-based features
@@ -2159,3 +2183,58 @@ class FeatureEngine:
     # --- Removed _process_roc_feature, _process_atr_feature, _process_stdev_feature ---
     # --- Removed _process_l2_spread_feature, _process_l2_imbalance_feature, _process_l2_wap_feature ---
     # --- Removed _process_l2_depth_feature, _process_volume_delta_feature ---
+
+    def _get_aligned_l2_book(
+        self, 
+        trading_pair: str, 
+        target_timestamp: datetime,
+        max_age_seconds: int = 300  # 5 minutes default
+    ) -> dict[str, Any] | None:
+        """Get the L2 book snapshot closest to the target timestamp.
+        
+        Args:
+            trading_pair: The trading pair to get L2 book for
+            target_timestamp: The timestamp to align with
+            max_age_seconds: Maximum age of L2 snapshot to consider valid
+            
+        Returns:
+            L2 book dict or None if no valid book found
+        """
+        history = self.l2_books_history.get(trading_pair)
+        if not history:
+            # Fallback to latest book if no history
+            return self.l2_books.get(trading_pair)
+            
+        # Find the book with timestamp closest to but not after target_timestamp
+        best_book = None
+        best_time_diff = None
+        
+        for entry in reversed(history):  # Most recent first
+            book_timestamp = entry["timestamp"]
+            
+            # Skip books that are after the target timestamp
+            if book_timestamp > target_timestamp:
+                continue
+                
+            time_diff = (target_timestamp - book_timestamp).total_seconds()
+            
+            # Skip if too old
+            if time_diff > max_age_seconds:
+                break
+                
+            if best_time_diff is None or time_diff < best_time_diff:
+                best_time_diff = time_diff
+                best_book = entry["book"]
+                
+        if best_book is None:
+            self.logger.debug(
+                "No valid L2 book found for %s at %s within %s seconds",
+                trading_pair,
+                target_timestamp,
+                max_age_seconds,
+                source_module=self._source_module,
+            )
+            # Fallback to latest book as last resort
+            return self.l2_books.get(trading_pair)
+            
+        return best_book

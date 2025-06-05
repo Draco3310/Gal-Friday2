@@ -211,14 +211,71 @@ class ConnectionPool:
                 )
 
     async def _is_healthy(self, conn: object) -> bool:
-        """Check if connection is healthy."""
-        # Override in subclass
-        # For now, assume all connections are healthy
-        return cast("bool", True)
+        """Check if connection is healthy.
+        
+        This method should be overridden in subclasses to implement
+        connection-specific health checks. For database connections,
+        this typically involves executing a simple query.
+        """
+        # Default implementation for generic connections
+        if hasattr(conn, 'is_closed'):
+            # For asyncpg-style connections
+            return not conn.is_closed()
+        elif hasattr(conn, 'closed'):
+            # For aiopg/psycopg-style connections
+            return conn.closed == 0
+        elif hasattr(conn, 'ping'):
+            # For connections with ping method
+            try:
+                await conn.ping()
+                return True
+            except Exception as e:
+                self.logger.debug(
+                    f"Connection ping failed: {e}",
+                    source_module=self._source_module,
+                )
+                return False
+        else:
+            # Unknown connection type - log warning once
+            if not hasattr(self, '_health_check_warned'):
+                self.logger.warning(
+                    "Unable to determine health check method for connection type: %s. "
+                    "Consider implementing a specific health check.",
+                    type(conn).__name__,
+                    source_module=self._source_module,
+                )
+                self._health_check_warned = True
+            return True  # Assume healthy if we can't check
 
     async def _close_conn(self, conn: object) -> None:
-        """Close a connection."""
-        # Override in subclass
+        """Close a connection.
+        
+        This method should be overridden in subclasses to implement
+        connection-specific cleanup.
+        """
+        try:
+            if hasattr(conn, 'close'):
+                if asyncio.iscoroutinefunction(conn.close):
+                    await conn.close()
+                else:
+                    conn.close()
+            elif hasattr(conn, 'terminate'):
+                # For connections that use terminate instead of close
+                if asyncio.iscoroutinefunction(conn.terminate):
+                    await conn.terminate()
+                else:
+                    conn.terminate()
+            else:
+                self.logger.warning(
+                    "Unable to close connection of type: %s",
+                    type(conn).__name__,
+                    source_module=self._source_module,
+                )
+        except Exception as e:
+            self.logger.warning(
+                f"Error closing connection: {e}",
+                source_module=self._source_module,
+            )
 
     def get_stats(self) -> dict[str, Any]:
         """Get pool statistics."""
@@ -248,32 +305,89 @@ class QueryOptimizer:
     async def analyze_query(
         self, query: str, params: tuple[Any, ...] | None = None,
     ) -> dict[str, Any]:
-        """Analyze query performance."""
+        """Analyze query performance and provide optimization suggestions."""
         start_time = time.time()
-
-        # This would connect to database and run EXPLAIN
-        # For now, return mock analysis
+        
+        # Normalize query for analysis
+        normalized_query = query.strip().upper()
         suggestions: list[str] = []
+        
+        # Analyze query structure
+        query_type = "UNKNOWN"
+        if normalized_query.startswith("SELECT"):
+            query_type = "SELECT"
+        elif normalized_query.startswith("INSERT"):
+            query_type = "INSERT"
+        elif normalized_query.startswith("UPDATE"):
+            query_type = "UPDATE"
+        elif normalized_query.startswith("DELETE"):
+            query_type = "DELETE"
+        
+        # Estimate complexity based on query structure
+        estimated_cost = self._estimate_query_cost(normalized_query)
+        estimated_rows = self._estimate_result_rows(normalized_query)
+        uses_index = self._check_index_usage(normalized_query)
+        
+        # Common performance issues and suggestions
+        if "SELECT *" in normalized_query:
+            suggestions.append("Avoid SELECT *, specify needed columns to reduce data transfer")
+            estimated_cost *= 1.5  # Penalize for SELECT *
+        
+        if "NOT IN" in normalized_query:
+            suggestions.append("Consider using NOT EXISTS instead of NOT IN for better null handling")
+            estimated_cost *= 1.2
+        
+        if " OR " in normalized_query and normalized_query.count(" OR ") > 2:
+            suggestions.append("Multiple OR conditions can prevent index usage, consider UNION")
+            uses_index = False
+            estimated_cost *= 1.3
+        
+        if "LIKE '%%" in normalized_query or "LIKE '%" in normalized_query:
+            suggestions.append("Leading wildcard in LIKE prevents index usage")
+            uses_index = False
+            estimated_cost *= 2.0
+        
+        # Join analysis
+        join_count = normalized_query.count(" JOIN ")
+        if join_count > 3:
+            suggestions.append(f"{join_count} JOINs detected, consider denormalization or materialized views")
+            estimated_cost *= (1.1 ** join_count)
+        
+        # Subquery analysis
+        if "SELECT" in normalized_query[7:]:  # Skip the first SELECT
+            subquery_count = normalized_query.count("SELECT") - 1
+            if subquery_count > 0:
+                suggestions.append(f"{subquery_count} subqueries detected, consider using JOINs or CTEs")
+                estimated_cost *= (1.2 ** subquery_count)
+        
+        # Check for missing WHERE clause in UPDATE/DELETE
+        if query_type in ["UPDATE", "DELETE"] and " WHERE " not in normalized_query:
+            suggestions.append(f"WARNING: {query_type} without WHERE clause affects all rows!")
+            estimated_rows = 999999  # Indicate large impact
+        
+        # Function usage that prevents index
+        problematic_functions = ["UPPER(", "LOWER(", "COALESCE(", "CAST(", "CONVERT("]
+        for func in problematic_functions:
+            if func in normalized_query and " WHERE " in normalized_query:
+                # Check if function is used in WHERE clause
+                where_clause = normalized_query.split(" WHERE ")[1].split(" ORDER BY ")[0]
+                if func in where_clause:
+                    suggestions.append(f"{func.rstrip('(')} in WHERE clause may prevent index usage")
+                    uses_index = False
+                    estimated_cost *= 1.3
+        
+        execution_time = time.time() - start_time
+
         analysis = {
             "query": query,
-            "estimated_cost": 100.0,
-            "estimated_rows": 1000,
-            "index_scan": True,
+            "query_type": query_type,
+            "estimated_cost": round(estimated_cost, 2),
+            "estimated_rows": estimated_rows,
+            "index_scan": uses_index,
+            "join_count": join_count,
+            "analysis_time_ms": round(execution_time * 1000, 2),
             "suggestions": suggestions,
         }
-
-        # Check for common issues
-        if "SELECT *" in query.upper():
-            suggestions.append("Avoid SELECT *, specify needed columns")
-
-        if "NOT IN" in query.upper():
-            suggestions.append("Consider using NOT EXISTS instead of NOT IN")
-
-        max_joins = 3  # Maximum recommended number of joins before suggesting denormalization
-        if query.upper().count("JOIN") > max_joins:
-            suggestions.append("Many JOINs detected, consider denormalization")
-
-        execution_time = time.time() - start_time
 
         # Track query statistics
         query_key = self._normalize_query(query)
@@ -291,15 +405,83 @@ class QueryOptimizer:
         stats["avg_time"] = stats["total_time"] / stats["count"]
         stats["max_time"] = max(stats["max_time"], execution_time)
 
-        # Log slow queries
+        # Log slow query analysis
         if execution_time > self.slow_query_threshold:
             self.logger.warning(
-                f"Slow query detected: {execution_time:.2f}s",
+                f"Slow query analysis: {execution_time:.2f}s",
                 source_module=self._source_module,
-                context={"query": query_key},
+                context={"query": query_key, "suggestions": suggestions},
             )
 
         return analysis
+
+    def _estimate_query_cost(self, normalized_query: str) -> float:
+        """Estimate relative cost of query execution."""
+        base_cost = 10.0
+        
+        # Table scan indicators
+        if " WHERE " not in normalized_query:
+            base_cost *= 10.0  # No WHERE clause likely means full table scan
+        
+        # Aggregation functions
+        for agg_func in ["COUNT(", "SUM(", "AVG(", "MAX(", "MIN("]:
+            if agg_func in normalized_query:
+                base_cost *= 1.5
+        
+        # GROUP BY and ORDER BY
+        if " GROUP BY " in normalized_query:
+            base_cost *= 2.0
+        if " ORDER BY " in normalized_query:
+            base_cost *= 1.5
+        
+        # DISTINCT
+        if " DISTINCT " in normalized_query:
+            base_cost *= 1.8
+        
+        return base_cost
+
+    def _estimate_result_rows(self, normalized_query: str) -> int:
+        """Estimate number of result rows based on query structure."""
+        if " LIMIT 1" in normalized_query:
+            return 1
+        elif " LIMIT " in normalized_query:
+            # Extract limit value
+            try:
+                limit_part = normalized_query.split(" LIMIT ")[1].split()[0]
+                return int(limit_part)
+            except (IndexError, ValueError):
+                pass
+        
+        # Aggregate without GROUP BY usually returns 1 row
+        if any(f in normalized_query for f in ["COUNT(", "SUM(", "AVG("]) and " GROUP BY " not in normalized_query:
+            return 1
+        
+        # Default estimates based on query type
+        if " WHERE " in normalized_query:
+            if "=" in normalized_query:
+                return 10  # Equality condition
+            else:
+                return 100  # Range condition
+        else:
+            return 1000  # No WHERE clause
+
+    def _check_index_usage(self, normalized_query: str) -> bool:
+        """Check if query is likely to use indexes."""
+        # Simple heuristics for index usage
+        if " WHERE " not in normalized_query:
+            return False
+        
+        where_clause = normalized_query.split(" WHERE ")[1].split(" ORDER BY ")[0].split(" GROUP BY ")[0]
+        
+        # Good index indicators
+        if "=" in where_clause and "LIKE" not in where_clause:
+            return True
+        if " BETWEEN " in where_clause:
+            return True
+        if " IN (" in where_clause and "NOT IN" not in where_clause:
+            return True
+        
+        return False
 
     def _normalize_query(self, query: str) -> str:
         """Normalize query for statistics tracking."""
@@ -614,3 +796,72 @@ def timed(name: str | None = None) -> Callable[[F], F]:
         # TODO: Investigate proper generic typing for this decorator
         return wrapper # type: ignore[return-value]
     return decorator
+
+
+class DatabaseConnectionPool(ConnectionPool):
+    """Specialized connection pool for database connections with proper health checks."""
+    
+    def __init__(
+        self,
+        create_conn: Callable[[], Any],
+        logger_service: LoggerService,
+        max_connections: int = 10,
+        min_connections: int = 2,
+        health_check_interval: int = 30,
+        health_check_query: str = "SELECT 1",
+    ) -> None:
+        """Initialize database connection pool with health check query.
+        
+        Args:
+            create_conn: Async function to create a new connection
+            logger_service: Logger service instance
+            max_connections: Maximum number of connections
+            min_connections: Minimum number of connections to maintain
+            health_check_interval: Seconds between health checks
+            health_check_query: SQL query to use for health checks
+        """
+        super().__init__(
+            create_conn, 
+            logger_service, 
+            max_connections, 
+            min_connections, 
+            health_check_interval
+        )
+        self._health_check_query = health_check_query
+        self._source_module = self.__class__.__name__
+    
+    async def _is_healthy(self, conn: object) -> bool:
+        """Check if database connection is healthy by executing a test query."""
+        try:
+            # First check if connection is closed
+            if hasattr(conn, 'is_closed') and conn.is_closed():
+                return False
+            elif hasattr(conn, 'closed') and conn.closed != 0:
+                return False
+            
+            # Execute health check query
+            if hasattr(conn, 'execute'):
+                # For asyncpg-style connections
+                await conn.execute(self._health_check_query)
+                return True
+            elif hasattr(conn, 'fetch') or hasattr(conn, 'fetchval'):
+                # For other async database connections
+                await conn.fetchval(self._health_check_query)
+                return True
+            elif hasattr(conn, 'cursor'):
+                # For aiopg-style connections
+                async with conn.cursor() as cursor:
+                    await cursor.execute(self._health_check_query)
+                    await cursor.fetchone()
+                return True
+            else:
+                # Fall back to parent implementation
+                return await super()._is_healthy(conn)
+                
+        except Exception as e:
+            self.logger.debug(
+                f"Database health check failed: {e}",
+                source_module=self._source_module,
+                context={"query": self._health_check_query}
+            )
+            return False

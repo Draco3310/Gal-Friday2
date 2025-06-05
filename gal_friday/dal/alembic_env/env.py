@@ -62,6 +62,10 @@ def include_name(
     logger.debug(f"Checking include_name for {type_} {name}")
     return True
 
+# Note: include_symbol is not a standard Alembic hook.
+# It appears to be a custom hook that might have been used in a
+# specific Alembic extension or customization. Keeping it here
+# for compatibility but it won't be called by standard Alembic.
 def include_symbol(
     table_name: str,
     schema_name: str | None,
@@ -104,35 +108,41 @@ def get_db_url() -> str:
 
 def run_migrations_offline() -> None:
     url = get_db_url()
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        dialect_opts={"paramstyle": "named"},
-        compare_type=True,
-        # The following hooks would be configured here if used:
-        # process_revision_directives=process_revision_directives,
-        # render_item=render_item,
-        # include_object=include_object,
-        # include_name=include_name,
-        # include_symbol=include_symbol, # If this is a custom hook or part of a specific setup
-        # compare_type=compare_type,
-    )
+    
+    # Standard Alembic hooks
+    standard_hooks = {
+        "url": url,
+        "target_metadata": target_metadata,
+        "dialect_opts": {"paramstyle": "named"},
+        "compare_type": True,
+        "process_revision_directives": process_revision_directives,
+        "render_item": render_item,
+        "include_object": include_object,
+        "include_name": include_name,
+        "compare_type": compare_type,
+    }
+    
+    # Note: include_symbol is not a standard hook and will be ignored
+    # by Alembic unless using a custom extension
+    
+    context.configure(**standard_hooks)
     context.run_migrations()
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(
-        connection=connection,
-        target_metadata=target_metadata,
-        compare_type=True,
-        # Hooks can also be configured for online mode:
-        # process_revision_directives=process_revision_directives,
-        # render_item=render_item,
-        # include_object=include_object,
-        # include_name=include_name,
-        # include_symbol=include_symbol,
-        # compare_type=compare_type,
-    )
+    # Standard Alembic hooks for online mode
+    standard_hooks = {
+        "connection": connection,
+        "target_metadata": target_metadata,
+        "compare_type": True,
+        "process_revision_directives": process_revision_directives,
+        "render_item": render_item,
+        "include_object": include_object,
+        "include_name": include_name,
+        "compare_type": compare_type,
+    }
+    
+    context.configure(**standard_hooks)
     with context.begin_transaction():
         context.run_migrations()
 
@@ -140,20 +150,22 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     db_url = get_db_url()
     logger.info("Configuring context for metadata-only autogeneration (no actual DB connection attempt).")
-    context.configure(
-        connection=None,
-        url=db_url,
-        target_metadata=target_metadata,
-        compare_type=True,
-        include_schemas=True,
-        # Hooks can be configured here too:
-        # process_revision_directives=process_revision_directives,
-        # render_item=render_item,
-        # include_object=include_object,
-        # include_name=include_name,
-        # include_symbol=include_symbol,
-        # compare_type=compare_type,
-    )
+    
+    # Standard Alembic hooks for async/metadata-only mode
+    standard_hooks = {
+        "connection": None,
+        "url": db_url,
+        "target_metadata": target_metadata,
+        "compare_type": True,
+        "include_schemas": True,
+        "process_revision_directives": process_revision_directives,
+        "render_item": render_item,
+        "include_object": include_object,
+        "include_name": include_name,
+        "compare_type": compare_type,
+    }
+    
+    context.configure(**standard_hooks)
     context.run_migrations()
 
 

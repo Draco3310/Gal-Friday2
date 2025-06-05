@@ -318,6 +318,9 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
         """Attempt to insert a single log record into the database.
 
         Note: The table name is implicitly handled by the Log model.
+        
+        Returns:
+            bool: True if successful, False if failed (caller determines retry)
         """
         try:
             # Map record_data keys to Log model attributes if they differ.
@@ -331,15 +334,54 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
                 # or call await session.commit() if not using begin()
             return True
         except SQLAlchemyError as e: # Catch specific SQLAlchemy errors
-            # Determine if retryable based on specific SQLAlchemy error types if needed
-            logging.getLogger(__name__).error(
-                "SQLAlchemy error in _attempt_db_insert: %s",
+            # Improved error analysis to determine retryability
+            error_msg = str(e)
+            
+            # Check for specific retryable conditions
+            retryable_conditions = [
+                "connection", "timeout", "deadlock", "lock", 
+                "could not connect", "connection reset", "broken pipe",
+                "resource temporarily unavailable", "too many connections"
+            ]
+            
+            is_retryable = any(
+                condition in error_msg.lower() 
+                for condition in retryable_conditions
+            )
+            
+            # Check for specific non-retryable conditions
+            non_retryable_conditions = [
+                "syntax error", "column", "constraint", "relation",
+                "does not exist", "invalid", "permission denied",
+                "authentication failed"
+            ]
+            
+            is_non_retryable = any(
+                condition in error_msg.lower()
+                for condition in non_retryable_conditions
+            )
+            
+            # Log with appropriate level based on retryability
+            if is_non_retryable or (not is_retryable and hasattr(e, 'orig')):
+                # Check original database error if available
+                if hasattr(e, 'orig'):
+                    orig_error = str(e.orig)
+                    if any(condition in orig_error.lower() for condition in retryable_conditions):
+                        is_retryable = True
+            
+            log_level = logging.WARNING if is_retryable else logging.ERROR
+            logging.getLogger(__name__).log(
+                log_level,
+                "SQLAlchemy error in _attempt_db_insert: %s (retryable=%s)",
                 str(e),
+                is_retryable,
                 exc_info=True,
             )
-            # For simplicity, treating all SQLAlchemyErrors as non-retryable here.
-            # More sophisticated retry logic could inspect e.orig for DBAPI errors.
-            return False # Non-retryable for this attempt
+            
+            # Raise only if retryable to trigger retry logic
+            if is_retryable:
+                raise
+            return False # Non-retryable error
         except Exception as e: # Catch any other unexpected errors
             logging.getLogger(__name__).error(
                 "Unexpected error in _attempt_db_insert: %s",
@@ -353,25 +395,39 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
         max_retries = 3
         base_backoff = 1.0  # seconds
         attempt = 0
+        
         while attempt < max_retries:
             try:
                 if await self._attempt_db_insert(record_data):
                     return  # Success
-            # Update exception handling for SQLAlchemy context
-            except SQLAlchemyError as db_err: # Broader catch for SQLAlchemy issues
-                # Potentially inspect db_err.orig for specific DBAPI errors if retry is desired
-                # For now, treating as non-retryable by this handler's direct logic.
-                logging.getLogger(__name__).error(
-                    "AsyncPostgresHandler: Database operation error (Attempt %d/%d). Error: %s",
-                    attempt + 1, # attempt is 0-indexed
-                    max_retries,
-                    str(db_err),
-                    exc_info=True,
-                )
-                # If it's a connection issue that might be resolved, could retry.
-                # For now, assume it's not directly retryable by this handler.
-                return # Stop processing this record for now.
-            except OSError as conn_err: # Keep OSError for network issues
+                else:
+                    # Non-retryable error, stop trying
+                    return
+            except SQLAlchemyError as db_err:
+                # This exception is only raised for retryable errors
+                attempt += 1
+                if attempt >= max_retries:
+                    logging.getLogger(__name__).error(
+                        "AsyncPostgresHandler: Database operation failed after %d attempts: %s",
+                        max_retries,
+                        str(db_err),
+                        exc_info=True,
+                    )
+                    return
+                else:
+                    # Exponential backoff with jitter
+                    wait_time = min(base_backoff * (2 ** (attempt - 1)), 30.0)
+                    wait_time += SystemRandom().uniform(0, wait_time * 0.1)
+                    logging.getLogger(__name__).warning(
+                        "AsyncPostgresHandler: Retryable database error (Attempt %d/%d). "
+                        "Retrying in %.2fs. Error: %s",
+                        attempt,
+                        max_retries,
+                        wait_time,
+                        str(db_err),
+                    )
+                    await asyncio.sleep(wait_time)
+            except OSError as conn_err: # Network/connection issues
                 attempt += 1
                 if attempt >= max_retries:
                     logging.getLogger(__name__).error(
@@ -380,8 +436,9 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
                         str(conn_err),
                         exc_info=True,
                     )
+                    return
                 else:
-                    wait_time = min(base_backoff * (2**attempt), 30.0)
+                    wait_time = min(base_backoff * (2 ** (attempt - 1)), 30.0)
                     wait_time += SystemRandom().uniform(0, wait_time * 0.1)
                     logging.getLogger(__name__).warning(
                         "AsyncPostgresHandler: Network/OS error (Attempt %d/%d). "
@@ -392,10 +449,13 @@ class AsyncPostgresHandler(logging.Handler): # Removed Generic[PoolType]
                         str(conn_err),
                     )
                     await asyncio.sleep(wait_time)
-            except (RuntimeError, ValueError, TypeError, DatabaseError) as e: # General non-DB errors
+            except (RuntimeError, ValueError, TypeError) as e:
+                # Non-database errors, likely programming errors - don't retry
                 logging.getLogger(__name__).error(
-                    "AsyncPostgresHandler: Non-retryable error caught in _process_queue_with_retry for record: %s. Error: %s",
-                    record_data.get("message", "N/A"), e, exc_info=True,
+                    "AsyncPostgresHandler: Non-retryable error for record: %s. Error: %s",
+                    record_data.get("message", "N/A"), 
+                    e, 
+                    exc_info=True,
                 )
                 return  # Stop processing this record
 

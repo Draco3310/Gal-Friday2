@@ -26,6 +26,8 @@ from .core.events import (
     MarketDataL2Event,
     PotentialHaltTriggerEvent,
     SystemStateEvent,
+    MarketDataEvent,
+    EventType,
 )
 from .logger_service import ExcInfoType, LoggerService
 
@@ -719,7 +721,7 @@ class DataIngestor:
                 await self._handle_ohlc_data(typed_data)
             # Kraken trade messages are typically of type 'update'
             elif channel == "trade" and msg_type == "update":
-                await self._handle_book_data(data)  # Reuse book data handler for now
+                await self._handle_trade_data(data)  # Use dedicated trade handler
             else:
                 self.logger.warning(
                     "Unknown channel or message type.",
@@ -1484,6 +1486,169 @@ class DataIngestor:
                 source_module=self._source_module,
                 exc_info=True,
                 context=context,
+            )
+
+    async def _handle_trade_data(self, data: dict) -> bool:
+        """Handle trade data message.
+
+        Trade messages contain information about executed trades including
+        price, volume, time, and side (buy/sell).
+
+        Args:
+        ----
+            data: The trade data message from Kraken
+
+        Returns:
+        -------
+            bool: True if successful, False otherwise
+        """
+        msg_type = data.get("type")
+        if msg_type not in ["update"]:  # Trades are typically updates
+            self.logger.warning(
+                "Unexpected trade message type: %s",
+                msg_type,
+                source_module=self._source_module,
+                context={"message_type": msg_type},
+            )
+            return False
+
+        # Trade data structure: data: [ { trade_obj } ]
+        trade_items = data.get("data", [])
+        if not isinstance(trade_items, list):
+            self.logger.warning(
+                "Invalid trade message: 'data' is not a list.",
+                source_module=self._source_module,
+                context={"message_snippet": str(data)[:200]},
+            )
+            return False
+
+        processed_ok = True
+        for trade_item in trade_items:
+            if not self._validate_trade_item(trade_item):
+                processed_ok = False
+                continue
+
+            try:
+                symbol = trade_item.get("symbol")
+                if not symbol:
+                    self.logger.warning(
+                        "Trade item missing symbol",
+                        source_module=self._source_module,
+                        context={"trade_item": trade_item},
+                    )
+                    continue
+
+                # Process the trade
+                await self._process_and_publish_trade(symbol, trade_item)
+
+            except Exception as error:
+                self.logger.error(
+                    "Error processing trade data.",
+                    source_module=self.__class__.__name__,
+                    exc_info=True,
+                    context={"error": str(error), "symbol": symbol},
+                )
+                processed_ok = False
+
+        return processed_ok
+
+    def _validate_trade_item(self, trade_item: dict) -> bool:
+        """Validate that a trade item has the expected structure.
+
+        Args:
+        ----
+            trade_item: The trade item to validate
+
+        Returns:
+        -------
+            bool: True if valid, False otherwise
+        """
+        required_fields = ["symbol", "price", "qty", "timestamp"]
+        
+        for field_name in required_fields:
+            if field_name not in trade_item:
+                self.logger.warning(
+                    "Trade item missing required field: %s",
+                    field_name,
+                    source_module=self._source_module,
+                    context={"trade_item_keys": list(trade_item.keys())},
+                )
+                return False
+
+        return True
+
+    async def _process_and_publish_trade(
+        self,
+        symbol: str,
+        trade_item: dict,
+    ) -> None:
+        """Process a trade item and publish as event.
+
+        Args:
+        ----
+            symbol: Trading pair symbol
+            trade_item: Trade data from exchange
+        """
+        try:
+            # Extract trade data
+            price_str = str(trade_item.get("price", "0"))
+            qty_str = str(trade_item.get("qty", "0"))
+            timestamp_str = trade_item.get("timestamp")
+            side = trade_item.get("side", "").lower()  # buy/sell
+            trade_id = trade_item.get("trade_id", "")
+            
+            # Additional validation
+            if float(qty_str) <= 0:
+                self.logger.debug(
+                    "Ignoring zero or negative quantity trade for %s",
+                    symbol,
+                    source_module=self._source_module,
+                )
+                return
+
+            # Create trade event payload
+            trade_payload = {
+                "trading_pair": symbol,
+                "exchange": "kraken",
+                "price": price_str,
+                "volume": qty_str,
+                "timestamp_exchange": timestamp_str,
+                "side": side if side in ["buy", "sell"] else "unknown",
+                "trade_id": str(trade_id),
+            }
+
+            # Publish trade event
+            trade_event = MarketDataEvent(
+                source_module=self._source_module,
+                event_id=uuid.uuid4(),
+                timestamp=datetime.utcnow(),
+                event_type=EventType.MARKET_DATA_TRADE,
+                payload=trade_payload,
+            )
+
+            try:
+                await self.pubsub.publish(trade_event)
+                self.logger.debug(
+                    "Published trade event for %s: price=%s, qty=%s, side=%s",
+                    symbol,
+                    price_str,
+                    qty_str,
+                    side,
+                    source_module=self._source_module,
+                )
+            except Exception as e:
+                self.logger.error(
+                    "Failed to publish trade event.",
+                    exc_info=True,
+                    context={"error": str(e), "symbol": symbol},
+                )
+
+        except Exception:
+            self.logger.exception(
+                "Error processing trade for %s",
+                symbol,
+                source_module=self._source_module,
+                context={"trade_item": trade_item},
             )
 
     async def _trigger_halt_if_needed(self, error: Exception, context: dict[str, Any]) -> None:

@@ -351,6 +351,9 @@ class RiskManager:
         self._dynamic_risk_volatility_feature_key = self._config.get("dynamic_risk_volatility_feature_key")
         self._dynamic_risk_target_pairs = self._config.get("dynamic_risk_target_pairs", [])
 
+        # Initialize monitored pairs - use dynamic risk target pairs or fall back to configured list
+        self._monitored_pairs = self._dynamic_risk_target_pairs or self._config.get("monitored_pairs", ["XRP/USD", "DOGE/USD"])
+
         if self._enable_dynamic_risk_adjustment and not self._dynamic_risk_volatility_feature_key:
             self.logger.warning(
                 "Dynamic risk adjustment is enabled, but no 'dynamic_risk_volatility_feature_key' "
@@ -1293,75 +1296,63 @@ class RiskManager:
                 self._risk_per_trade_pct = static_configured_risk_pct
 
     async def _calibrate_normal_volatility(self) -> None:
-        """Calibrates and stores a baseline "normal" historical volatility for configured trading pairs.
-
-        This method is typically called during startup if dynamic risk adjustment is enabled.
-        It fetches historical daily OHLCV data (e.g., for the last 60 days, as defined
-        by `self._volatility_window_size`) via the `MarketPriceService`. It then
-        calculates the standard deviation of daily logarithmic returns for these pairs.
-        This calculated standard deviation is stored in `self._normal_volatility` for
-        each pair and serves as a baseline.
-
-        The `_update_risk_parameters_based_on_volatility` method later compares a live
-        volatility metric (e.g., ATR, sourced from `FeatureEngine` via
-        `self._dynamic_risk_volatility_feature_key`) against this calibrated baseline
-        to make risk adjustments.
-
-        **Note on Comparability:**
-        The user/configurator must be mindful that the baseline volatility calculated here
-        (std dev of log returns) might differ in scale and nature from the live
-        volatility feature provided by `FeatureEngine` (e.g., an ATR value).
-        The thresholds for dynamic risk adjustment (e.g., "current > normal * 1.5")
-        need to be set with this potential difference in mind to ensure sensible behavior.
-        Future enhancements could involve calibrating normal levels for the *specific*
-        `FeatureEngine` feature if historical values of that feature were available.
+        """Calibrate normal (baseline) volatility for each trading pair.
+        
+        This method now supports both daily and intraday volatility calculations
+        based on configuration settings. Intraday volatility provides more
+        responsive risk adjustments for high-frequency trading scenarios.
         """
-        if not hasattr(self, "_normal_volatility_logged_missing"): # Ensure attribute exists
-            self._normal_volatility_logged_missing = {}
-
-        # Define pairs and parameters for calibration
-        pairs_to_calibrate = ["XRP/USD", "DOGE/USD"]  # As per SRS FR-102
-        lookback_days = 60  # Number of days of historical data to use
-        min_data_points_for_stddev = 10  # Need at least a few points to calculate stdev reliably
-
         self.logger.info(
-            (
-                f"Starting normal volatility calibration for pairs: "
-                f"{pairs_to_calibrate} using {lookback_days}-day lookback."
-            ),
+            "Starting normal volatility calibration process.",
             source_module=self._source_module,
-            context={"pairs": pairs_to_calibrate, "lookback": lookback_days},
         )
 
-        for trading_pair in pairs_to_calibrate:
+        # Check configuration for volatility calculation mode
+        volatility_mode = self._config.get("risk.volatility_mode", "daily")  # "daily" or "intraday"
+        intraday_timeframe = self._config.get("risk.intraday_timeframe", "15m")  # For intraday mode
+        
+        MIN_SAMPLES_FOR_STDEV_FUNCTION = 2  # Required by statistics.stdev
+
+        # Calibration parameters based on mode
+        if volatility_mode == "intraday":
+            lookback_hours = self._config.get("risk.intraday_lookback_hours", 24)  # Last 24 hours
+            min_data_points_for_stddev = self._config.get("risk.intraday_min_data_points", 50)
+        else:  # daily mode
+            lookback_days = self._config.get("risk.normal_volatility_lookback_days", 60)
+            min_data_points_for_stddev = self._config.get("risk.min_data_points_for_stddev", 30)
+
+        for trading_pair in self._monitored_pairs:
+            # Skip if we've already logged a warning for this pair
+            if self._normal_volatility_logged_missing.get(trading_pair, False):
+                continue
+
             try:
-                # Calculate the 'since' date for fetching historical data
-                since_datetime = datetime.now(UTC) - timedelta(days=lookback_days)
+                # Calculate time range based on mode
+                current_time = datetime.now(UTC)
+                if volatility_mode == "intraday":
+                    since_datetime = current_time - timedelta(hours=lookback_hours)
+                    timeframe = intraday_timeframe
+                else:
+                    since_datetime = current_time - timedelta(days=lookback_days)
+                    timeframe = "1d"
 
                 self.logger.debug(
-                    (
-                        f"Fetching historical OHLCV for {trading_pair} "
-                        f"since {since_datetime} for volatility calibration."
-                    ),
+                    f"Fetching {volatility_mode} volatility data for {trading_pair} "
+                    f"from {since_datetime} with timeframe {timeframe}",
                     source_module=self._source_module,
-                    context={"pair": trading_pair, "date": since_datetime},
                 )
 
-                # Fetch historical daily data
-                # Assuming MarketPriceService is correctly instantiated and available
+                # Fetch historical data with appropriate timeframe
                 historical_data = await self._market_price_service.get_historical_ohlcv(
                     trading_pair=trading_pair,
-                    timeframe="1d",  # Daily timeframe
+                    timeframe=timeframe,
                     since=since_datetime,
-                    # limit can be omitted if we want all data since 'since_datetime'
-                    # up to Kraken's max (720 points)
-                    # For 60 days, we expect about 60 points, which is well within the limit.
                 )
 
                 if not historical_data or len(historical_data) < min_data_points_for_stddev:
                     self.logger.warning(
                         (
-                            f"Could not calibrate normal volatility for {trading_pair}: "
+                            f"Could not calibrate {volatility_mode} volatility for {trading_pair}: "
                             f"Insufficient historical data fetched (got "
                             f"{len(historical_data) if historical_data else 0} points, "
                             f"need at least {min_data_points_for_stddev})."
@@ -1371,6 +1362,7 @@ class RiskManager:
                             "trading_pair": trading_pair,
                             "fetched_points": len(historical_data) if historical_data else 0,
                             "min_points": min_data_points_for_stddev,
+                            "volatility_mode": volatility_mode,
                         },
                     )
                     self._normal_volatility_logged_missing[trading_pair] = True
@@ -1386,7 +1378,7 @@ class RiskManager:
                 if len(closing_prices) < min_data_points_for_stddev:
                     self.logger.warning(
                         (
-                            f"Could not calibrate normal volatility for {trading_pair}: "
+                            f"Could not calibrate {volatility_mode} volatility for {trading_pair}: "
                             f"Insufficient valid closing prices extracted "
                             f"({len(closing_prices)}, need at least {min_data_points_for_stddev})."
                         ),
@@ -1395,12 +1387,13 @@ class RiskManager:
                             "trading_pair": trading_pair,
                             "closing_prices_count": len(closing_prices),
                             "min_points": min_data_points_for_stddev,
+                            "volatility_mode": volatility_mode,
                         },
                     )
                     self._normal_volatility_logged_missing[trading_pair] = True
                     continue
 
-                # Calculate daily logarithmic returns: ln(Price_t / Price_{t-1})
+                # Calculate logarithmic returns: ln(Price_t / Price_{t-1})
                 log_returns = []
                 for i in range(1, len(closing_prices)):
                     # Avoid division by zero or issues with non-positive prices
@@ -1424,7 +1417,7 @@ class RiskManager:
                 if len(log_returns) < min_data_points_for_stddev - 1:
                     self.logger.warning(
                         (
-                            f"Could not calibrate normal volatility for {trading_pair}: "
+                            f"Could not calibrate {volatility_mode} volatility for {trading_pair}: "
                             f"Insufficient log returns calculated ({len(log_returns)}, "
                             f"need at least {min_data_points_for_stddev -1} for meaningful stdev)."
                         ),
@@ -1433,6 +1426,7 @@ class RiskManager:
                             "trading_pair": trading_pair,
                             "log_returns_count": len(log_returns),
                             "min_needed_for_stdev": min_data_points_for_stddev - 1,
+                            "volatility_mode": volatility_mode,
                         },
                     )
                     self._normal_volatility_logged_missing[trading_pair] = True
@@ -1444,24 +1438,39 @@ class RiskManager:
                     # Convert Decimal log returns to float for statistics.stdev,
                     # then back to Decimal
                     float_log_returns = [float(lr) for lr in log_returns]
-                    daily_volatility = Decimal(str(statistics.stdev(float_log_returns)))
+                    period_volatility = Decimal(str(statistics.stdev(float_log_returns)))
 
-                    # Optional: Annualize volatility (daily might be fine for dynamic adjustment)
-                    # For now, we store the daily volatility.
-                    self._normal_volatility[trading_pair] = daily_volatility
+                    # Annualize volatility if needed
+                    if volatility_mode == "intraday":
+                        # Convert intraday volatility to annualized equivalent
+                        # For crypto markets: 365 days * 24 hours * periods per hour
+                        periods_per_day = self._get_periods_per_day(intraday_timeframe)
+                        periods_per_year = periods_per_day * 365  # 365 days for crypto markets
+                        annualized_volatility = period_volatility * Decimal(math.sqrt(periods_per_year))
+                        
+                        self._normal_volatility[trading_pair] = annualized_volatility
+                        volatility_type = f"annualized intraday ({intraday_timeframe})"
+                    else:
+                        # For daily volatility, annualize using 365 days
+                        # Daily volatility * sqrt(365) for annualized
+                        annualized_daily_volatility = period_volatility * Decimal(math.sqrt(365))
+                        self._normal_volatility[trading_pair] = annualized_daily_volatility
+                        volatility_type = "annualized daily"
+
                     self.logger.info(
                         (
-                            f"Successfully calibrated normal daily volatility for {trading_pair}: "
-                        f"{daily_volatility:.8f}. (Based on {len(log_returns)} log returns "
-                        f"from {len(closing_prices)} prices over approx. {lookback_days} days)."
+                            f"Successfully calibrated {volatility_type} volatility for {trading_pair}: "
+                            f"{self._normal_volatility[trading_pair]:.8f}. "
+                            f"(Based on {len(log_returns)} log returns from {len(closing_prices)} prices)"
                         ),
                         source_module=self._source_module,
                         context={
                             "trading_pair": trading_pair,
-                            "volatility": daily_volatility,
+                            "volatility": self._normal_volatility[trading_pair],
+                            "volatility_type": volatility_type,
                             "log_returns_count": len(log_returns),
                             "closing_prices_count": len(closing_prices),
-                            "lookback_days": lookback_days,
+                            "lookback_period": f"{lookback_hours}h" if volatility_mode == "intraday" else f"{lookback_days}d",
                         },
                     )
                     # Mark as calibrated
@@ -1482,16 +1491,30 @@ class RiskManager:
 
             except Exception:
                 self.logger.exception(
-                    f"Error during normal volatility calibration for {trading_pair}",
+                    f"Error during {volatility_mode} volatility calibration for {trading_pair}",
                     source_module=self._source_module,
-                    context={"trading_pair": trading_pair},
+                    context={"trading_pair": trading_pair, "volatility_mode": volatility_mode},
                 )
                 self._normal_volatility_logged_missing[trading_pair] = True
 
         self.logger.info(
-            "Normal volatility calibration process finished.",
+            f"{volatility_mode.capitalize()} volatility calibration process finished.",
             source_module=self._source_module,
         )
+
+    def _get_periods_per_day(self, timeframe: str) -> int:
+        """Convert timeframe string to number of periods per trading day."""
+        # Map common timeframes to periods per day (24-hour trading for crypto)
+        timeframe_map = {
+            "1m": 1440,   # 24 hours * 60 minutes
+            "5m": 288,    # 1440 / 5
+            "15m": 96,    # 1440 / 15
+            "30m": 48,    # 1440 / 30
+            "1h": 24,     # 24 hours
+            "4h": 6,      # 24 / 4
+            "1d": 1,      # 1 day
+        }
+        return timeframe_map.get(timeframe, 96)  # Default to 15m if unknown
 
     def _calculate_and_validate_prices(
         self,
