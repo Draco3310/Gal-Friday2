@@ -364,10 +364,3 @@ class XGBoostPredictor(PredictorInterface):
 
         # If we reach here, there was an error or we need to return the error result
         return result
-
-
-# Example of how it might be used (for illustration, not part of the class)
-# if __name__ == '__main__':
-#     # This is a placeholder for where actual configuration would come from
-#     # For testing, you would need a dummy model and scaler.
-#     pass

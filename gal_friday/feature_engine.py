@@ -89,9 +89,822 @@ class InternalFeatureSpec:
     description: str = "" # Human-readable description of the feature and its configuration.
     version: str | None = None # Version string for the feature definition, loaded from the registry.
     output_properties: dict[str, Any] = field(default_factory=dict) # Dictionary describing expected output characteristics (e.g., `{"value_type": "float", "range": [0, 1]}`).
-    # TODO: Add other fields from FeatureSpec as deemed useful, e.g. output_names for multi-output features
-    # TODO: Consider adding 'output_column_names' if a feature calculator produces multiple unnamed outputs
-    #       that need specific naming beyond what pandas-ta might provide.
+    
+    # Enhanced fields for comprehensive output handling and multiple outputs
+    output_specs: list["OutputSpec"] = field(default_factory=list) # Detailed specifications for each output
+    output_naming_pattern: str | None = None # Pattern for naming outputs (e.g., '{feature_name}_{output_name}')
+    dependencies: list[str] = field(default_factory=list) # Other features this depends on
+    required_lookback_periods: int = 1 # Minimum data points required
+    author: str | None = None # Feature author/creator
+    created_at: str | None = None # Creation timestamp
+    tags: list[str] = field(default_factory=list) # Feature tags for organization
+    cache_enabled: bool = True # Whether to cache feature results
+    cache_ttl_minutes: int | None = None # Cache time-to-live in minutes
+    computation_priority: int = 5 # Computation priority (1-10)
+    
+    @property
+    def output_names(self) -> list[str]:
+        """Get list of all output names based on specs and naming pattern."""
+        if not self.output_specs:
+            return [self.key]  # Default to feature key if no specs
+        
+        if self.output_naming_pattern:
+            return [
+                self.output_naming_pattern.format(
+                    feature_name=self.key,
+                    output_name=spec.name
+                )
+                for spec in self.output_specs
+            ]
+        return [spec.name for spec in self.output_specs]
+    
+    @property
+    def expected_output_count(self) -> int:
+        """Get expected number of outputs."""
+        return len(self.output_specs) if self.output_specs else 1
+
+
+class OutputType(Enum):
+    """Types of feature outputs supported."""
+    NUMERIC = "numeric"
+    CATEGORICAL = "categorical"
+    BOOLEAN = "boolean"
+    TIMESTAMP = "timestamp"
+    STRING = "string"
+
+
+@dataclass
+class OutputSpec:
+    """Specification for a single feature output."""
+    name: str
+    output_type: OutputType = OutputType.NUMERIC
+    description: str | None = None
+    validation_range: tuple[float, float] | None = None
+    nullable: bool = True
+    default_value: Any = None
+
+
+class FeatureValidationError(Exception):
+    """Exception raised for feature validation errors."""
+    pass
+
+
+class FeatureProcessingError(Exception):
+    """Exception raised for feature processing errors."""
+    pass
+
+
+class FeatureOutputHandler:
+    """Enhanced handler for processing multiple feature outputs according to specifications."""
+    
+    def __init__(self, feature_spec: InternalFeatureSpec):
+        self.spec = feature_spec
+        self.logger = None  # Will be set by FeatureEngine if available
+        
+    def process_feature_outputs(self, raw_outputs: Any) -> pd.DataFrame:
+        """
+        Process raw feature computation outputs according to specification.
+        Handles multiple output formats and applies validation, type conversion, and naming.
+        
+        Args:
+            raw_outputs: Raw output from feature calculation (Series, DataFrame, dict, list, scalar)
+            
+        Returns:
+            Processed DataFrame with properly named and validated outputs
+            
+        Raises:
+            FeatureProcessingError: If output processing fails
+        """
+        try:
+            # Convert raw outputs to standardized DataFrame format
+            standardized_outputs = self._standardize_raw_outputs(raw_outputs)
+            
+            # Validate output structure matches expectations
+            self._validate_output_structure(standardized_outputs)
+            
+            # Apply output specifications (type conversion, validation)
+            processed_outputs = self._apply_output_specifications(standardized_outputs)
+            
+            # Apply naming pattern
+            final_outputs = self._apply_output_naming(processed_outputs)
+            
+            # Add metadata
+            final_outputs = self._add_output_metadata(final_outputs)
+            
+            if self.logger:
+                self.logger.debug(
+                    f"Successfully processed {len(final_outputs.columns)} outputs for feature {self.spec.key}"
+                )
+            
+            return final_outputs
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error processing outputs for feature {self.spec.key}: {e}")
+            raise FeatureProcessingError(f"Failed to process feature outputs: {e}")
+    
+    def _standardize_raw_outputs(self, raw_outputs: Any) -> pd.DataFrame:
+        """Convert various output formats to standardized DataFrame."""
+        if isinstance(raw_outputs, pd.DataFrame):
+            return raw_outputs
+        
+        elif isinstance(raw_outputs, pd.Series):
+            # Single series output
+            output_name = self.spec.output_specs[0].name if self.spec.output_specs else "value"
+            return pd.DataFrame({output_name: raw_outputs})
+        
+        elif isinstance(raw_outputs, np.ndarray):
+            # NumPy array - could be 1D or 2D
+            if raw_outputs.ndim == 1:
+                output_name = self.spec.output_specs[0].name if self.spec.output_specs else "value"
+                return pd.DataFrame({output_name: raw_outputs})
+            else:
+                # Multi-dimensional array
+                columns = [spec.name for spec in self.spec.output_specs[:raw_outputs.shape[1]]]
+                if len(columns) < raw_outputs.shape[1]:
+                    # Generate default names for additional columns
+                    for i in range(len(columns), raw_outputs.shape[1]):
+                        columns.append(f"output_{i}")
+                return pd.DataFrame(raw_outputs, columns=columns)
+        
+        elif isinstance(raw_outputs, dict):
+            # Dictionary of outputs
+            return pd.DataFrame(raw_outputs)
+        
+        elif isinstance(raw_outputs, list):
+            # List of values
+            if len(self.spec.output_specs) == 1:
+                output_name = self.spec.output_specs[0].name
+                return pd.DataFrame({output_name: raw_outputs})
+            else:
+                # Multiple outputs - map to specs
+                output_dict = {}
+                for i, spec in enumerate(self.spec.output_specs):
+                    if i < len(raw_outputs):
+                        output_dict[spec.name] = raw_outputs[i] if isinstance(raw_outputs[i], (list, np.ndarray)) else [raw_outputs[i]]
+                return pd.DataFrame(output_dict)
+        
+        else:
+            # Single scalar value
+            output_name = self.spec.output_specs[0].name if self.spec.output_specs else "value"
+            return pd.DataFrame({output_name: [raw_outputs]})
+    
+    def _validate_output_structure(self, outputs: pd.DataFrame) -> None:
+        """Validate that outputs match expected structure."""
+        if not self.spec.output_specs:
+            return  # No validation if no specs defined
+        
+        expected_count = self.spec.expected_output_count
+        actual_count = len(outputs.columns)
+        
+        if actual_count != expected_count:
+            if actual_count < expected_count:
+                if self.logger:
+                    self.logger.warning(
+                        f"Feature {self.spec.key} produced {actual_count} outputs, "
+                        f"expected {expected_count}. Adding default values."
+                    )
+                # Add missing columns with default values
+                for i in range(actual_count, expected_count):
+                    spec = self.spec.output_specs[i]
+                    default_val = spec.default_value if spec.default_value is not None else np.nan
+                    outputs[spec.name] = default_val
+            
+            elif actual_count > expected_count:
+                if self.logger:
+                    self.logger.warning(
+                        f"Feature {self.spec.key} produced {actual_count} outputs, "
+                        f"expected {expected_count}. Truncating to expected count."
+                    )
+                # Keep only expected columns
+                expected_columns = [spec.name for spec in self.spec.output_specs]
+                outputs = outputs[expected_columns[:expected_count]]
+    
+    def _apply_output_specifications(self, outputs: pd.DataFrame) -> pd.DataFrame:
+        """Apply type conversions and validations according to output specs."""
+        if not self.spec.output_specs:
+            return outputs  # No specs to apply
+        
+        processed = outputs.copy()
+        
+        for spec in self.spec.output_specs:
+            if spec.name not in processed.columns:
+                continue
+            
+            column = processed[spec.name]
+            
+            # Apply type conversion
+            if spec.output_type == OutputType.NUMERIC:
+                processed[spec.name] = pd.to_numeric(column, errors='coerce')
+            elif spec.output_type == OutputType.CATEGORICAL:
+                processed[spec.name] = column.astype('category')
+            elif spec.output_type == OutputType.BOOLEAN:
+                processed[spec.name] = column.astype(bool)
+            elif spec.output_type == OutputType.TIMESTAMP:
+                processed[spec.name] = pd.to_datetime(column, errors='coerce')
+            elif spec.output_type == OutputType.STRING:
+                processed[spec.name] = column.astype(str)
+            
+            # Apply validation range
+            if spec.validation_range and spec.output_type == OutputType.NUMERIC:
+                min_val, max_val = spec.validation_range
+                out_of_range = (column < min_val) | (column > max_val)
+                if out_of_range.any():
+                    if self.logger:
+                        self.logger.warning(
+                            f"Feature {self.spec.key} output {spec.name} has "
+                            f"{out_of_range.sum()} values outside range [{min_val}, {max_val}]"
+                        )
+                    # Clip values to range
+                    processed[spec.name] = column.clip(min_val, max_val)
+            
+            # Handle nullability
+            if not spec.nullable and column.isnull().any():
+                if spec.default_value is not None:
+                    processed[spec.name] = column.fillna(spec.default_value)
+                else:
+                    raise FeatureValidationError(
+                        f"Feature {self.spec.key} output {spec.name} contains null values "
+                        f"but nullability is disabled"
+                    )
+        
+        return processed
+    
+    def _apply_output_naming(self, outputs: pd.DataFrame) -> pd.DataFrame:
+        """Apply naming pattern to output columns."""
+        if not self.spec.output_naming_pattern:
+            return outputs
+        
+        renamed_outputs = outputs.copy()
+        old_to_new_names = {}
+        
+        for i, spec in enumerate(self.spec.output_specs):
+            if spec.name in outputs.columns:
+                new_name = self.spec.output_naming_pattern.format(
+                    feature_name=self.spec.key,
+                    output_name=spec.name,
+                    index=i
+                )
+                old_to_new_names[spec.name] = new_name
+        
+        return renamed_outputs.rename(columns=old_to_new_names)
+    
+    def _add_output_metadata(self, outputs: pd.DataFrame) -> pd.DataFrame:
+        """Add metadata attributes to output DataFrame."""
+        # Add feature metadata as DataFrame attributes
+        outputs.attrs['feature_name'] = self.spec.key
+        outputs.attrs['feature_version'] = self.spec.version
+        outputs.attrs['output_count'] = len(outputs.columns)
+        outputs.attrs['computation_timestamp'] = pd.Timestamp.now()
+        
+        if self.spec.tags:
+            outputs.attrs['tags'] = self.spec.tags
+        
+        return outputs
+
+
+@dataclass
+class FeatureExtractionResult:
+    """Result of advanced feature extraction."""
+    features: pd.DataFrame
+    feature_specs: list[InternalFeatureSpec]
+    extraction_time: float
+    quality_metrics: dict[str, float]
+    cache_hits: int = 0
+    cache_misses: int = 0
+
+
+class AdvancedFeatureExtractor:
+    """Enterprise-grade advanced feature extraction with technical indicators and market microstructure."""
+    
+    def __init__(self, config: dict[str, Any], logger_service: Any = None):
+        self.config = config
+        self.logger = logger_service
+        
+        # Feature registry and cache
+        self.feature_registry: dict[str, InternalFeatureSpec] = {}
+        self.feature_cache: dict[str, pd.DataFrame] = {}
+        
+        # Performance tracking
+        self.extraction_stats = {
+            'features_extracted': 0,
+            'extraction_time_total': 0.0,
+            'cache_hits': 0,
+            'cache_misses': 0
+        }
+        
+        # Quality thresholds
+        self.quality_thresholds = config.get("feature_quality", {
+            "min_completeness": 0.8,
+            "max_correlation": 0.95,
+            "min_variance": 1e-6
+        })
+        
+        self._initialize_advanced_indicators()
+    
+    def _initialize_advanced_indicators(self) -> None:
+        """Initialize advanced technical indicators and market microstructure features."""
+        # Enhanced technical indicators
+        self.advanced_indicators = {
+            # Momentum indicators
+            'momentum': self._calculate_momentum,
+            'rate_of_change': self._calculate_rate_of_change,
+            'williams_percent_r': self._calculate_williams_r,
+            'commodity_channel_index': self._calculate_cci,
+            
+            # Volatility indicators
+            'bollinger_width': self._calculate_bollinger_width,
+            'true_range': self._calculate_true_range,
+            'average_true_range': self._calculate_atr_advanced,
+            'volatility_ratio': self._calculate_volatility_ratio,
+            
+            # Volume indicators
+            'on_balance_volume': self._calculate_obv,
+            'accumulation_distribution': self._calculate_ad_line,
+            'money_flow_index': self._calculate_mfi,
+            'volume_oscillator': self._calculate_volume_oscillator,
+            
+            # Market microstructure
+            'effective_spread': self._calculate_effective_spread,
+            'quoted_spread': self._calculate_quoted_spread,
+            'depth_imbalance': self._calculate_depth_imbalance,
+            'order_flow_imbalance': self._calculate_order_flow_imbalance,
+            'market_impact': self._calculate_market_impact,
+            
+            # Statistical features
+            'price_momentum_oscillator': self._calculate_pmo,
+            'adaptive_moving_average': self._calculate_ama,
+            'fractal_dimension': self._calculate_fractal_dimension,
+            'hurst_exponent': self._calculate_hurst_exponent,
+        }
+    
+    async def extract_advanced_features(
+        self, 
+        data: pd.DataFrame, 
+        feature_specs: list[InternalFeatureSpec],
+        l2_data: dict[str, Any] | None = None,
+        trade_data: list[dict[str, Any]] | None = None
+    ) -> FeatureExtractionResult:
+        """
+        Extract advanced features with technical indicators and market microstructure.
+        
+        Args:
+            data: OHLCV DataFrame
+            feature_specs: List of feature specifications to compute
+            l2_data: Level 2 order book data
+            trade_data: Trade-level data
+            
+        Returns:
+            FeatureExtractionResult with computed features and metadata
+        """
+        import time
+        start_time = time.time()
+        
+        try:
+            if self.logger:
+                self.logger.info(f"Extracting {len(feature_specs)} advanced features from {len(data)} data points")
+            
+            # Validate input data
+            self._validate_input_data(data)
+            
+            # Initialize feature DataFrame
+            features_df = pd.DataFrame(index=data.index)
+            
+            # Extract features by category for optimal performance
+            for category in [FeatureCategory.TECHNICAL, FeatureCategory.L2_ORDER_BOOK, 
+                           FeatureCategory.TRADE_DATA, FeatureCategory.CUSTOM]:
+                category_specs = [spec for spec in feature_specs if spec.category == category]
+                if category_specs:
+                    category_features = await self._extract_category_features(
+                        data, category_specs, l2_data, trade_data
+                    )
+                    features_df = pd.concat([features_df, category_features], axis=1)
+            
+            # Calculate feature quality metrics
+            quality_metrics = self._calculate_feature_quality(features_df)
+            
+            # Clean and validate features
+            features_df = self._clean_features(features_df)
+            
+            extraction_time = time.time() - start_time
+            self.extraction_stats['features_extracted'] += len(feature_specs)
+            self.extraction_stats['extraction_time_total'] += extraction_time
+            
+            result = FeatureExtractionResult(
+                features=features_df,
+                feature_specs=feature_specs,
+                extraction_time=extraction_time,
+                quality_metrics=quality_metrics,
+                cache_hits=self.extraction_stats['cache_hits'],
+                cache_misses=self.extraction_stats['cache_misses']
+            )
+            
+            if self.logger:
+                self.logger.info(f"Advanced feature extraction completed in {extraction_time:.2f}s")
+            
+            return result
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Advanced feature extraction failed: {e}")
+            raise FeatureProcessingError(f"Advanced feature extraction failed: {e}")
+    
+    async def _extract_category_features(
+        self, 
+        data: pd.DataFrame, 
+        category_specs: list[InternalFeatureSpec],
+        l2_data: dict[str, Any] | None = None,
+        trade_data: list[dict[str, Any]] | None = None
+    ) -> pd.DataFrame:
+        """Extract features for a specific category."""
+        category_features = pd.DataFrame(index=data.index)
+        
+        for spec in category_specs:
+            try:
+                # Check cache first
+                cache_key = self._generate_cache_key(spec, data)
+                if spec.cache_enabled and cache_key in self.feature_cache:
+                    feature_result = self.feature_cache[cache_key]
+                    self.extraction_stats['cache_hits'] += 1
+                else:
+                    # Compute feature
+                    feature_result = await self._compute_advanced_feature(spec, data, l2_data, trade_data)
+                    
+                    # Cache result if enabled
+                    if spec.cache_enabled:
+                        self.feature_cache[cache_key] = feature_result
+                    
+                    self.extraction_stats['cache_misses'] += 1
+                
+                # Add to category features
+                if feature_result is not None and not feature_result.empty:
+                    category_features = pd.concat([category_features, feature_result], axis=1)
+                    
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Failed to compute feature {spec.key}: {e}")
+                continue
+        
+        return category_features
+    
+    async def _compute_advanced_feature(
+        self, 
+        spec: InternalFeatureSpec, 
+        data: pd.DataFrame,
+        l2_data: dict[str, Any] | None = None,
+        trade_data: list[dict[str, Any]] | None = None
+    ) -> pd.DataFrame | None:
+        """Compute a single advanced feature."""
+        if spec.calculator_type in self.advanced_indicators:
+            calculator_func = self.advanced_indicators[spec.calculator_type]
+            
+            # Prepare arguments based on feature type
+            if spec.category == FeatureCategory.L2_ORDER_BOOK and l2_data:
+                result = calculator_func(data, l2_data, **spec.parameters)
+            elif spec.category == FeatureCategory.TRADE_DATA and trade_data:
+                result = calculator_func(data, trade_data, **spec.parameters)
+            else:
+                result = calculator_func(data, **spec.parameters)
+            
+            # Process through output handler if available
+            if hasattr(spec, 'output_specs') and spec.output_specs:
+                handler = FeatureOutputHandler(spec)
+                handler.logger = self.logger
+                return handler.process_feature_outputs(result)
+            
+            # Convert result to DataFrame if needed
+            if isinstance(result, pd.Series):
+                return pd.DataFrame({spec.key: result})
+            elif isinstance(result, pd.DataFrame):
+                return result
+            
+        return None
+    
+    def _validate_input_data(self, data: pd.DataFrame) -> None:
+        """Validate input OHLCV data."""
+        required_columns = ['open', 'high', 'low', 'close', 'volume']
+        missing_columns = [col for col in required_columns if col not in data.columns]
+        
+        if missing_columns:
+            raise ValueError(f"Missing required columns: {missing_columns}")
+        
+        if data.empty:
+            raise ValueError("Input data is empty")
+        
+        # Check for sufficient data
+        min_periods = max(20, max(spec.required_lookback_periods for spec in self.feature_registry.values() if hasattr(spec, 'required_lookback_periods')))
+        if len(data) < min_periods:
+            raise ValueError(f"Insufficient data: need at least {min_periods} periods, got {len(data)}")
+    
+    def _calculate_feature_quality(self, features_df: pd.DataFrame) -> dict[str, float]:
+        """Calculate quality metrics for extracted features."""
+        if features_df.empty:
+            return {'completeness': 0.0, 'variance_ratio': 0.0, 'correlation_max': 0.0}
+        
+        # Completeness (non-null ratio)
+        completeness = 1.0 - features_df.isnull().sum().sum() / (len(features_df) * len(features_df.columns))
+        
+        # Variance ratio (features with sufficient variance)
+        numeric_features = features_df.select_dtypes(include=[np.number])
+        if not numeric_features.empty:
+            variances = numeric_features.var()
+            high_variance_ratio = (variances > self.quality_thresholds['min_variance']).mean()
+        else:
+            high_variance_ratio = 0.0
+        
+        # Maximum correlation (feature redundancy check)
+        max_correlation = 0.0
+        if len(numeric_features.columns) > 1:
+            corr_matrix = numeric_features.corr().abs()
+            # Get upper triangle excluding diagonal
+            upper_triangle = corr_matrix.where(
+                np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+            )
+            max_correlation = upper_triangle.max().max() if not upper_triangle.isna().all().all() else 0.0
+        
+        return {
+            'completeness': float(completeness),
+            'variance_ratio': float(high_variance_ratio),
+            'correlation_max': float(max_correlation)
+        }
+    
+    def _clean_features(self, features_df: pd.DataFrame) -> pd.DataFrame:
+        """Clean and validate features."""
+        # Remove features with too many NaNs
+        threshold = self.quality_thresholds['min_completeness']
+        features_df = features_df.dropna(thresh=int(len(features_df) * threshold), axis=1)
+        
+        # Remove highly correlated features
+        numeric_features = features_df.select_dtypes(include=[np.number])
+        if len(numeric_features.columns) > 1:
+            corr_matrix = numeric_features.corr().abs()
+            upper_triangle = corr_matrix.where(
+                np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+            )
+            
+            # Find features to drop
+            to_drop = [column for column in upper_triangle.columns 
+                      if any(upper_triangle[column] > self.quality_thresholds['max_correlation'])]
+            
+            features_df = features_df.drop(columns=to_drop)
+        
+        return features_df
+    
+    def _generate_cache_key(self, spec: InternalFeatureSpec, data: pd.DataFrame) -> str:
+        """Generate cache key for feature computation."""
+        data_hash = str(hash(tuple(data.index.tolist() + data.iloc[-1].tolist())))
+        params_hash = str(hash(tuple(sorted(spec.parameters.items()))))
+        return f"{spec.key}_{data_hash}_{params_hash}"
+    
+    # Advanced indicator calculations
+    def _calculate_momentum(self, data: pd.DataFrame, period: int = 10) -> pd.Series:
+        """Calculate momentum indicator."""
+        return data['close'] - data['close'].shift(period)
+    
+    def _calculate_rate_of_change(self, data: pd.DataFrame, period: int = 10) -> pd.Series:
+        """Calculate rate of change."""
+        return ((data['close'] - data['close'].shift(period)) / data['close'].shift(period)) * 100
+    
+    def _calculate_williams_r(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
+        """Calculate Williams %R."""
+        high_max = data['high'].rolling(window=period).max()
+        low_min = data['low'].rolling(window=period).min()
+        return -100 * ((high_max - data['close']) / (high_max - low_min))
+    
+    def _calculate_cci(self, data: pd.DataFrame, period: int = 20) -> pd.Series:
+        """Calculate Commodity Channel Index."""
+        typical_price = (data['high'] + data['low'] + data['close']) / 3
+        sma_tp = typical_price.rolling(window=period).mean()
+        mad = typical_price.rolling(window=period).apply(lambda x: np.mean(np.abs(x - x.mean())))
+        return (typical_price - sma_tp) / (0.015 * mad)
+    
+    def _calculate_bollinger_width(self, data: pd.DataFrame, period: int = 20, std_dev: float = 2) -> pd.Series:
+        """Calculate Bollinger Band width."""
+        sma = data['close'].rolling(window=period).mean()
+        std = data['close'].rolling(window=period).std()
+        upper_band = sma + (std * std_dev)
+        lower_band = sma - (std * std_dev)
+        return (upper_band - lower_band) / sma * 100
+    
+    def _calculate_true_range(self, data: pd.DataFrame) -> pd.Series:
+        """Calculate True Range."""
+        high_low = data['high'] - data['low']
+        high_close_prev = np.abs(data['high'] - data['close'].shift(1))
+        low_close_prev = np.abs(data['low'] - data['close'].shift(1))
+        return pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
+    
+    def _calculate_atr_advanced(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
+        """Calculate Advanced Average True Range with additional smoothing."""
+        tr = self._calculate_true_range(data)
+        return tr.ewm(span=period).mean()  # Use exponential moving average
+    
+    def _calculate_volatility_ratio(self, data: pd.DataFrame, short_period: int = 10, long_period: int = 30) -> pd.Series:
+        """Calculate volatility ratio."""
+        short_vol = data['close'].pct_change().rolling(window=short_period).std()
+        long_vol = data['close'].pct_change().rolling(window=long_period).std()
+        return short_vol / long_vol
+    
+    def _calculate_obv(self, data: pd.DataFrame) -> pd.Series:
+        """Calculate On-Balance Volume."""
+        price_change = data['close'].diff()
+        obv = np.where(price_change > 0, data['volume'], 
+                      np.where(price_change < 0, -data['volume'], 0))
+        return pd.Series(obv, index=data.index).cumsum()
+    
+    def _calculate_ad_line(self, data: pd.DataFrame) -> pd.Series:
+        """Calculate Accumulation/Distribution Line."""
+        mfm = ((data['close'] - data['low']) - (data['high'] - data['close'])) / (data['high'] - data['low'])
+        mfm = mfm.fillna(0)  # Handle division by zero
+        return (mfm * data['volume']).cumsum()
+    
+    def _calculate_mfi(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
+        """Calculate Money Flow Index."""
+        typical_price = (data['high'] + data['low'] + data['close']) / 3
+        money_flow = typical_price * data['volume']
+        
+        positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0)
+        negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0)
+        
+        positive_mf = positive_flow.rolling(window=period).sum()
+        negative_mf = negative_flow.rolling(window=period).sum()
+        
+        money_ratio = positive_mf / negative_mf
+        return 100 - (100 / (1 + money_ratio))
+    
+    def _calculate_volume_oscillator(self, data: pd.DataFrame, short_period: int = 14, long_period: int = 28) -> pd.Series:
+        """Calculate Volume Oscillator."""
+        short_vol_avg = data['volume'].rolling(window=short_period).mean()
+        long_vol_avg = data['volume'].rolling(window=long_period).mean()
+        return ((short_vol_avg - long_vol_avg) / long_vol_avg) * 100
+    
+    # Market microstructure features
+    def _calculate_effective_spread(self, data: pd.DataFrame, l2_data: dict[str, Any]) -> pd.Series:
+        """Calculate effective spread from L2 data."""
+        # Implementation would use actual trade prices vs. midpoint
+        # This is a simplified version
+        if 'bids' in l2_data and 'asks' in l2_data and l2_data['bids'] and l2_data['asks']:
+            bid_price = float(l2_data['bids'][0][0])
+            ask_price = float(l2_data['asks'][0][0])
+            midpoint = (bid_price + ask_price) / 2
+            spread = ask_price - bid_price
+            return pd.Series([spread / midpoint * 10000], index=[data.index[-1]])  # in basis points
+        return pd.Series([], dtype=float)
+    
+    def _calculate_quoted_spread(self, data: pd.DataFrame, l2_data: dict[str, Any]) -> pd.Series:
+        """Calculate quoted spread."""
+        if 'bids' in l2_data and 'asks' in l2_data and l2_data['bids'] and l2_data['asks']:
+            bid_price = float(l2_data['bids'][0][0])
+            ask_price = float(l2_data['asks'][0][0])
+            return pd.Series([ask_price - bid_price], index=[data.index[-1]])
+        return pd.Series([], dtype=float)
+    
+    def _calculate_depth_imbalance(self, data: pd.DataFrame, l2_data: dict[str, Any], levels: int = 5) -> pd.Series:
+        """Calculate order book depth imbalance."""
+        if 'bids' in l2_data and 'asks' in l2_data:
+            bid_depth = sum(float(level[1]) for level in l2_data['bids'][:levels])
+            ask_depth = sum(float(level[1]) for level in l2_data['asks'][:levels])
+            total_depth = bid_depth + ask_depth
+            if total_depth > 0:
+                imbalance = (bid_depth - ask_depth) / total_depth
+                return pd.Series([imbalance], index=[data.index[-1]])
+        return pd.Series([], dtype=float)
+    
+    def _calculate_order_flow_imbalance(self, data: pd.DataFrame, trade_data: list[dict[str, Any]]) -> pd.Series:
+        """Calculate order flow imbalance from trade data."""
+        if not trade_data:
+            return pd.Series([], dtype=float)
+        
+        buy_volume = sum(float(trade['volume']) for trade in trade_data if trade.get('side') == 'buy')
+        sell_volume = sum(float(trade['volume']) for trade in trade_data if trade.get('side') == 'sell')
+        total_volume = buy_volume + sell_volume
+        
+        if total_volume > 0:
+            imbalance = (buy_volume - sell_volume) / total_volume
+            return pd.Series([imbalance], index=[data.index[-1]])
+        return pd.Series([], dtype=float)
+    
+    def _calculate_market_impact(self, data: pd.DataFrame, trade_data: list[dict[str, Any]]) -> pd.Series:
+        """Calculate market impact estimate."""
+        if not trade_data or len(data) < 2:
+            return pd.Series([], dtype=float)
+        
+        # Simple market impact as price change per unit volume
+        recent_volume = sum(float(trade['volume']) for trade in trade_data)
+        price_change = float(data['close'].iloc[-1] - data['close'].iloc[-2])
+        
+        if recent_volume > 0:
+            impact = abs(price_change) / recent_volume
+            return pd.Series([impact], index=[data.index[-1]])
+        return pd.Series([], dtype=float)
+    
+    # Statistical and advanced features
+    def _calculate_pmo(self, data: pd.DataFrame, period1: int = 35, period2: int = 20) -> pd.Series:
+        """Calculate Price Momentum Oscillator."""
+        roc = data['close'].pct_change(period1) * 100
+        pmo = roc.ewm(span=period2).mean()
+        return pmo.ewm(span=10).mean()  # Signal line
+    
+    def _calculate_ama(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
+        """Calculate Adaptive Moving Average."""
+        change = abs(data['close'] - data['close'].shift(period))
+        volatility = data['close'].diff().abs().rolling(window=period).sum()
+        efficiency_ratio = change / volatility
+        
+        # Smoothing constants
+        fast_sc = 2 / (2 + 1)
+        slow_sc = 2 / (30 + 1)
+        smoothing_constant = (efficiency_ratio * (fast_sc - slow_sc) + slow_sc) ** 2
+        
+        ama = pd.Series(index=data.index, dtype=float)
+        ama.iloc[0] = data['close'].iloc[0]
+        
+        for i in range(1, len(data)):
+            ama.iloc[i] = ama.iloc[i-1] + smoothing_constant.iloc[i] * (data['close'].iloc[i] - ama.iloc[i-1])
+        
+        return ama
+    
+    def _calculate_fractal_dimension(self, data: pd.DataFrame, period: int = 20) -> pd.Series:
+        """Calculate fractal dimension."""
+        def fd_single(series):
+            if len(series) < 2:
+                return np.nan
+            
+            n = len(series)
+            # Calculate relative range
+            cumulative_deviations = np.cumsum(series - series.mean())
+            R = np.max(cumulative_deviations) - np.min(cumulative_deviations)
+            
+            # Calculate standard deviation
+            S = np.std(series)
+            
+            if S == 0:
+                return np.nan
+            
+            # Hurst exponent
+            rs = R / S
+            hurst = np.log(rs) / np.log(n)
+            
+            # Fractal dimension
+            return 2 - hurst
+        
+        return data['close'].rolling(window=period).apply(fd_single)
+    
+    def _calculate_hurst_exponent(self, data: pd.DataFrame, period: int = 100) -> pd.Series:
+        """Calculate Hurst exponent."""
+        def hurst_single(series):
+            if len(series) < 10:
+                return np.nan
+            
+            try:
+                # Convert to log returns
+                log_returns = np.log(series / series.shift(1)).dropna()
+                
+                # Calculate R/S statistics for different lags
+                lags = range(2, min(len(log_returns) // 2, 20))
+                rs_values = []
+                
+                for lag in lags:
+                    # Split series into chunks
+                    n_chunks = len(log_returns) // lag
+                    if n_chunks < 1:
+                        continue
+                        
+                    rs_chunk = []
+                    for i in range(n_chunks):
+                        chunk = log_returns[i*lag:(i+1)*lag]
+                        if len(chunk) == lag:
+                            mean_chunk = chunk.mean()
+                            cumsum_chunk = (chunk - mean_chunk).cumsum()
+                            r_chunk = cumsum_chunk.max() - cumsum_chunk.min()
+                            s_chunk = chunk.std()
+                            if s_chunk > 0:
+                                rs_chunk.append(r_chunk / s_chunk)
+                    
+                    if rs_chunk:
+                        rs_values.append(np.mean(rs_chunk))
+                
+                if len(rs_values) < 2:
+                    return np.nan
+                
+                # Linear regression to find Hurst exponent
+                log_lags = np.log(list(lags[:len(rs_values)]))
+                log_rs = np.log(rs_values)
+                
+                # Simple linear regression
+                n = len(log_lags)
+                sum_x = np.sum(log_lags)
+                sum_y = np.sum(log_rs)
+                sum_xy = np.sum(log_lags * log_rs)
+                sum_x2 = np.sum(log_lags ** 2)
+                
+                hurst = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x ** 2)
+                return hurst
+                
+            except Exception:
+                return np.nan
+        
+        return data['close'].rolling(window=period).apply(hurst_single)
+
 
 DEFAULT_FEATURE_REGISTRY_PATH = Path("config/feature_registry.yaml")
 
@@ -267,9 +1080,15 @@ class FeatureEngine:
         )
 
         self.feature_pipelines: dict[str, dict[str, Any]] = {} # Stores {'pipeline': Pipeline, 'spec': InternalFeatureSpec}
+        
+        # Initialize enhanced components
+        self.output_handlers: dict[str, FeatureOutputHandler] = {}
+        self.advanced_extractor = AdvancedFeatureExtractor(config.get("feature_engine", {}), logger_service)
+        
+        # Build pipelines after initializing components
         self._build_feature_pipelines()
 
-        self.logger.info("FeatureEngine initialized.", source_module=self._source_module)
+        self.logger.info("FeatureEngine with enhanced capabilities initialized.", source_module=self._source_module)
 
     def _determine_calculator_type_and_input(self, feature_key: str, raw_cfg: dict) -> tuple[str | None, str | None]:
         """Determines calculator type and input type from feature key and raw config.
@@ -718,6 +1537,11 @@ class FeatureEngine:
         for feature_key, spec in self._feature_configs.items(): # Now iterates over InternalFeatureSpec
             pipeline_steps = []
             pipeline_name = f"{spec.key}_pipeline" # Use spec.key for consistency
+            
+            # Create output handler for this feature
+            output_handler = FeatureOutputHandler(spec)
+            output_handler.logger = self.logger
+            self.output_handlers[spec.key] = output_handler
 
             # Input imputer for features that take a single series like 'close'
             if spec.input_type == "close_series":
@@ -2026,55 +2850,103 @@ class FeatureEngine:
                 self.logger.exception("Error executing pipeline %s: %s", pipeline_name, e)
                 continue # Skip this pipeline on error
 
-            # Extract the latest feature value(s)
-            # For series input, output is usually a series. We need the last value.
-            # For L2/Trade features on single bar, output is already the latest.
-            latest_features_values: Any = None
-            if isinstance(raw_pipeline_output, pd.Series):
-                if not raw_pipeline_output.empty:
-                    if spec.input_type not in ["l2_book_series", "trades_and_bar_starts"] or len(raw_pipeline_output) > 1 : # If it processed history
-                        latest_features_values = raw_pipeline_output.iloc[-1]
-                    else: # Already the single calculated value for the current bar
-                        latest_features_values = raw_pipeline_output.iloc[0] if len(raw_pipeline_output) == 1 else np.nan
-            elif isinstance(raw_pipeline_output, pd.DataFrame):
-                if not raw_pipeline_output.empty:
-                    if spec.input_type not in ["l2_book_series"] or len(raw_pipeline_output) > 1: # If it processed history
-                        latest_features_values = raw_pipeline_output.iloc[-1] # This gives a Series (one row)
-                    else: # Already the single calculated row for the current bar
-                        latest_features_values = raw_pipeline_output.iloc[0] if len(raw_pipeline_output) == 1 else pd.Series(dtype="float64")
-            elif isinstance(raw_pipeline_output, np.ndarray): # Should be rare due to PandasScalerTransformer
-                 if raw_pipeline_output.ndim == 1 and raw_pipeline_output.size > 0:
-                    latest_features_values = raw_pipeline_output[-1]
-                 elif raw_pipeline_output.ndim == 2 and raw_pipeline_output.shape[0] > 0:
-                    latest_features_values = pd.Series(raw_pipeline_output[-1, :]) # Convert row to series
-            else: # scalar float, e.g. if pipeline output was just one value
-                latest_features_values = raw_pipeline_output
+            # Process pipeline outputs using enhanced output handlers
+            try:
+                # Check if this feature has enhanced output specs
+                output_handler = self.output_handlers.get(spec.key)
+                
+                if output_handler and spec.output_specs:
+                    # Use enhanced output processing
+                    processed_outputs = output_handler.process_feature_outputs(raw_pipeline_output)
+                    
+                    # Extract final values and add to all_generated_features
+                    if isinstance(processed_outputs, pd.DataFrame):
+                        # Get the latest row if multiple rows
+                        if len(processed_outputs) > 1:
+                            latest_row = processed_outputs.iloc[-1]
+                        else:
+                            latest_row = processed_outputs.iloc[0] if not processed_outputs.empty else pd.Series()
+                        
+                        # Add each column as a feature
+                        for col_name, value in latest_row.items():
+                            if pd.notna(value):
+                                all_generated_features[col_name] = float(value)
+                    
+                else:
+                    # Use traditional output processing for backward compatibility
+                    latest_features_values: Any = None
+                    if isinstance(raw_pipeline_output, pd.Series):
+                        if not raw_pipeline_output.empty:
+                            if spec.input_type not in ["l2_book_series", "trades_and_bar_starts"] or len(raw_pipeline_output) > 1:
+                                latest_features_values = raw_pipeline_output.iloc[-1]
+                            else:
+                                latest_features_values = raw_pipeline_output.iloc[0] if len(raw_pipeline_output) == 1 else np.nan
+                    elif isinstance(raw_pipeline_output, pd.DataFrame):
+                        if not raw_pipeline_output.empty:
+                            if spec.input_type not in ["l2_book_series"] or len(raw_pipeline_output) > 1:
+                                latest_features_values = raw_pipeline_output.iloc[-1]
+                            else:
+                                latest_features_values = raw_pipeline_output.iloc[0] if len(raw_pipeline_output) == 1 else pd.Series(dtype="float64")
+                    elif isinstance(raw_pipeline_output, np.ndarray):
+                        if raw_pipeline_output.ndim == 1 and raw_pipeline_output.size > 0:
+                            latest_features_values = raw_pipeline_output[-1]
+                        elif raw_pipeline_output.ndim == 2 and raw_pipeline_output.shape[0] > 0:
+                            latest_features_values = pd.Series(raw_pipeline_output[-1, :])
+                    else:
+                        latest_features_values = raw_pipeline_output
 
-            # Naming and storing features
-            if isinstance(latest_features_values, pd.Series):
-                for idx_name, value in latest_features_values.items():
-                    # Construct a unique feature name, e.g. from pipeline_name and sub-feature name (column name)
-                    # Ensure idx_name (column from DataFrame) is a string
-                    col_name = str(idx_name)
-                    # Clean up default pandas-ta column names if needed
-                    # e.g. MACD_12_26_9 -> macd, MACDh_12_26_9 -> macd_hist
-                    # This part needs a robust naming strategy.
-                    # For now: pipeline_name (which is feature_key_pipeline) + column name
-                    base_feature_key = pipeline_name.replace("_pipeline","")
-                    # If pipeline_name was "macd_12_26_9_pipeline", base_feature_key is "macd_12_26_9"
-                    # col_name could be "MACD_12_26_9", "MACDh_12_26_9", "MACDs_12_26_9"
-                    # A better way for naming is to use the original feature_key from config and the column name.
-                    # original_feature_config_key = pipeline_info['params'].get('original_key', base_feature_key)
+                    # Traditional naming and storing for backward compatibility
+                    if isinstance(latest_features_values, pd.Series):
+                        for idx_name, value in latest_features_values.items():
+                            col_name = str(idx_name)
+                            base_feature_key = pipeline_name.replace("_pipeline","")
+                            feature_output_name = f"{base_feature_key}_{col_name}"
+                            all_generated_features[feature_output_name] = value
+                    elif pd.notna(latest_features_values):
+                        feature_output_name = pipeline_name.replace("_pipeline","")
+                        all_generated_features[feature_output_name] = latest_features_values
+                        
+            except Exception as e:
+                self.logger.error(f"Error processing outputs for feature {spec.key}: {e}")
+                # Fall back to simple processing
+                if pd.notna(raw_pipeline_output):
+                    feature_output_name = pipeline_name.replace("_pipeline","")
+                    all_generated_features[feature_output_name] = float(raw_pipeline_output) if hasattr(raw_pipeline_output, '__float__') else 0.0
 
-                    # Simplified naming: {original_feature_key}_{column_suffix}
-                    # Example: feature_key = "macd_config_name", col_name = "MACD_12_26_9" -> "macd_config_name_MACD_12_26_9"
-                    # Or, if col_name is like "lowerband", "upperband" from bbands.
-                    feature_output_name = f"{base_feature_key}_{col_name}"
-                    all_generated_features[feature_output_name] = value
-            elif pd.notna(latest_features_values): # Single float/value
-                # Name is just the pipeline name (e.g., "rsi_14_pipeline" -> "rsi_14")
-                feature_output_name = pipeline_name.replace("_pipeline","")
-                all_generated_features[feature_output_name] = latest_features_values
+        # Extract advanced features if configured
+        try:
+            advanced_feature_specs = [spec for spec in self._feature_configs.values() 
+                                     if spec.calculator_type in self.advanced_extractor.advanced_indicators]
+            
+            if advanced_feature_specs:
+                # Prepare data for advanced extraction
+                l2_data = latest_l2_book_snapshot
+                trade_data = list(trades_deque) if trades_deque else None
+                
+                # Extract advanced features
+                advanced_result = await self.advanced_extractor.extract_advanced_features(
+                    ohlcv_df_for_pipelines, 
+                    advanced_feature_specs,
+                    l2_data=l2_data,
+                    trade_data=trade_data
+                )
+                
+                # Add advanced features to the main feature set
+                if not advanced_result.features.empty:
+                    # Get the latest row of advanced features
+                    latest_advanced = advanced_result.features.iloc[-1] if len(advanced_result.features) > 1 else advanced_result.features.iloc[0]
+                    
+                    for feature_name, value in latest_advanced.items():
+                        if pd.notna(value):
+                            all_generated_features[f"advanced_{feature_name}"] = float(value)
+                    
+                    self.logger.debug(
+                        f"Added {len(latest_advanced)} advanced features for {trading_pair}. "
+                        f"Quality metrics: {advanced_result.quality_metrics}"
+                    )
+                        
+        except Exception as e:
+            self.logger.warning(f"Advanced feature extraction failed for {trading_pair}: {e}")
 
         # Validate and structure features using Pydantic model
         try:

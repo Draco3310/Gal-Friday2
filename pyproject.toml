@@ -100,16 +100,6 @@ select = [
     "PTH"  # pathlib
 ]
 
-# Ignore specific rules
-ignore = [
-    "D203",  # one-blank-line-before-class
-    "D213",  # multi-line-summary-second-line
-    "ANN101", # Missing type annotation for `self` in method
-    "ANN102", # Missing type annotation for `cls` in classmethod
-    "PLR0913", # Too many arguments to function call
-    "ERA001"  # Found commented-out code in codebase (use --fix to remove)
-]
-
 # Mccabe complexity setting
 mccabe = { max-complexity = 15 }
 
@@ -144,14 +134,6 @@ asyncio_default_fixture_loop_scope = "function"
 # Set test log level
 log_cli = true
 log_cli_level = "INFO"
-
-# Bandit security scanning configuration
-[tool.bandit]
-skips = ["B101", "B107", "B311", "B105"]
-# B101: assert statements
-# B107: hardcoded password in URL
-# B311: random module not suitable for cryptographic purposes
-# B105: hardcoded password strings
 
 # Coverage configuration
 [tool.coverage.run]

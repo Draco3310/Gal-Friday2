@@ -1,0 +1,250 @@
+# ML Pipeline Configuration Example
+# This file demonstrates how to configure the comprehensive ML pipeline
+# for price prediction with feature engineering
+
+prediction_service:
+  # Standard prediction service configuration
+  models:
+    - model_id: "btc_usd_rf"
+      predictor_type: "sklearn"
+      model_path: "./models/btc_usd_random_forest.pkl"
+      scaler_path: "./models/btc_usd_scaler.pkl"
+      is_critical: true
+      prediction_target: "close_price"
+      
+    - model_id: "eth_usd_xgb"
+      predictor_type: "xgboost"
+      model_path: "./models/eth_usd_xgboost.pkl"
+      scaler_path: "./models/eth_usd_xgb_scaler.pkl"
+      is_critical: false
+      prediction_target: "close_price"
+
+  # Ensemble configuration
+  ensemble_strategy: "weighted_average"
+  ensemble_weights:
+    btc_usd_rf: 0.6
+    eth_usd_xgb: 0.4
+
+  # Confidence filtering
+  confidence_floor: 0.7
+  confidence_floors:
+    close_price: 0.75
+    volume_prediction: 0.6
+
+  # ML Pipeline Configuration (NEW)
+  ml_pipeline:
+    # Model storage configuration
+    model_storage_path: "./models/ml_pipeline"
+    
+    # Feature engineering configuration
+    feature_engineering:
+      # NaN handling
+      nan_threshold: 0.5  # Drop columns with >50% NaN values
+      
+      # Technical indicators configuration
+      moving_averages:
+        - 5
+        - 10
+        - 20
+        - 50
+      
+      volatility_windows:
+        - 10
+        - 20
+        - 30
+      
+      lag_periods:
+        - 1
+        - 2
+        - 3
+        - 5
+        - 10
+      
+      statistical_windows:
+        - 5
+        - 10
+        - 20
+      
+      # Time-based features
+      include_time_features: true
+      cyclical_encoding: true
+    
+    # Model training configuration
+    model_training:
+      # Default training parameters
+      default_training_window_days: 30
+      default_validation_split: 0.2
+      default_cv_folds: 5
+      default_performance_threshold: 0.0
+      default_retrain_interval_hours: 24
+      
+      # Model-specific configurations
+      model_configs:
+        random_forest:
+          hyperparameters:
+            n_estimators: 100
+            max_depth: 15
+            min_samples_split: 5
+            min_samples_leaf: 2
+            random_state: 42
+            n_jobs: -1
+          performance_threshold: 0.6
+          
+        xgboost:
+          hyperparameters:
+            n_estimators: 200
+            max_depth: 8
+            learning_rate: 0.1
+            subsample: 0.8
+            colsample_bytree: 0.8
+            random_state: 42
+          performance_threshold: 0.65
+          
+        linear_regression:
+          hyperparameters: {}
+          performance_threshold: 0.5
+    
+    # Performance monitoring
+    performance_monitoring:
+      # Automatic retraining triggers
+      auto_retrain: true
+      performance_threshold: 0.7
+      max_prediction_age_hours: 24
+      min_training_data_points: 1000
+      
+      # Performance tracking
+      track_prediction_accuracy: true
+      accuracy_window_hours: 168  # 1 week
+      
+      # Model drift detection
+      drift_detection: true
+      drift_threshold: 0.1
+      drift_window_predictions: 100
+
+# Example usage configuration for different trading pairs
+trading_pairs:
+  BTC/USD:
+    ml_models:
+      - model_type: "random_forest"
+        target: "close_price"
+        features:
+          - "sma_20"
+          - "rsi"
+          - "macd"
+          - "volatility_20"
+          - "bb_position"
+          - "volume_ratio_20"
+        retrain_schedule: "daily"
+        
+      - model_type: "xgboost"
+        target: "volume_prediction"
+        features:
+          - "volume_sma_20"
+          - "price_volume"
+          - "vwap"
+          - "close_lag_1"
+          - "price_change_1"
+        retrain_schedule: "weekly"
+  
+  ETH/USD:
+    ml_models:
+      - model_type: "linear_regression"
+        target: "close_price"
+        features:
+          - "sma_10"
+          - "sma_50"
+          - "rsi"
+          - "price_change_1"
+        retrain_schedule: "daily"
+
+# Example API endpoints configuration
+api_endpoints:
+  # Training endpoints
+  train_model:
+    path: "/api/v1/ml/train"
+    methods: ["POST"]
+    parameters:
+      - symbol: "string"
+      - model_type: "string"
+      - training_data: "file"
+      - hyperparameters: "object"
+  
+  # Prediction endpoints
+  predict_advanced:
+    path: "/api/v1/ml/predict"
+    methods: ["POST"]
+    parameters:
+      - symbol: "string"
+      - features: "object"
+      - prediction_horizon: "integer"
+      - confidence_level: "float"
+  
+  # Monitoring endpoints
+  pipeline_status:
+    path: "/api/v1/ml/status"
+    methods: ["GET"]
+    
+  model_performance:
+    path: "/api/v1/ml/performance/{symbol}"
+    methods: ["GET"]
+
+# Logging configuration for ML pipeline
+logging:
+  ml_pipeline:
+    level: "INFO"
+    handlers:
+      - type: "file"
+        filename: "./logs/ml_pipeline.log"
+        max_bytes: 10485760  # 10MB
+        backup_count: 5
+      - type: "console"
+        level: "WARNING"
+    
+    # Specific loggers for components
+    feature_engineering:
+      level: "DEBUG"
+    
+    model_training:
+      level: "INFO"
+    
+    prediction_engine:
+      level: "INFO"
+
+# Resource management
+resources:
+  # Memory management
+  max_models_in_memory: 10
+  model_cache_size_mb: 512
+  
+  # CPU utilization
+  max_training_workers: 4
+  max_prediction_workers: 8
+  
+  # Storage management
+  max_model_storage_gb: 5
+  cleanup_old_models_days: 30
+
+# Security and validation
+security:
+  # Input validation
+  validate_features: true
+  feature_value_ranges:
+    price_features:
+      min: 0.0
+      max: 1000000.0
+    volume_features:
+      min: 0.0
+      max: 100000000.0
+    technical_indicators:
+      min: -100.0
+      max: 100.0
+  
+  # Model validation
+  validate_model_outputs: true
+  prediction_sanity_checks: true
+  
+  # Access control
+  require_authentication: true
+  allowed_users:
+    - "trading_system"
+    - "research_team" 

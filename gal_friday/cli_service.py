@@ -29,7 +29,7 @@ from typing import (
     TypeVar,
 )
 
-# Third-party imports (Typer needs to be available at runtime)
+# Third-party imports
 import typer
 from rich import print as rich_print
 from rich.console import Console  # Keep for runtime if FallbackLogger uses it directly
@@ -56,9 +56,6 @@ if TYPE_CHECKING:
     from .monitoring_service import MonitoringService
     from .portfolio_manager import PortfolioManager
 
-    # Make Typer available at runtime as well
-    Typer = typer.Typer
-
     T = TypeVar("T", bound=PoolProtocol)
 
     # Define MainAppController interface for type hinting
@@ -82,7 +79,6 @@ else:
         PortfolioManager,
         Table,
     )
-    from .typer_stubs import Typer
 
     # For non-type checking compatibility
     GalFridayApp = MainAppController
@@ -90,7 +86,7 @@ else:
     T = TypeVar("T")
 
 # Create Typer application instance
-app = Typer(help="Gal-Friday Trading System Control CLI")
+app = typer.Typer(help="Gal-Friday Trading System Control CLI")
 console = Console()
 
 

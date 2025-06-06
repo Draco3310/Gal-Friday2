@@ -21,12 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker  # Added
 
 # from gal_friday.dal.base import BaseEntity # BaseEntity is removed
 from gal_friday.dal.models.model_version import ModelVersion as ModelVersionModel
-from gal_friday.dal.repositories.model_repository import ModelRepository  # Keep for instantiation
-
 if TYPE_CHECKING:
     from gal_friday.config_manager import ConfigManager
-
-    # from gal_friday.dal.repositories.model_repository import ModelRepository # Already imported above
+    from gal_friday.dal.repositories.model_repository import ModelRepository
     from gal_friday.logger_service import LoggerService
     from gal_friday.utils.secrets_manager import SecretsManager
 
@@ -99,22 +96,8 @@ class ModelValidationError(Exception):
     """Raised when a loaded model fails validation."""
 
 
-class ModelStage(Enum):
-    """Model lifecycle stages."""
-    DEVELOPMENT = "development"
-    STAGING = "staging"
-    PRODUCTION = "production"
-    ARCHIVED = "archived"
-
-
-class ModelStatus(Enum):
-    """Model training/deployment status."""
-    TRAINING = "training"
-    EVALUATING = "evaluating"
-    READY = "ready"
-    DEPLOYED = "deployed"
-    FAILED = "failed"
-    DEPRECATED = "deprecated"
+# Import enums from separate module to avoid circular dependencies
+from .enums import ModelStage, ModelStatus
 
 
 @dataclass
@@ -394,7 +377,11 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         """
         self.config_manager = config_manager
         self.session_maker = session_maker # Store session_maker
+        
+        # Import ModelRepository at runtime to avoid circular dependency
+        from gal_friday.dal.repositories.model_repository import ModelRepository
         self.model_repo = ModelRepository(session_maker, logger_service) # Instantiate repo
+        
         self.logger = logger_service
         self.secrets = secrets_manager
         self._source_module = self.__class__.__name__

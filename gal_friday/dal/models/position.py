@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import Boolean, DateTime, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .models_base import Base
@@ -38,9 +38,8 @@ class Position(Base):
         Boolean, server_default="true", index=True, # Added index based on schema
     )
 
-    # If positions are related to orders (e.g., a position consists of multiple orders),
-    # a relationship could be defined here. For now, no direct FK from orders to positions in schema.
-    # orders = relationship("Order", back_populates="position") # Example
+    # Relationship to Order - one position can have multiple contributing orders
+    orders = relationship("Order", back_populates="position", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_positions_pair", "trading_pair"),

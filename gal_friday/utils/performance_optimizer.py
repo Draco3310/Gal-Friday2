@@ -4,11 +4,18 @@ import asyncio
 import contextlib
 import functools
 import gc
+import hashlib
+import inspect
+import threading
 import time
 import weakref
 from collections import OrderedDict
-from collections.abc import Callable
-from typing import Any, Generic, TypeVar, cast
+from collections.abc import Callable, Awaitable
+from dataclasses import dataclass, field
+from typing import (
+    Any, Generic, TypeVar, cast, Dict, Optional, Union, Tuple, Protocol, 
+    runtime_checkable, overload, Type, ParamSpec, Concatenate
+)
 from typing import TypeVar as TypeVarT
 
 import psutil
@@ -16,7 +23,197 @@ import psutil
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
 
+# Type variables for comprehensive generic support
 T = TypeVar("T")
+K = TypeVar("K")  # Cache key type
+V = TypeVar("V")  # Cache value type
+P = ParamSpec("P")  # Parameter specification for function signatures
+AsyncP = ParamSpec("AsyncP")  # Parameter specification for async functions
+AsyncT = TypeVar("AsyncT")  # Return type for async functions
+
+
+# Protocols for type safety
+@runtime_checkable
+class CacheableFunction(Protocol[P, T]):
+    """Protocol for cacheable functions."""
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> T: ...
+
+
+@runtime_checkable
+class AsyncCacheableFunction(Protocol[AsyncP, AsyncT]):
+    """Protocol for async cacheable functions."""
+    def __call__(self, *args: AsyncP.args, **kwargs: AsyncP.kwargs) -> Awaitable[AsyncT]: ...
+
+
+@dataclass
+class CacheEntry(Generic[V]):
+    """Type-safe cache entry with metadata."""
+    value: V
+    timestamp: float
+    access_count: int = 0
+    last_access: float = field(default_factory=time.time)
+    ttl: Optional[float] = None
+    
+    def is_expired(self) -> bool:
+        """Check if cache entry is expired."""
+        if self.ttl is None:
+            return False
+        return time.time() - self.timestamp > self.ttl
+    
+    def touch(self) -> None:
+        """Update access information."""
+        self.access_count += 1
+        self.last_access = time.time()
+
+
+@dataclass
+class CacheConfig:
+    """Type-safe cache configuration."""
+    max_size: Optional[int] = 128
+    ttl: Optional[float] = None
+    typed_keys: bool = True
+    thread_safe: bool = True
+    eviction_policy: str = "lru"
+    key_serializer: Optional[Callable[[Any], str]] = None
+
+
+class CacheKeyGenerator(Generic[K]):
+    """Type-safe cache key generator."""
+    
+    def __init__(self, config: CacheConfig):
+        self.config = config
+        
+    def generate_key(
+        self, 
+        func: Callable[..., Any], 
+        args: Tuple[Any, ...], 
+        kwargs: Dict[str, Any]
+    ) -> K:
+        """Generate type-safe cache key."""
+        
+        if self.config.key_serializer:
+            return cast(K, self.config.key_serializer((func.__name__, args, kwargs)))
+        
+        # Default key generation with type information
+        key_parts = [func.__module__ or "", func.__qualname__]
+        
+        # Add arguments to key
+        for arg in args:
+            if self.config.typed_keys:
+                key_parts.append(f"{type(arg).__name__}:{repr(arg)}")
+            else:
+                key_parts.append(repr(arg))
+        
+        # Add keyword arguments to key
+        for k, v in sorted(kwargs.items()):
+            if self.config.typed_keys:
+                key_parts.append(f"{k}={type(v).__name__}:{repr(v)}")
+            else:
+                key_parts.append(f"{k}={repr(v)}")
+        
+        # Create hash of key parts
+        key_string = "|".join(key_parts)
+        key_hash = hashlib.sha256(key_string.encode()).hexdigest()
+        
+        return cast(K, key_hash)
+
+
+class TypeSafeCache(Generic[K, V]):
+    """Type-safe cache implementation with comprehensive features."""
+    
+    def __init__(self, config: CacheConfig):
+        self.config = config
+        self._cache: Dict[K, CacheEntry[V]] = OrderedDict()
+        self._lock = threading.RLock() if config.thread_safe else None
+        
+        # Statistics
+        self.hits = 0
+        self.misses = 0
+        self.evictions = 0
+    
+    def get(self, key: K) -> Optional[V]:
+        """Get value from cache with type safety."""
+        
+        with self._lock if self._lock else contextlib.nullcontext():
+            if key not in self._cache:
+                self.misses += 1
+                return None
+            
+            entry = self._cache[key]
+            
+            # Check expiration
+            if entry.is_expired():
+                del self._cache[key]
+                self.misses += 1
+                return None
+            
+            # Update access information
+            entry.touch()
+            
+            # Move to end for LRU
+            if self.config.eviction_policy == "lru":
+                self._cache.move_to_end(key)
+            
+            self.hits += 1
+            return entry.value
+    
+    def put(self, key: K, value: V) -> None:
+        """Put value in cache with type safety."""
+        
+        with self._lock if self._lock else contextlib.nullcontext():
+            # Check if eviction is needed
+            if (self.config.max_size is not None and 
+                len(self._cache) >= self.config.max_size and 
+                key not in self._cache):
+                self._evict_entries()
+            
+            # Create cache entry
+            entry = CacheEntry(
+                value=value,
+                timestamp=time.time(),
+                ttl=self.config.ttl
+            )
+            
+            self._cache[key] = entry
+    
+    def _evict_entries(self) -> None:
+        """Evict entries based on policy."""
+        
+        if not self._cache:
+            return
+        
+        if self.config.eviction_policy == "lru":
+            # Remove least recently used
+            oldest_key = next(iter(self._cache))
+            del self._cache[oldest_key]
+        elif self.config.eviction_policy == "lfu":
+            # Remove least frequently used
+            lfu_key = min(self._cache.keys(), key=lambda k: self._cache[k].access_count)
+            del self._cache[lfu_key]
+        
+        self.evictions += 1
+    
+    def clear(self) -> None:
+        """Clear all cache entries."""
+        with self._lock if self._lock else contextlib.nullcontext():
+            self._cache.clear()
+            self.hits = 0
+            self.misses = 0
+            self.evictions = 0
+    
+    def stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        total_requests = self.hits + self.misses
+        hit_rate = (self.hits / total_requests * 100) if total_requests > 0 else 0
+        
+        return {
+            "hits": self.hits,
+            "misses": self.misses,
+            "evictions": self.evictions,
+            "hit_rate_percent": round(hit_rate, 2),
+            "cache_size": len(self._cache),
+            "max_size": self.config.max_size
+        }
 
 
 class LRUCache(Generic[T]):
@@ -694,12 +891,332 @@ class PerformanceOptimizer:
         }
 
 
-# Decorators for optimization
+# Type-safe decorators for performance optimization
 
+class TypedCacheDecorator(Generic[P, T]):
+    """Type-safe caching decorator that preserves function signatures."""
+    
+    def __init__(self, config: Optional[CacheConfig] = None):
+        self.config = config or CacheConfig()
+        self.cache: TypeSafeCache[str, T] = TypeSafeCache(self.config)
+        self.key_generator: CacheKeyGenerator[str] = CacheKeyGenerator(self.config)
+    
+    def __call__(self, func: Callable[P, T]) -> Callable[P, T]:
+        """Create type-safe caching decorator with proper generic typing."""
+        
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            # Generate cache key
+            cache_key = self.key_generator.generate_key(func, args, kwargs)
+            
+            # Try to get from cache
+            cached_result = self.cache.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+            
+            # Execute function and cache result
+            result = func(*args, **kwargs)
+            self.cache.put(cache_key, result)
+            
+            return result
+        
+        # Add cache management methods with proper typing
+        wrapper.cache_clear = self.cache.clear  # type: ignore[attr-defined]
+        wrapper.cache_stats = self.cache.stats  # type: ignore[attr-defined]
+        
+        return wrapper
+
+
+class AsyncTypedCacheDecorator(Generic[AsyncP, AsyncT]):
+    """Type-safe async caching decorator."""
+    
+    def __init__(self, config: Optional[CacheConfig] = None):
+        self.config = config or CacheConfig()
+        self.cache: TypeSafeCache[str, AsyncT] = TypeSafeCache(self.config)
+        self.key_generator: CacheKeyGenerator[str] = CacheKeyGenerator(self.config)
+    
+    def __call__(self, func: Callable[AsyncP, Awaitable[AsyncT]]) -> Callable[AsyncP, Awaitable[AsyncT]]:
+        """Create type-safe async caching decorator."""
+        
+        @functools.wraps(func)
+        async def async_wrapper(*args: AsyncP.args, **kwargs: AsyncP.kwargs) -> AsyncT:
+            cache_key = self.key_generator.generate_key(func, args, kwargs)
+            
+            cached_result = self.cache.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+            
+            result = await func(*args, **kwargs)
+            self.cache.put(cache_key, result)
+            
+            return result
+        
+        # Add cache management methods
+        async_wrapper.cache_clear = self.cache.clear  # type: ignore[attr-defined]
+        async_wrapper.cache_stats = self.cache.stats  # type: ignore[attr-defined]
+        
+        return async_wrapper
+
+
+class TypedRateLimitDecorator(Generic[P, T]):
+    """Type-safe rate limiting decorator."""
+    
+    def __init__(self, calls: int = 10, period: int = 60):
+        self.calls = calls
+        self.period = period
+        self.call_times: list[float] = []
+        self._lock = threading.Lock()
+    
+    def __call__(self, func: Callable[P, T]) -> Callable[P, T]:
+        """Create type-safe rate limiting decorator."""
+        
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            now = time.time()
+            
+            with self._lock:
+                # Remove old calls
+                self.call_times = [t for t in self.call_times if now - t < self.period]
+                
+                # Check rate limit
+                if len(self.call_times) >= self.calls:
+                    wait_time = self.period - (now - self.call_times[0])
+                    raise RuntimeError(f"Rate limit exceeded. Try again in {wait_time:.1f} seconds")
+                
+                # Record call
+                self.call_times.append(now)
+            
+            # Execute function
+            return func(*args, **kwargs)
+        
+        return wrapper
+
+
+class AsyncTypedRateLimitDecorator(Generic[AsyncP, AsyncT]):
+    """Type-safe async rate limiting decorator."""
+    
+    def __init__(self, calls: int = 10, period: int = 60):
+        self.calls = calls
+        self.period = period
+        self.call_times: list[float] = []
+        self._lock = asyncio.Lock()
+    
+    def __call__(self, func: Callable[AsyncP, Awaitable[AsyncT]]) -> Callable[AsyncP, Awaitable[AsyncT]]:
+        """Create type-safe async rate limiting decorator."""
+        
+        @functools.wraps(func)
+        async def async_wrapper(*args: AsyncP.args, **kwargs: AsyncP.kwargs) -> AsyncT:
+            now = time.time()
+            
+            async with self._lock:
+                # Remove old calls
+                self.call_times = [t for t in self.call_times if now - t < self.period]
+                
+                # Check rate limit
+                if len(self.call_times) >= self.calls:
+                    wait_time = self.period - (now - self.call_times[0])
+                    raise RuntimeError(f"Rate limit exceeded. Try again in {wait_time:.1f} seconds")
+                
+                # Record call
+                self.call_times.append(now)
+            
+            # Execute function
+            return await func(*args, **kwargs)
+        
+        return async_wrapper
+
+
+class TypedTimingDecorator(Generic[P, T]):
+    """Type-safe timing decorator with logging."""
+    
+    def __init__(self, name: Optional[str] = None, logger: Optional[LoggerService] = None):
+        self.name = name
+        self.logger = logger
+    
+    def __call__(self, func: Callable[P, T]) -> Callable[P, T]:
+        """Create type-safe timing decorator."""
+        
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            start_time = time.time()
+            function_name = self.name or func.__name__
+            
+            try:
+                result = func(*args, **kwargs)
+                execution_time = time.time() - start_time
+                
+                # Log timing if logger available
+                if self.logger:
+                    self.logger.debug(
+                        f"{function_name} completed in {execution_time:.3f}s",
+                        source_module="TypedTimingDecorator",
+                    )
+                
+                return result
+                
+            except Exception as e:
+                execution_time = time.time() - start_time
+                
+                # Log error with timing
+                if self.logger:
+                    self.logger.error(
+                        f"{function_name} failed after {execution_time:.3f}s: {e!s}",
+                        source_module="TypedTimingDecorator",
+                    )
+                
+                raise
+        
+        return wrapper
+
+
+class AsyncTypedTimingDecorator(Generic[AsyncP, AsyncT]):
+    """Type-safe async timing decorator with logging."""
+    
+    def __init__(self, name: Optional[str] = None, logger: Optional[LoggerService] = None):
+        self.name = name
+        self.logger = logger
+    
+    def __call__(self, func: Callable[AsyncP, Awaitable[AsyncT]]) -> Callable[AsyncP, Awaitable[AsyncT]]:
+        """Create type-safe async timing decorator."""
+        
+        @functools.wraps(func)
+        async def async_wrapper(*args: AsyncP.args, **kwargs: AsyncP.kwargs) -> AsyncT:
+            start_time = time.time()
+            function_name = self.name or func.__name__
+            
+            try:
+                result = await func(*args, **kwargs)
+                execution_time = time.time() - start_time
+                
+                # Log timing if logger available
+                if self.logger:
+                    self.logger.debug(
+                        f"{function_name} completed in {execution_time:.3f}s",
+                        source_module="AsyncTypedTimingDecorator",
+                    )
+                
+                return result
+                
+            except Exception as e:
+                execution_time = time.time() - start_time
+                
+                # Log error with timing
+                if self.logger:
+                    self.logger.error(
+                        f"{function_name} failed after {execution_time:.3f}s: {e!s}",
+                        source_module="AsyncTypedTimingDecorator",
+                    )
+                
+                raise
+        
+        return async_wrapper
+
+
+# Public API with overloads for comprehensive type safety
+
+@overload
+def cache() -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
+@overload
+def cache(*, max_size: Optional[int] = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
+@overload
+def cache(*, ttl: Optional[float] = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
+@overload
+def cache(*, max_size: Optional[int] = ..., ttl: Optional[float] = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
+@overload
+def cache(config: CacheConfig) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
+def cache(
+    config: Optional[CacheConfig] = None,
+    *,
+    max_size: Optional[int] = None,
+    ttl: Optional[float] = None,
+    typed_keys: bool = True,
+    thread_safe: bool = True,
+    eviction_policy: str = "lru"
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    """
+    Type-safe caching decorator with comprehensive generic typing.
+    
+    Replaces the previous TODO with production-ready generic type support
+    that preserves function signatures and return types.
+    """
+    
+    # Create configuration if not provided
+    if config is None:
+        config = CacheConfig(
+            max_size=max_size,
+            ttl=ttl,
+            typed_keys=typed_keys,
+            thread_safe=thread_safe,
+            eviction_policy=eviction_policy
+        )
+    
+    return TypedCacheDecorator[P, T](config)
+
+
+def async_cache(
+    config: Optional[CacheConfig] = None,
+    *,
+    max_size: Optional[int] = None,
+    ttl: Optional[float] = None,
+    typed_keys: bool = True,
+    thread_safe: bool = True,
+    eviction_policy: str = "lru"
+) -> Callable[[Callable[AsyncP, Awaitable[AsyncT]]], Callable[AsyncP, Awaitable[AsyncT]]]:
+    """Type-safe async caching decorator with comprehensive generic typing."""
+    
+    if config is None:
+        config = CacheConfig(
+            max_size=max_size,
+            ttl=ttl,
+            typed_keys=typed_keys,
+            thread_safe=thread_safe,
+            eviction_policy=eviction_policy
+        )
+    
+    return AsyncTypedCacheDecorator[AsyncP, AsyncT](config)
+
+
+def rate_limited(calls: int = 10, period: int = 60) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    """Type-safe rate limiting decorator with proper generic typing."""
+    return TypedRateLimitDecorator[P, T](calls, period)
+
+
+def async_rate_limited(calls: int = 10, period: int = 60) -> Callable[[Callable[AsyncP, Awaitable[AsyncT]]], Callable[AsyncP, Awaitable[AsyncT]]]:
+    """Type-safe async rate limiting decorator with proper generic typing."""
+    return AsyncTypedRateLimitDecorator[AsyncP, AsyncT](calls, period)
+
+
+def timed(
+    name: Optional[str] = None, 
+    logger: Optional[LoggerService] = None
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    """Type-safe timing decorator with proper generic typing."""
+    return TypedTimingDecorator[P, T](name, logger)
+
+
+def async_timed(
+    name: Optional[str] = None, 
+    logger: Optional[LoggerService] = None
+) -> Callable[[Callable[AsyncP, Awaitable[AsyncT]]], Callable[AsyncP, Awaitable[AsyncT]]]:
+    """Type-safe async timing decorator with proper generic typing."""
+    return AsyncTypedTimingDecorator[AsyncP, AsyncT](name, logger)
+
+
+# Legacy compatibility decorators (deprecated but maintained for backward compatibility)
 F = TypeVarT("F", bound=Callable[..., Any])
 
 def cached(cache_name: str = "default", ttl: int = 300) -> Callable[[F], F]:
-    """Decorator for caching function results."""
+    """
+    Legacy caching decorator for backward compatibility.
+    
+    DEPRECATED: Use @cache() decorator with proper generic typing instead.
+    This decorator is maintained for backward compatibility but lacks proper type safety.
+    """
     def decorator(func: F) -> F:
         @functools.wraps(func)
         async def wrapper(
@@ -725,77 +1242,170 @@ def cached(cache_name: str = "default", ttl: int = 300) -> Callable[[F], F]:
 
             return result
 
-        # TODO: Investigate proper generic typing for this decorator
         return wrapper # type: ignore[return-value]
     return decorator
 
 
-def rate_limited(calls: int = 10, period: int = 60) -> Callable[[F], F]:
-    """Decorator for rate limiting function calls."""
-    def decorator(func: F) -> F:
-        call_times: list[float] = []
+# Method caching support with proper typing
+class MethodCacheDescriptor(Generic[T]):
+    """Type-safe method caching descriptor for class methods."""
+    
+    def __init__(self, config: Optional[CacheConfig] = None):
+        self.config = config or CacheConfig()
+        self.caches: weakref.WeakKeyDictionary[Any, TypeSafeCache[str, T]] = weakref.WeakKeyDictionary()
+        self.key_generator = CacheKeyGenerator[str](self.config)
+        self.original_method: Optional[Callable[..., T]] = None
+    
+    def __set_name__(self, owner: Type[Any], name: str) -> None:
+        """Called when the descriptor is assigned to a class attribute."""
+        self.name = name
+    
+    def __call__(self, method: Callable[..., T]) -> "MethodCacheDescriptor[T]":
+        """Used as a decorator to wrap the original method."""
+        self.original_method = method
+        functools.update_wrapper(self, method)
+        return self
+    
+    def __get__(self, instance: Any, owner: Optional[Type[Any]] = None) -> Callable[..., T]:
+        """Get the cached method for the instance."""
+        if instance is None:
+            return self  # type: ignore
+        
+        if self.original_method is None:
+            raise RuntimeError("Method cache descriptor not properly initialized")
+        
+        # Get or create cache for this instance
+        if instance not in self.caches:
+            self.caches[instance] = TypeSafeCache[str, T](self.config)
+        
+        instance_cache = self.caches[instance]
+        original_method = self.original_method
+        
+        @functools.wraps(original_method)
+        def cached_method(*args: Any, **kwargs: Any) -> T:
+            cache_key = self.key_generator.generate_key(original_method, args, kwargs)
+            
+            cached_result = instance_cache.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+            
+            result = original_method(instance, *args, **kwargs)
+            instance_cache.put(cache_key, result)
+            
+            return result
+        
+        # Add cache management methods
+        cached_method.cache_clear = instance_cache.clear  # type: ignore[attr-defined]
+        cached_method.cache_stats = instance_cache.stats  # type: ignore[attr-defined]
+        
+        return cached_method
 
-        @functools.wraps(func)
-        async def wrapper(*args: object, **kwargs: object) -> object:
-            now = time.time()
 
-            # Remove old calls
-            nonlocal call_times
-            call_times = [t for t in call_times if now - t < period]
-
-            # Check rate limit
-            if len(call_times) >= calls:
-                wait_time = period - (now - call_times[0])
-                raise Exception(f"Rate limit exceeded. Try again in {wait_time:.1f} seconds")
-
-            # Record call
-            call_times.append(now)
-
-            # Execute function
-            return await func(*args, **kwargs)
-
-        # TODO: Investigate proper generic typing for this decorator
-        return wrapper # type: ignore[return-value]
-    return decorator
+def cached_method(config: Optional[CacheConfig] = None) -> MethodCacheDescriptor[T]:
+    """
+    Decorator for creating cached methods with proper typing.
+    
+    Example:
+        class DataProcessor:
+            @cached_method(CacheConfig(max_size=50, ttl=300))
+            def expensive_computation(self, data: List[int]) -> Dict[str, int]:
+                return {"sum": sum(data), "count": len(data)}
+    """
+    return MethodCacheDescriptor[T](config)
 
 
-def timed(name: str | None = None) -> Callable[[F], F]:
-    """Decorator for timing function execution."""
-    def decorator(func: F) -> F:
-        @functools.wraps(func)
-        async def wrapper(
-            self: "PerformanceOptimizer", *args: object, **kwargs: object,
-        ) -> object:
-            start_time = time.time()
+# Example usage and integration helpers
+class CacheRegistry:
+    """Registry for managing multiple caches with different configurations."""
+    
+    def __init__(self):
+        self._caches: Dict[str, TypeSafeCache[Any, Any]] = {}
+        self._configs: Dict[str, CacheConfig] = {}
+    
+    def register_cache(self, name: str, config: CacheConfig) -> None:
+        """Register a new cache with the given configuration."""
+        self._caches[name] = TypeSafeCache(config)
+        self._configs[name] = config
+    
+    def get_cache(self, name: str) -> Optional[TypeSafeCache[Any, Any]]:
+        """Get a registered cache by name."""
+        return self._caches.get(name)
+    
+    def clear_all(self) -> None:
+        """Clear all registered caches."""
+        for cache in self._caches.values():
+            cache.clear()
+    
+    def get_all_stats(self) -> Dict[str, Dict[str, Any]]:
+        """Get statistics for all registered caches."""
+        return {name: cache.stats() for name, cache in self._caches.items()}
 
-            try:
-                result = await func(self, *args, **kwargs)
-                execution_time = time.time() - start_time
 
-                # Log timing
-                if hasattr(self, "logger"):
-                    self.logger.debug(
-                        f"{name or func.__name__} completed in {execution_time:.3f}s",
-                        source_module=self.__class__.__name__,
-                    )
+# Global cache registry for application-wide cache management
+_global_cache_registry = CacheRegistry()
 
-                return result
 
-            except Exception as e:
-                execution_time = time.time() - start_time
+def register_global_cache(name: str, config: CacheConfig) -> None:
+    """Register a cache in the global registry."""
+    _global_cache_registry.register_cache(name, config)
 
-                # Log error with timing
-                if hasattr(self, "logger"):
-                    self.logger.error(
-                        f"{name or func.__name__} failed after {execution_time:.3f}s: {e!s}",
-                        source_module=self.__class__.__name__,
-                    )
 
-                raise
+def get_global_cache_stats() -> Dict[str, Dict[str, Any]]:
+    """Get statistics for all global caches."""
+    return _global_cache_registry.get_all_stats()
 
-        # TODO: Investigate proper generic typing for this decorator
-        return wrapper # type: ignore[return-value]
-    return decorator
+
+def clear_all_global_caches() -> None:
+    """Clear all global caches."""
+    _global_cache_registry.clear_all()
+
+
+# Performance monitoring integration
+class CachePerformanceMonitor:
+    """Monitor cache performance and provide optimization suggestions."""
+    
+    def __init__(self, logger: LoggerService):
+        self.logger = logger
+        self._source_module = self.__class__.__name__
+    
+    def analyze_cache_performance(self, cache: TypeSafeCache[Any, Any], cache_name: str) -> Dict[str, Any]:
+        """Analyze cache performance and provide recommendations."""
+        stats = cache.stats()
+        
+        analysis = {
+            "cache_name": cache_name,
+            **stats,
+            "recommendations": []
+        }
+        
+        # Analyze hit rate
+        hit_rate = stats["hit_rate_percent"]
+        if hit_rate < 50:
+            analysis["recommendations"].append(
+                f"Low hit rate ({hit_rate:.1f}%). Consider increasing cache size or reviewing cache strategy."
+            )
+        elif hit_rate > 95:
+            analysis["recommendations"].append(
+                f"Very high hit rate ({hit_rate:.1f}%). Cache is performing excellently."
+            )
+        
+        # Analyze cache utilization
+        if stats["max_size"] and stats["cache_size"] < stats["max_size"] * 0.5:
+            analysis["recommendations"].append(
+                f"Cache is underutilized ({stats['cache_size']}/{stats['max_size']}). "
+                "Consider reducing max_size to save memory."
+            )
+        
+        # Analyze eviction rate
+        total_operations = stats["hits"] + stats["misses"]
+        if total_operations > 0:
+            eviction_rate = (stats["evictions"] / total_operations) * 100
+            if eviction_rate > 10:
+                analysis["recommendations"].append(
+                    f"High eviction rate ({eviction_rate:.1f}%). Consider increasing cache size."
+                )
+        
+        return analysis
 
 
 class DatabaseConnectionPool(ConnectionPool):

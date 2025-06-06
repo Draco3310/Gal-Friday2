@@ -23,6 +23,10 @@ class Order(Base):
     signal_id: Mapped[UUID] = mapped_column(
         ForeignKey("trade_signals.id"), nullable=False, index=True,
     )
+    # Foreign key to positions table - nullable since orders may not immediately affect positions
+    position_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("positions.id"), nullable=True, index=True,
+    )
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)
     exchange: Mapped[str] = mapped_column(String(50), nullable=False)
     side: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -47,9 +51,13 @@ class Order(Base):
 
     # Relationship to TradeSignal (assuming TradeSignal model will be defined)
     signal = relationship("TradeSignal", back_populates="orders")
+    
+    # Relationship to Position - many orders can contribute to one position
+    position = relationship("Position", back_populates="orders")
 
     __table_args__ = (
         Index("idx_orders_signal_id", "signal_id"),
+        Index("idx_orders_position_id", "position_id"),
         Index("idx_orders_status", "status"),
         Index("idx_orders_created_at", "created_at"),
     )

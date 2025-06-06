@@ -9,10 +9,12 @@ import asyncio
 import math
 import statistics
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
-from decimal import ROUND_DOWN, Decimal, InvalidOperation
-from typing import Any
+from decimal import ROUND_DOWN, ROUND_UP, ROUND_HALF_UP, Decimal, InvalidOperation
+from typing import Any, Dict, List, Optional, Tuple
+from enum import Enum
+import json
 
 import numpy as np
 
@@ -31,6 +33,209 @@ from .exchange_info_service import ExchangeInfoService
 from .logger_service import LoggerService
 from .market_price_service import MarketPriceService
 from .portfolio_manager import PortfolioManager
+
+
+# Enhanced Enums for Risk Management
+class RejectionReason(str, Enum):
+    """Categorized reasons for signal rejection."""
+    INSUFFICIENT_CONFIDENCE = "insufficient_confidence"
+    POSITION_LIMIT_EXCEEDED = "position_limit_exceeded"
+    RISK_THRESHOLD_BREACH = "risk_threshold_breach"
+    MARKET_CONDITION_INVALID = "market_condition_invalid"
+    SIGNAL_QUALITY_POOR = "signal_quality_poor"
+    CORRELATION_TOO_HIGH = "correlation_too_high"
+    VOLATILITY_TOO_HIGH = "volatility_too_high"
+    LIQUIDITY_INSUFFICIENT = "liquidity_insufficient"
+    BLACKOUT_PERIOD = "blackout_period"
+    TECHNICAL_ERROR = "technical_error"
+    INSUFFICIENT_BALANCE = "insufficient_balance"
+    FAT_FINGER_DETECTED = "fat_finger_detected"
+    INVALID_STOP_LOSS = "invalid_stop_loss"
+    DRAWDOWN_LIMIT_BREACH = "drawdown_limit_breach"
+
+
+class RejectionSeverity(str, Enum):
+    """Severity levels for rejection reasons."""
+    LOW = "low"       # Signal quality issue
+    MEDIUM = "medium" # Risk threshold breach
+    HIGH = "high"     # Position limit exceeded
+    CRITICAL = "critical" # System safety issue
+
+
+class ApprovalStatus(str, Enum):
+    """Approval status for trade signals."""
+    APPROVED = "approved"
+    CONDITIONALLY_APPROVED = "conditionally_approved"
+    REJECTED = "rejected"
+    PENDING_REVIEW = "pending_review"
+
+
+class OrderStatus(str, Enum):
+    """Order status types."""
+    FILLED = "FILLED"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    CANCELLED = "CANCELLED"
+    REJECTED = "REJECTED"
+    NEW = "NEW"
+    PENDING = "PENDING"
+
+
+class OrderSide(str, Enum):
+    """Order side types."""
+    BUY = "BUY"
+    SELL = "SELL"
+
+
+class MarketCondition(str, Enum):
+    """Market condition types for validation."""
+    NORMAL = "normal"
+    VOLATILE = "volatile"
+    LOW_LIQUIDITY = "low_liquidity"
+    TRENDING = "trending"
+    GAPPING = "gapping"
+
+
+class PositionSizingMethod(str, Enum):
+    """Position sizing methods."""
+    FIXED_AMOUNT = "fixed_amount"
+    PERCENTAGE_OF_PORTFOLIO = "percentage_of_portfolio"
+    RISK_BASED = "risk_based"
+    VOLATILITY_ADJUSTED = "volatility_adjusted"
+    KELLY_CRITERION = "kelly_criterion"
+    EQUAL_WEIGHT = "equal_weight"
+
+
+class OrderSizeType(str, Enum):
+    """Order size representation types."""
+    UNITS = "units"              # Raw units/shares
+    NOTIONAL = "notional"        # Dollar/currency amount
+    PERCENTAGE = "percentage"    # Percentage of portfolio
+    LOTS = "lots"               # Exchange-specific lots
+    CONTRACTS = "contracts"      # Futures/options contracts
+
+
+# Enhanced Dataclasses
+@dataclass
+class RiskMetrics:
+    """Current risk state metrics."""
+    consecutive_losses: int = 0
+    consecutive_wins: int = 0
+    current_drawdown: Decimal = Decimal("0")
+    current_drawdown_pct: Decimal = Decimal("0")
+    max_drawdown: Decimal = Decimal("0")
+    max_drawdown_pct: Decimal = Decimal("0")
+    daily_pnl: Decimal = Decimal("0")
+    total_realized_pnl: Decimal = Decimal("0")
+    active_positions_count: int = 0
+    total_exposure: Decimal = Decimal("0")
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
+    var_95: Decimal = Decimal("0")  # Value at Risk
+    expected_shortfall: Decimal = Decimal("0")
+    sharpe_ratio: Decimal = Decimal("0")
+    win_rate: Decimal = Decimal("0")
+
+
+@dataclass
+class SignalRejectionEvent:
+    """Event published when a signal is rejected."""
+    signal_id: uuid.UUID
+    trading_pair: str
+    strategy_id: str
+    rejection_reason: RejectionReason
+    severity: RejectionSeverity
+    rejection_timestamp: datetime
+    signal_data: Dict[str, Any]
+    risk_metrics: Dict[str, float]
+    rejection_details: str
+    auto_retry_eligible: bool = False
+
+
+@dataclass
+class SignalApprovalEvent:
+    """Event published when a signal is approved."""
+    signal_id: uuid.UUID
+    trading_pair: str
+    strategy_id: str
+    approval_status: ApprovalStatus
+    approved_position_size: Decimal
+    original_position_size: Decimal
+    approval_timestamp: datetime
+    approval_conditions: List[str]
+    portfolio_impact: Dict[str, float]
+    risk_adjustments: Dict[str, Any]
+    execution_priority: int  # 1-10, higher is more urgent
+    valid_until: datetime
+
+
+@dataclass
+class ExecutionReport:
+    """Standardized execution report model."""
+    order_id: str
+    symbol: str
+    side: OrderSide
+    status: OrderStatus
+    filled_quantity: Decimal = Decimal("0")
+    average_price: Decimal = Decimal("0")
+    commission: Decimal = Decimal("0")
+    realized_pnl: Optional[Decimal] = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    signal_id: Optional[str] = None
+    strategy_id: Optional[str] = None
+
+
+@dataclass
+class ExchangePrecisionInfo:
+    """Exchange precision specifications for a symbol."""
+    symbol: str
+    price_precision: int  # decimal places
+    quantity_precision: int  # decimal places
+    min_price: Decimal
+    max_price: Decimal
+    tick_size: Decimal  # minimum price increment
+    min_quantity: Decimal
+    max_quantity: Decimal
+    step_size: Decimal  # minimum quantity increment
+    min_notional: Decimal  # minimum order value
+
+
+@dataclass
+class MarketPriceContext:
+    """Current market price context for validation."""
+    symbol: str
+    current_price: Decimal
+    bid_price: Decimal
+    ask_price: Decimal
+    spread_pct: Decimal
+    volatility_1h: Decimal
+    volatility_24h: Decimal
+    volume_24h: Decimal
+    price_change_24h_pct: Decimal
+    market_condition: MarketCondition
+    last_trade_time: datetime
+
+
+@dataclass
+class ValidationResult:
+    """Result of price/quantity validation."""
+    is_valid: bool
+    original_value: Decimal
+    validated_value: Decimal
+    adjustments_made: List[str] = field(default_factory=list)
+    validation_errors: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class LotSizeResult:
+    """Result of lot size calculation."""
+    original_size: Decimal
+    original_type: OrderSizeType
+    calculated_lots: Decimal
+    calculated_units: Decimal
+    calculated_notional: Decimal
+    exchange_valid: bool
+    adjustments_made: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
 
 
 # Custom exceptions
@@ -279,6 +484,39 @@ class RiskManager:
         self._cached_conversion_timestamps: dict[str, datetime] = {}
         self._normal_volatility: dict[str, Decimal] = {} # Type hint Dict
         self._normal_volatility_logged_missing: dict[str, bool] = {}
+
+        # Enhanced risk metrics tracking
+        self._risk_metrics = RiskMetrics()
+        self._metrics_history: List[RiskMetrics] = []
+        self._max_metrics_history = 1000  # Keep last 1000 snapshots
+        
+        # Exchange precision cache
+        self._precision_cache: Dict[str, ExchangePrecisionInfo] = {}
+        self._precision_cache_expiry_seconds = 300  # 5 minutes
+        
+        # Market condition tracking
+        self._market_conditions: Dict[str, MarketCondition] = {}
+        self._last_market_update: Dict[str, datetime] = {}
+        
+        # Enhanced rejection/approval tracking
+        self._rejection_stats: Dict[str, int] = {
+            'total_rejections': 0,
+            'rejections_by_reason': {},
+            'rejections_by_symbol': {},
+        }
+        self._approval_stats: Dict[str, int] = {
+            'total_approvals': 0,
+            'conditional_approvals': 0,
+            'approvals_by_symbol': {},
+        }
+        
+        # Execution report processing
+        self._execution_buffer: List[ExecutionReport] = []
+        self._max_execution_buffer_size = 500
+        
+        # Risk threshold tracking
+        self._threshold_breach_count: Dict[str, int] = {}
+        self._last_threshold_reset = datetime.now(UTC)
 
         # For dynamic risk based on FeatureEngine features
         self._dynamic_risk_volatility_feature_key: str | None = None
@@ -1822,22 +2060,33 @@ class RiskManager:
         return extracted
 
     async def _handle_execution_report_for_losses(self, event_dict: dict[str, Any]) -> None:
-        """Handle execution reports to track losses for consecutive loss counting."""
+        """Handle execution reports to track losses for consecutive loss counting.
+        
+        Enhanced implementation with comprehensive execution report parsing,
+        loss counter logic, event publishing and audit trail.
+        """
         try:
-            # Extract ExecutionReportEvent from event_dict
-            event = ExecutionReportEvent.from_dict(event_dict)
-            
+            # Parse execution report based on format
+            execution_report = await self._parse_execution_report(event_dict)
+            if not execution_report:
+                return
+                
             # Only process filled or partially filled orders
-            if event.order_status not in ["FILLED", "PARTIALLY_FILLED"]:
+            if execution_report.status not in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
                 return
             
-            # Skip if no average fill price (shouldn't happen for filled orders)
-            if not event.average_fill_price:
+            # Skip if no average fill price
+            if not execution_report.average_price or execution_report.average_price <= 0:
                 self.logger.warning(
-                    f"Execution report {event.exchange_order_id} has no average fill price",
+                    f"Execution report {execution_report.order_id} has no valid average fill price",
                     source_module=self._source_module,
                 )
                 return
+            
+            # Add to execution buffer for tracking
+            self._execution_buffer.append(execution_report)
+            if len(self._execution_buffer) > self._max_execution_buffer_size:
+                self._execution_buffer.pop(0)
             
             # Get portfolio state to determine P&L
             portfolio_state = await self._portfolio_manager.get_current_state()
@@ -1849,63 +2098,36 @@ class RiskManager:
                 return
             
             # Calculate realized P&L from this execution
-            realized_pnl = await self._calculate_realized_pnl_from_execution(event, portfolio_state)
+            realized_pnl = await self._calculate_realized_pnl_from_execution(execution_report, portfolio_state)
             
-            # Update consecutive loss/win counters
-            if realized_pnl is not None:
-                if realized_pnl < 0:
-                    # Loss - increment loss counter, reset win counter
-                    self._consecutive_loss_count += 1
-                    self._consecutive_win_count = 0
-                    self.logger.warning(
-                        f"Trade loss detected. Consecutive losses: {self._consecutive_loss_count}",
-                        source_module=self._source_module,
-                        context={
-                            "order_id": event.exchange_order_id,
-                            "symbol": event.trading_pair,
-                            "realized_pnl": float(realized_pnl),
-                            "consecutive_losses": self._consecutive_loss_count,
-                        }
-                    )
-                else:
-                    # Win - increment win counter, reset loss counter
-                    self._consecutive_win_count += 1
-                    if self._consecutive_loss_count > 0:
-                        self.logger.info(
-                            f"Profitable trade breaks {self._consecutive_loss_count} consecutive losses",
-                            source_module=self._source_module,
-                            context={
-                                "order_id": event.exchange_order_id,
-                                "symbol": event.trading_pair,
-                                "realized_pnl": float(realized_pnl),
-                                "consecutive_wins": self._consecutive_win_count,
-                            }
-                        )
-                    self._consecutive_loss_count = 0
-                
-                # Add to recent trades for tracking
-                self._recent_trades.append({
-                    "timestamp": event.timestamp,
-                    "order_id": event.exchange_order_id,
-                    "symbol": event.trading_pair,
-                    "side": event.side,
-                    "quantity": float(event.quantity_filled),
-                    "price": float(event.average_fill_price),
-                    "realized_pnl": float(realized_pnl),
-                })
-                
-                # Keep only recent trades (last 100)
-                if len(self._recent_trades) > 100:
-                    self._recent_trades = self._recent_trades[-100:]
-                
-                # Update risk metrics
-                await self._update_risk_metrics_from_execution(event, realized_pnl, portfolio_state)
-                
-                # Check if we need to take action based on consecutive losses
-                await self._check_consecutive_loss_thresholds()
-                
-                # Publish risk metrics update event
-                await self._publish_risk_metrics_update(event, realized_pnl)
+            # Update loss counters based on realized PnL
+            await self._update_loss_counters(execution_report, realized_pnl)
+            
+            # Check for risk condition breaches
+            risk_events = await self._evaluate_risk_conditions(execution_report, realized_pnl, portfolio_state)
+            
+            # Publish risk events if any
+            if risk_events:
+                await self._publish_risk_events(risk_events, execution_report)
+            
+            # Update audit trail
+            await self._update_execution_audit_trail(execution_report, realized_pnl, risk_events)
+            
+            # Update comprehensive risk metrics
+            await self._update_risk_metrics_from_execution(execution_report, realized_pnl, portfolio_state)
+            
+            # Check consecutive loss thresholds
+            await self._check_consecutive_loss_thresholds()
+            
+            # Publish risk metrics update event
+            await self._publish_risk_metrics_update(execution_report, realized_pnl)
+            
+            self.logger.info(
+                f"Processed execution report {execution_report.order_id}: "
+                f"PnL={realized_pnl:.4f} if realized_pnl else 'N/A', "
+                f"Consecutive losses={self._consecutive_loss_count}",
+                source_module=self._source_module,
+            )
             
         except Exception as e:
             self.logger.error(
@@ -1913,17 +2135,19 @@ class RiskManager:
                 source_module=self._source_module,
                 context={"event_dict": event_dict},
             )
+            # Publish error event for monitoring
+            await self._publish_execution_error_event(event_dict, str(e))
 
     async def _calculate_realized_pnl_from_execution(
         self, 
-        event: ExecutionReportEvent, 
+        execution_report: ExecutionReport, 
         portfolio_state: dict[str, Any]
     ) -> Decimal | None:
         """Calculate realized P&L from an execution report."""
         try:
             # For closing trades, we need to compare with the entry price
             positions = portfolio_state.get("positions", {})
-            position = positions.get(event.trading_pair)
+            position = positions.get(execution_report.symbol)
             
             if not position:
                 # No existing position, this might be an opening trade
@@ -1937,13 +2161,13 @@ class RiskManager:
                 return None
             
             # Check if this is a closing trade (opposite side of position)
-            if position_side == event.side:
+            if position_side == execution_report.side.value:
                 # Same side as position, this is adding to position
                 return None
             
             # Calculate P&L for closing trade
-            fill_price = event.average_fill_price
-            fill_quantity = event.quantity_filled
+            fill_price = execution_report.average_price
+            fill_quantity = execution_report.filled_quantity
             
             if position_side == "BUY":
                 # Long position being closed by a sell
@@ -1953,8 +2177,11 @@ class RiskManager:
                 realized_pnl = (entry_price - fill_price) * fill_quantity
             
             # Subtract commission
-            if event.commission:
-                realized_pnl -= event.commission
+            if execution_report.commission:
+                realized_pnl -= execution_report.commission
+            
+            # Update execution report with calculated PnL
+            execution_report.realized_pnl = realized_pnl
             
             return realized_pnl
             
@@ -1967,7 +2194,7 @@ class RiskManager:
 
     async def _update_risk_metrics_from_execution(
         self,
-        event: ExecutionReportEvent,
+        execution_report: ExecutionReport,
         realized_pnl: Decimal,
         portfolio_state: dict[str, Any]
     ) -> None:
@@ -1987,14 +2214,22 @@ class RiskManager:
                 current_drawdown = self._peak_equity - current_equity
                 current_drawdown_pct = (current_drawdown / self._peak_equity) * Decimal("100")
                 
+                # Update risk metrics object
+                self._risk_metrics.current_drawdown = current_drawdown
+                self._risk_metrics.current_drawdown_pct = current_drawdown_pct
+                
                 # Update max drawdown if necessary
                 if not hasattr(self, "_max_drawdown"):
                     self._max_drawdown = current_drawdown
                     self._max_drawdown_pct = current_drawdown_pct
+                    self._risk_metrics.max_drawdown = current_drawdown
+                    self._risk_metrics.max_drawdown_pct = current_drawdown_pct
                 else:
                     if current_drawdown > self._max_drawdown:
                         self._max_drawdown = current_drawdown
                         self._max_drawdown_pct = current_drawdown_pct
+                        self._risk_metrics.max_drawdown = current_drawdown
+                        self._risk_metrics.max_drawdown_pct = current_drawdown_pct
                 
                 # Log significant drawdowns
                 if current_drawdown_pct > Decimal("5"):
@@ -2008,6 +2243,14 @@ class RiskManager:
                             "drawdown_pct": float(current_drawdown_pct),
                         }
                     )
+            
+            # Update daily PnL if available
+            if realized_pnl is not None:
+                self._risk_metrics.daily_pnl += realized_pnl
+                self._risk_metrics.total_realized_pnl += realized_pnl
+            
+            # Update last updated timestamp
+            self._risk_metrics.last_updated = datetime.now(UTC)
             
         except Exception as e:
             self.logger.error(
@@ -2059,7 +2302,7 @@ class RiskManager:
 
     async def _publish_risk_metrics_update(
         self,
-        event: ExecutionReportEvent,
+        execution_report: ExecutionReport,
         realized_pnl: Decimal
     ) -> None:
         """Publish risk metrics update event."""
@@ -2070,20 +2313,46 @@ class RiskManager:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "metrics": {
                     "consecutive_losses": self._consecutive_loss_count,
-                    "current_drawdown": float(getattr(self, "_max_drawdown", 0)),
-                    "current_drawdown_pct": float(getattr(self, "_max_drawdown_pct", 0)),
+                    "consecutive_wins": self._consecutive_win_count,
+                    "current_drawdown": float(self._risk_metrics.current_drawdown),
+                    "current_drawdown_pct": float(self._risk_metrics.current_drawdown_pct),
+                    "max_drawdown": float(self._risk_metrics.max_drawdown),
+                    "max_drawdown_pct": float(self._risk_metrics.max_drawdown_pct),
                     "risk_per_trade_pct": float(self._risk_per_trade_pct),
                     "recent_trades_count": len(self._recent_trades),
+                    "daily_pnl": float(self._risk_metrics.daily_pnl),
+                    "total_realized_pnl": float(self._risk_metrics.total_realized_pnl),
                 },
                 "trigger_report": {
-                    "order_id": event.exchange_order_id,
-                    "symbol": event.trading_pair,
+                    "order_id": execution_report.order_id,
+                    "symbol": execution_report.symbol,
                     "realized_pnl": float(realized_pnl) if realized_pnl else None,
                 }
             }
             
             # Publish to a generic event type or create a specific one
             await self.pubsub.publish("risk.metrics.updated", risk_metrics_event)
+            
+            # Also add to metrics history
+            current_snapshot = RiskMetrics(
+                consecutive_losses=self._consecutive_loss_count,
+                consecutive_wins=self._consecutive_win_count,
+                current_drawdown=self._risk_metrics.current_drawdown,
+                current_drawdown_pct=self._risk_metrics.current_drawdown_pct,
+                max_drawdown=self._risk_metrics.max_drawdown,
+                max_drawdown_pct=self._risk_metrics.max_drawdown_pct,
+                daily_pnl=self._risk_metrics.daily_pnl,
+                total_realized_pnl=self._risk_metrics.total_realized_pnl,
+                active_positions_count=self._risk_metrics.active_positions_count,
+                total_exposure=self._risk_metrics.total_exposure,
+                var_95=self._risk_metrics.var_95,
+                expected_shortfall=self._risk_metrics.expected_shortfall,
+                sharpe_ratio=self._risk_metrics.sharpe_ratio,
+                win_rate=self._risk_metrics.win_rate,
+            )
+            self._metrics_history.append(current_snapshot)
+            if len(self._metrics_history) > self._max_metrics_history:
+                self._metrics_history.pop(0)
             
         except Exception as e:
             self.logger.error(
@@ -2092,10 +2361,19 @@ class RiskManager:
             )
 
     async def _risk_metrics_loop(self) -> None:
-        """Periodically calculate and update risk metrics."""
+        """Periodically calculate and update comprehensive risk metrics.
+        
+        Enhanced implementation with VaR, Expected Shortfall, Sharpe ratio,
+        and comprehensive drawdown/exposure monitoring.
+        """
         while self._is_running:
             try:
                 await asyncio.sleep(self._risk_metrics_interval_s)
+                
+                self.logger.debug(
+                    "Starting periodic risk metrics calculation",
+                    source_module=self._source_module
+                )
                 
                 # Get current portfolio state
                 portfolio_state = await self._portfolio_manager.get_current_state()
@@ -2127,14 +2405,15 @@ class RiskManager:
                 total_pnl = current_equity - initial_equity
                 total_pnl_pct = (total_pnl / initial_equity) * Decimal("100")
                 
-                # Calculate exposure metrics
+                # Calculate exposure metrics with enhanced tracking
                 positions = portfolio_state.get("positions", {})
                 total_exposure = Decimal("0")
                 open_positions_count = 0
                 long_exposure = Decimal("0")
                 short_exposure = Decimal("0")
+                exposure_by_symbol = {}
                 
-                for position in positions.values():
+                for symbol, position in positions.items():
                     try:
                         market_value = abs(Decimal(str(position.get("current_market_value", "0"))))
                         total_exposure += market_value
@@ -2145,6 +2424,9 @@ class RiskManager:
                             long_exposure += market_value
                         elif side == "SELL":
                             short_exposure += market_value
+                            
+                        # Track exposure by symbol for concentration analysis
+                        exposure_by_symbol[symbol] = market_value
                     except (InvalidOperation, ValueError) as e:
                         self.logger.warning(
                             f"Invalid position value: {e}",
@@ -2155,6 +2437,13 @@ class RiskManager:
                 total_exposure_pct = (total_exposure / current_equity) * Decimal("100") if current_equity > 0 else Decimal("0")
                 long_exposure_pct = (long_exposure / current_equity) * Decimal("100") if current_equity > 0 else Decimal("0")
                 short_exposure_pct = (short_exposure / current_equity) * Decimal("100") if current_equity > 0 else Decimal("0")
+                
+                # Calculate concentration risk (Herfindahl index)
+                concentration_risk = Decimal("0")
+                if total_exposure > 0:
+                    for exposure in exposure_by_symbol.values():
+                        weight = exposure / total_exposure
+                        concentration_risk += weight ** 2
                 
                 # Calculate drawdown metrics
                 if not hasattr(self, "_peak_equity"):
@@ -2174,10 +2463,13 @@ class RiskManager:
                         self._max_drawdown = current_drawdown
                         self._max_drawdown_pct = current_drawdown_pct
                 
-                # Calculate win rate from recent trades
+                # Calculate win rate and profit/loss statistics
                 win_rate = Decimal("0")
                 avg_win = Decimal("0")
                 avg_loss = Decimal("0")
+                profit_factor = Decimal("0")
+                returns_for_risk_metrics = []
+                
                 if hasattr(self, "_recent_trades") and self._recent_trades:
                     winning_trades = [t for t in self._recent_trades if t["realized_pnl"] > 0]
                     losing_trades = [t for t in self._recent_trades if t["realized_pnl"] < 0]
@@ -2187,10 +2479,52 @@ class RiskManager:
                         win_rate = (Decimal(len(winning_trades)) / Decimal(total_trades)) * Decimal("100")
                     
                     if winning_trades:
-                        avg_win = sum(Decimal(str(t["realized_pnl"])) for t in winning_trades) / len(winning_trades)
+                        total_wins = sum(Decimal(str(t["realized_pnl"])) for t in winning_trades)
+                        avg_win = total_wins / len(winning_trades)
                     
                     if losing_trades:
-                        avg_loss = abs(sum(Decimal(str(t["realized_pnl"])) for t in losing_trades) / len(losing_trades))
+                        total_losses = abs(sum(Decimal(str(t["realized_pnl"])) for t in losing_trades))
+                        avg_loss = total_losses / len(losing_trades)
+                        
+                        # Calculate profit factor
+                        if total_losses > 0 and winning_trades:
+                            profit_factor = total_wins / total_losses
+                    
+                    # Extract returns for VaR and Sharpe calculations
+                    if initial_equity > 0:
+                        for trade in self._recent_trades:
+                            pnl = Decimal(str(trade["realized_pnl"]))
+                            return_pct = (pnl / initial_equity) * Decimal("100")
+                            returns_for_risk_metrics.append(float(return_pct))
+                
+                # Calculate VaR and Expected Shortfall
+                var_95 = Decimal("0")
+                expected_shortfall = Decimal("0")
+                
+                if len(returns_for_risk_metrics) >= 30:  # Need sufficient data
+                    returns_array = np.array(returns_for_risk_metrics)
+                    
+                    # 95% Value at Risk (5th percentile of returns)
+                    var_95_value = np.percentile(returns_array, 5)
+                    var_95 = abs(Decimal(str(var_95_value)))
+                    
+                    # Expected Shortfall (average of returns below VaR)
+                    tail_returns = returns_array[returns_array <= var_95_value]
+                    if len(tail_returns) > 0:
+                        expected_shortfall = abs(Decimal(str(np.mean(tail_returns))))
+                    else:
+                        expected_shortfall = var_95
+                
+                # Calculate Sharpe ratio
+                sharpe_ratio = Decimal("0")
+                if len(returns_for_risk_metrics) >= 30:
+                    returns_array = np.array(returns_for_risk_metrics)
+                    mean_return = np.mean(returns_array)
+                    std_return = np.std(returns_array)
+                    
+                    if std_return > 0:
+                        # Annualize Sharpe ratio (assuming daily returns)
+                        sharpe_ratio = Decimal(str((mean_return * 252) / (std_return * np.sqrt(252))))
                 
                 # Calculate risk score based on multiple factors
                 risk_score = self._calculate_composite_risk_score(
@@ -2200,12 +2534,50 @@ class RiskManager:
                     win_rate=win_rate,
                 )
                 
+                # Update risk metrics object with all calculated values
+                self._risk_metrics.consecutive_losses = self._consecutive_loss_count
+                self._risk_metrics.consecutive_wins = self._consecutive_win_count
+                self._risk_metrics.current_drawdown = current_drawdown
+                self._risk_metrics.current_drawdown_pct = current_drawdown_pct
+                self._risk_metrics.max_drawdown = self._max_drawdown
+                self._risk_metrics.max_drawdown_pct = self._max_drawdown_pct
+                self._risk_metrics.daily_pnl = Decimal("0")  # Reset daily PnL if new day
+                self._risk_metrics.total_realized_pnl = total_pnl
+                self._risk_metrics.active_positions_count = open_positions_count
+                self._risk_metrics.total_exposure = total_exposure
+                self._risk_metrics.var_95 = var_95
+                self._risk_metrics.expected_shortfall = expected_shortfall
+                self._risk_metrics.sharpe_ratio = sharpe_ratio
+                self._risk_metrics.win_rate = win_rate
+                self._risk_metrics.last_updated = datetime.now(UTC)
+                
+                # Add current metrics to history
+                metrics_snapshot = RiskMetrics(
+                    consecutive_losses=self._consecutive_loss_count,
+                    consecutive_wins=self._consecutive_win_count,
+                    current_drawdown=current_drawdown,
+                    current_drawdown_pct=current_drawdown_pct,
+                    max_drawdown=self._max_drawdown,
+                    max_drawdown_pct=self._max_drawdown_pct,
+                    daily_pnl=self._risk_metrics.daily_pnl,
+                    total_realized_pnl=total_pnl,
+                    active_positions_count=open_positions_count,
+                    total_exposure=total_exposure,
+                    var_95=var_95,
+                    expected_shortfall=expected_shortfall,
+                    sharpe_ratio=sharpe_ratio,
+                    win_rate=win_rate
+                )
+                self._metrics_history.append(metrics_snapshot)
+                if len(self._metrics_history) > self._max_metrics_history:
+                    self._metrics_history.pop(0)
+                
                 # Persist metrics to database
                 if hasattr(self, "_risk_metrics_repository"):
                     try:
                         await self._risk_metrics_repository.update_metrics(
                             consecutive_losses=self._consecutive_loss_count,
-                            consecutive_wins=getattr(self, "_consecutive_win_count", 0),
+                            consecutive_wins=self._consecutive_win_count,
                             current_drawdown=current_drawdown,
                             current_drawdown_pct=current_drawdown_pct,
                             max_drawdown=self._max_drawdown,
@@ -2215,16 +2587,21 @@ class RiskManager:
                             win_rate=win_rate,
                             avg_win=avg_win,
                             avg_loss=avg_loss,
+                            profit_factor=profit_factor,
                             total_exposure=total_exposure,
                             total_exposure_pct=total_exposure_pct,
                             long_exposure=long_exposure,
                             long_exposure_pct=long_exposure_pct,
                             short_exposure=short_exposure,
                             short_exposure_pct=short_exposure_pct,
+                            concentration_risk=concentration_risk,
                             open_positions_count=open_positions_count,
                             risk_score=risk_score,
                             current_equity=current_equity,
                             peak_equity=self._peak_equity,
+                            var_95=var_95,
+                            expected_shortfall=expected_shortfall,
+                            sharpe_ratio=sharpe_ratio,
                         )
                     except Exception as e:
                         self.logger.error(
@@ -2232,34 +2609,54 @@ class RiskManager:
                             source_module=self._source_module,
                         )
                 
-                # Publish risk metrics event
+                # Publish comprehensive risk metrics event
                 risk_metrics_event = {
                     "type": "RiskMetricsCalculated",
                     "source_module": self._source_module,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "metrics": {
+                        # Loss/win tracking
                         "consecutive_losses": self._consecutive_loss_count,
-                        "consecutive_wins": getattr(self, "_consecutive_win_count", 0),
+                        "consecutive_wins": self._consecutive_win_count,
+                        "win_rate": float(win_rate),
+                        "avg_win": float(avg_win),
+                        "avg_loss": float(avg_loss),
+                        "profit_factor": float(profit_factor),
+                        
+                        # Drawdown metrics
                         "current_drawdown": float(current_drawdown),
                         "current_drawdown_pct": float(current_drawdown_pct),
                         "max_drawdown": float(self._max_drawdown),
                         "max_drawdown_pct": float(self._max_drawdown_pct),
+                        
+                        # P&L metrics
                         "total_pnl": float(total_pnl),
                         "total_pnl_pct": float(total_pnl_pct),
-                        "win_rate": float(win_rate),
-                        "avg_win": float(avg_win),
-                        "avg_loss": float(avg_loss),
+                        "daily_pnl": float(self._risk_metrics.daily_pnl),
+                        "total_realized_pnl": float(self._risk_metrics.total_realized_pnl),
+                        
+                        # Exposure metrics
                         "total_exposure": float(total_exposure),
                         "total_exposure_pct": float(total_exposure_pct),
                         "long_exposure": float(long_exposure),
                         "long_exposure_pct": float(long_exposure_pct),
                         "short_exposure": float(short_exposure),
                         "short_exposure_pct": float(short_exposure_pct),
-                        "open_positions_count": open_positions_count,
+                        "concentration_risk": float(concentration_risk),
+                        "exposure_by_symbol": {k: float(v) for k, v in exposure_by_symbol.items()},
+                        
+                        # Risk metrics
+                        "var_95": float(var_95),
+                        "expected_shortfall": float(expected_shortfall),
+                        "sharpe_ratio": float(sharpe_ratio),
                         "risk_score": float(risk_score),
+                        "risk_per_trade_pct": float(self._risk_per_trade_pct),
+                        
+                        # Portfolio state
+                        "open_positions_count": open_positions_count,
                         "current_equity": float(current_equity),
                         "peak_equity": float(self._peak_equity),
-                        "risk_per_trade_pct": float(self._risk_per_trade_pct),
+                        "available_balance": float(available_balance),
                     }
                 }
                 
@@ -2297,62 +2694,176 @@ class RiskManager:
         event: TradeSignalProposedEvent,
         reason: str,
     ) -> None:
-        """Reject a trade signal and publish rejection event."""
+        """Enhanced signal rejection workflow with categorization and comprehensive logging."""
         try:
-            # Create rejection event
-            rejection_event = {
-                "type": "TradeSignalRejected",
-                "source_module": self._source_module,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "signal_id": str(signal_id),
-                "trading_pair": event.trading_pair,
-                "exchange": event.exchange,
-                "side": event.side,
-                "entry_type": event.entry_type,
-                "rejection_reason": reason,
-                "proposed_entry_price": event.proposed_entry_price,
-                "proposed_sl_price": event.proposed_sl_price,
-                "proposed_tp_price": event.proposed_tp_price,
-                "strategy_id": event.strategy_id,
-                "triggering_prediction_event_id": str(event.triggering_prediction_event_id) if event.triggering_prediction_event_id else None,
-                "risk_metrics": {
-                    "current_consecutive_losses": self._consecutive_loss_count,
-                    "risk_per_trade_pct": float(self._risk_per_trade_pct),
-                    "max_drawdown_pct": float(getattr(self, "_max_drawdown_pct", 0)),
-                }
-            }
+            # Categorize rejection reason and determine severity
+            rejection_reason, severity = self._categorize_rejection_reason(reason)
             
-            # Publish rejection event
-            await self.pubsub.publish(EventType.TRADE_SIGNAL_REJECTED, rejection_event)
-            
-            # Log rejection with details
-            self.logger.warning(
-                f"Trade signal rejected: {reason}",
-                source_module=self._source_module,
-                context={
-                    "signal_id": str(signal_id),
-                    "trading_pair": event.trading_pair,
+            # Create comprehensive signal rejection event
+            signal_rejection = SignalRejectionEvent(
+                signal_id=signal_id,
+                trading_pair=event.trading_pair,
+                strategy_id=event.strategy_id,
+                rejection_reason=rejection_reason,
+                severity=severity,
+                rejection_timestamp=datetime.now(UTC),
+                signal_data={
+                    "exchange": event.exchange,
                     "side": event.side,
                     "entry_type": event.entry_type,
-                    "rejection_reason": reason,
-                }
+                    "proposed_entry_price": event.proposed_entry_price,
+                    "proposed_sl_price": event.proposed_sl_price,
+                    "proposed_tp_price": event.proposed_tp_price,
+                    "triggering_prediction_event_id": str(event.triggering_prediction_event_id) if event.triggering_prediction_event_id else None,
+                },
+                risk_metrics={
+                    "consecutive_losses": float(self._consecutive_loss_count),
+                    "current_drawdown_pct": float(self._risk_metrics.current_drawdown_pct),
+                    "max_drawdown_pct": float(self._risk_metrics.max_drawdown_pct),
+                    "risk_per_trade_pct": float(self._risk_per_trade_pct),
+                    "risk_score": float(self._calculate_composite_risk_score(
+                        self._risk_metrics.current_drawdown_pct,
+                        self._risk_metrics.total_exposure / self._portfolio_manager.get_current_state().get("total_equity_usd", 1) * 100 if self._risk_metrics.total_exposure > 0 else Decimal("0"),
+                        self._consecutive_loss_count,
+                        self._risk_metrics.win_rate
+                    )),
+                },
+                rejection_details=reason,
+                auto_retry_eligible=self._is_auto_retry_eligible(rejection_reason)
             )
             
-            # Track rejection metrics
-            if hasattr(self, "_rejection_count"):
-                self._rejection_count += 1
-            else:
-                self._rejection_count = 1
+            # Log rejection decision with appropriate severity
+            await self._log_rejection_decision(signal_rejection)
+            
+            # Publish rejection event
+            await self._publish_rejection_event(signal_rejection)
+            
+            # Update rejection statistics
+            self._update_rejection_statistics(signal_rejection)
+            
+            # Check if auto-retry should be scheduled
+            if signal_rejection.auto_retry_eligible:
+                await self._schedule_signal_retry(event, signal_rejection)
                 
         except Exception as e:
             self.logger.error(
-                f"Error publishing signal rejection: {e}",
+                f"Error in signal rejection workflow: {e}",
                 source_module=self._source_module,
                 context={
                     "signal_id": str(signal_id),
                     "reason": reason,
                 }
             )
+    
+    def _categorize_rejection_reason(self, reason: str) -> Tuple[RejectionReason, RejectionSeverity]:
+        """Categorize rejection reason and determine severity."""
+        reason_lower = reason.lower()
+        
+        # Map reasons to categories
+        if "insufficient" in reason_lower and "balance" in reason_lower:
+            return RejectionReason.INSUFFICIENT_BALANCE, RejectionSeverity.HIGH
+        elif "drawdown" in reason_lower:
+            return RejectionReason.DRAWDOWN_LIMIT_BREACH, RejectionSeverity.CRITICAL
+        elif "fat" in reason_lower and "finger" in reason_lower:
+            return RejectionReason.FAT_FINGER_DETECTED, RejectionSeverity.MEDIUM
+        elif "stop" in reason_lower and "loss" in reason_lower:
+            return RejectionReason.INVALID_STOP_LOSS, RejectionSeverity.MEDIUM
+        elif "position" in reason_lower and ("limit" in reason_lower or "exceed" in reason_lower):
+            return RejectionReason.POSITION_LIMIT_EXCEEDED, RejectionSeverity.HIGH
+        elif "exposure" in reason_lower:
+            return RejectionReason.RISK_THRESHOLD_BREACH, RejectionSeverity.HIGH
+        elif "confidence" in reason_lower:
+            return RejectionReason.INSUFFICIENT_CONFIDENCE, RejectionSeverity.LOW
+        elif "volatility" in reason_lower:
+            return RejectionReason.VOLATILITY_TOO_HIGH, RejectionSeverity.MEDIUM
+        elif "market" in reason_lower and "condition" in reason_lower:
+            return RejectionReason.MARKET_CONDITION_INVALID, RejectionSeverity.MEDIUM
+        else:
+            return RejectionReason.TECHNICAL_ERROR, RejectionSeverity.LOW
+    
+    def _is_auto_retry_eligible(self, rejection_reason: RejectionReason) -> bool:
+        """Determine if rejection reason is eligible for auto-retry."""
+        # These reasons may be temporary and worth retrying
+        retry_eligible_reasons = {
+            RejectionReason.INSUFFICIENT_BALANCE,  # Balance might be replenished
+            RejectionReason.MARKET_CONDITION_INVALID,  # Market conditions change
+            RejectionReason.VOLATILITY_TOO_HIGH,  # Volatility may decrease
+            RejectionReason.LIQUIDITY_INSUFFICIENT,  # Liquidity may improve
+        }
+        return rejection_reason in retry_eligible_reasons
+    
+    async def _log_rejection_decision(self, rejection_event: SignalRejectionEvent) -> None:
+        """Comprehensive logging of rejection decision."""
+        log_data = {
+            'event_type': 'signal_rejection',
+            'signal_id': str(rejection_event.signal_id),
+            'trading_pair': rejection_event.trading_pair,
+            'strategy_id': rejection_event.strategy_id,
+            'rejection_reason': rejection_event.rejection_reason.value,
+            'severity': rejection_event.severity.value,
+            'timestamp': rejection_event.rejection_timestamp.isoformat(),
+            'auto_retry_eligible': rejection_event.auto_retry_eligible,
+            'risk_metrics': rejection_event.risk_metrics,
+        }
+        
+        # Log at appropriate level based on severity
+        if rejection_event.severity == RejectionSeverity.CRITICAL:
+            self.logger.error(f"CRITICAL signal rejection: {log_data}")
+        elif rejection_event.severity == RejectionSeverity.HIGH:
+            self.logger.warning(f"HIGH severity signal rejection: {log_data}")
+        else:
+            self.logger.info(f"Signal rejection: {log_data}")
+    
+    async def _publish_rejection_event(self, rejection_event: SignalRejectionEvent) -> None:
+        """Publish rejection event to interested subscribers."""
+        event_data = {
+            'type': 'TradeSignalRejected',
+            'source_module': self._source_module,
+            'signal_id': str(rejection_event.signal_id),
+            'trading_pair': rejection_event.trading_pair,
+            'strategy_id': rejection_event.strategy_id,
+            'rejection_reason': rejection_event.rejection_reason.value,
+            'severity': rejection_event.severity.value,
+            'timestamp': rejection_event.rejection_timestamp.isoformat(),
+            'rejection_details': rejection_event.rejection_details,
+            'auto_retry_eligible': rejection_event.auto_retry_eligible,
+            'signal_data': rejection_event.signal_data,
+            'risk_metrics': rejection_event.risk_metrics,
+        }
+        
+        # Publish to general rejection topic
+        await self.pubsub.publish(EventType.TRADE_SIGNAL_REJECTED, event_data)
+        
+        # Publish to severity-specific topic for urgent attention
+        if rejection_event.severity in [RejectionSeverity.HIGH, RejectionSeverity.CRITICAL]:
+            await self.pubsub.publish(f'signals.rejected.{rejection_event.severity.value}', event_data)
+        
+        # Publish to strategy-specific topic for strategy optimization
+        await self.pubsub.publish(f'signals.rejected.{rejection_event.strategy_id}', event_data)
+    
+    def _update_rejection_statistics(self, rejection_event: SignalRejectionEvent) -> None:
+        """Update rejection statistics for monitoring."""
+        self._rejection_stats['total_rejections'] += 1
+        
+        # Update by reason
+        reason = rejection_event.rejection_reason.value
+        if reason not in self._rejection_stats['rejections_by_reason']:
+            self._rejection_stats['rejections_by_reason'][reason] = 0
+        self._rejection_stats['rejections_by_reason'][reason] += 1
+        
+        # Update by symbol
+        symbol = rejection_event.trading_pair
+        if symbol not in self._rejection_stats['rejections_by_symbol']:
+            self._rejection_stats['rejections_by_symbol'][symbol] = 0
+        self._rejection_stats['rejections_by_symbol'][symbol] += 1
+    
+    async def _schedule_signal_retry(self, event: TradeSignalProposedEvent, rejection: SignalRejectionEvent) -> None:
+        """Schedule signal for retry if eligible."""
+        # TODO: Implement retry scheduling logic
+        self.logger.info(
+            f"Signal {rejection.signal_id} marked for retry due to {rejection.rejection_reason.value}",
+            source_module=self._source_module
+        )
 
     async def _approve_signal(
         self,
@@ -2361,66 +2872,81 @@ class RiskManager:
         approved_quantity: Decimal,
         approved_entry_price: Decimal | None,
     ) -> None:
-        """Approve a trade signal and publish approval event."""
+        """Enhanced signal approval handling with comprehensive portfolio checks and event publication."""
         try:
-            # Calculate risk amount based on approved quantity and stop loss
+            # Get current portfolio state for impact analysis
+            portfolio_state = self._portfolio_manager.get_current_state()
+            
+            # Calculate risk amount and portfolio impact
             risk_amount = None
             if event.proposed_sl_price and approved_entry_price:
                 sl_price = Decimal(str(event.proposed_sl_price))
                 price_diff = abs(approved_entry_price - sl_price)
                 risk_amount = approved_quantity * price_diff
             
-            # Create approval event
-            approval_event = {
-                "type": "TradeSignalApproved",
-                "source_module": self._source_module,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "signal_id": str(signal_id),
-                "trading_pair": event.trading_pair,
-                "exchange": event.exchange,
-                "side": event.side,
-                "entry_type": event.entry_type,
-                "approved_quantity": float(approved_quantity),
-                "approved_entry_price": float(approved_entry_price) if approved_entry_price else None,
-                "proposed_sl_price": event.proposed_sl_price,
-                "proposed_tp_price": event.proposed_tp_price,
-                "strategy_id": event.strategy_id,
-                "triggering_prediction_event_id": str(event.triggering_prediction_event_id) if event.triggering_prediction_event_id else None,
-                "risk_metrics": {
-                    "risk_amount_usd": float(risk_amount) if risk_amount else None,
+            # Calculate portfolio impact
+            portfolio_impact = await self._calculate_portfolio_impact(
+                event.trading_pair,
+                approved_quantity,
+                approved_entry_price,
+                portfolio_state
+            )
+            
+            # Determine approval conditions and priority
+            approval_conditions = await self._determine_approval_conditions(
+                event,
+                approved_quantity,
+                portfolio_state
+            )
+            
+            # Calculate execution priority
+            execution_priority = self._calculate_execution_priority(
+                event,
+                self._risk_metrics.current_drawdown_pct,
+                portfolio_impact
+            )
+            
+            # Determine approval status
+            approval_status = ApprovalStatus.APPROVED
+            if approval_conditions:
+                approval_status = ApprovalStatus.CONDITIONALLY_APPROVED
+            
+            # Create comprehensive approval event
+            signal_approval = SignalApprovalEvent(
+                signal_id=signal_id,
+                trading_pair=event.trading_pair,
+                strategy_id=event.strategy_id,
+                approval_status=approval_status,
+                approved_position_size=approved_quantity,
+                original_position_size=Decimal(str(event.proposed_entry_price)) if event.proposed_entry_price else approved_quantity,
+                approval_timestamp=datetime.now(UTC),
+                approval_conditions=approval_conditions,
+                portfolio_impact=portfolio_impact,
+                risk_adjustments={
+                    "risk_amount": float(risk_amount) if risk_amount else None,
                     "risk_per_trade_pct": float(self._risk_per_trade_pct),
-                    "current_consecutive_losses": self._consecutive_loss_count,
-                    "current_drawdown_pct": float(getattr(self, "_current_drawdown_pct", 0)),
-                }
-            }
+                    "stop_loss_price": event.proposed_sl_price,
+                    "take_profit_price": event.proposed_tp_price,
+                },
+                execution_priority=execution_priority,
+                valid_until=datetime.now(UTC) + timedelta(hours=1)  # 1 hour validity
+            )
+            
+            # Log approval decision
+            await self._log_approval_decision(signal_approval, event)
             
             # Publish approval event
-            await self.pubsub.publish(EventType.TRADE_SIGNAL_APPROVED, approval_event)
+            await self._publish_approval_event(signal_approval, event)
             
-            # Log approval with details
-            self.logger.info(
-                f"Trade signal approved",
-                source_module=self._source_module,
-                context={
-                    "signal_id": str(signal_id),
-                    "trading_pair": event.trading_pair,
-                    "side": event.side,
-                    "entry_type": event.entry_type,
-                    "approved_quantity": float(approved_quantity),
-                    "approved_entry_price": float(approved_entry_price) if approved_entry_price else None,
-                    "risk_amount": float(risk_amount) if risk_amount else None,
-                }
-            )
+            # Update approval statistics
+            self._update_approval_statistics(signal_approval)
             
-            # Track approval metrics
-            if hasattr(self, "_approval_count"):
-                self._approval_count += 1
-            else:
-                self._approval_count = 1
-                
+            # Handle post-approval actions
+            await self._handle_post_approval_actions(signal_approval, event)
+            
         except Exception as e:
             self.logger.error(
-                f"Error publishing signal approval: {e}",
+                f"Error in signal approval workflow: {e}",
                 source_module=self._source_module,
                 context={
                     "signal_id": str(signal_id),
@@ -2428,6 +2954,181 @@ class RiskManager:
                     "approved_entry_price": float(approved_entry_price) if approved_entry_price else None,
                 }
             )
+    
+    async def _calculate_portfolio_impact(
+        self,
+        trading_pair: str,
+        quantity: Decimal,
+        price: Optional[Decimal],
+        portfolio_state: Dict[str, Any]
+    ) -> Dict[str, float]:
+        """Calculate the impact of the trade on the portfolio."""
+        current_equity = Decimal(str(portfolio_state.get("total_equity_usd", "0")))
+        
+        # Calculate position value
+        position_value = quantity * price if price else Decimal("0")
+        
+        # Calculate impact metrics
+        portfolio_impact = {
+            "position_value": float(position_value),
+            "position_pct_of_portfolio": float((position_value / current_equity * 100) if current_equity > 0 else 0),
+            "new_exposure_increase": float(position_value),
+            "margin_impact": float(position_value * Decimal("0.1")),  # Assuming 10% margin requirement
+        }
+        
+        # Check if this adds to existing position
+        positions = portfolio_state.get("positions", {})
+        if trading_pair in positions:
+            existing_position = positions[trading_pair]
+            existing_value = Decimal(str(existing_position.get("current_market_value", "0")))
+            portfolio_impact["total_position_value"] = float(existing_value + position_value)
+            portfolio_impact["position_increase_pct"] = float((position_value / existing_value * 100) if existing_value > 0 else 100)
+        
+        return portfolio_impact
+    
+    async def _determine_approval_conditions(
+        self,
+        event: TradeSignalProposedEvent,
+        quantity: Decimal,
+        portfolio_state: Dict[str, Any]
+    ) -> List[str]:
+        """Determine any conditions for the approval."""
+        conditions = []
+        
+        # Check if position size was reduced
+        if event.proposed_entry_price:
+            original_qty = Decimal("1")  # Placeholder - should get from signal
+            if quantity < original_qty:
+                conditions.append("position_size_reduced_due_to_risk_limits")
+        
+        # Check if close to exposure limits
+        current_exposure = Decimal(str(portfolio_state.get("total_exposure_usd", "0")))
+        current_equity = Decimal(str(portfolio_state.get("total_equity_usd", "0")))
+        if current_equity > 0:
+            exposure_pct = (current_exposure / current_equity) * Decimal("100")
+            if exposure_pct > self._max_total_exposure_pct * Decimal("0.8"):
+                conditions.append("approaching_exposure_limit")
+        
+        # Check if in drawdown
+        if self._risk_metrics.current_drawdown_pct > Decimal("5"):
+            conditions.append("trading_during_drawdown")
+        
+        # Check consecutive losses
+        if self._consecutive_loss_count > 2:
+            conditions.append("consecutive_losses_detected")
+        
+        return conditions
+    
+    def _calculate_execution_priority(
+        self,
+        event: TradeSignalProposedEvent,
+        current_drawdown_pct: Decimal,
+        portfolio_impact: Dict[str, float]
+    ) -> int:
+        """Calculate execution priority (1-10, higher is more urgent)."""
+        priority = 5  # Default medium priority
+        
+        # Increase priority for smaller positions (easier to fill)
+        if portfolio_impact["position_pct_of_portfolio"] < 2:
+            priority += 1
+        
+        # Decrease priority during drawdown
+        if current_drawdown_pct > Decimal("10"):
+            priority -= 2
+        elif current_drawdown_pct > Decimal("5"):
+            priority -= 1
+        
+        # Increase priority for limit orders (better pricing)
+        if event.entry_type.upper() == "LIMIT":
+            priority += 1
+        
+        # Ensure priority is within bounds
+        priority = max(1, min(10, priority))
+        
+        return priority
+    
+    async def _log_approval_decision(self, approval_event: SignalApprovalEvent, original_event: TradeSignalProposedEvent) -> None:
+        """Log approval decision with comprehensive details."""
+        log_data = {
+            'event_type': 'signal_approval',
+            'signal_id': str(approval_event.signal_id),
+            'trading_pair': approval_event.trading_pair,
+            'strategy_id': approval_event.strategy_id,
+            'approval_status': approval_event.approval_status.value,
+            'approved_size': float(approval_event.approved_position_size),
+            'execution_priority': approval_event.execution_priority,
+            'conditions': approval_event.approval_conditions,
+            'portfolio_impact': approval_event.portfolio_impact,
+            'risk_adjustments': approval_event.risk_adjustments,
+            'valid_until': approval_event.valid_until.isoformat(),
+        }
+        
+        if approval_event.approval_status == ApprovalStatus.CONDITIONALLY_APPROVED:
+            self.logger.warning(f"Conditional approval granted: {log_data}")
+        else:
+            self.logger.info(f"Signal approved: {log_data}")
+    
+    async def _publish_approval_event(self, approval_event: SignalApprovalEvent, original_event: TradeSignalProposedEvent) -> None:
+        """Publish approval event to interested subscribers."""
+        event_data = {
+            'type': 'TradeSignalApproved',
+            'source_module': self._source_module,
+            'signal_id': str(approval_event.signal_id),
+            'trading_pair': approval_event.trading_pair,
+            'exchange': original_event.exchange,
+            'side': original_event.side,
+            'entry_type': original_event.entry_type,
+            'strategy_id': approval_event.strategy_id,
+            'approval_status': approval_event.approval_status.value,
+            'approved_position_size': float(approval_event.approved_position_size),
+            'original_position_size': float(approval_event.original_position_size),
+            'approval_conditions': approval_event.approval_conditions,
+            'portfolio_impact': approval_event.portfolio_impact,
+            'risk_adjustments': approval_event.risk_adjustments,
+            'execution_priority': approval_event.execution_priority,
+            'valid_until': approval_event.valid_until.isoformat(),
+            'timestamp': approval_event.approval_timestamp.isoformat(),
+        }
+        
+        # Publish to general approval topic
+        await self.pubsub.publish(EventType.TRADE_SIGNAL_APPROVED, event_data)
+        
+        # Publish to execution service
+        await self.pubsub.publish('execution.signals.approved', event_data)
+        
+        # Publish to portfolio manager for position tracking
+        await self.pubsub.publish('portfolio.signals.approved', event_data)
+        
+        # Publish to strategy-specific topic
+        await self.pubsub.publish(f'signals.approved.{approval_event.strategy_id}', event_data)
+    
+    def _update_approval_statistics(self, approval_event: SignalApprovalEvent) -> None:
+        """Update approval statistics for monitoring."""
+        self._approval_stats['total_approvals'] += 1
+        
+        if approval_event.approval_status == ApprovalStatus.CONDITIONALLY_APPROVED:
+            self._approval_stats['conditional_approvals'] += 1
+        
+        # Update by symbol
+        symbol = approval_event.trading_pair
+        if symbol not in self._approval_stats['approvals_by_symbol']:
+            self._approval_stats['approvals_by_symbol'][symbol] = 0
+        self._approval_stats['approvals_by_symbol'][symbol] += 1
+    
+    async def _handle_post_approval_actions(self, approval_event: SignalApprovalEvent, original_event: TradeSignalProposedEvent) -> None:
+        """Handle any post-approval actions."""
+        # Log approval metrics
+        self.logger.info(
+            f"Trade signal approved with priority {approval_event.execution_priority}",
+            source_module=self._source_module,
+            context={
+                "signal_id": str(approval_event.signal_id),
+                "trading_pair": approval_event.trading_pair,
+                "approved_quantity": float(approval_event.approved_position_size),
+                "conditions": len(approval_event.approval_conditions),
+                "portfolio_impact_pct": approval_event.portfolio_impact.get("position_pct_of_portfolio", 0),
+            }
+        )
 
     async def _stage1_initial_validation_and_price_rounding(
         self,
@@ -3047,3 +3748,257 @@ class RiskManager:
                 f"Error checking risk thresholds: {e}",
                 source_module=self._source_module,
             )
+
+    async def _parse_execution_report(self, event_dict: Dict[str, Any]) -> Optional[ExecutionReport]:
+        """Parse execution report from various formats into standardized model."""
+        try:
+            # Handle different report formats
+            if "event_type" in event_dict and event_dict["event_type"] == EventType.EXECUTION_REPORT.name:
+                # Standard ExecutionReportEvent format
+                event = ExecutionReportEvent.from_dict(event_dict)
+                return ExecutionReport(
+                    order_id=event.exchange_order_id,
+                    symbol=event.trading_pair,
+                    side=OrderSide(event.side.upper()),
+                    status=OrderStatus(event.order_status.upper()),
+                    filled_quantity=Decimal(str(event.quantity_filled)),
+                    average_price=Decimal(str(event.average_fill_price)),
+                    commission=Decimal(str(event.commission)) if event.commission else Decimal("0"),
+                    realized_pnl=None,  # Will be calculated separately
+                    timestamp=event.timestamp,
+                    signal_id=str(event.signal_id) if hasattr(event, 'signal_id') else None,
+                    strategy_id=event.strategy_id if hasattr(event, 'strategy_id') else None,
+                )
+            elif "txid" in event_dict:
+                # Kraken format
+                return self._parse_kraken_execution_report(event_dict)
+            elif "simulation_id" in event_dict:
+                # Simulated format
+                return self._parse_simulated_execution_report(event_dict)
+            else:
+                # Try to parse as generic format
+                return self._parse_generic_execution_report(event_dict)
+                
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to parse execution report: {e}",
+                source_module=self._source_module,
+                context={"event_dict": event_dict}
+            )
+            return None
+
+    def _parse_kraken_execution_report(self, raw_report: Dict[str, Any]) -> Optional[ExecutionReport]:
+        """Parse Kraken-specific execution report format."""
+        try:
+            return ExecutionReport(
+                order_id=raw_report.get("txid", ""),
+                symbol=raw_report.get("pair", ""),
+                side=OrderSide.BUY if raw_report.get("type", "").lower() == "buy" else OrderSide.SELL,
+                status=OrderStatus.FILLED if raw_report.get("status", "") == "closed" else OrderStatus.PARTIALLY_FILLED,
+                filled_quantity=Decimal(str(raw_report.get("vol_exec", "0"))),
+                average_price=Decimal(str(raw_report.get("price", "0"))),
+                commission=Decimal(str(raw_report.get("fee", "0"))),
+                timestamp=datetime.fromtimestamp(raw_report.get("closetm", 0), tz=UTC),
+            )
+        except Exception as e:
+            self.logger.error(f"Error parsing Kraken execution report: {e}")
+            return None
+
+    def _parse_simulated_execution_report(self, raw_report: Dict[str, Any]) -> Optional[ExecutionReport]:
+        """Parse simulated execution report format."""
+        try:
+            return ExecutionReport(
+                order_id=raw_report.get("simulation_id", ""),
+                symbol=raw_report.get("symbol", ""),
+                side=OrderSide(raw_report.get("side", "BUY").upper()),
+                status=OrderStatus(raw_report.get("status", "FILLED").upper()),
+                filled_quantity=Decimal(str(raw_report.get("quantity", "0"))),
+                average_price=Decimal(str(raw_report.get("fill_price", "0"))),
+                commission=Decimal(str(raw_report.get("commission", "0"))),
+                timestamp=datetime.fromisoformat(raw_report.get("timestamp", datetime.now(UTC).isoformat())),
+                realized_pnl=Decimal(str(raw_report.get("realized_pnl", "0"))) if "realized_pnl" in raw_report else None,
+            )
+        except Exception as e:
+            self.logger.error(f"Error parsing simulated execution report: {e}")
+            return None
+
+    def _parse_generic_execution_report(self, raw_report: Dict[str, Any]) -> Optional[ExecutionReport]:
+        """Parse generic execution report format."""
+        try:
+            return ExecutionReport(
+                order_id=raw_report.get("order_id", ""),
+                symbol=raw_report.get("symbol", ""),
+                side=OrderSide(raw_report.get("side", "BUY").upper()),
+                status=OrderStatus(raw_report.get("status", "FILLED").upper()),
+                filled_quantity=Decimal(str(raw_report.get("filled_quantity", "0"))),
+                average_price=Decimal(str(raw_report.get("average_price", "0"))),
+                commission=Decimal(str(raw_report.get("commission", "0"))),
+                timestamp=datetime.now(UTC),
+            )
+        except Exception as e:
+            self.logger.error(f"Error parsing generic execution report: {e}")
+            return None
+
+    async def _update_loss_counters(self, report: ExecutionReport, realized_pnl: Optional[Decimal]) -> None:
+        """Update consecutive loss/win counters with configurable reset logic."""
+        if realized_pnl is None:
+            return
+            
+        if realized_pnl < 0:
+            # Loss - increment loss counter
+            self._consecutive_loss_count += 1
+            self._consecutive_win_count = 0
+            self._risk_metrics.consecutive_losses = self._consecutive_loss_count
+            self._risk_metrics.consecutive_wins = 0
+            
+            self.logger.warning(
+                f"Trade loss detected for {report.symbol}: "
+                f"consecutive losses now {self._consecutive_loss_count} (PnL: {realized_pnl:.4f})",
+                source_module=self._source_module,
+                context={
+                    "order_id": report.order_id,
+                    "symbol": report.symbol,
+                    "realized_pnl": float(realized_pnl),
+                    "consecutive_losses": self._consecutive_loss_count,
+                }
+            )
+        else:
+            # Win - increment win counter
+            self._consecutive_win_count += 1
+            if self._consecutive_loss_count > 0:
+                self.logger.info(
+                    f"Profit recorded for {report.symbol}: reset consecutive losses "
+                    f"from {self._consecutive_loss_count} to 0 (PnL: {realized_pnl:.4f})",
+                    source_module=self._source_module,
+                    context={
+                        "order_id": report.order_id,
+                        "symbol": report.symbol,
+                        "realized_pnl": float(realized_pnl),
+                        "previous_losses": self._consecutive_loss_count,
+                    }
+                )
+            self._consecutive_loss_count = 0
+            self._risk_metrics.consecutive_losses = 0
+            self._risk_metrics.consecutive_wins = self._consecutive_win_count
+        
+        # Update recent trades
+        self._recent_trades.append({
+            "timestamp": report.timestamp,
+            "order_id": report.order_id,
+            "symbol": report.symbol,
+            "side": report.side.value,
+            "quantity": float(report.filled_quantity),
+            "price": float(report.average_price),
+            "realized_pnl": float(realized_pnl),
+        })
+        
+        # Keep only recent trades (last 100)
+        if len(self._recent_trades) > 100:
+            self._recent_trades = self._recent_trades[-100:]
+
+    async def _evaluate_risk_conditions(self, report: ExecutionReport, realized_pnl: Optional[Decimal], 
+                                       portfolio_state: Dict[str, Any]) -> List[str]:
+        """Evaluate risk conditions and return list of triggered events."""
+        risk_events = []
+        
+        # Check consecutive loss limits
+        max_losses = self._max_consecutive_losses
+        if self._consecutive_loss_count >= max_losses:
+            risk_events.append('consecutive_loss_limit_reached')
+        
+        # Check daily loss limits
+        daily_loss = await self._calculate_daily_loss(report.symbol)
+        max_daily_loss = self._config.get("limits", {}).get("max_daily_loss_usd", 1000.0)
+        if daily_loss >= max_daily_loss:
+            risk_events.append('daily_loss_limit_reached')
+        
+        # Check drawdown limits
+        current_equity = Decimal(str(portfolio_state.get("total_equity_usd", "0")))
+        if hasattr(self, "_peak_equity") and self._peak_equity > 0:
+            current_drawdown_pct = ((self._peak_equity - current_equity) / self._peak_equity) * Decimal("100")
+            if current_drawdown_pct > self._max_total_drawdown_pct:
+                risk_events.append('total_drawdown_limit_reached')
+        
+        return risk_events
+
+    async def _publish_risk_events(self, risk_events: List[str], report: ExecutionReport) -> None:
+        """Publish risk events to interested subscribers."""
+        for event_type in risk_events:
+            event_data = {
+                'type': event_type,
+                'symbol': report.symbol,
+                'order_id': report.order_id,
+                'consecutive_losses': self._consecutive_loss_count,
+                'realized_pnl': float(report.realized_pnl) if report.realized_pnl else None,
+                'timestamp': datetime.now(UTC).isoformat(),
+                'action_required': True,
+                'risk_metrics': {
+                    'current_drawdown_pct': float(self._risk_metrics.current_drawdown_pct),
+                    'max_drawdown_pct': float(self._risk_metrics.max_drawdown_pct),
+                    'consecutive_losses': self._consecutive_loss_count,
+                    'total_exposure': float(self._risk_metrics.total_exposure),
+                }
+            }
+            
+            await self.pubsub.publish(f'risk.{event_type}', event_data)
+            
+            self.logger.warning(
+                f"Risk event published: {event_type} for {report.symbol}",
+                source_module=self._source_module,
+                context=event_data
+            )
+
+    async def _update_execution_audit_trail(self, report: ExecutionReport, realized_pnl: Optional[Decimal],
+                                          risk_events: List[str]) -> None:
+        """Update audit trail for execution report processing."""
+        audit_entry = {
+            'timestamp': datetime.now(UTC).isoformat(),
+            'order_id': report.order_id,
+            'symbol': report.symbol,
+            'side': report.side.value,
+            'status': report.status.value,
+            'filled_quantity': float(report.filled_quantity),
+            'average_price': float(report.average_price),
+            'commission': float(report.commission),
+            'realized_pnl': float(realized_pnl) if realized_pnl else None,
+            'consecutive_losses': self._consecutive_loss_count,
+            'risk_events': risk_events,
+            'risk_metrics_snapshot': {
+                'current_drawdown_pct': float(self._risk_metrics.current_drawdown_pct),
+                'total_exposure': float(self._risk_metrics.total_exposure),
+                'win_rate': float(self._risk_metrics.win_rate),
+            }
+        }
+        
+        # Log audit entry
+        self.logger.info(
+            "Execution audit trail entry",
+            source_module=self._source_module,
+            context=audit_entry
+        )
+        
+        # TODO: Persist to audit database if available
+
+    async def _publish_execution_error_event(self, event_dict: Dict[str, Any], error: str) -> None:
+        """Publish error event for execution report processing failures."""
+        error_event = {
+            'type': 'ExecutionReportProcessingError',
+            'source_module': self._source_module,
+            'timestamp': datetime.now(UTC).isoformat(),
+            'error': error,
+            'event_dict': event_dict,
+        }
+        
+        await self.pubsub.publish('risk.execution_report.error', error_event)
+
+    async def _calculate_daily_loss(self, symbol: str) -> Decimal:
+        """Calculate total daily loss for a symbol."""
+        daily_loss = Decimal("0")
+        current_date = datetime.now(UTC).date()
+        
+        for trade in self._recent_trades:
+            trade_date = trade['timestamp'].date() if isinstance(trade['timestamp'], datetime) else None
+            if trade_date == current_date and trade['symbol'] == symbol and trade['realized_pnl'] < 0:
+                daily_loss += abs(Decimal(str(trade['realized_pnl'])))
+        
+        return daily_loss

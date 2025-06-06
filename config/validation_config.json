@@ -1,0 +1,119 @@
+{
+    "version": "1.0",
+    "description": "Enterprise validation configuration for Gal Friday prediction validation",
+    "rules": [
+        {
+            "name": "probability_range_check",
+            "field_path": "prediction_value",
+            "operator": "between",
+            "value": [0.0, 1.0],
+            "level": "error",
+            "message": "Prediction probability must be between 0 and 1",
+            "enabled": true,
+            "conditions": {
+                "validator_type": "basic",
+                "strategies": ["momentum", "mean_reversion", "trend_following"]
+            }
+        },
+        {
+            "name": "confidence_minimum",
+            "field_path": "confidence",
+            "operator": "gte",
+            "value": 0.5,
+            "level": "warning",
+            "message": "Low confidence prediction detected - consider additional validation",
+            "enabled": true,
+            "conditions": {
+                "validator_type": "basic"
+            }
+        },
+        {
+            "name": "prediction_sanity_check",
+            "field_path": "prediction_value",
+            "operator": "not_between",
+            "value": [-10.0, 10.0],
+            "level": "error",
+            "message": "Prediction value appears unreasonable - outside expected bounds",
+            "enabled": true,
+            "conditions": {
+                "validator_type": "basic"
+            }
+        },
+        {
+            "name": "high_confidence_check",
+            "field_path": "confidence",
+            "operator": "gte",
+            "value": 0.8,
+            "level": "info",
+            "message": "High confidence prediction - good signal quality",
+            "enabled": true,
+            "conditions": {
+                "validator_type": "basic"
+            }
+        },
+        {
+            "name": "extreme_probability_check",
+            "field_path": "prediction_value",
+            "operator": "not_between",
+            "value": [0.05, 0.95],
+            "level": "warning",
+            "message": "Extreme probability values - verify model calibration",
+            "enabled": true,
+            "conditions": {
+                "validator_type": "basic",
+                "market_conditions": {
+                    "volatility": "low"
+                }
+            }
+        },
+        {
+            "name": "btc_specific_validation",
+            "field_path": "prediction_value",
+            "operator": "between",
+            "value": [0.1, 0.9],
+            "level": "warning",
+            "message": "BTC predictions should avoid extreme values during normal market conditions",
+            "enabled": true,
+            "conditions": {
+                "validator_type": "basic",
+                "symbols": ["BTCUSD", "BTCUSDT", "BTC/USD"]
+            }
+        }
+    ],
+    "rule_groups": {
+        "basic_checks": [
+            "probability_range_check",
+            "prediction_sanity_check"
+        ],
+        "quality_checks": [
+            "confidence_minimum",
+            "high_confidence_check"
+        ],
+        "market_specific": [
+            "extreme_probability_check",
+            "btc_specific_validation"
+        ],
+        "all_checks": [
+            "probability_range_check",
+            "confidence_minimum",
+            "prediction_sanity_check",
+            "high_confidence_check",
+            "extreme_probability_check",
+            "btc_specific_validation"
+        ]
+    },
+    "metadata": {
+        "created_by": "Gal Friday Enterprise System",
+        "purpose": "Comprehensive validation rules for prediction quality assurance",
+        "validation_levels": {
+            "error": "Blocks signal generation",
+            "warning": "Logs warning but allows processing",
+            "info": "Informational logging only"
+        },
+        "supported_operators": [
+            "gt", "gte", "lt", "lte", "eq", "ne", 
+            "between", "not_between", "in", "not_in"
+        ],
+        "last_updated": "2024-01-01"
+    }
+} 

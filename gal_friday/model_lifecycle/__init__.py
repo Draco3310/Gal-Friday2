@@ -7,7 +7,8 @@ from .experiment_manager import (
     ExperimentStatus,
     VariantPerformance,
 )
-from .registry import ModelArtifact, ModelMetadata, ModelStage, Registry
+from .enums import ModelStage, ModelStatus
+from .registry import ModelArtifact, ModelMetadata, Registry
 from .retraining_pipeline import (
     DriftDetector,
     DriftMetrics,

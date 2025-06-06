@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional, TypeVar
 
 import numpy as np
+import pandas as pd
 
 # Removed: import xgboost as xgb - specific models handled by predictors
 # Import necessary components
@@ -28,6 +29,12 @@ from gal_friday.core.events import (
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.interfaces.predictor_interface import PredictorInterface  # Added
 from gal_friday.logger_service import LoggerService
+from gal_friday.ml_prediction_pipeline import (
+    MLPredictionPipeline,
+    ModelTrainingConfig,
+    ModelType,
+    PredictionRequest as MLPredictionRequest,
+)
 
 # Forward reference for ConfigurationManager
 if TYPE_CHECKING:
@@ -149,6 +156,12 @@ class PredictionService:
         self._predictors: dict[str, PredictorInterface] = {}
         self._predictor_runners: dict[str, Callable] = {}
         self._lstm_feature_buffers: dict[str, deque] = {}  # Added for LSTM sequence buffering
+
+        # Initialize ML pipeline for training and advanced predictions
+        self._ml_pipeline = MLPredictionPipeline(
+            config=self._service_config.get("ml_pipeline", {}),
+            logger=logger_service
+        )
 
         if not self._model_configs:
             self.logger.warning(
@@ -1592,3 +1605,225 @@ class PredictionService:
         # Store the task
         self._in_flight_tasks[task_id] = task
         return task_id
+
+    # --- ML Pipeline Integration Methods ---
+
+    async def train_model(self, 
+                         symbol: str,
+                         training_data: pd.DataFrame,
+                         model_type: ModelType = ModelType.RANDOM_FOREST,
+                         hyperparameters: Optional[dict[str, Any]] = None) -> str:
+        """Train a new ML model for the specified symbol.
+        
+        This method implements the ML pipeline for price prediction with feature engineering
+        as specified in the TODO ticket L156_ml_pipeline.md.
+        
+        Args:
+            symbol: Trading symbol to train the model for
+            training_data: DataFrame with OHLCV market data
+            model_type: Type of ML model to train
+            hyperparameters: Optional hyperparameters for the model
+            
+        Returns:
+            Model version identifier
+            
+        Raises:
+            MLPipelineError: If training fails
+        """
+        try:
+            self.logger.info(
+                "Starting model training for %(symbol)s using ML pipeline",
+                source_module=self._source_module,
+                context={
+                    "symbol": symbol,
+                    "model_type": model_type.value,
+                    "data_points": len(training_data)
+                }
+            )
+            
+            # Create training configuration
+            training_config = ModelTrainingConfig(
+                model_type=model_type,
+                target_column="close",
+                hyperparameters=hyperparameters or {},
+                cv_folds=5,
+                performance_threshold=0.0
+            )
+            
+            # Use the ML pipeline for comprehensive training and deployment
+            model_version = await self._ml_pipeline.train_and_deploy_model(
+                symbol, training_data, training_config
+            )
+            
+            self.logger.info(
+                "Model training completed for %(symbol)s. Version: %(version)s",
+                source_module=self._source_module,
+                context={"symbol": symbol, "version": model_version}
+            )
+            
+            return model_version
+            
+        except Exception as e:
+            self.logger.error(
+                "Model training failed for %(symbol)s: %(error)s",
+                source_module=self._source_module,
+                context={"symbol": symbol, "error": str(e)},
+                exc_info=True
+            )
+            raise
+
+    async def predict_with_ml_pipeline(self, 
+                                     symbol: str,
+                                     features: dict[str, float],
+                                     prediction_horizon: int = 60,
+                                     confidence_level: float = 0.95) -> dict[str, Any]:
+        """Generate advanced prediction using the ML pipeline.
+        
+        This method provides enhanced predictions with confidence intervals,
+        feature importance, and comprehensive metrics.
+        
+        Args:
+            symbol: Trading symbol to predict for
+            features: Dictionary of feature values
+            prediction_horizon: Prediction horizon in minutes
+            confidence_level: Confidence level for intervals (0.0 to 1.0)
+            
+        Returns:
+            Dictionary with prediction results and metadata
+            
+        Raises:
+            MLPipelineError: If prediction fails
+        """
+        try:
+            # Create prediction request
+            request = MLPredictionRequest(
+                symbol=symbol,
+                features=features,
+                prediction_horizon=prediction_horizon,
+                confidence_level=confidence_level
+            )
+            
+            # Get prediction from ML pipeline
+            result = await self._ml_pipeline.predict_price(request)
+            
+            self.logger.debug(
+                "ML pipeline prediction for %(symbol)s: $%(price).2f",
+                source_module=self._source_module,
+                context={
+                    "symbol": symbol,
+                    "price": result.predicted_price
+                }
+            )
+            
+            return {
+                "symbol": result.symbol,
+                "predicted_price": result.predicted_price,
+                "confidence_interval": result.confidence_interval,
+                "prediction_timestamp": result.prediction_timestamp,
+                "model_version": result.model_version,
+                "feature_importance": result.feature_importance,
+                "request_id": result.request_id,
+                "model_id": result.model_id,
+                "accuracy_metrics": result.accuracy_metrics,
+                "confidence_level": confidence_level
+            }
+            
+        except Exception as e:
+            self.logger.error(
+                "ML pipeline prediction failed for %(symbol)s: %(error)s",
+                source_module=self._source_module,
+                context={"symbol": symbol, "error": str(e)},
+                exc_info=True
+            )
+            raise
+
+    def get_ml_pipeline_status(self) -> dict[str, Any]:
+        """Get comprehensive ML pipeline status and metrics.
+        
+        Returns:
+            Dictionary with pipeline status and performance metrics
+        """
+        try:
+            return self._ml_pipeline.get_pipeline_status()
+        except Exception as e:
+            self.logger.error(
+                "Failed to get ML pipeline status: %(error)s",
+                source_module=self._source_module,
+                context={"error": str(e)},
+                exc_info=True
+            )
+            return {"error": str(e)}
+
+    def get_model_performance_metrics(self, symbol: str) -> Optional[dict[str, Any]]:
+        """Get detailed performance metrics for a specific model.
+        
+        Args:
+            symbol: Trading symbol to get metrics for
+            
+        Returns:
+            Dictionary with performance metrics or None if not available
+        """
+        try:
+            return self._ml_pipeline.get_model_performance(symbol)
+        except Exception as e:
+            self.logger.error(
+                "Failed to get model performance for %(symbol)s: %(error)s",
+                source_module=self._source_module,
+                context={"symbol": symbol, "error": str(e)},
+                exc_info=True
+            )
+            return None
+
+    async def retrain_model_if_needed(self, 
+                                    symbol: str,
+                                    current_data: pd.DataFrame,
+                                    performance_threshold: float = 0.7) -> bool:
+        """Check if model needs retraining and retrain if necessary.
+        
+        Args:
+            symbol: Trading symbol to check
+            current_data: Current market data for retraining
+            performance_threshold: Minimum performance score to avoid retraining
+            
+        Returns:
+            True if model was retrained, False otherwise
+        """
+        try:
+            # Get current model performance
+            performance = self.get_model_performance_metrics(symbol)
+            
+            if not performance:
+                self.logger.info(
+                    "No performance data available for %(symbol)s, triggering training",
+                    source_module=self._source_module,
+                    context={"symbol": symbol}
+                )
+                await self.train_model(symbol, current_data)
+                return True
+            
+            # Check if retraining is needed
+            current_score = performance.get("performance_metrics", {}).get("validation_score", 0.0)
+            
+            if current_score < performance_threshold:
+                self.logger.info(
+                    "Model performance for %(symbol)s (%(score).4f) below threshold (%(threshold).4f), retraining",
+                    source_module=self._source_module,
+                    context={
+                        "symbol": symbol,
+                        "score": current_score,
+                        "threshold": performance_threshold
+                    }
+                )
+                await self.train_model(symbol, current_data)
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(
+                "Failed to check/retrain model for %(symbol)s: %(error)s",
+                source_module=self._source_module,
+                context={"symbol": symbol, "error": str(e)},
+                exc_info=True
+            )
+            return False

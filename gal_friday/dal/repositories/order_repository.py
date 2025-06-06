@@ -4,9 +4,11 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.orm import selectinload
 
 from gal_friday.dal.base import BaseRepository
 from gal_friday.dal.models.order import Order
@@ -105,3 +107,180 @@ class OrderRepository(BaseRepository[Order]):
             source_module=self._source_module,
         )
         return None
+
+    # NEW: Position-Order relationship methods
+    
+    async def get_orders_by_position(self, position_id: str | UUID) -> Sequence[Order]:
+        """Get all orders that contributed to a specific position.
+        
+        Args:
+            position_id: The UUID of the position (as string or UUID)
+            
+        Returns:
+            Sequence of orders linked to the position, ordered by creation time
+        """
+        try:
+            position_id_str = str(position_id)
+            orders = await self.find_all(
+                filters={"position_id": position_id_str}, 
+                order_by="created_at ASC"
+            )
+            
+            self.logger.debug(
+                f"Found {len(orders)} orders linked to position {position_id_str}",
+                source_module=self._source_module,
+            )
+            return orders
+            
+        except Exception as e:
+            self.logger.exception(
+                f"Error retrieving orders for position {position_id}: {e}",
+                source_module=self._source_module,
+            )
+            return []
+
+    async def get_orders_with_position(self) -> Sequence[Order]:
+        """Get all orders that are linked to positions with relationship data loaded.
+        
+        Returns:
+            Sequence of orders with position relationship loaded
+        """
+        try:
+            async with self.session_maker() as session:
+                stmt = (
+                    select(Order)
+                    .options(selectinload(Order.position))
+                    .where(Order.position_id.isnot(None))
+                    .order_by(Order.created_at.desc())
+                )
+                result = await session.execute(stmt)
+                orders = result.scalars().all()
+                
+                self.logger.debug(
+                    f"Retrieved {len(orders)} orders with position relationships",
+                    source_module=self._source_module,
+                )
+                return orders
+                
+        except Exception as e:
+            self.logger.exception(
+                f"Error retrieving orders with positions: {e}",
+                source_module=self._source_module,
+            )
+            return []
+
+    async def get_unlinked_filled_orders(self, hours: int = 24) -> Sequence[Order]:
+        """Get filled orders that are not linked to any position.
+        
+        This is useful for data quality monitoring to identify orders that
+        should be linked to positions but aren't.
+        
+        Args:
+            hours: Number of hours to look back for recent orders
+            
+        Returns:
+            Sequence of filled orders without position links
+        """
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
+        try:
+            async with self.session_maker() as session:
+                stmt = (
+                    select(Order)
+                    .where(
+                        Order.status.in_(["FILLED", "PARTIALLY_FILLED"]),
+                        Order.position_id.is_(None),
+                        Order.created_at > cutoff
+                    )
+                    .order_by(Order.created_at.desc())
+                )
+                result = await session.execute(stmt)
+                orders = result.scalars().all()
+                
+                self.logger.debug(
+                    f"Found {len(orders)} unlinked filled orders from last {hours} hours",
+                    source_module=self._source_module,
+                )
+                return orders
+                
+        except Exception as e:
+            self.logger.exception(
+                f"Error retrieving unlinked filled orders: {e}",
+                source_module=self._source_module,
+            )
+            return []
+
+    async def link_order_to_position(self, order_id: str | UUID, position_id: str | UUID) -> Order | None:
+        """Link an order to a position.
+        
+        Args:
+            order_id: The UUID of the order
+            position_id: The UUID of the position
+            
+        Returns:
+            Updated order instance or None if order not found
+        """
+        try:
+            order_id_str = str(order_id)
+            position_id_str = str(position_id)
+            
+            updated_order = await self.update(
+                order_id_str, 
+                {"position_id": position_id_str}
+            )
+            
+            if updated_order:
+                self.logger.info(
+                    f"Successfully linked order {order_id_str} to position {position_id_str}",
+                    source_module=self._source_module,
+                )
+            else:
+                self.logger.warning(
+                    f"Order {order_id_str} not found for position linking",
+                    source_module=self._source_module,
+                )
+                
+            return updated_order
+            
+        except Exception as e:
+            self.logger.error(
+                f"Failed to link order {order_id} to position {position_id}: {e}",
+                source_module=self._source_module,
+            )
+            return None
+
+    async def unlink_order_from_position(self, order_id: str | UUID) -> Order | None:
+        """Remove position link from an order.
+        
+        Args:
+            order_id: The UUID of the order
+            
+        Returns:
+            Updated order instance or None if order not found
+        """
+        try:
+            order_id_str = str(order_id)
+            
+            updated_order = await self.update(
+                order_id_str, 
+                {"position_id": None}
+            )
+            
+            if updated_order:
+                self.logger.info(
+                    f"Successfully unlinked order {order_id_str} from position",
+                    source_module=self._source_module,
+                )
+            else:
+                self.logger.warning(
+                    f"Order {order_id_str} not found for position unlinking",
+                    source_module=self._source_module,
+                )
+                
+            return updated_order
+            
+        except Exception as e:
+            self.logger.error(
+                f"Failed to unlink order {order_id} from position: {e}",
+                source_module=self._source_module,
+            )
+            return None

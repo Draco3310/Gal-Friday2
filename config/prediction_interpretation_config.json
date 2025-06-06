@@ -1,0 +1,67 @@
+{
+    "version": "1.0",
+    "description": "Enterprise prediction interpretation configuration for Gal Friday strategy arbitrator",
+    "fields": [
+        {
+            "name": "prediction_value",
+            "type": "probability",
+            "interpretation_strategy": "threshold_based",
+            "parameters": {
+                "buy_threshold": 0.65,
+                "sell_threshold": 0.35
+            },
+            "required": true,
+            "validation_rules": {
+                "min_value": 0.0,
+                "max_value": 1.0,
+                "type": "float"
+            }
+        },
+        {
+            "name": "confidence",
+            "type": "confidence",
+            "interpretation_strategy": "threshold_based",
+            "parameters": {
+                "min_confidence": 0.6
+            },
+            "required": false,
+            "validation_rules": {
+                "min_value": 0.0,
+                "max_value": 1.0,
+                "type": "float"
+            }
+        },
+        {
+            "name": "price_change_pct",
+            "type": "regression",
+            "interpretation_strategy": "threshold_based",
+            "parameters": {
+                "buy_threshold": 0.02,
+                "sell_threshold": -0.02
+            },
+            "required": false,
+            "validation_rules": {
+                "min_value": -1.0,
+                "max_value": 1.0,
+                "type": "float"
+            }
+        }
+    ],
+    "default_interpretation": "threshold_based",
+    "fallback_rules": {
+        "prediction_value": {
+            "type": "default_value",
+            "value": 0.5
+        },
+        "confidence": {
+            "type": "default_value",
+            "value": 0.5
+        }
+    },
+    "metadata": {
+        "created_by": "Gal Friday Enterprise System",
+        "purpose": "Configurable prediction interpretation for trading strategies",
+        "supported_models": ["XGBoost", "LSTM", "Random Forest"],
+        "last_updated": "2024-01-01"
+    }
+} 

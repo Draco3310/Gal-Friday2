@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..config_manager import ConfigManager  # For asset splitting or other config
 from ..dal.models.position import Position as PositionModel  # SQLAlchemy model
 from ..dal.repositories.position_repository import PositionRepository
+from ..dal.repositories.order_repository import OrderRepository
 from ..exceptions import DataValidationError
 from ..logger_service import LoggerService
 
@@ -82,6 +83,7 @@ class PositionManager:
         self._source_module = self.__class__.__name__
         self.session_maker = session_maker
         self.position_repository = PositionRepository(session_maker, logger_service)
+        self.order_repository = OrderRepository(session_maker, logger_service)
         self.config_manager = config_manager
         # self._positions: dict[str, PositionInfo] = {} # In-memory store removed
         self._lock = asyncio.Lock() # Lock can still be useful for critical async operations on a single position if needed
@@ -147,6 +149,7 @@ class PositionManager:
         price: Decimal    # Changed to Decimal
         timestamp: datetime
         trade_id: str
+        order_id: str
         fee: Decimal = field(default_factory=Decimal) # Changed to Decimal
         fee_currency: str | None = None
         commission: Decimal = field(default_factory=Decimal) # Changed to Decimal
@@ -170,6 +173,7 @@ class PositionManager:
         price: Decimal | float | str
         timestamp: datetime
         trade_id: str
+        order_id: str
         fee: Decimal | float | str
         fee_currency: str | None
         commission: Decimal | float | str
@@ -183,6 +187,7 @@ class PositionManager:
 
         Args:
             **kwargs: Parameters for the trade update. See _UpdatePositionKwargs for details.
+                     Must include order_id for position-order relationship tracking.
 
         Returns:
         -------
@@ -194,30 +199,33 @@ class PositionManager:
             # Extract and convert arguments to Decimal before creating _UpdatePositionParams
             qty_arg = kwargs.get("quantity")
             price_arg = kwargs.get("price")
+            order_id_arg = kwargs.get("order_id")  # NEW: Required for relationship tracking
+            
             # Provide defaults for fee and commission if not in kwargs, matching dataclass defaults
             fee_arg = kwargs.get("fee", Decimal(0))
             commission_arg = kwargs.get("commission", Decimal(0))
 
             # Ensure required fields are present (those not in _UpdatePositionKwargs or without defaults in _UpdatePositionParams)
-            # 'trading_pair', 'side', 'timestamp', 'trade_id' are required by _UpdatePositionKwargs if total=True,
-            # or by _UpdatePositionParams if they have no defaults.
-            # Assuming they are always provided as per TypedDict or dataclass requirements.
-            if qty_arg is None or price_arg is None: # Basic check for required numeric fields
+            if qty_arg is None or price_arg is None:
                 raise ValueError("Quantity and price must be provided.")
+            
+            if order_id_arg is None:
+                raise ValueError("order_id is required for position-order relationship tracking.")
 
             params = self._UpdatePositionParams(
-                trading_pair=kwargs["trading_pair"], # Assuming this and others are always present
+                trading_pair=kwargs["trading_pair"],
                 side=kwargs["side"],
                 quantity=Decimal(str(qty_arg)) if not isinstance(qty_arg, Decimal) else qty_arg,
                 price=Decimal(str(price_arg)) if not isinstance(price_arg, Decimal) else price_arg,
                 timestamp=kwargs["timestamp"],
                 trade_id=kwargs["trade_id"],
+                order_id=str(order_id_arg),  # NEW: Store order_id for linking
                 fee=Decimal(str(fee_arg)) if not isinstance(fee_arg, Decimal) else fee_arg,
                 fee_currency=kwargs.get("fee_currency"),
                 commission=Decimal(str(commission_arg)) if not isinstance(commission_arg, Decimal) else commission_arg,
                 commission_asset=kwargs.get("commission_asset"),
             )
-        except (TypeError, ValueError, KeyError) as e: # Added KeyError for direct kwargs access
+        except (TypeError, ValueError, KeyError) as e:
             self.logger.error(f"Invalid parameters for update_position_for_trade: {e}", source_module=self._source_module, context=kwargs)
             return Decimal(0), None
 
@@ -230,7 +238,7 @@ class PositionManager:
         """Update position based on trade execution. Persists changes to the database.
 
         Args:
-            params: _UpdatePositionParams containing all trade parameters.
+            params: _UpdatePositionParams containing all trade parameters including order_id.
 
         Returns:
         -------
@@ -258,20 +266,12 @@ class PositionManager:
         async with self._lock: # Lock to ensure atomic read-modify-write for a given trading_pair
             position_model = await self._get_or_create_db_position(params.trading_pair, params.side)
 
-            # Trade history is not directly part of the PositionModel in the schema.
-            # If trade history needs to be stored, it would be in a separate 'trades' table
-            # and linked to orders or positions. For now, removing direct trade_history append.
-            # trade_record = TradeInfo(...)
-            # position_model.trade_history.append(trade_record) # This would fail
-
             current_quantity = position_model.quantity
             avg_entry_price = position_model.entry_price # PositionModel uses 'entry_price' for AEP
             realized_pnl_trade = Decimal(0)
 
             if params.side.upper() == "BUY":
                 # For buys, new AEP = (old_value + new_value) / (old_qty + new_qty)
-                # old_value = avg_entry_price * current_quantity
-                # new_value = params.price * params.quantity
                 new_total_cost = (avg_entry_price * current_quantity) + (params.price * params.quantity)
                 new_quantity = current_quantity + params.quantity
 
@@ -280,7 +280,6 @@ class PositionManager:
                     position_model.entry_price = new_total_cost / new_quantity
                 else:
                     position_model.entry_price = Decimal(0) # Reset AEP if quantity is zero
-                # Realized PnL is not affected by buys typically
 
             elif params.side.upper() == "SELL":
                 if current_quantity < params.quantity:
@@ -300,33 +299,67 @@ class PositionManager:
                     position_model.entry_price = Decimal(0) # Reset AEP
                     position_model.is_active = False # Close position if quantity is zero
                     position_model.closed_at = params.timestamp # Record closing time
-                # If new_quantity is < 0 (short position), AEP logic might need adjustment based on strategy for short AEP.
-                # Current AEP calculation is simplified for long positions.
 
             else: # Should be caught by _validate_trade_params
                 self.logger.error(f"Invalid trade side: {params.side}", source_module=self._source_module)
                 return Decimal(0), None
 
-            position_model.updated_at = params.timestamp # Assuming PositionModel has updated_at
+            # Update position timestamp 
+            if hasattr(position_model, 'updated_at'):
+                position_model.updated_at = params.timestamp
 
             try:
+                # First, update the position in the database
                 updated_pos = await self.position_repository.update(str(position_model.id), position_model.to_dict(exclude={"id"}))
-                if not updated_pos: # Should not happen if ID is correct and row exists
+                if not updated_pos:
                     self.logger.error(f"Failed to update position {position_model.id} in DB.", source_module=self._source_module)
-                    return realized_pnl_trade, None # Or raise an error
+                    return realized_pnl_trade, None
+
+                # NEW: Link the order to this position for audit trail
+                await self._link_order_to_position(params.order_id, position_model.id)
 
                 self.logger.info(
                     "Updated position in DB - Pair: %s, Side: %s, Trade Qty: %s, Trade Price: %s, "
-                    "New Pos Qty: %s, New AEP: %s, Trade PnL: %s",
+                    "New Pos Qty: %s, New AEP: %s, Trade PnL: %s, Linked Order: %s",
                     params.trading_pair, params.side, params.quantity, params.price,
-                    updated_pos.quantity, updated_pos.entry_price, realized_pnl_trade,
+                    updated_pos.quantity, updated_pos.entry_price, realized_pnl_trade, params.order_id,
                     source_module=self._source_module,
                 )
                 return realized_pnl_trade, updated_pos
             except Exception as e:
                 self.logger.exception(f"Error updating position in DB for {params.trading_pair}: {e}", source_module=self._source_module)
                 return realized_pnl_trade, None
-
+    
+    async def _link_order_to_position(self, order_id: str, position_id: str) -> None:
+        """Link an order to a position for audit trail purposes.
+        
+        Args:
+            order_id: The UUID of the order as string
+            position_id: The UUID of the position as string
+        """
+        try:
+            # Update the order to reference this position
+            updated_order = await self.order_repository.update(
+                order_id, 
+                {"position_id": position_id}
+            )
+            
+            if updated_order:
+                self.logger.debug(
+                    f"Successfully linked order {order_id} to position {position_id}",
+                    source_module=self._source_module,
+                )
+            else:
+                self.logger.warning(
+                    f"Order {order_id} not found for position linking - may be external order",
+                    source_module=self._source_module,
+                )
+        except Exception as e:
+            # Don't fail position update if order linking fails
+            self.logger.error(
+                f"Failed to link order {order_id} to position {position_id}: {e}",
+                source_module=self._source_module,
+            )
 
     # Error messages for trade validation (can remain the same)
     _INVALID_TRADE_SIDE_MSG = "Invalid trade side"

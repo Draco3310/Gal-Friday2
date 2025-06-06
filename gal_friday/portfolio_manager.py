@@ -31,6 +31,7 @@ from .interfaces.market_price_service_interface import MarketPriceService
 from .logger_service import LoggerService
 from .portfolio.funds_manager import FundsManager, TradeParams
 from .portfolio.position_manager import PositionManager
+from .portfolio.trade_history_service import TradeHistoryService
 from .portfolio.valuation_service import (
     PositionInput,  # Added import
     ValuationService,
@@ -108,6 +109,12 @@ class PortfolioManager:
             logger_service,
             market_price_service,
             self.valuation_currency,
+        )
+        self.trade_history_service = TradeHistoryService(
+            session_maker,
+            logger_service,
+            cache_size=config_manager.get_int("portfolio.trade_history.cache_size", 500),
+            cache_ttl_seconds=config_manager.get_int("portfolio.trade_history.cache_ttl_seconds", 300),
         )
 
         # --- Load Initial State & Config ---
@@ -386,6 +393,7 @@ class PortfolioManager:
                 price=avg_price,
                 timestamp=event.timestamp,
                 trade_id=event.exchange_order_id,
+                order_id=event.client_order_id or event.exchange_order_id,
                 commission=commission,
                 commission_asset=commission_asset,
             )
@@ -684,44 +692,150 @@ class PortfolioManager:
         # Delegate to ValuationService (synchronous access okay for read)
         return self.valuation_service.total_equity
 
-    async def get_position_history(self, pair: str) -> list[dict[str, Any]]: # Made async
+    async def get_position_history(
+        self, 
+        pair: str,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         """Return the trade history for a specific pair.
+
+        Retrieves actual trade history from the database using the TradeHistoryService.
+        Provides comprehensive filtering, pagination, and caching capabilities.
 
         Args:
         ----
             pair: Trading pair to get history for
+            start_date: Optional start date filter for trade history
+            end_date: Optional end date filter for trade history
+            limit: Maximum number of trades to return (default: 1000)
+            offset: Number of trades to skip for pagination (default: 0)
 
         Returns:
         -------
             List of historical trades for the specified pair
+
+        Raises:
+        ------
+            DataValidationError: If request parameters are invalid
         """
-        position_model = await self.position_manager.get_position(pair)  # Await and get PositionModel
-        if not position_model:
+        try:
+            # Check if position exists (optional validation)
+            position_model = await self.position_manager.get_position(pair)
+            if not position_model:
+                self.logger.debug(
+                    f"No active position found for {pair}, but retrieving trade history anyway",
+                    source_module=self._source_module,
+                )
+
+            # Use TradeHistoryService to get actual trade history
+            trade_history = await self.trade_history_service.get_trade_history_for_pair(
+                trading_pair=pair,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                offset=offset,
+            )
+
+            self.logger.info(
+                f"Retrieved {len(trade_history)} trades for {pair} "
+                f"(limit: {limit}, offset: {offset})",
+                source_module=self._source_module,
+            )
+
+            return trade_history
+
+        except Exception as e:
+            self.logger.exception(
+                f"Error retrieving trade history for {pair}: {e}",
+                source_module=self._source_module,
+            )
+            # Return empty list on error to maintain API compatibility
             return []
 
-        # PositionModel does not have a direct 'trade_history' attribute.
-        # This would need to be fetched from a TradeRepository based on position_id or trading_pair.
-        # For now, returning empty list to fix attr-defined.
-        self.logger.debug( # Changed to debug as this is an expected temporary state
-            f"Trade history retrieval for PositionModel is not fully implemented. Returning empty for {pair}.",
-            source_module=self._source_module,
-        )
-        actual_trade_history: list[Any] = [] # Placeholder, assuming trades would be dicts or objects
+    async def get_trade_analytics(
+        self,
+        pair: str,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Get comprehensive trade analytics for a specific trading pair.
 
-        result = []
-        for trade in actual_trade_history: # This loop won't run with placeholder
-            # Assuming 'trade' object would have timestamp, side, quantity, price, commission, commission_asset
-            result.append(
-                {
-                    "timestamp": getattr(trade, "timestamp", datetime.utcnow()).isoformat() + "Z",
-                    "side": getattr(trade, "side", "UNKNOWN"),
-                    "quantity": str(getattr(trade, "quantity", Decimal(0))),
-                    "price": str(getattr(trade, "price", Decimal(0))),
-                    "commission": str(getattr(trade, "commission", Decimal(0))),
-                    "commission_asset": getattr(trade, "commission_asset", None),
-                },
+        Provides aggregated statistics including volume, commission costs,
+        trade counts, and performance metrics.
+
+        Args:
+        ----
+            pair: Trading pair to analyze
+            start_date: Optional start date filter for analytics
+            end_date: Optional end date filter for analytics
+
+        Returns:
+        -------
+            Dictionary containing comprehensive trade analytics
+
+        Raises:
+        ------
+            DataValidationError: If request parameters are invalid
+        """
+        try:
+            analytics = await self.trade_history_service.get_analytics_summary(
+                trading_pair=pair,
+                start_date=start_date,
+                end_date=end_date,
             )
-        return result
+
+            self.logger.info(
+                f"Generated trade analytics for {pair}: {analytics['total_trades']} trades, "
+                f"volume: {analytics['total_volume']}",
+                source_module=self._source_module,
+            )
+
+            return analytics
+
+        except Exception as e:
+            self.logger.exception(
+                f"Error generating trade analytics for {pair}: {e}",
+                source_module=self._source_module,
+            )
+            # Return empty analytics on error
+            return {
+                "total_trades": 0,
+                "total_volume": "0",
+                "total_commission": "0",
+                "avg_trade_size": "0",
+                "buy_trades": 0,
+                "sell_trades": 0,
+                "error": str(e),
+            }
+
+    async def clear_trade_history_cache(self) -> None:
+        """Clear the trade history cache.
+
+        Useful for troubleshooting or when fresh data is required.
+        """
+        try:
+            await self.trade_history_service.clear_cache()
+            self.logger.info(
+                "Trade history cache cleared successfully",
+                source_module=self._source_module,
+            )
+        except Exception as e:
+            self.logger.exception(
+                f"Error clearing trade history cache: {e}",
+                source_module=self._source_module,
+            )
+
+    def get_trade_history_cache_stats(self) -> dict[str, Any]:
+        """Get trade history cache performance statistics.
+
+        Returns:
+        -------
+            Dictionary containing cache performance metrics
+        """
+        return self.trade_history_service.get_cache_stats()
 
     async def get_open_positions(self) -> list[PositionModel]:
         """Return a list of open positions.

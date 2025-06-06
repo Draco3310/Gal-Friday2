@@ -1,0 +1,115 @@
+# Example Configuration for Configurable Reconciliation Service
+# This file demonstrates how to configure different reconciliation strategies
+
+reconciliation:
+  # Default reconciliation type (can be overridden programmatically)
+  # Supported types: full, incremental, real_time, position_only, balance_only, trade_only, emergency, scheduled
+  default_type: "full"
+  
+  # Interval for periodic reconciliation (in minutes)
+  interval_minutes: 60
+  
+  # Auto-correction settings
+  auto_correct: true
+  auto_correct_threshold: 0.01  # 1% threshold for auto-correction
+  auto_resolve_threshold: 0.001  # 0.1% threshold for automatic resolution
+  
+  # General thresholds
+  max_discrepancy_threshold: 0.01  # 1% maximum discrepancy before flagging
+  critical_threshold: 0.10  # 10% threshold for critical alerts
+  
+  # Data inclusion settings
+  include_pending_trades: true
+  historical_lookback_hours: 24  # Look back 24 hours for historical data
+  
+  # Processing settings
+  batch_size: 1000
+  timeout_seconds: 300  # 5 minutes timeout
+  retry_attempts: 3
+  
+  # Alerting
+  enable_alerts: true
+  emergency_alert_threshold: 0.10  # 10% threshold for emergency alerts
+  
+  # Strategy-specific settings
+  real_time_cutoff_minutes: 15  # Real-time reconciliation looks at last 15 minutes
+  incremental_cutoff_hours: 1    # Incremental reconciliation looks at last 1 hour
+  
+  # Strategy configurations for different scenarios
+  strategies:
+    full:
+      description: "Complete reconciliation of all positions, balances, and trades"
+      use_case: "Daily comprehensive reconciliation"
+      auto_resolve_threshold: 0.001
+      include_historical: true
+      
+    incremental:
+      description: "Reconcile only changes since last reconciliation"
+      use_case: "Frequent updates without full overhead"
+      cutoff_hours: 1
+      auto_resolve_threshold: 0.001
+      
+    real_time:
+      description: "Continuous real-time reconciliation for critical operations"
+      use_case: "High-frequency trading environments"
+      cutoff_minutes: 15
+      auto_resolve_threshold: 0.0  # No auto-resolution in real-time
+      immediate_alerts: true
+      
+    emergency:
+      description: "Emergency reconciliation with critical alerting"
+      use_case: "Crisis situations requiring immediate attention"
+      auto_resolve_threshold: 0.0  # No auto-resolution in emergency
+      alert_threshold: 0.01
+      
+    position_only:
+      description: "Reconcile positions only, skip balances and trades"
+      use_case: "Quick position verification"
+      auto_resolve_threshold: 0.001
+      
+    balance_only:
+      description: "Reconcile balances only, skip positions and trades"
+      use_case: "Account balance verification"
+      auto_resolve_threshold: 0.001
+
+# Example usage scenarios:
+
+# Scenario 1: Daily full reconciliation
+# reconciliation.default_type = "full"
+# Service will perform comprehensive daily reconciliation
+
+# Scenario 2: High-frequency trading setup
+# reconciliation.default_type = "real_time"
+# reconciliation.real_time_cutoff_minutes = 5
+# Service will perform real-time reconciliation every 5 minutes
+
+# Scenario 3: Incremental reconciliation for active trading
+# reconciliation.default_type = "incremental"
+# reconciliation.incremental_cutoff_hours = 2
+# Service will reconcile changes from last 2 hours
+
+# Scenario 4: Emergency mode
+# Use perform_emergency_reconciliation() method programmatically
+# This bypasses normal configuration and uses strictest settings
+
+# Environment-specific configurations:
+
+development:
+  reconciliation:
+    default_type: "incremental"
+    interval_minutes: 30
+    auto_correct_threshold: 0.05  # More lenient in development
+    
+staging:
+  reconciliation:
+    default_type: "full"
+    interval_minutes: 60
+    auto_correct_threshold: 0.02
+    
+production:
+  reconciliation:
+    default_type: "full"
+    interval_minutes: 30  # More frequent in production
+    auto_correct_threshold: 0.01  # Stricter in production
+    enable_alerts: true
+    emergency_alert_threshold: 0.05  # Lower threshold in production 

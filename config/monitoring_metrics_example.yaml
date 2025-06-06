@@ -1,0 +1,434 @@
+# Enterprise Metrics Collection and Alerting Configuration Example
+# This configuration demonstrates how to set up comprehensive metrics collection,
+# alerting, and monitoring for the Gal Friday trading system with InfluxDB and PostgreSQL.
+
+monitoring:
+  # Periodic monitoring check intervals
+  check_interval_seconds: 60
+  
+  # Metrics Collection System Configuration
+  metrics_collection:
+    # Collection intervals
+    collection_interval_seconds: 30
+    alert_check_interval_seconds: 60
+    analytics_interval_seconds: 300
+    
+    # Buffer and storage settings
+    buffer_flush_size: 100
+    max_history_points: 10000
+    max_alert_history: 1000
+    
+    # Metric logging (for debugging/development)
+    log_metrics: false
+    
+    # Buffer management
+    max_buffer_size_on_error: 1000  # Maximum buffer size when flush fails
+    
+    # Anomaly detection settings
+    anomaly_threshold: 3.0  # Z-score threshold for anomaly detection
+    trend_threshold: 1.0    # Threshold for trend detection
+    
+    # Alert Rules Configuration
+    alert_rules:
+      # System Resource Alerts
+      high_cpu_usage:
+        metric_name: "system.cpu.usage_percent"
+        condition: "greater_than"
+        threshold: 85.0
+        severity: "warning"
+        message_template: "High CPU usage detected: {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log", "email"]
+      
+      critical_cpu_usage:
+        metric_name: "system.cpu.usage_percent"
+        condition: "greater_than"
+        threshold: 95.0
+        severity: "critical"
+        message_template: "CRITICAL: CPU usage at {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 180
+        notification_channels: ["log", "email", "slack"]
+      
+      high_memory_usage:
+        metric_name: "system.memory.usage_percent"
+        condition: "greater_than"
+        threshold: 85.0
+        severity: "warning"
+        message_template: "High memory usage: {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log"]
+      
+      critical_memory_usage:
+        metric_name: "system.memory.usage_percent"
+        condition: "greater_than"
+        threshold: 95.0
+        severity: "critical"
+        message_template: "CRITICAL: Memory usage at {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 180
+        notification_channels: ["log", "email", "slack"]
+      
+      # Trading System Alerts
+      high_total_drawdown:
+        metric_name: "portfolio.drawdown.total_pct"
+        condition: "greater_than"
+        threshold: 8.0
+        severity: "warning"
+        message_template: "Portfolio drawdown warning: {value:.2f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 600
+        notification_channels: ["log", "email"]
+      
+      critical_total_drawdown:
+        metric_name: "portfolio.drawdown.total_pct"
+        condition: "greater_than"
+        threshold: 10.0
+        severity: "critical"
+        message_template: "CRITICAL: Portfolio drawdown at {value:.2f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log", "email", "slack", "sms"]
+      
+      high_daily_drawdown:
+        metric_name: "portfolio.drawdown.daily_pct"
+        condition: "greater_than"
+        threshold: 3.0
+        severity: "warning"
+        message_template: "Daily drawdown warning: {value:.2f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log", "email"]
+      
+      # Real Trading Portfolio Alerts
+      portfolio_equity_low:
+        metric_name: "trading.portfolio.total_equity_usd"
+        condition: "less_than"
+        threshold: 50000.0
+        severity: "warning"
+        message_template: "Portfolio equity low: ${value:,.0f} (threshold: ${threshold:,.0f})"
+        enabled: true
+        cooldown_seconds: 600
+        notification_channels: ["log", "email"]
+      
+      large_unrealized_loss:
+        metric_name: "trading.portfolio.unrealized_pnl_usd"
+        condition: "less_than"
+        threshold: -5000.0
+        severity: "warning"
+        message_template: "Large unrealized loss: ${value:,.0f} (threshold: ${threshold:,.0f})"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log", "email"]
+      
+      high_portfolio_concentration:
+        metric_name: "trading.portfolio.largest_position_pct"
+        condition: "greater_than"
+        threshold: 25.0
+        severity: "warning"
+        message_template: "High position concentration: {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 600
+        notification_channels: ["log"]
+      
+      critical_portfolio_concentration:
+        metric_name: "trading.portfolio.largest_position_pct"
+        condition: "greater_than"
+        threshold: 40.0
+        severity: "critical"
+        message_template: "CRITICAL: Position concentration at {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log", "email", "slack"]
+      
+      high_portfolio_utilization:
+        metric_name: "trading.portfolio.utilization_pct"
+        condition: "greater_than"
+        threshold: 80.0
+        severity: "warning"
+        message_template: "High portfolio utilization: {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 600
+        notification_channels: ["log"]
+      
+      consecutive_losses_warning:
+        metric_name: "trading.consecutive_losses"
+        condition: "greater_than_or_equal"
+        threshold: 3.0
+        severity: "warning"
+        message_template: "Consecutive losses: {value} trades (threshold: {threshold})"
+        enabled: true
+        cooldown_seconds: 600
+        notification_channels: ["log"]
+      
+      consecutive_losses_critical:
+        metric_name: "trading.consecutive_losses"
+        condition: "greater_than_or_equal"
+        threshold: 5.0
+        severity: "critical"
+        message_template: "CRITICAL: {value} consecutive losses (threshold: {threshold})"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log", "email", "slack"]
+      
+      # API Connectivity Alerts
+      api_connectivity_degraded:
+        metric_name: "api.connectivity.health_score"
+        condition: "less_than"
+        threshold: 80.0
+        severity: "warning"
+        message_template: "API connectivity degraded: health score {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log"]
+      
+      api_connectivity_critical:
+        metric_name: "api.connectivity.health_score"
+        condition: "less_than"
+        threshold: 50.0
+        severity: "critical"
+        message_template: "CRITICAL: API connectivity health score {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 180
+        notification_channels: ["log", "email", "slack"]
+      
+      api_response_time_high:
+        metric_name: "api.connectivity.response_time_ms"
+        condition: "greater_than"
+        threshold: 5000.0
+        severity: "warning"
+        message_template: "High API response time: {value:.0f}ms (threshold: {threshold}ms)"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log"]
+      
+      # Market Data Freshness Alerts
+      stale_market_data:
+        metric_name: "market_data.freshness.*.age_seconds"
+        condition: "greater_than"
+        threshold: 120.0
+        severity: "warning"
+        message_template: "Stale market data: {value:.0f}s old (threshold: {threshold}s)"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log"]
+      
+      # Application Metrics Alerts
+      high_alert_count:
+        metric_name: "metrics.alerts.active_count"
+        condition: "greater_than"
+        threshold: 10.0
+        severity: "warning"
+        message_template: "High number of active alerts: {value} (threshold: {threshold})"
+        enabled: true
+        cooldown_seconds: 600
+        notification_channels: ["log"]
+      
+      metrics_collection_errors:
+        metric_name: "metrics.collection.errors"
+        condition: "greater_than"
+        threshold: 50.0
+        severity: "warning"
+        message_template: "Metrics collection errors: {value} (threshold: {threshold})"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log"]
+      
+      # Real Application Performance Alerts
+      metrics_system_memory_high:
+        metric_name: "metrics.system.memory_usage_mb"
+        condition: "greater_than"
+        threshold: 100.0
+        severity: "warning"
+        message_template: "Metrics system using high memory: {value:.1f}MB (threshold: {threshold}MB)"
+        enabled: true
+        cooldown_seconds: 600
+        notification_channels: ["log"]
+      
+      metrics_collection_rate_low:
+        metric_name: "metrics.collection.rate_per_second"
+        condition: "less_than"
+        threshold: 0.5
+        severity: "warning"
+        message_template: "Low metrics collection rate: {value:.2f}/sec (threshold: {threshold}/sec)"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log"]
+      
+      trading_system_halted:
+        metric_name: "trading.system.is_halted"
+        condition: "equals"
+        threshold: 1.0
+        severity: "critical"
+        message_template: "CRITICAL: Trading system is HALTED"
+        enabled: true
+        cooldown_seconds: 60
+        notification_channels: ["log", "email", "slack", "sms"]
+      
+      stale_market_data_pairs:
+        metric_name: "trading.market_data.stale_pairs_count"
+        condition: "greater_than"
+        threshold: 2.0
+        severity: "warning"
+        message_template: "Multiple pairs have stale market data: {value} pairs (threshold: {threshold})"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log"]
+      
+      # Real Performance Alerts
+      high_api_error_rate:
+        metric_name: "api_error_rate_pct"
+        condition: "greater_than"
+        threshold: 10.0
+        severity: "warning"
+        message_template: "High API error rate: {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 300
+        notification_channels: ["log"]
+      
+      trading_loss_rate_high:
+        metric_name: "trading_loss_rate_pct"
+        condition: "greater_than"
+        threshold: 60.0
+        severity: "warning"
+        message_template: "High trading loss rate: {value:.1f}% (threshold: {threshold}%)"
+        enabled: true
+        cooldown_seconds: 600
+        notification_channels: ["log", "email"]
+
+  # API monitoring configuration
+  api_failure_threshold: 3
+  api_error_threshold_count: 5
+  api_error_threshold_period_s: 60
+  data_staleness_threshold_s: 120.0
+
+  # System resource monitoring configuration
+  cpu_threshold_pct: 90.0
+  memory_threshold_pct: 90.0
+
+  # Trading performance monitoring configuration
+  consecutive_loss_limit: 5
+
+  # HALT behavior configuration
+  halt:
+    position_behavior: "maintain"  # Options: "maintain", "close", "liquidate"
+
+  # Position risk monitoring
+  position_risk_checks:
+    enabled: true
+    max_single_position_percentage_of_portfolio:
+      warning_threshold: 0.20  # 20%
+      action_threshold: 0.25   # 25%
+      reduction_percentage: 0.50  # Reduce by 50%
+    
+    max_position_notional_value_usd:
+      warning_threshold: 100000.0
+      action_threshold: 150000.0
+      reduction_target_notional_value: 100000.0
+    
+    specific_pair_limits:
+      "BTC/USD":
+        max_base_qty:
+          warning_threshold: 10.0
+          action_threshold: 15.0
+          reduction_qty: 10.0
+      "ETH/USD":
+        max_base_qty:
+          warning_threshold: 100.0
+          action_threshold: 150.0
+          reduction_qty: 100.0
+    
+    default_reduction_order_type: "MARKET"
+
+  # Volatility calculation
+  volatility_calculation:
+    method: "stddev"  # Options: "stddev", "garch"
+    stddev_window_size_candles: 100
+    candle_interval_minutes: 60
+    stddev_min_data_points_for_calc: 80
+    use_log_returns: true
+    # annualization_periods_per_year: 8760  # For hourly data (365 * 24)
+
+# Risk management configuration
+risk:
+  limits:
+    max_total_drawdown_pct: 10.0
+    max_daily_drawdown_pct: 5.0
+
+# Trading configuration
+trading:
+  pairs: ["BTC/USD", "ETH/USD", "ADA/USD"]
+
+# Database Configuration for Metrics Storage
+
+# InfluxDB Configuration (Time Series Database)
+influxdb:
+  enabled: true
+  
+  # InfluxDB v2.x Configuration (preferred)
+  url: "http://localhost:8086"
+  token: "${INFLUXDB_TOKEN}"  # Set via environment variable
+  org: "trading"
+  bucket: "trading_metrics"
+  timeout: 10000  # milliseconds
+  
+  # InfluxDB v1.x Configuration (fallback)
+  # host: "localhost"
+  # port: 8086
+  # username: "${INFLUXDB_USERNAME}"
+  # password: "${INFLUXDB_PASSWORD}"
+  # database: "trading_metrics"
+  # timeout: 10  # seconds
+
+# PostgreSQL Configuration (Structured Data & Alerts)
+postgresql:
+  enabled: true
+  host: "localhost"
+  port: 5432
+  user: "${POSTGRES_USER}"
+  password: "${POSTGRES_PASSWORD}"
+  database: "trading_metrics"
+  
+  # Connection pool settings
+  min_connections: 2
+  max_connections: 10
+  timeout: 30  # seconds
+  
+  # Optional SSL configuration
+  # ssl: true
+  # ssl_cert: "/path/to/client-cert.pem"
+  # ssl_key: "/path/to/client-key.pem"
+  # ssl_ca: "/path/to/ca-cert.pem"
+
+# Notification channels configuration (for future implementation)
+notifications:
+  email:
+    enabled: false
+    smtp_server: "smtp.example.com"
+    smtp_port: 587
+    username: "alerts@example.com"
+    password: "${EMAIL_PASSWORD}"
+    recipients: ["trader@example.com", "risk@example.com"]
+    
+  slack:
+    enabled: false
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channel: "#trading-alerts"
+    
+  sms:
+    enabled: false
+    provider: "twilio"
+    account_sid: "${TWILIO_ACCOUNT_SID}"
+    auth_token: "${TWILIO_AUTH_TOKEN}"
+    from_number: "+1234567890"
+    to_numbers: ["+1987654321"]
+
+# Logging configuration for metrics
+logging:
+  level: "INFO"
+  structured_metrics_logging: true
+  log_file: "logs/monitoring_metrics.log"
+  max_log_size_mb: 100
+  backup_count: 5 
