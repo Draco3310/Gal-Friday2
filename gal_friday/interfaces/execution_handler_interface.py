@@ -142,10 +142,126 @@ class PositionInfo:
 
 
 class ExecutionHandlerKwargs(TypedDict, total=False):
-    # This TypedDict is initially empty or can include common keys
-    # if they are known. `total=False` makes all keys optional.
-    # Example: config_override: dict[str, Any]
-    pass
+    """Configuration parameters for ExecutionHandler initialization.
+    
+    All fields are optional and provide flexibility for different
+    exchange implementations and deployment environments.
+    """
+    
+    # Authentication credentials
+    api_key: str
+    """API key for exchange authentication."""
+    
+    secret_key: str  
+    """Secret key for exchange authentication."""
+    
+    passphrase: str
+    """Passphrase for exchange authentication (required by some exchanges)."""
+    
+    # Environment configuration
+    sandbox_mode: bool
+    """Enable sandbox/testnet mode for testing."""
+    
+    api_base_url: str
+    """Custom API base URL (overrides default exchange endpoints)."""
+    
+    websocket_url: str
+    """Custom WebSocket URL for real-time data feeds."""
+    
+    # Connection settings
+    connection_timeout: float
+    """Connection timeout in seconds (default: 30.0)."""
+    
+    read_timeout: float
+    """Read timeout in seconds (default: 60.0)."""
+    
+    max_retries: int
+    """Maximum number of retry attempts for failed requests (default: 3)."""
+    
+    retry_delay: float
+    """Delay between retry attempts in seconds (default: 1.0)."""
+    
+    # Rate limiting
+    max_requests_per_second: int
+    """Maximum requests per second to avoid exchange rate limits."""
+    
+    burst_limit: int
+    """Maximum burst requests allowed before rate limiting kicks in."""
+    
+    # Risk management
+    max_order_value: Decimal
+    """Maximum order value limit for risk management."""
+    
+    daily_loss_limit: Decimal
+    """Daily loss limit for automatic trading halt."""
+    
+    position_size_limit: Decimal
+    """Maximum position size allowed per symbol."""
+    
+    # Logging and monitoring
+    log_level: str
+    """Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)."""
+    
+    enable_order_logging: bool
+    """Enable detailed logging of all order operations."""
+    
+    enable_metrics: bool
+    """Enable performance metrics collection."""
+    
+    # Configuration overrides
+    config_override: dict[str, Any]
+    """Dictionary of configuration overrides for specific exchange settings."""
+    
+    # Advanced features
+    enable_websocket: bool
+    """Enable WebSocket connections for real-time updates."""
+    
+    enable_auto_reconnect: bool
+    """Enable automatic reconnection on connection loss."""
+    
+    heartbeat_interval: float
+    """Heartbeat interval in seconds for connection health checks."""
+    
+    # Portfolio management
+    enable_position_tracking: bool
+    """Enable automatic position tracking and reconciliation."""
+    
+    enable_balance_caching: bool
+    """Enable balance caching to reduce API calls."""
+    
+    cache_ttl: int
+    """Cache time-to-live in seconds for cached data."""
+    
+    # Order management
+    default_time_in_force: TimeInForce
+    """Default time-in-force for orders when not specified."""
+    
+    enable_order_validation: bool
+    """Enable client-side order validation before submission."""
+    
+    enable_duplicate_detection: bool
+    """Enable duplicate order detection and prevention."""
+    
+    # Testing and development
+    dry_run_mode: bool
+    """Enable dry run mode for testing without actual order execution."""
+    
+    mock_responses: bool
+    """Use mock responses for testing (bypasses actual exchange calls)."""
+    
+    # Performance optimization
+    connection_pool_size: int
+    """Size of HTTP connection pool for better performance."""
+    
+    enable_compression: bool
+    """Enable request/response compression."""
+    
+    # Compliance and auditing
+    enable_audit_trail: bool
+    """Enable comprehensive audit trail logging."""
+    
+    compliance_mode: str
+    """Compliance mode setting (STRICT, NORMAL, RELAXED)."""
 
 class ExecutionHandlerInterface(ABC):
     """Enhanced interface for execution handlers supporting multiple exchanges and asset types."""

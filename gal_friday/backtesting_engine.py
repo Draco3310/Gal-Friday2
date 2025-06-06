@@ -28,6 +28,8 @@ from typing import (
     Any,
     TypeVar,
 )
+from dataclasses import dataclass, field
+from enum import Enum
 
 # Third-party imports
 import numpy as np
@@ -759,6 +761,77 @@ else:
         ...
 
 
+class BacktestMode(str, Enum):
+    """Backtesting execution modes"""
+    VECTORIZED = "vectorized"      # Fast vectorized backtesting
+    EVENT_DRIVEN = "event_driven"  # Realistic event-driven simulation
+
+
+@dataclass
+class BacktestConfig:
+    """Configuration for backtesting runs"""
+    start_date: dt.datetime
+    end_date: dt.datetime
+    initial_capital: float
+    symbols: list[str]
+    mode: BacktestMode = BacktestMode.EVENT_DRIVEN
+    commission_rate: float = 0.001
+    slippage_rate: float = 0.0005
+    benchmark_symbol: str | None = None
+    output_dir: str = "results"
+    
+    def to_dict(self) -> dict[str, Any]:
+        """Convert config to dictionary format expected by existing code."""
+        return {
+            "start_date": self.start_date.isoformat(),
+            "end_date": self.end_date.isoformat(),
+            "initial_capital": self.initial_capital,
+            "trading_pairs": self.symbols,  # Map to existing field name
+            "commission_rate": self.commission_rate,
+            "slippage_rate": self.slippage_rate,
+            "benchmark_symbol": self.benchmark_symbol,
+            "output_dir": self.output_dir,
+        }
+
+
+@dataclass
+class PerformanceMetrics:
+    """Enhanced performance metrics results"""
+    total_return: float
+    annualized_return: float
+    volatility: float
+    sharpe_ratio: float
+    max_drawdown: float
+    total_trades: int
+    win_rate: float
+    profit_factor: float = 0.0
+    sortino_ratio: float = 0.0
+    calmar_ratio: float = 0.0
+    benchmark_return: float | None = None
+    alpha: float | None = None
+    beta: float | None = None
+    
+    @classmethod
+    def from_existing_metrics(cls, metrics: dict[str, Any]) -> "PerformanceMetrics":
+        """Create PerformanceMetrics from existing metrics dictionary."""
+        return cls(
+            total_return=metrics.get("total_return_pct", 0.0) / 100.0,
+            annualized_return=metrics.get("annualized_return_pct", 0.0) / 100.0,
+            volatility=0.0,  # Will be calculated separately
+            sharpe_ratio=metrics.get("sharpe_ratio_annualized_approx", 0.0),
+            max_drawdown=metrics.get("max_drawdown_pct", 0.0) / 100.0,
+            total_trades=metrics.get("total_trades", 0),
+            win_rate=metrics.get("win_rate_pct", 0.0) / 100.0,
+            profit_factor=metrics.get("profit_factor", 0.0),
+            sortino_ratio=metrics.get("sortino_ratio_annualized_approx", 0.0),
+        )
+
+
+class BacktestError(Exception):
+    """Exception raised for backtesting errors"""
+    pass
+
+
 class BacktestingEngine:
     """Orchestrates backtesting simulations using historical data."""
 
@@ -1404,3 +1477,604 @@ class BacktestingEngine:
         except Exception:  # Data lookup can fail in various ways
             log.exception("Error getting bar data for %s at %s", trading_pair, timestamp) # TRY400
             return None
+
+    async def run_backtest(
+        self, 
+        config: BacktestConfig, 
+        strategy: Any = None,
+        services: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """
+        Run comprehensive backtest with performance analytics.
+        
+        This is the main public API for running backtests with the comprehensive framework.
+        
+        Args:
+            config: BacktestConfig instance with backtest parameters
+            strategy: Optional strategy instance to test
+            services: Optional pre-initialized services dictionary
+            
+        Returns:
+            Comprehensive backtest results including performance metrics and analytics
+        """
+        try:
+            start_time = dt.datetime.now()
+            self.logger.info(f"Starting comprehensive backtest")
+            self.logger.info(f"Mode: {config.mode.value}")
+            self.logger.info(f"Period: {config.start_date} to {config.end_date}")
+            self.logger.info(f"Initial capital: ${config.initial_capital:,.2f}")
+            self.logger.info(f"Symbols: {config.symbols}")
+            
+            # Convert config to format expected by existing methods
+            run_config = config.to_dict()
+            
+            # Load historical data
+            await self._load_historical_data_for_symbols(config.symbols, config.start_date, config.end_date)
+            
+            # Initialize or use provided services
+            if services is None:
+                services = await self._create_default_services(run_config)
+            
+            # Execute backtesting based on mode
+            if config.mode == BacktestMode.VECTORIZED:
+                await self._run_vectorized_backtest(services, run_config, strategy)
+            elif config.mode == BacktestMode.EVENT_DRIVEN:
+                await self._execute_simulation(services, run_config)
+            
+            # Process results and calculate enhanced metrics
+            results = self._process_and_save_results(services, run_config)
+            
+            # Add benchmarking if specified
+            if config.benchmark_symbol:
+                await self._add_benchmark_analysis(results, config)
+            
+            # Calculate enhanced performance metrics
+            enhanced_metrics = self._calculate_enhanced_metrics(results, config)
+            results["enhanced_metrics"] = enhanced_metrics
+            
+            # Add execution metadata
+            execution_time = (dt.datetime.now() - start_time).total_seconds()
+            results.update({
+                "config": config.__dict__,
+                "execution_time_seconds": execution_time,
+                "backtest_mode": config.mode.value,
+                "framework_version": "comprehensive_v1.0"
+            })
+            
+            self.logger.info(f"Comprehensive backtest completed in {execution_time:.2f} seconds")
+            if enhanced_metrics:
+                self.logger.info(f"Total return: {enhanced_metrics.total_return:.2%}")
+                self.logger.info(f"Sharpe ratio: {enhanced_metrics.sharpe_ratio:.2f}")
+                self.logger.info(f"Max drawdown: {enhanced_metrics.max_drawdown:.2%}")
+            
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Comprehensive backtest failed: {e}")
+            raise BacktestError(f"Backtesting failed: {e}")
+
+    async def _load_historical_data_for_symbols(
+        self, 
+        symbols: list[str], 
+        start_date: dt.datetime, 
+        end_date: dt.datetime
+    ) -> None:
+        """Load historical data for specified symbols and date range."""
+        self.logger.info("Loading historical data for comprehensive backtest")
+        
+        # This would typically load from a data source
+        # For now, we'll check if data is already loaded via existing methods
+        # or create placeholder structure
+        
+        for symbol in symbols:
+            if symbol not in self._data:
+                self.logger.warning(f"No data available for {symbol} - this may cause issues")
+        
+        if not self._data:
+            raise BacktestError("No historical data loaded. Please load data before running backtest.")
+    
+    async def _create_default_services(self, run_config: dict[str, Any]) -> dict[str, Any]:
+        """Create default services for backtesting if none provided."""
+        services = {}
+        
+        # This would create default implementations of required services
+        # For now, return empty dict - services should be provided externally
+        self.logger.info("Using minimal default services for backtesting")
+        
+        return services
+    
+    async def _run_vectorized_backtest(
+        self, 
+        services: dict[str, Any], 
+        run_config: dict[str, Any],
+        strategy: Any = None
+    ) -> None:
+        """Run vectorized backtesting for faster execution."""
+        self.logger.info("Running vectorized backtest")
+        
+        # Get configuration
+        trading_pairs = run_config.get("trading_pairs", [])
+        start_date = pd.to_datetime(run_config["start_date"])
+        end_date = pd.to_datetime(run_config["end_date"])
+        initial_capital = run_config.get("initial_capital", 10000)
+        
+        # Initialize portfolio tracking
+        portfolio_value = initial_capital
+        cash = initial_capital
+        positions = {symbol: 0.0 for symbol in trading_pairs}
+        portfolio_history = []
+        
+        # Get all data for vectorized processing
+        all_data = {}
+        for symbol in trading_pairs:
+            if symbol in self._data:
+                symbol_data = self._data[symbol]
+                mask = (symbol_data["timestamp"] >= start_date) & (symbol_data["timestamp"] <= end_date)
+                all_data[symbol] = symbol_data[mask].sort_values("timestamp")
+        
+        if not all_data:
+            raise BacktestError("No data available for vectorized backtesting")
+        
+        # Get unified timeline
+        all_timestamps = set()
+        for data in all_data.values():
+            all_timestamps.update(data["timestamp"])
+        
+        sorted_timestamps = sorted(all_timestamps)
+        
+        # Vectorized processing
+        for timestamp in sorted_timestamps:
+            # Calculate portfolio value at this timestamp
+            position_value = 0
+            current_prices = {}
+            
+            for symbol in trading_pairs:
+                if symbol in all_data:
+                    symbol_data = all_data[symbol]
+                    timestamp_data = symbol_data[symbol_data["timestamp"] == timestamp]
+                    if not timestamp_data.empty:
+                        price = timestamp_data.iloc[0]["close"]
+                        current_prices[symbol] = price
+                        position_value += positions[symbol] * price
+            
+            total_value = cash + position_value
+            
+            # Record portfolio state
+            portfolio_history.append({
+                "timestamp": timestamp,
+                "total_value": total_value,
+                "cash": cash,
+                "position_value": position_value,
+                "positions": positions.copy()
+            })
+            
+            # Apply strategy signals if provided
+            if strategy and hasattr(strategy, "generate_signals"):
+                signals = strategy.generate_signals(timestamp, current_prices, positions, cash)
+                # Process signals (simplified implementation)
+                for signal in signals:
+                    symbol = signal.get("symbol")
+                    action = signal.get("action")
+                    quantity = signal.get("quantity", 0)
+                    
+                    if symbol in current_prices and action in ["buy", "sell"]:
+                        price = current_prices[symbol]
+                        trade_value = quantity * price
+                        commission = trade_value * run_config.get("commission_rate", 0.001)
+                        
+                        if action == "buy" and cash >= trade_value + commission:
+                            cash -= trade_value + commission
+                            positions[symbol] += quantity
+                        elif action == "sell" and positions[symbol] >= quantity:
+                            cash += trade_value - commission
+                            positions[symbol] -= quantity
+        
+        # Store results for metrics calculation
+        if portfolio_history:
+            portfolio_df = pd.DataFrame(portfolio_history)
+            portfolio_df.set_index("timestamp", inplace=True)
+            services["equity_curve"] = portfolio_df["total_value"]
+            
+        self.logger.info(f"Vectorized backtest completed with {len(portfolio_history)} data points")
+
+    async def _add_benchmark_analysis(self, results: dict[str, Any], config: BacktestConfig) -> None:
+        """Add benchmark comparison analysis to results."""
+        if not config.benchmark_symbol:
+            return
+            
+        self.logger.info(f"Adding benchmark analysis against {config.benchmark_symbol}")
+        
+        try:
+            # Load benchmark data (simplified - would need actual data loading)
+            benchmark_data = self._data.get(config.benchmark_symbol)
+            if benchmark_data is None:
+                self.logger.warning(f"No benchmark data available for {config.benchmark_symbol}")
+                return
+            
+            # Filter benchmark data for the same period
+            start_date = pd.to_datetime(config.start_date)
+            end_date = pd.to_datetime(config.end_date)
+            benchmark_mask = (benchmark_data["timestamp"] >= start_date) & (benchmark_data["timestamp"] <= end_date)
+            benchmark_period_data = benchmark_data[benchmark_mask].sort_values("timestamp")
+            
+            if benchmark_period_data.empty:
+                self.logger.warning("No benchmark data for the specified period")
+                return
+            
+            # Calculate benchmark return
+            initial_benchmark_price = benchmark_period_data.iloc[0]["close"]
+            final_benchmark_price = benchmark_period_data.iloc[-1]["close"]
+            benchmark_return = (final_benchmark_price - initial_benchmark_price) / initial_benchmark_price
+            
+            # Add benchmark metrics to results
+            results["benchmark_analysis"] = {
+                "benchmark_symbol": config.benchmark_symbol,
+                "benchmark_return": float(benchmark_return),
+                "benchmark_return_pct": float(benchmark_return * 100),
+                "initial_price": float(initial_benchmark_price),
+                "final_price": float(final_benchmark_price),
+            }
+            
+            # Calculate alpha and beta if we have portfolio returns
+            if "metrics" in results:
+                portfolio_return = results["metrics"].get("total_return_pct", 0) / 100
+                alpha = portfolio_return - benchmark_return
+                results["benchmark_analysis"]["alpha"] = float(alpha)
+                results["benchmark_analysis"]["alpha_pct"] = float(alpha * 100)
+                
+                self.logger.info(f"Benchmark return: {benchmark_return:.2%}")
+                self.logger.info(f"Alpha: {alpha:.2%}")
+                
+        except Exception as e:
+            self.logger.error(f"Error in benchmark analysis: {e}")
+            results["benchmark_analysis"] = {"error": str(e)}
+
+    def _calculate_enhanced_metrics(self, results: dict[str, Any], config: BacktestConfig) -> PerformanceMetrics | None:
+        """Calculate enhanced performance metrics from results."""
+        try:
+            if "metrics" not in results:
+                self.logger.warning("No base metrics available for enhancement")
+                return None
+            
+            base_metrics = results["metrics"]
+            enhanced = PerformanceMetrics.from_existing_metrics(base_metrics)
+            
+            # Add benchmark comparison if available
+            if "benchmark_analysis" in results:
+                benchmark_analysis = results["benchmark_analysis"]
+                enhanced.benchmark_return = benchmark_analysis.get("benchmark_return")
+                enhanced.alpha = benchmark_analysis.get("alpha")
+                # Beta calculation would require more sophisticated analysis
+                enhanced.beta = 1.0  # Placeholder
+            
+            # Calculate Calmar ratio (return/max_drawdown)
+            if enhanced.max_drawdown > 0:
+                enhanced.calmar_ratio = enhanced.annualized_return / enhanced.max_drawdown
+            else:
+                enhanced.calmar_ratio = float('inf') if enhanced.annualized_return > 0 else 0.0
+            
+            # Calculate volatility if we have equity curve
+            if "equity_curve" in results:
+                equity_curve = results["equity_curve"]
+                if hasattr(equity_curve, 'pct_change'):
+                    returns = equity_curve.pct_change().dropna()
+                    enhanced.volatility = float(returns.std() * np.sqrt(252))  # Annualized
+            
+            return enhanced
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating enhanced metrics: {e}")
+            return None
+
+    def run_strategy_comparison(
+        self, 
+        strategies: list[Any], 
+        config: BacktestConfig
+    ) -> dict[str, Any]:
+        """
+        Run backtests on multiple strategies for comparison.
+        
+        Args:
+            strategies: List of strategy instances to compare
+            config: BacktestConfig for all strategies
+            
+        Returns:
+            Dictionary with results for each strategy
+        """
+        results = {}
+        
+        for i, strategy in enumerate(strategies):
+            strategy_name = getattr(strategy, 'name', f'Strategy_{i+1}')
+            self.logger.info(f"Running backtest for {strategy_name}")
+            
+            try:
+                # Run individual backtest - this would be async in practice
+                strategy_results = asyncio.run(self.run_backtest(config, strategy))
+                results[strategy_name] = strategy_results
+                
+            except Exception as e:
+                self.logger.error(f"Error testing {strategy_name}: {e}")
+                results[strategy_name] = {"error": str(e)}
+        
+        # Add comparison summary
+        results["comparison_summary"] = self._create_strategy_comparison_summary(results)
+        
+        return results
+    
+    def _create_strategy_comparison_summary(self, strategy_results: dict[str, Any]) -> dict[str, Any]:
+        """Create a summary comparing strategy performance."""
+        summary = {
+            "best_total_return": {"strategy": None, "return": float('-inf')},
+            "best_sharpe_ratio": {"strategy": None, "sharpe": float('-inf')},
+            "lowest_drawdown": {"strategy": None, "drawdown": float('inf')},
+            "most_trades": {"strategy": None, "trades": 0},
+        }
+        
+        for strategy_name, results in strategy_results.items():
+            if strategy_name == "comparison_summary" or "error" in results:
+                continue
+                
+            enhanced_metrics = results.get("enhanced_metrics")
+            if not enhanced_metrics:
+                continue
+            
+            # Check for best total return
+            if enhanced_metrics.total_return > summary["best_total_return"]["return"]:
+                summary["best_total_return"] = {
+                    "strategy": strategy_name,
+                    "return": enhanced_metrics.total_return
+                }
+            
+            # Check for best Sharpe ratio
+            if enhanced_metrics.sharpe_ratio > summary["best_sharpe_ratio"]["sharpe"]:
+                summary["best_sharpe_ratio"] = {
+                    "strategy": strategy_name,
+                    "sharpe": enhanced_metrics.sharpe_ratio
+                }
+            
+            # Check for lowest drawdown
+            if enhanced_metrics.max_drawdown < summary["lowest_drawdown"]["drawdown"]:
+                summary["lowest_drawdown"] = {
+                    "strategy": strategy_name,
+                    "drawdown": enhanced_metrics.max_drawdown
+                }
+            
+            # Check for most trades
+            if enhanced_metrics.total_trades > summary["most_trades"]["trades"]:
+                summary["most_trades"] = {
+                    "strategy": strategy_name,
+                    "trades": enhanced_metrics.total_trades
+                }
+        
+        return summary
+
+    def generate_report(self, results: dict[str, Any], output_path: str | None = None) -> str:
+        """
+        Generate a comprehensive backtest report.
+        
+        Args:
+            results: Backtest results dictionary
+            output_path: Optional path to save the report
+            
+        Returns:
+            Report content as string
+        """
+        report_lines = []
+        report_lines.append("=" * 80)
+        report_lines.append("COMPREHENSIVE BACKTESTING REPORT")
+        report_lines.append("=" * 80)
+        report_lines.append("")
+        
+        # Configuration section
+        if "config" in results:
+            config = results["config"]
+            report_lines.append("CONFIGURATION:")
+            report_lines.append(f"  Period: {config.get('start_date')} to {config.get('end_date')}")
+            report_lines.append(f"  Initial Capital: ${config.get('initial_capital', 0):,.2f}")
+            report_lines.append(f"  Symbols: {config.get('symbols', [])}")
+            report_lines.append(f"  Mode: {config.get('mode', 'N/A')}")
+            report_lines.append(f"  Commission Rate: {config.get('commission_rate', 0):.4f}")
+            report_lines.append("")
+        
+        # Performance metrics section
+        enhanced_metrics = results.get("enhanced_metrics")
+        if enhanced_metrics:
+            report_lines.append("PERFORMANCE METRICS:")
+            report_lines.append(f"  Total Return: {enhanced_metrics.total_return:.2%}")
+            report_lines.append(f"  Annualized Return: {enhanced_metrics.annualized_return:.2%}")
+            report_lines.append(f"  Volatility: {enhanced_metrics.volatility:.2%}")
+            report_lines.append(f"  Sharpe Ratio: {enhanced_metrics.sharpe_ratio:.2f}")
+            report_lines.append(f"  Sortino Ratio: {enhanced_metrics.sortino_ratio:.2f}")
+            report_lines.append(f"  Calmar Ratio: {enhanced_metrics.calmar_ratio:.2f}")
+            report_lines.append(f"  Max Drawdown: {enhanced_metrics.max_drawdown:.2%}")
+            report_lines.append(f"  Win Rate: {enhanced_metrics.win_rate:.1%}")
+            report_lines.append(f"  Total Trades: {enhanced_metrics.total_trades}")
+            report_lines.append(f"  Profit Factor: {enhanced_metrics.profit_factor:.2f}")
+            report_lines.append("")
+        
+        # Benchmark comparison section
+        if "benchmark_analysis" in results:
+            benchmark = results["benchmark_analysis"]
+            if "error" not in benchmark:
+                report_lines.append("BENCHMARK COMPARISON:")
+                report_lines.append(f"  Benchmark Symbol: {benchmark.get('benchmark_symbol', 'N/A')}")
+                report_lines.append(f"  Benchmark Return: {benchmark.get('benchmark_return_pct', 0):.2f}%")
+                report_lines.append(f"  Alpha: {benchmark.get('alpha_pct', 0):.2f}%")
+                report_lines.append("")
+        
+        # Execution details
+        if "execution_time_seconds" in results:
+            report_lines.append("EXECUTION DETAILS:")
+            report_lines.append(f"  Execution Time: {results['execution_time_seconds']:.2f} seconds")
+            report_lines.append(f"  Framework Version: {results.get('framework_version', 'N/A')}")
+            report_lines.append("")
+        
+        report_content = "\n".join(report_lines)
+        
+        # Save report if path provided
+        if output_path:
+            try:
+                with open(output_path, 'w') as f:
+                    f.write(report_content)
+                self.logger.info(f"Report saved to {output_path}")
+            except Exception as e:
+                self.logger.error(f"Error saving report: {e}")
+        
+        return report_content
+
+    def optimize_parameters(
+        self, 
+        strategy_class: Any,
+        parameter_grid: dict[str, list[Any]],
+        config: BacktestConfig,
+        optimization_metric: str = "sharpe_ratio"
+    ) -> dict[str, Any]:
+        """
+        Optimize strategy parameters using grid search.
+        
+        Args:
+            strategy_class: Strategy class to instantiate with different parameters
+            parameter_grid: Dictionary of parameter names to lists of values to test
+            config: Base BacktestConfig for optimization
+            optimization_metric: Metric to optimize ("sharpe_ratio", "total_return", etc.)
+            
+        Returns:
+            Dictionary with optimization results
+        """
+        import itertools
+        
+        self.logger.info(f"Starting parameter optimization with {optimization_metric}")
+        
+        # Generate all parameter combinations
+        param_names = list(parameter_grid.keys())
+        param_values = list(parameter_grid.values())
+        param_combinations = list(itertools.product(*param_values))
+        
+        self.logger.info(f"Testing {len(param_combinations)} parameter combinations")
+        
+        optimization_results = []
+        best_result = None
+        best_metric_value = float('-inf')
+        
+        for i, param_combo in enumerate(param_combinations):
+            # Create parameter dictionary for this combination
+            params = dict(zip(param_names, param_combo))
+            
+            try:
+                # Instantiate strategy with these parameters
+                strategy = strategy_class(**params)
+                
+                # Run backtest
+                results = asyncio.run(self.run_backtest(config, strategy))
+                
+                # Extract optimization metric
+                enhanced_metrics = results.get("enhanced_metrics")
+                if enhanced_metrics:
+                    metric_value = getattr(enhanced_metrics, optimization_metric, 0)
+                    
+                    optimization_results.append({
+                        "parameters": params,
+                        "metric_value": metric_value,
+                        "enhanced_metrics": enhanced_metrics,
+                        "results": results
+                    })
+                    
+                    # Check if this is the best result so far
+                    if metric_value > best_metric_value:
+                        best_metric_value = metric_value
+                        best_result = optimization_results[-1]
+                    
+                    self.logger.info(f"Combination {i+1}/{len(param_combinations)}: "
+                                   f"{optimization_metric}={metric_value:.4f}, params={params}")
+                
+            except Exception as e:
+                self.logger.error(f"Error testing parameter combination {params}: {e}")
+                optimization_results.append({
+                    "parameters": params,
+                    "error": str(e)
+                })
+        
+        return {
+            "optimization_metric": optimization_metric,
+            "best_result": best_result,
+            "all_results": optimization_results,
+            "parameter_grid": parameter_grid,
+            "total_combinations_tested": len(param_combinations)
+        }
+
+    def load_data_from_csv(self, file_path: str, symbol_column: str = "symbol") -> None:
+        """
+        Load historical data from CSV file for backtesting.
+        
+        Args:
+            file_path: Path to CSV file
+            symbol_column: Column name containing symbol/trading pair names
+        """
+        try:
+            self.logger.info(f"Loading data from CSV: {file_path}")
+            
+            df = pd.read_csv(file_path)
+            
+            # Ensure timestamp column exists and is properly formatted
+            if "timestamp" in df.columns:
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+            else:
+                raise BacktestError("CSV file must contain a 'timestamp' column")
+            
+            # Required OHLCV columns
+            required_columns = ["open", "high", "low", "close", "volume"]
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                raise BacktestError(f"Missing required columns: {missing_columns}")
+            
+            # Split data by symbol if symbol column exists
+            if symbol_column in df.columns:
+                for symbol in df[symbol_column].unique():
+                    symbol_data = df[df[symbol_column] == symbol].copy()
+                    symbol_data = symbol_data.sort_values("timestamp")
+                    self._data[symbol] = symbol_data
+                    self.logger.info(f"Loaded {len(symbol_data)} data points for {symbol}")
+            else:
+                # Single symbol data
+                df = df.sort_values("timestamp")
+                symbol = "DEFAULT_SYMBOL"
+                self._data[symbol] = df
+                self.logger.info(f"Loaded {len(df)} data points for {symbol}")
+            
+            self.logger.info(f"Successfully loaded data for {len(self._data)} symbols")
+            
+        except Exception as e:
+            self.logger.error(f"Error loading data from CSV: {e}")
+            raise BacktestError(f"Failed to load data from CSV: {e}")
+
+    def get_data_summary(self) -> dict[str, Any]:
+        """
+        Get summary information about loaded data.
+        
+        Returns:
+            Dictionary with data summary statistics
+        """
+        if not self._data:
+            return {"error": "No data loaded"}
+        
+        summary = {
+            "symbols": list(self._data.keys()),
+            "symbol_count": len(self._data),
+            "symbol_details": {}
+        }
+        
+        for symbol, data in self._data.items():
+            if not data.empty:
+                summary["symbol_details"][symbol] = {
+                    "data_points": len(data),
+                    "start_date": data["timestamp"].min().isoformat(),
+                    "end_date": data["timestamp"].max().isoformat(),
+                    "columns": list(data.columns),
+                }
+        
+        return summary
+
+    def clear_data(self) -> None:
+        """Clear all loaded historical data."""
+        self._data.clear()
+        self.logger.info("Cleared all historical data")
