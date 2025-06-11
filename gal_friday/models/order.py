@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -48,6 +49,19 @@ class Order(Base):
             f"<Order(order_pk={self.order_pk}, client_order_id={self.client_order_id}, "
             f"exchange_order_id='{self.exchange_order_id}', status='{self.status}')>"
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a dictionary representation of the order."""
+        result: dict[str, Any] = {}
+        for column in self.__table__.columns:
+            value = getattr(self, column.name)
+            if isinstance(value, datetime):
+                result[column.name] = value.isoformat()
+            elif isinstance(value, uuid.UUID | Decimal):
+                result[column.name] = str(value)
+            else:
+                result[column.name] = value
+        return result
 
     def to_event(self) -> "ExecutionReportEvent": # Added to_event with type hints
         """Converts the Order object to an ExecutionReportEvent."""
