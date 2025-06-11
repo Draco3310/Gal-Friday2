@@ -631,9 +631,60 @@ class PriceInterpolator:
 
     async def _volatility_adjusted_interpolation(self, df: pd.DataFrame, before_idx: int, after_idx: int,
                                                timestamps: List[datetime], gap: DataGap) -> List[Dict[str, Any]]:
-        """Volatility-adjusted interpolation"""
-        # Fallback to linear for now
-        return await self._linear_interpolation(df, before_idx, after_idx, timestamps, gap)
+        """Volatility-adjusted interpolation."""
+        # Start with spline interpolation as baseline
+        base_points = await self._spline_interpolation(df, before_idx, after_idx, timestamps, gap)
+
+        try:
+            import pandas_ta as ta
+        except Exception:  # pragma: no cover - dependency missing
+            self.logger.warning(
+                "pandas_ta not available, skipping volatility adjustment"
+            )
+            return base_points
+
+        if not {"high", "low", "close"}.issubset(df.columns):
+            return base_points
+
+        mask = (
+            (pd.to_datetime(df["timestamp"]) >= gap.start_time - timedelta(minutes=10))
+            & (pd.to_datetime(df["timestamp"]) <= gap.end_time + timedelta(minutes=10))
+        )
+        window = df.loc[mask]
+        if len(window) < 2:
+            return base_points
+
+        length = min(14, len(window))
+        atr_series = ta.atr(
+            high=window["high"],
+            low=window["low"],
+            close=window["close"],
+            length=length,
+        )
+        if atr_series.isna().all():
+            return base_points
+
+        atr = atr_series.dropna().iloc[-1]
+
+        try:
+            close_before = (
+                df[pd.to_datetime(df["timestamp"]) < gap.start_time].iloc[-1]["close"]
+            )
+            close_after = (
+                df[pd.to_datetime(df["timestamp"]) > gap.end_time].iloc[0]["close"]
+            )
+            direction = np.sign(close_after - close_before)
+        except Exception:
+            direction = 1.0
+
+        adjustments = np.sin(np.linspace(0, np.pi, len(base_points))) * atr * direction * 0.1
+
+        for i, adj in enumerate(adjustments):
+            for col in ["open", "high", "low", "close"]:
+                if col in base_points[i]:
+                    base_points[i][col] += adj
+
+        return base_points
 
     async def _forward_fill(self, df: pd.DataFrame, before_idx: int, after_idx: int,
                           timestamps: List[datetime], gap: DataGap) -> List[Dict[str, Any]]:
