@@ -846,6 +846,13 @@ class StrategyArbitrator:
             )
             raise StrategyConfigurationError from value_error
 
+    async def initialize(self, *args, **kwargs) -> None:
+        """Perform async initialization steps."""
+        self.logger.debug(
+            "StrategyArbitrator initialization complete.",
+            source_module=self._source_module,
+        )
+
     def _validate_core_parameters(self) -> None:
         """Validate core strategy parameters like entry type, thresholds, SL/TP percentages."""
         if self._entry_type not in ["MARKET", "LIMIT"]:

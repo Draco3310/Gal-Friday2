@@ -167,6 +167,16 @@ class BacktestHistoricalDataProvider(Protocol):
         ...
 
 
+class ServiceProtocol(Protocol):
+    """Protocol for application services."""
+
+    async def initialize(self, *args, **kwargs) -> None:
+        """Initialize the service."""
+
+    async def start(self) -> None:
+        """Start the service."""
+
+
 # Type aliases for better readability
 LoggerServiceType = LoggerService
 SimulatedMarketPriceServiceType = MarketPriceService

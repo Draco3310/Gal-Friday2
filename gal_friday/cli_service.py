@@ -123,6 +123,12 @@ class CLIService:
         self._background_tasks: set[asyncio.Task] = set()
         self.logger.info("CLIService initialized.", source_module=self.__class__.__name__)
 
+    async def initialize(self, *args, **kwargs) -> None:
+        """Perform async initialization steps."""
+        self.logger.debug(
+            "CLIService initialization complete.", source_module=self.__class__.__name__
+        )
+
     def launch_background_task(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Create a background task, add it to the tracking set, and set a done callback."""
         task = asyncio.create_task(coro)

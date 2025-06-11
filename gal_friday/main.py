@@ -42,6 +42,8 @@ from .exceptions import (
     UnsupportedModeError,
 )
 
+from .services.service_orchestrator import ServiceOrchestrator
+
 # Version information
 __version__ = "0.1.0"  # Add version tracking
 
@@ -1338,7 +1340,7 @@ class GalFridayApp:
             log.exception("FATAL: Failed to instantiate PubSubManager")
             raise PubSubManagerInstantiationFailedExit from e
 
-    def _init_strategy_arbitrator(self) -> None:
+    def _init_strategy_arbitrator(self) -> StrategyArbitratorType:
         """Instantiate the StrategyArbitrator."""
         # Prerequisites will be checked in this order and fail fast
         self._ensure_strategy_arbitrator_prerequisites()
@@ -1367,12 +1369,12 @@ class GalFridayApp:
             pubsub_manager=self.pubsub,
             logger_service=self.logger_service,
             market_price_service=self.market_price_service,
-            feature_registry_client=self.feature_registry_client,  # Added parameter
-            session_maker=self.session_maker,  # Pass session_maker as a parameter
+            feature_registry_client=self.feature_registry_client,
         )
         log.debug("StrategyArbitrator instantiated.")
+        return self.strategy_arbitrator
 
-    def _init_cli_service(self) -> None:
+    def _init_cli_service(self) -> CLIServiceType | None:
         """Instantiate the CLIService."""
         if CLIService is not None:
             # Prerequisite checks for CLIService (monitoring_service, portfolio_manager)
@@ -1393,14 +1395,15 @@ class GalFridayApp:
             self.cli_service = CLIService(
                 monitoring_service=self.monitoring_service,
                 logger_service=self.logger_service,
-                main_app_controller=self,  # Pass self for app control
+                main_app_controller=self,
                 portfolio_manager=self.portfolio_manager,
             )
-            self.services.append(self.cli_service)
             log.debug("CLIService instantiated.")
+            return self.cli_service
         else:
             self.cli_service = None
             log.info("CLIService not available or not configured.")
+            return None
 
     def _ensure_class_available(
         self,
@@ -1754,15 +1757,23 @@ class GalFridayApp:
             raise DependencyMissingError("Application", "MigrationManager or LoggerService")
 
         # --- 9. Other Service Instantiation (Order Matters!) ---
-        # Services are initialized in dependency order.
-        # Now pass session_maker to services that need it.
-        # Example: self.portfolio_manager = PortfolioManager(..., session_maker=self.session_maker)
-        # For now, these init methods are called; they would need internal updates
-        # to accept and use the session_maker in subsequent refactoring.
-        self._init_strategy_arbitrator()
-        self._init_cli_service()
+        await self._init_services()
 
         log.info("Initialization phase complete.")
+
+    async def _init_services(self) -> None:
+        """Initialize and start core application services."""
+        if self.session_maker is None:
+            raise DependencyMissingError(
+                component="Service initialization", dependency="session_maker"
+            )
+
+        orchestrator = ServiceOrchestrator(
+            [svc for svc in [self._init_strategy_arbitrator(), self._init_cli_service()] if svc]
+        )
+        await orchestrator.initialize_all(self.session_maker)
+        await orchestrator.start_all()
+        self.services.extend(orchestrator.services)
 
     async def _start_pubsub_manager(self) -> None:
         """Start the PubSubManager if it exists and has a start method."""
