@@ -323,6 +323,7 @@ class EventType(Enum):
     TRADE_SIGNAL_APPROVED = auto()  # Approved trade signal from RiskManager
     TRADE_SIGNAL_REJECTED = auto()  # Rejected trade signal from RiskManager
     EXECUTION_REPORT = auto()  # Report from ExecutionHandler (fill, error, etc.)
+    TRADE_OUTCOME_REPORTED = auto()  # Final outcome of a trade
 
     # System & Operational Events
     SYSTEM_STATE_CHANGE = auto()  # Change in global system state (HALTED, RUNNING)
@@ -1144,6 +1145,40 @@ class ExecutionReportEvent(Event):
             commission_asset=params.commission_asset,
             timestamp_exchange=params.timestamp_exchange,
             error_message=params.error_message,
+        )
+
+
+@dataclass(frozen=True)
+class TradeOutcomeEvent(Event):
+    """Event representing the final outcome of a trade."""
+
+    signal_id: uuid.UUID
+    strategy_id: str
+    outcome: str
+    pnl: Decimal | None = None
+    exit_reason: str | None = None
+    event_type: EventType = field(default=EventType.TRADE_OUTCOME_REPORTED, init=False)
+
+    @classmethod
+    def create(
+        cls,
+        source_module: str,
+        signal_id: uuid.UUID,
+        strategy_id: str,
+        outcome: str,
+        pnl: Decimal | None = None,
+        exit_reason: str | None = None,
+    ) -> "TradeOutcomeEvent":
+        """Create a new TradeOutcomeEvent instance."""
+        return cls(
+            source_module=source_module,
+            event_id=uuid.uuid4(),
+            timestamp=dt.datetime.now(dt.UTC), # DTZ003
+            signal_id=signal_id,
+            strategy_id=strategy_id,
+            outcome=outcome,
+            pnl=pnl,
+            exit_reason=exit_reason,
         )
 
 
