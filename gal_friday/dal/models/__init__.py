@@ -17,6 +17,7 @@ from .position_adjustment import PositionAdjustment
 from .reconciliation_event import ReconciliationEvent
 from .retraining_job import RetrainingJob
 from .risk_metrics import RiskMetrics
+from .data_quality_issue import DataQualityIssue
 from .trade_signal import TradeSignal
 
 __all__ = [
@@ -34,5 +35,6 @@ __all__ = [
     "ReconciliationEvent",
     "RetrainingJob",
     "RiskMetrics",
+    "DataQualityIssue",
     "TradeSignal",
 ]
