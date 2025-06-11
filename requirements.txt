@@ -26,9 +26,9 @@ scikit-learn==1.6.1
 scipy==1.15.3
 sendgrid==6.12.3
 sortedcontainers==2.4.0
-TA-Lib==0.4.32
-tensorflow-cpu==2.15.0
-torch==2.1.0
+TA-Lib==0.5.1
+tensorflow-cpu==2.18.1
+torch==2.5.1
 twilio==9.6.2
 typer==0.16.0
 typing_extensions==4.14.0

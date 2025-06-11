@@ -204,7 +204,24 @@ install_dependencies() {
     # Install main dependencies
     print_step "Installing main dependencies from requirements.txt"
     if [ -f "requirements.txt" ]; then
-        pip install -r requirements.txt
+        # Try to install all dependencies, but handle TA-Lib separately if it fails
+        if ! pip install -r requirements.txt; then
+            print_warning "Some dependencies failed to install, trying without TA-Lib..."
+            # Create temporary requirements without TA-Lib
+            grep -v "TA-Lib" requirements.txt > requirements_temp.txt
+            pip install -r requirements_temp.txt
+            rm requirements_temp.txt
+            
+            # Try to install TA-Lib separately with better error handling
+            print_step "Attempting to install TA-Lib separately"
+            if ! pip install TA-Lib; then
+                print_warning "TA-Lib installation failed - you may need to install system dependencies"
+                print_info "On Ubuntu/Debian: sudo apt-get install libta-lib-dev"
+                print_info "On macOS: brew install ta-lib"
+                print_info "On other systems, see: https://github.com/TA-Lib/ta-lib-python"
+                print_info "The system will work without TA-Lib, but some technical indicators may not be available"
+            fi
+        fi
     else
         print_error "requirements.txt not found"
         exit 1
