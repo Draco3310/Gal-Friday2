@@ -359,27 +359,6 @@ This document tracks temporary or placeholder implementations within the Gal-Fri
   * **Centralized Default Handling:** Define and apply default values for configurations or parameters at a more centralized point, ensuring consistent behavior.  
   * **Explicit Defaults:** Make default values explicit in function signatures or configuration schemas.
 
-### **gal_friday/main.py**
-
-* **Line:** 1163,50  
-* **Current Comment:** # Note: Using standard formatter for now. For true JSON, need jsonlogger library.  
-* **Problem/Context:** Logging is using a standard formatter instead of a JSON formatter, which is crucial for structured logging and easier integration with log aggregation systems.  
-* **Proposed Next Steps:**  
-  * **Integrate python-json-logger:** Install and configure the python-json-logger library to enable JSON-formatted logging.  
-  * **Standardize Logging:** Ensure all logs are consistently formatted in JSON for better observability.  
-* **Line:** 1212,71  
-* **Current Comment:** self.services: list[Any] = [] # UP006: List -> list; Use Any for now, can refine later  
-* **Problem/Context:** The services list is typed as list[Any], which is a weak type hint. While acceptable for initial development, it sacrifices type safety.  
-* **Proposed Next Steps:**  
-  * **Refine Type Hints:** Replace Any with specific protocol types or concrete class types for the services, improving type checking and code clarity.  
-  * **Dependency Injection:** Consider a dependency injection framework to manage service dependencies.  
-* **Line:** 1760,11  
-* **Current Comment:** # For now, these init methods are called; they would need internal updates  
-* **Problem/Context:** Initialization methods are currently called in a simplified manner, implying that their internal logic or external dependencies might require further refinement or a more structured initialization flow.  
-* **Proposed Next Steps:**  
-  * **Review Initialization Logic:** Evaluate each init method to ensure it performs all necessary setup, handles dependencies correctly, and is resilient to errors.  
-  * **Structured Startup:** Implement a more structured application startup process (e.g., using a dependency graph or service orchestrator).
-
 ## **XII. Training Script**
 
 ### **scripts/train_initial_model.py**
@@ -391,25 +370,6 @@ This document tracks temporary or placeholder implementations within the Gal-Fri
   * **Train/Validation/Test Split:** Ensure a proper train, validation, and test split is applied during model fitting.  
   * **Cross-Validation:** Implement cross-validation techniques for more robust model evaluation during training.  
   * **Hyperparameter Tuning:** Incorporate hyperparameter tuning with validation data.
-
-## **XIII. Tests**
-
-### **tests/unit/test_feature_engine_pipeline_construction.py**
-
-* **Line:** 224,7  
-* **Current Comment:** # For now, we confirm default is applied.  
-* **Problem/Context:** A test specifically confirms that a default value is applied, which might indicate that the actual behavior or a more complex scenario isn't fully tested.  
-* **Proposed Next Steps:**  
-  * **Comprehensive Testing:** Expand the test to cover various scenarios beyond just default application, such as custom configurations, invalid inputs, and interactions with other components.
-
-### **tests/test_integration.py**
-
-* **Line:** 277,11  
-* **Current Comment:** # For now, just verify the test framework  
-* **Problem/Context:** An integration test is currently only verifying the test framework itself, rather than performing actual integration tests of the system components.  
-* **Proposed Next Steps:**  
-  * **Implement Actual Integration Tests:** Develop comprehensive integration tests that simulate real-world scenarios, verify data flow between components, and assert end-to-end system behavior.  
-  * **Remove Framework Verification:** Delete the "test framework verification" once proper integration tests are in place.
 
 ## **Removed Entries (Compared to previous list)**
 
@@ -426,3 +386,7 @@ The following entries were present in the previous for_now.md but are no longer 
   * Line 3244,11: # For now, return None to indicate no data available  
 * E:CodingGal-Friday2gal_fridayportfolio_manager.py  
   * Line 351,77: self._handle_order_cancellation(event) # Still handled locally for now
+
+  pip install -r requirements.txt
+  pip install -r requirements-test.txt
+  
