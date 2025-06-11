@@ -8,6 +8,7 @@ It also supports volatility-adjusted spread calculation and market depth simulat
 """
 
 import logging
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
@@ -729,8 +730,9 @@ class SimulationError(Exception):
 class RealTimeSimulationEngine:
     """Enterprise-grade real-time price simulation engine"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], data_loader: "HistoricalDataLoader"):
         self.config = config
+        self._data_loader = data_loader
         self.logger = logging.getLogger(__name__)
 
         # Simulation state
@@ -925,10 +927,20 @@ class RealTimeSimulationEngine:
 
     async def _load_historical_data(self, symbol: str) -> List[dict]:
         """Load historical data for a symbol"""
-        # This would integrate with the historical data loader
-        # For now, return empty list
-        return []
+        try:
+            request = DataRequest(
+                symbol=symbol,
+                start_date=self.config["start_time"],
+                end_date=self.config["end_time"],
+                frequency=self.config.get("frequency", "1h"),
+            )
 
+            points = await self._data_loader.load_historical_data(request)
+            return [dataclasses.asdict(p) for p in points]
+
+        except Exception as e:
+            self.logger.error(f"Failed to load historical data for {symbol}: {e}")
+            return []
     def _calculate_speed_multiplier(self) -> float:
         """Calculate speed multiplier based on configuration"""
         speed_map = {
@@ -1042,8 +1054,10 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             'start_time': datetime.now(UTC),
             'end_time': datetime.now(UTC) + timedelta(days=1)
         }
-        self._simulation_engine = RealTimeSimulationEngine(simulation_config)
-
+        self._simulation_engine = RealTimeSimulationEngine(
+            simulation_config,
+            self._data_loader,
+        )
         # Register price update handler for simulation engine
         self._simulation_engine.register_event_handler('price_update', self._handle_price_update_event)
 
