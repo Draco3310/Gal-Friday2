@@ -1141,9 +1141,7 @@ def setup_logging(
             if log_filename:
                 max_bytes = json_file_config.get("max_bytes", 10 * 1024 * 1024)  # Default 10MB
                 backup_count = json_file_config.get("backup_count", 5)
-                # Note: Using standard formatter for now. For true JSON, need jsonlogger library.
-                # Consider adding jsonlogger to requirements.txt and
-                # implementing later.
+               # JSON logging uses jsonlogger.JsonFormatter when enabled
                 file_format = json_file_config.get(
                     "format",
                     "%(asctime)s %(name)s %(levelname)s %(message)s",
