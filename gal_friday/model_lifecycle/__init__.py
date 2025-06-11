@@ -1,5 +1,6 @@
 """Model lifecycle management components."""
 
+from .enums import ModelStage, ModelStatus
 from .experiment_manager import (
     AllocationStrategy,
     ExperimentConfig,
@@ -7,8 +8,8 @@ from .experiment_manager import (
     ExperimentStatus,
     VariantPerformance,
 )
-from .enums import ModelStage, ModelStatus
-from .registry import ModelArtifact, ModelMetadata, Registry
+from .registry import ModelArtifact, ModelMetadata
+from .registry import Registry as ModelRegistry
 from .retraining_pipeline import (
     DriftDetector,
     DriftMetrics,
