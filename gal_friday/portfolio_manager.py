@@ -348,7 +348,7 @@ class PortfolioManager:
         )
 
         if event.order_status == "CANCELED":
-            self._handle_order_cancellation(event)  # Still handled locally for now
+            self._handle_order_cancellation(event)
             return
 
         if event.order_status not in ["FILLED", "PARTIALLY_FILLED"]:

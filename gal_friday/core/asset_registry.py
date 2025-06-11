@@ -274,35 +274,5 @@ def initialize_default_assets() -> None:
     asset_registry.register_asset(xrp_usd, "kraken")
     asset_registry.register_asset(doge_usd, "kraken")
 
-    # Future expansion examples (commented for now)
-    """
-    # Stock exchange example
-    nasdaq_exchange = ExchangeSpecification(
-        exchange_id="nasdaq",
-        exchange_type=ExchangeType.STOCK_EXCHANGE,
-        name="NASDAQ",
-        supports_bracket_orders=True,
-        maker_fee_bps=Decimal("0.5"),
-        taker_fee_bps=Decimal("0.5"),
-        trading_sessions=[
-            TradingSession(
-                open_time=time(9, 30),
-                close_time=time(16, 0),
-                timezone="US/Eastern",
-                days_active={0, 1, 2, 3, 4}
-            )
-        ]
-    )
-    # Options exchange example
-    cboe_exchange = ExchangeSpecification(
-        exchange_id="cboe",
-        exchange_type=ExchangeType.OPTIONS_EXCHANGE,
-        name="CBOE",
-        provides_options_chain=True,
-        supports_bracket_orders=True
-    )
-    """
-
-
 # Initialize default assets when module is imported
 initialize_default_assets()
