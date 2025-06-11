@@ -1,12 +1,14 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String
 from sqlalchemy.sql import func
 
-from gal_friday.core.events import LogEvent
-
 from .base import Base
+
+if TYPE_CHECKING:  # pragma: no cover - for type checkers only
+    from gal_friday.core.events import LogEvent
 
 
 class Configuration(Base):
@@ -24,48 +26,24 @@ class Configuration(Base):
             f"is_active={self.is_active})>"
         )
 
-    def to_event(self) -> "LogEvent": # Added to_event with type hints
-        """Converts the Configuration object to a LogEvent."""
-        # Assuming LogEvent is importable from gal_friday.core.events
-        # import uuid
-        # from datetime import datetime
-        # from gal_friday.core.events import LogEvent
+    def to_event(self) -> "LogEvent":
+        """Convert this configuration to a ``LogEvent``."""
+        from gal_friday.core.events import LogEvent
 
         event_data = {
             "source_module": self.__class__.__name__,
             "event_id": uuid.uuid4(),
             "timestamp": datetime.utcnow(),
-            "level": "INFO", # Or some other appropriate level
-            "message": f"Configuration accessed/processed: PK={self.config_pk}, Hash={self.config_hash}",
+            "level": "INFO",
+            "message": (
+                f"Configuration accessed/processed: PK={self.config_pk}, Hash={self.config_hash}"
+            ),
             "context": {
                 "config_pk": self.config_pk,
                 "config_hash": self.config_hash,
                 "is_active": self.is_active,
                 "loaded_at": self.loaded_at.isoformat() if self.loaded_at else None,
-                # Be cautious about logging entire config_content if it's sensitive
-                # "config_content_preview": str(self.config_content)[:100] # Example preview
             },
         }
-        # In a real implementation:
-        # from gal_friday.core.events import LogEvent
-        # import uuid
-        # return LogEvent(**event_data)
 
-        # Returning dict for now to satisfy type hint via forward reference
-        # return LogEvent(**event_data) # Old way
-
-        # Explicitly pass arguments
-        return LogEvent(
-            source_module=self.__class__.__name__,
-            event_id=uuid.uuid4(),
-            timestamp=datetime.utcnow(),
-            level="INFO",  # Or some other appropriate level
-            message=f"Configuration accessed/processed: PK={self.config_pk}, Hash={self.config_hash}",
-            context={
-                "config_pk": self.config_pk,
-                "config_hash": self.config_hash,
-                "is_active": self.is_active,
-                "loaded_at": self.loaded_at.isoformat() if self.loaded_at else None,
-                # "config_content_preview": str(self.config_content)[:100] # Example preview
-            },
-        )
+        return LogEvent(**event_data)
