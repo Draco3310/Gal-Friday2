@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .execution_handler import ExecutionHandler
 
 from .config_manager import ConfigManager
-from .core.events import EventType, ExecutionReportEvent
+from .core.events import EventType, ExecutionReportEvent, OrderCancellationEvent
 from .core.pubsub import PubSubManager
 from .dal.models.position import Position as PositionModel
 from .exceptions import (
@@ -348,7 +348,7 @@ class PortfolioManager:
         )
 
         if event.order_status == "CANCELED":
-            self._handle_order_cancellation(event)  # Still handled locally for now
+            await self._handle_order_cancellation(event)
             return
 
         if event.order_status not in ["FILLED", "PARTIALLY_FILLED"]:
@@ -447,22 +447,25 @@ class PortfolioManager:
                 source_module=self._source_module,
             )
 
-    def _handle_order_cancellation(self, event: ExecutionReportEvent) -> None:
-        """Handle cancellation of an order.
-
-        Logs the cancellation event for tracking purposes.
-
-        Args:
-        ----
-            event: The execution report event with cancellation details
-        """
+    async def _handle_order_cancellation(self, event: ExecutionReportEvent) -> None:
+        """Publish an order cancellation event to the pubsub system."""
         self.logger.info(
             "Order %s for %s was cancelled.",
             event.exchange_order_id,
             event.trading_pair,
             source_module=self._source_module,
         )
-        # Optional: Could track pending orders locally if needed
+
+        cancel_event = OrderCancellationEvent.create(
+            source_module=self._source_module,
+            exchange_order_id=event.exchange_order_id,
+            trading_pair=event.trading_pair,
+            exchange=event.exchange,
+            client_order_id=event.client_order_id,
+            reason=event.error_message,
+            timestamp_exchange=event.timestamp_exchange,
+        )
+        await self.pubsub.publish(cancel_event)
 
     def _raise_for_invalid_parsed_values(self) -> None:
         """Raise ValueError for invalid parsed execution values."""

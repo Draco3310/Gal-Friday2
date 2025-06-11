@@ -323,6 +323,7 @@ class EventType(Enum):
     TRADE_SIGNAL_APPROVED = auto()  # Approved trade signal from RiskManager
     TRADE_SIGNAL_REJECTED = auto()  # Rejected trade signal from RiskManager
     EXECUTION_REPORT = auto()  # Report from ExecutionHandler (fill, error, etc.)
+    ORDER_CANCELLATION = auto()  # Order cancellation notification
 
     # System & Operational Events
     SYSTEM_STATE_CHANGE = auto()  # Change in global system state (HALTED, RUNNING)
@@ -1144,6 +1145,44 @@ class ExecutionReportEvent(Event):
             commission_asset=params.commission_asset,
             timestamp_exchange=params.timestamp_exchange,
             error_message=params.error_message,
+        )
+
+
+@dataclass(frozen=True)
+class OrderCancellationEvent(Event):
+    """Event indicating an order cancellation."""
+
+    exchange_order_id: str
+    trading_pair: str
+    exchange: str
+    client_order_id: str | None = None
+    reason: str | None = None
+    timestamp_exchange: dt.datetime | None = None
+    event_type: EventType = field(default=EventType.ORDER_CANCELLATION, init=False)
+
+    @classmethod
+    def create(  # noqa: PLR0913
+        cls,
+        *,
+        source_module: str,
+        exchange_order_id: str,
+        trading_pair: str,
+        exchange: str,
+        client_order_id: str | None = None,
+        reason: str | None = None,
+        timestamp_exchange: dt.datetime | None = None,
+    ) -> "OrderCancellationEvent":
+        """Create a new OrderCancellationEvent instance."""
+        return cls(
+            source_module=source_module,
+            event_id=uuid.uuid4(),
+            timestamp=dt.datetime.now(dt.UTC),
+            exchange_order_id=exchange_order_id,
+            trading_pair=trading_pair,
+            exchange=exchange,
+            client_order_id=client_order_id,
+            reason=reason,
+            timestamp_exchange=timestamp_exchange,
         )
 
 
