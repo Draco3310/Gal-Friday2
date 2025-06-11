@@ -102,6 +102,7 @@ logging:
     filename: logs/gal_friday_app.log.json
     max_bytes: 10485760 # 10MB
     backup_count: 5
+    use_json: true
     format: '%(asctime) %(name) %(levelname) %(message) %(context) %(exc_info)' # Fields for jsonlogger
 
   # PostgreSQL Database Handler Settings

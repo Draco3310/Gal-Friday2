@@ -12,6 +12,7 @@ import concurrent.futures
 import functools
 import logging
 import logging.handlers  # Added for RotatingFileHandler
+from pythonjsonlogger import jsonlogger
 import os
 import signal
 import sys
@@ -1174,13 +1175,23 @@ def setup_logging(
                     backupCount=backup_count,
                 )
                 file_handler.setLevel(log_level)
-                file_formatter = logging.Formatter(
-                    file_format,
-                    datefmt=log_config.get("date_format"),
-                )
-                file_handler.setFormatter(file_formatter)
+
+                use_json = json_file_config.get("use_json", True)
+                if use_json:
+                    formatter = jsonlogger.JsonFormatter(file_format)
+                else:
+                    formatter = logging.Formatter(
+                        file_format,
+                        datefmt=log_config.get("date_format"),
+                    )
+
+                file_handler.setFormatter(formatter)
                 root_logger.addHandler(file_handler)
-                log.info("File logging enabled: %s", log_filename)
+                log.info(
+                    "File logging enabled: %s (JSON=%s)",
+                    log_filename,
+                    use_json,
+                )
         else:
             log.warning("File logging enabled in config but no filename specified.")
 

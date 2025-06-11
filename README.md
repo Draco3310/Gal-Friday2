@@ -75,7 +75,7 @@ The main configuration for Gal-Friday is managed through a YAML file, typically 
     -   **Model Paths & Parameters:** Paths to your pre-trained machine learning models and any associated parameters.
     -   **Trading Pairs:** Specification of the cryptocurrency pairs to trade (e.g., `XRP/USD`, `DOGE/USD`).
     -   **Risk Management:** Parameters like maximum drawdown, risk per trade, position sizing strategy, etc.
-    -   **Logging:** Configuration for log levels, file paths, and database logging.
+    -   **Logging:** Configuration for log levels, file paths, database logging, and optional JSON-formatted rotating file logs.
 
     Refer to the comments within `config/config.example.yaml` for detailed explanations of each parameter.
 
