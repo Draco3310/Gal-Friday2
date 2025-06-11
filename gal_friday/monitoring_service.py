@@ -28,6 +28,7 @@ import psutil  # Added for system resource monitoring
 # Import actual classes when available, otherwise use placeholders
 from .logger_service import LoggerService
 from .portfolio_manager import PortfolioManager
+from .dal.repositories.history_repository import HistoryRepository
 
 
 class MetricType(str, Enum):
@@ -1730,6 +1731,7 @@ class MonitoringService:
         logger_service: LoggerService,
         execution_handler: "ExecutionHandler | None" = None,
         halt_coordinator: Optional["HaltCoordinator"] = None,
+        history_repo: "HistoryRepository | None" = None,
     ) -> None:
         """Initialize the MonitoringService.
 
@@ -1747,6 +1749,7 @@ class MonitoringService:
         self._portfolio_manager = portfolio_manager
         self.logger = logger_service
         self._execution_handler = execution_handler
+        self.history_repo = history_repo
         self._source = self.__class__.__name__
 
         # Initialize HALT coordinator if not provided
@@ -3193,19 +3196,13 @@ class MonitoringService:
         Returns:
             Decimal: Annualized volatility percentage, or None if insufficient data or GARCH unavailable
         """
-        self.logger.debug(f"Calculating GARCH volatility for {trading_pair}.", source_module=self._source)
+        self.logger.debug(
+            f"Calculating GARCH volatility for {trading_pair}.", source_module=self._source
+        )
 
-        # Check if GARCH dependencies are available
         try:
-            # import arch  # Would need to be installed: pip install arch
-            # For now, we'll simulate GARCH calculation as it requires additional dependencies
-            self.logger.warning(
-                f"GARCH volatility calculation for {trading_pair} requires 'arch' library. "
-                "Install with: pip install arch. Falling back to standard deviation method.",
-                source_module=self._source,
-            )
-            return await self._calculate_stddev_volatility_internal(trading_pair, vol_config)
-        except ImportError:
+            from arch import arch_model
+        except ImportError:  # pragma: no cover - dependency missing
             self.logger.warning(
                 f"GARCH volatility calculation for {trading_pair} requires 'arch' library. "
                 "Falling back to standard deviation method.",
@@ -3213,14 +3210,62 @@ class MonitoringService:
             )
             return await self._calculate_stddev_volatility_internal(trading_pair, vol_config)
 
-        # GARCH implementation would go here when arch library is available
-        # The pseudocode implementation shows:
-        # 1. Get GARCH configuration (window_size, p, q, distribution)
-        # 2. Fetch longer price history (GARCH often needs 200+ points)
-        # 3. Calculate returns and scale by 100 for numerical stability
-        # 4. Fit GARCH model using arch.arch_model()
-        # 5. Forecast 1-step ahead conditional volatility
-        # 6. Annualize and return as percentage
+        window_size = vol_config.get("garch_window_size_candles", 200)
+        p = vol_config.get("garch_p", 1)
+        q = vol_config.get("garch_q", 1)
+        distribution = vol_config.get("garch_distribution", "normal")
+        candle_interval_minutes = vol_config.get("candle_interval_minutes", 60)
+        annualization_periods_per_year = vol_config.get("annualization_periods_per_year")
+
+        if annualization_periods_per_year is None:
+            if candle_interval_minutes == 1440:
+                periods_per_year = 365
+            elif candle_interval_minutes == 60:
+                periods_per_year = 365 * 24
+            elif candle_interval_minutes == 1:
+                periods_per_year = 365 * 24 * 60
+            else:
+                periods_per_year = 1
+            annualization_factor = periods_per_year**0.5
+        else:
+            annualization_factor = (annualization_periods_per_year) ** 0.5
+
+        candles = await self._get_historical_candles_for_volatility(
+            trading_pair=trading_pair,
+            num_candles=window_size + 1,
+            interval_minutes=candle_interval_minutes,
+        )
+
+        if candles is None or len(candles) < window_size + 1:
+            self.logger.warning(
+                f"GARCH Vol: insufficient data for {trading_pair}", source_module=self._source
+            )
+            return None
+
+        import numpy as np
+
+        prices = np.array([float(c["close"]) for c in candles])
+        if np.any(prices <= 0):
+            self.logger.error(
+                f"GARCH Vol: non-positive prices for {trading_pair}", source_module=self._source
+            )
+            return None
+        returns = np.log(prices[1:] / prices[:-1]) * 100
+
+        try:
+            model = arch_model(returns, p=p, q=q, dist=distribution, rescale=False)
+            res = model.fit(disp="off")
+            forecast = res.forecast(horizon=1)
+            sigma = float(forecast.variance.iloc[-1, 0]) ** 0.5
+            annualized = Decimal(str((sigma / 100) * annualization_factor * 100))
+            return annualized.quantize(Decimal("0.0001"))
+        except Exception as exc:  # pragma: no cover - model issues
+            self.logger.error(
+                f"GARCH volatility calculation failed for {trading_pair}: {exc}",
+                source_module=self._source,
+                exc_info=True,
+            )
+            return None
 
     async def _get_historical_candles_for_volatility(
         self,
@@ -3228,26 +3273,40 @@ class MonitoringService:
         num_candles: int,
         interval_minutes: int,
     ) -> list[dict] | None:
-        """Get historical candles for volatility calculation.
-        
-        This is a placeholder method that would integrate with the historical data service.
-        
-        Args:
-            trading_pair: Trading pair to get data for
-            num_candles: Number of candles to retrieve
-            interval_minutes: Interval in minutes between candles
-            
-        Returns:
-            List of candle dictionaries with 'close' prices, or None if unavailable
-        """
-        # This would integrate with HistoricalDataService when available
-        # For now, return None to indicate no data available
-        self.logger.debug(
-            f"Historical candles request for {trading_pair}: {num_candles} candles at {interval_minutes}min intervals "
-            "(placeholder - requires HistoricalDataService integration)",
-            source_module=self._source,
-        )
-        return None
+        """Get historical candles for volatility calculation."""
+        if self.history_repo is None:
+            self.logger.debug(
+                "History repository not configured for volatility calculation", source_module=self._source
+            )
+            return None
+
+        interval = f"{interval_minutes}m"
+        try:
+            df = await self.history_repo.get_recent_ohlcv(trading_pair, num_candles, interval)
+        except Exception as exc:  # pragma: no cover - fetch failures
+            self.logger.error(
+                f"Failed to fetch historical candles for {trading_pair}: {exc}",
+                source_module=self._source,
+                exc_info=True,
+            )
+            return None
+
+        if df is None or df.empty:
+            return None
+
+        result = []
+        for ts, row in df.iterrows():
+            result.append(
+                {
+                    "timestamp": ts,
+                    "open": row["open"],
+                    "high": row["high"],
+                    "low": row["low"],
+                    "close": row["close"],
+                    "volume": row["volume"],
+                }
+            )
+        return result
 
     async def _get_current_market_price(self, trading_pair: str) -> Decimal | None:
         """Get current market price for a trading pair.

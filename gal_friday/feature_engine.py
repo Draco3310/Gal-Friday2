@@ -94,6 +94,7 @@ if TYPE_CHECKING:
     from gal_friday.core.pubsub import PubSubManager
     from gal_friday.interfaces.historical_data_service_interface import HistoricalDataService
     from gal_friday.logger_service import LoggerService
+    from gal_friday.dal.repositories.history_repository import HistoryRepository
 
 # Define InternalFeatureSpec
 @dataclass
@@ -1015,6 +1016,7 @@ class FeatureEngine:
         pubsub_manager: PubSubManager,
         logger_service: LoggerService,
         historical_data_service: HistoricalDataService | None = None,
+        history_repo: "HistoryRepository | None" = None,
     ) -> None:
         """Initialize the FeatureEngine with configuration and required services.
 
@@ -1027,6 +1029,7 @@ class FeatureEngine:
             pubsub_manager: Instance of PubSubManager for event handling.
             logger_service: Logging service instance.
             historical_data_service: Optional service for fetching historical data.
+            history_repo: Optional repository for persisting historical data.
 
         Internal State:
             _feature_configs: Stores `InternalFeatureSpec` objects for all activated
@@ -1039,6 +1042,7 @@ class FeatureEngine:
         self.pubsub_manager = pubsub_manager
         self.logger = logger_service
         self.historical_data_service = historical_data_service
+        self.history_repo = history_repo
         self._source_module = self.__class__.__name__
 
         # Feature configuration derived from config
@@ -2044,10 +2048,9 @@ class FeatureEngine:
         Returns:
             Sanitized book data or None if sanitization fails
         """
+        sanitized_bids = []
+        sanitized_asks = []
         try:
-            sanitized_bids = []
-            sanitized_asks = []
-
             # Try to extract and validate bids
             raw_bids = l2_payload.get("bids", [])
             if isinstance(raw_bids, (list, tuple)):
@@ -2072,28 +2075,15 @@ class FeatureEngine:
                             if price > 0 and volume >= 0:
                                 sanitized_asks.append([price, volume])
                         except (ValueError, TypeError, IndexError):
-                            continue  # Skip invalid levels
-
-            # Validate that we have at least some usable data
+                            continue
+            
             if sanitized_bids or sanitized_asks:
-                # Sort to ensure proper ordering
-                sanitized_bids.sort(key=lambda x: x[0], reverse=True)  # Highest bid first
-                sanitized_asks.sort(key=lambda x: x[0])  # Lowest ask first
-
-                return {
-                    "bids": sanitized_bids,
-                    "asks": sanitized_asks
-                }
-
-            return None
+                return {"bids": sanitized_bids, "asks": sanitized_asks}
 
         except Exception as e:
-            self.logger.debug(
-                "L2 sanitization failed: %s",
-                e,
-                source_module=self._source_module
-            )
-            return None
+            self.logger.debug(f"L2 data sanitization failed: {e}", source_module=self._source_module)
+
+        return None
 
     def _is_valid_l2_level(self, level: Any) -> bool:
         """Check if an L2 level has valid structure."""
@@ -4103,47 +4093,41 @@ class FeatureEngine:
     ) -> float | None:
         """Impute based on historical feature patterns and trends."""
         try:
-            # This would connect to a feature history database or cache
-            # For now, simulate historical analysis with OHLCV patterns
+            lookback = max(20, feature_spec.parameters.get("period", 14) * 3)
+            interval = feature_spec.parameters.get("interval", "1m")
 
-            ohlcv_data = self.ohlcv_history.get(trading_pair)
-            if ohlcv_data is None or len(ohlcv_data) < 20:
+            if not self.history_repo:
                 return None
 
-            # Analyze recent price patterns for feature-specific insights
-            recent_data = ohlcv_data.tail(20)
+            historical_data = await self.history_repo.get_feature_history(
+                trading_pair=trading_pair,
+                feature_name=feature_name,
+                lookback=lookback,
+                interval=interval,
+            )
 
-            if 'rsi' in feature_name.lower():
-                # RSI-specific historical analysis
-                price_changes = recent_data['close'].pct_change().dropna()
-                recent_volatility = price_changes.std()
+            if historical_data is None or historical_data.empty:
+                return None
 
-                if recent_volatility < 0.01:  # Low volatility
-                    return 50.0  # Neutral RSI
-                elif recent_volatility > 0.05:  # High volatility
-                    # Trending market, RSI likely away from neutral
-                    trend = price_changes.mean()
-                    return 70.0 if trend > 0 else 30.0
-                else:
-                    return 50.0  # Moderate volatility, neutral
+            # Example: Impute using moving average
+            if "rsi" in feature_name.lower() or "macd" in feature_name.lower():
+                ma = historical_data["value"].rolling(window=5, min_periods=1).mean().iloc[-1]
+                self.logger.debug(
+                    "Imputed %s from historical MA: %.4f", feature_name, ma
+                )
+                return float(ma) if pd.notna(ma) else None
 
-            elif 'macd' in feature_name.lower():
-                # MACD-specific analysis
-                price_momentum = recent_data['close'].diff().mean()
-                return float(price_momentum) if pd.notna(price_momentum) else 0.0
-
-            elif 'volume' in feature_name.lower():
-                # Volume-related analysis
-                avg_volume = recent_data['volume'].mean()
-                return float(avg_volume) if pd.notna(avg_volume) else 0.0
+            # Example: Impute volume with its historical mean
+            if "volume" in feature_name.lower():
+                vol_ma = historical_data["value"].mean()
+                self.logger.debug(
+                    "Imputed %s from historical mean: %.4f", feature_name, vol_ma
+                )
+                return float(vol_ma) if pd.notna(vol_ma) else None
 
             return None
-
         except Exception as e:
-            self.logger.debug(
-                "Historical analysis imputation failed: %s",
-                e, source_module=self._source_module
-            )
+            self.logger.debug(f"Historical analysis imputation failed for {feature_name}: {e}")
             return None
 
     async def _impute_from_correlation_analysis(

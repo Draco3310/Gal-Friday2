@@ -7,6 +7,7 @@ from .order_repository import OrderRepository
 from .position_repository import PositionRepository
 from .reconciliation_repository import ReconciliationRepository
 from .retraining_repository import RetrainingRepository
+from .history_repository import HistoryRepository
 
 __all__ = [
     "ExperimentRepository",
@@ -16,4 +17,5 @@ __all__ = [
     "PositionRepository",
     "ReconciliationRepository",
     "RetrainingRepository",
+    "HistoryRepository",
 ]
