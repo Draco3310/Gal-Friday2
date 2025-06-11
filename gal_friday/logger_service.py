@@ -43,6 +43,8 @@ from typing import (
     TypeAlias as TypingTypeAlias,
 )
 
+from .interfaces.service_protocol import ServiceProtocol
+
 from pythonjsonlogger import jsonlogger  # Add missing import for JSON logging
 
 # Runtime imports
@@ -96,15 +98,19 @@ _RT = TypeVar("_RT")
 
 # Define a type alias for exc_info to improve readability and manage line length
 # Moved to module level and updated to use Union, Tuple
-ExcInfoType: TypingTypeAlias = bool | tuple[type[BaseException], BaseException, types.TracebackType] | BaseException | None
+ExcInfoType: TypingTypeAlias = (
+    bool | tuple[type[BaseException], BaseException, types.TracebackType] | BaseException | None
+)
 
 
 # ========================================
 # Enterprise-Grade Handler Infrastructure
 # ========================================
 
+
 class LogLevel(str, Enum):
     """Log levels for enterprise logging."""
+
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"
@@ -114,6 +120,7 @@ class LogLevel(str, Enum):
 
 class HandlerType(str, Enum):
     """Types of logging handlers supported by the enterprise logging system."""
+
     CONSOLE = "console"
     FILE = "file"
     ROTATING_FILE = "rotating_file"
@@ -131,6 +138,7 @@ class HandlerType(str, Enum):
 @dataclass
 class HandlerConfig:
     """Configuration for enterprise logging handlers."""
+
     handler_type: HandlerType
     name: str
     level: LogLevel = LogLevel.INFO
@@ -142,18 +150,19 @@ class HandlerConfig:
 
 class LogHandlerProtocol(Protocol):
     """Protocol defining the interface for logging handlers."""
-    
+
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record."""
         ...
-    
+
     def close(self) -> None:
         """Close the handler."""
         ...
-    
+
     def flush(self) -> None:
         """Flush any pending output."""
         ...
+
 
 # Define a Protocol for ConfigManager to properly type hint its interface
 
@@ -230,29 +239,30 @@ class DBConnection(Protocol):
 # Enterprise Handler Implementations
 # ========================================
 
+
 class BaseLogHandler(logging.Handler, ABC):
     """Base class for enterprise logging handlers with performance tracking."""
-    
+
     def __init__(self, config: HandlerConfig):
         super().__init__()
         self.config = config
         self.setLevel(getattr(logging, config.level.value))
-        
+
         # Performance tracking
         self.emit_count = 0
         self.error_count = 0
         self.last_emit_time = 0.0
-        
+
         # Setup formatter
         if config.format_string:
             formatter = logging.Formatter(config.format_string)
             self.setFormatter(formatter)
-    
+
     @abstractmethod
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record - must be implemented by subclasses."""
         pass
-    
+
     def handle_emit_error(self, record: logging.LogRecord, error: Exception) -> None:
         """Handle errors during record emission."""
         self.error_count += 1
@@ -261,82 +271,82 @@ class BaseLogHandler(logging.Handler, ABC):
 
 class EnterpriseConsoleLogHandler(BaseLogHandler):
     """Enterprise console logging handler with color support."""
-    
+
     def __init__(self, config: HandlerConfig):
         super().__init__(config)
-        self.stream = self.config.parameters.get('stream', 'stdout')
-        
-        if self.stream == 'stderr':
+        self.stream = self.config.parameters.get("stream", "stdout")
+
+        if self.stream == "stderr":
             self.target_stream = sys.stderr
         else:
             self.target_stream = sys.stdout
-    
+
     def emit(self, record: logging.LogRecord) -> None:
         """Emit record to console with optional color coding."""
         try:
             self.emit_count += 1
             self.last_emit_time = time.time()
-            
+
             msg = self.format(record)
-            
+
             # Add color coding if enabled
-            if self.config.parameters.get('colorize', False):
+            if self.config.parameters.get("colorize", False):
                 msg = self._colorize_message(msg, record.levelno)
-            
-            self.target_stream.write(msg + '\n')
+
+            self.target_stream.write(msg + "\n")
             self.target_stream.flush()
-            
+
         except Exception as e:
             self.handle_emit_error(record, e)
-    
+
     def _colorize_message(self, message: str, level: int) -> str:
         """Add ANSI color codes based on log level."""
         color_map = {
-            logging.DEBUG: '\033[36m',    # Cyan
-            logging.INFO: '\033[32m',     # Green
-            logging.WARNING: '\033[33m',  # Yellow
-            logging.ERROR: '\033[31m',    # Red
-            logging.CRITICAL: '\033[35m'  # Magenta
+            logging.DEBUG: "\033[36m",  # Cyan
+            logging.INFO: "\033[32m",  # Green
+            logging.WARNING: "\033[33m",  # Yellow
+            logging.ERROR: "\033[31m",  # Red
+            logging.CRITICAL: "\033[35m",  # Magenta
         }
-        reset = '\033[0m'
-        
-        color = color_map.get(level, '')
+        reset = "\033[0m"
+
+        color = color_map.get(level, "")
         return f"{color}{message}{reset}"
 
 
 class EnterpriseRotatingFileLogHandler(BaseLogHandler):
     """Enterprise rotating file logging handler."""
-    
+
     def __init__(self, config: HandlerConfig):
         super().__init__(config)
-        
+
         # Extract file rotation parameters
-        self.filename = config.parameters.get('filename', 'app.log')
-        self.max_bytes = config.parameters.get('max_bytes', 10 * 1024 * 1024)  # 10MB
-        self.backup_count = config.parameters.get('backup_count', 5)
-        
+        self.filename = config.parameters.get("filename", "app.log")
+        self.max_bytes = config.parameters.get("max_bytes", 10 * 1024 * 1024)  # 10MB
+        self.backup_count = config.parameters.get("backup_count", 5)
+
         # Create the actual rotating file handler
         self.file_handler = logging.handlers.RotatingFileHandler(
             filename=self.filename,
             maxBytes=self.max_bytes,
             backupCount=self.backup_count,
-            encoding='utf-8'
+            encoding="utf-8",
         )
-        
+
         if self.formatter:
             self.file_handler.setFormatter(self.formatter)
-    
+
     def emit(self, record: logging.LogRecord) -> None:
         """Emit record to rotating file."""
         try:
             self.emit_count += 1
             self.last_emit_time = time.time()
-            
+
             self.file_handler.emit(record)
-            
+
         except Exception as e:
             self.handle_emit_error(record, e)
-    
+
     def close(self) -> None:
         """Close the file handler."""
         self.file_handler.close()
@@ -345,207 +355,201 @@ class EnterpriseRotatingFileLogHandler(BaseLogHandler):
 
 class EnterpriseElasticsearchLogHandler(BaseLogHandler):
     """Enterprise Elasticsearch logging handler with batching."""
-    
+
     def __init__(self, config: HandlerConfig):
         super().__init__(config)
-        
+
         # Elasticsearch configuration
-        self.hosts = config.parameters.get('hosts', ['localhost:9200'])
-        self.index_pattern = config.parameters.get('index_pattern', 'logs-%Y.%m.%d')
-        self.doc_type = config.parameters.get('doc_type', '_doc')
-        
+        self.hosts = config.parameters.get("hosts", ["localhost:9200"])
+        self.index_pattern = config.parameters.get("index_pattern", "logs-%Y.%m.%d")
+        self.doc_type = config.parameters.get("doc_type", "_doc")
+
         # Initialize Elasticsearch client
         self.es_client = self._create_es_client()
-        
+
         # Batch processing
-        self.batch_size = config.parameters.get('batch_size', 100)
-        self.batch_timeout = config.parameters.get('batch_timeout', 5.0)
+        self.batch_size = config.parameters.get("batch_size", 100)
+        self.batch_timeout = config.parameters.get("batch_timeout", 5.0)
         self.batch_buffer: List[Dict[str, Any]] = []
         self.last_flush_time = time.time()
-    
+
     def _create_es_client(self):
         """Create Elasticsearch client if available."""
         try:
             from elasticsearch import Elasticsearch
+
             return Elasticsearch(self.hosts)
         except ImportError:
             logging.getLogger(__name__).warning(
                 "Elasticsearch client not available. Install 'elasticsearch' package."
             )
             return None
-    
+
     def emit(self, record: logging.LogRecord) -> None:
         """Emit record to Elasticsearch."""
         if not self.es_client:
             return
-            
+
         try:
             self.emit_count += 1
             self.last_emit_time = time.time()
-            
+
             # Convert log record to document
             doc = self._record_to_document(record)
-            
+
             # Add to batch buffer
             self.batch_buffer.append(doc)
-            
+
             # Check if batch should be flushed
-            if (len(self.batch_buffer) >= self.batch_size or 
-                time.time() - self.last_flush_time > self.batch_timeout):
+            if (
+                len(self.batch_buffer) >= self.batch_size
+                or time.time() - self.last_flush_time > self.batch_timeout
+            ):
                 self._flush_batch()
-            
+
         except Exception as e:
             self.handle_emit_error(record, e)
-    
+
     def _record_to_document(self, record: logging.LogRecord) -> Dict[str, Any]:
         """Convert log record to Elasticsearch document."""
         doc = {
-            '@timestamp': time.strftime('%Y-%m-%dT%H:%M:%S.%fZ', time.gmtime(record.created)),
-            'level': record.levelname,
-            'logger': record.name,
-            'message': record.getMessage(),
-            'module': record.module,
-            'function': record.funcName,
-            'line': record.lineno,
-            'thread': record.thread,
-            'process': record.process
+            "@timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.%fZ", time.gmtime(record.created)),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+            "thread": record.thread,
+            "process": record.process,
         }
-        
+
         # Add exception info if present
         if record.exc_info:
-            doc['exception'] = self.format(record)
-        
+            doc["exception"] = self.format(record)
+
         # Add extra fields
-        if hasattr(record, 'context'):
-            doc['context'] = record.context
-        
+        if hasattr(record, "context"):
+            doc["context"] = record.context
+
         return doc
-    
+
     def _flush_batch(self) -> None:
         """Flush batch buffer to Elasticsearch."""
         if not self.batch_buffer or not self.es_client:
             return
-        
+
         try:
             # Create bulk body for Elasticsearch
             bulk_body = []
             for doc in self.batch_buffer:
                 index_name = time.strftime(self.index_pattern)
-                bulk_body.append({
-                    "index": {
-                        "_index": index_name,
-                        "_type": self.doc_type
-                    }
-                })
+                bulk_body.append({"index": {"_index": index_name, "_type": self.doc_type}})
                 bulk_body.append(doc)
-            
+
             # Execute bulk operation
             self.es_client.bulk(body=bulk_body)
-            
+
             self.batch_buffer.clear()
             self.last_flush_time = time.time()
-            
+
         except Exception as e:
             self.error_count += 1
-            logging.getLogger(__name__).error(
-                f"Failed to flush batch to Elasticsearch: {e}"
-            )
+            logging.getLogger(__name__).error(f"Failed to flush batch to Elasticsearch: {e}")
 
 
 class EnterpriseInfluxDBLogHandler(BaseLogHandler):
     """Enterprise InfluxDB logging handler for time-series log data."""
-    
+
     def __init__(self, config: HandlerConfig):
         super().__init__(config)
-        
+
         # InfluxDB configuration
-        self.host = config.parameters.get('host', 'localhost')
-        self.port = config.parameters.get('port', 8086)
-        self.database = config.parameters.get('database', 'logs')
-        self.measurement = config.parameters.get('measurement', 'application_logs')
-        
+        self.host = config.parameters.get("host", "localhost")
+        self.port = config.parameters.get("port", 8086)
+        self.database = config.parameters.get("database", "logs")
+        self.measurement = config.parameters.get("measurement", "application_logs")
+
         # Initialize InfluxDB client
         self.influx_client = self._create_influx_client()
-        
+
         # Batch processing
-        self.batch_size = config.parameters.get('batch_size', 100)
+        self.batch_size = config.parameters.get("batch_size", 100)
         self.batch_buffer: List[Dict[str, Any]] = []
-    
+
     def _create_influx_client(self):
         """Create InfluxDB client if available."""
         try:
             from influxdb_client import InfluxDBClient
+
             return InfluxDBClient(
                 url=f"http://{self.host}:{self.port}",
-                token=self.config.parameters.get('token'),
-                org=self.config.parameters.get('org'),
+                token=self.config.parameters.get("token"),
+                org=self.config.parameters.get("org"),
             )
         except ImportError:
             logging.getLogger(__name__).warning(
                 "InfluxDB client not available. Install 'influxdb-client' package."
             )
             return None
-    
+
     def emit(self, record: logging.LogRecord) -> None:
         """Emit record to InfluxDB."""
         if not self.influx_client:
             return
-            
+
         try:
             self.emit_count += 1
             self.last_emit_time = time.time()
-            
+
             # Convert log record to InfluxDB point
             point = self._record_to_point(record)
-            
+
             # Add to batch buffer
             self.batch_buffer.append(point)
-            
+
             # Flush if batch is full
             if len(self.batch_buffer) >= self.batch_size:
                 self._flush_batch()
-            
+
         except Exception as e:
             self.handle_emit_error(record, e)
-    
+
     def _record_to_point(self, record: logging.LogRecord) -> Dict[str, Any]:
         """Convert log record to InfluxDB point."""
         return {
-            'measurement': self.measurement,
-            'time': int(record.created * 1000000000),  # Nanoseconds
-            'tags': {
-                'level': record.levelname,
-                'logger': record.name,
-                'module': record.module,
-                'function': record.funcName
+            "measurement": self.measurement,
+            "time": int(record.created * 1000000000),  # Nanoseconds
+            "tags": {
+                "level": record.levelname,
+                "logger": record.name,
+                "module": record.module,
+                "function": record.funcName,
             },
-            'fields': {
-                'message': record.getMessage(),
-                'line': record.lineno,
-                'thread': record.thread,
-                'process': record.process
-            }
+            "fields": {
+                "message": record.getMessage(),
+                "line": record.lineno,
+                "thread": record.thread,
+                "process": record.process,
+            },
         }
-    
+
     def _flush_batch(self) -> None:
         """Flush batch buffer to InfluxDB."""
         if not self.batch_buffer or not self.influx_client:
             return
-        
+
         try:
             write_api = self.influx_client.write_api()
             write_api.write(
-                bucket=self.config.parameters.get('bucket', 'logs'),
-                record=self.batch_buffer
+                bucket=self.config.parameters.get("bucket", "logs"), record=self.batch_buffer
             )
-            
+
             self.batch_buffer.clear()
-            
+
         except Exception as e:
             self.error_count += 1
-            logging.getLogger(__name__).error(
-                f"Failed to flush batch to InfluxDB: {e}"
-            )
+            logging.getLogger(__name__).error(f"Failed to flush batch to InfluxDB: {e}")
 
 
 # LogHandlerFactory will be defined after all handler classes
@@ -572,7 +576,7 @@ class ContextFormatter(logging.Formatter):
         # Ensure 'context' attribute exists on the record before super().format()
         # if the main format string self._fmt (used by super().format()) contains '%(context)s'.
         if not hasattr(record, "context"):
-            record.context = {} # Default to an empty dict if not present
+            record.context = {}  # Default to an empty dict if not present
 
         # Default formatting first
         s = super().format(record)
@@ -581,7 +585,9 @@ class ContextFormatter(logging.Formatter):
         # string that might have been in the original format string, or further refines
         # the output of what %(context)s produced.
         context_str = ""
-        if hasattr(record, "context") and record.context: # record.context is now guaranteed to exist
+        if (
+            hasattr(record, "context") and record.context
+        ):  # record.context is now guaranteed to exist
             if isinstance(record.context, dict):
                 context_items = [f"{k}={v}" for k, v in record.context.items()]
                 context_str = ", ".join(context_items)
@@ -608,7 +614,12 @@ class ContextFormatter(logging.Formatter):
 class EnterpriseAsyncPostgresHandler(BaseLogHandler):
     """Enterprise asynchronous handler for logging to PostgreSQL database using SQLAlchemy."""
 
-    def __init__(self, config: HandlerConfig, session_maker: async_sessionmaker[AsyncSession], loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(
+        self,
+        config: HandlerConfig,
+        session_maker: async_sessionmaker[AsyncSession],
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
         """Initialize the handler with SQLAlchemy session maker and event loop.
 
         Args:
@@ -619,16 +630,15 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
         """
         super().__init__(config)
         self._session_maker = session_maker
-        self._loop = loop # Still needed for call_soon_threadsafe
+        self._loop = loop  # Still needed for call_soon_threadsafe
         self._queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-        self._task: asyncio.Task[None] | None = None # Type hint for task
+        self._task: asyncio.Task[None] | None = None  # Type hint for task
         self._closed = False
 
     def start_processing(self) -> None:
         """Starts the queue processing task. Should be called when an event loop is available."""
         if self._task is None and not self._closed and self._loop:
             self._task = self._loop.create_task(self._process_queue())
-
 
     def emit(self, record: logging.LogRecord) -> None:
         """Format record and place it in the queue for async processing.
@@ -654,10 +664,10 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
 
     def _format_record(self, record: logging.LogRecord) -> dict[str, Any]:
         """Format the log record into a dictionary suitable for DB insertion."""
-        context_data = None # Changed from context_json
+        context_data = None  # Changed from context_json
         if hasattr(record, "context") and record.context:
             if isinstance(record.context, dict) or isinstance(record.context, list):
-                context_data = record.context # Keep as Python dict/list for SQLAlchemy
+                context_data = record.context  # Keep as Python dict/list for SQLAlchemy
             else:
                 try:
                     # Attempt to load if it's a JSON string
@@ -665,7 +675,6 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                 except json.JSONDecodeError:
                     # Fallback for non-serializable or non-JSON string
                     context_data = {"raw_context": str(record.context)}
-
 
         exc_text = None
         if record.exc_info and not record.exc_text:
@@ -689,7 +698,7 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
             "filename": record.filename,
             "lineno": record.lineno,
             "func_name": record.funcName,
-            "context_json": context_data, # Renamed from context_json
+            "context_json": context_data,  # Renamed from context_json
             "exception_text": exc_text,
         }
 
@@ -697,7 +706,7 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
         """Attempt to insert a single log record into the database.
 
         Note: The table name is implicitly handled by the Log model.
-        
+
         Returns:
             bool: True if successful, False if failed (caller determines retry)
         """
@@ -707,47 +716,56 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
             log_entry = Log(**record_data)
 
             async with self._session_maker() as session:
-                async with session.begin(): # Start a transaction
+                async with session.begin():  # Start a transaction
                     session.add(log_entry)
                 # Commit happens automatically with session.begin() context manager,
                 # or call await session.commit() if not using begin()
             return True
-        except SQLAlchemyError as e: # Catch specific SQLAlchemy errors
+        except SQLAlchemyError as e:  # Catch specific SQLAlchemy errors
             # Improved error analysis to determine retryability
             error_msg = str(e)
-            
+
             # Check for specific retryable conditions
             retryable_conditions = [
-                "connection", "timeout", "deadlock", "lock", 
-                "could not connect", "connection reset", "broken pipe",
-                "resource temporarily unavailable", "too many connections"
+                "connection",
+                "timeout",
+                "deadlock",
+                "lock",
+                "could not connect",
+                "connection reset",
+                "broken pipe",
+                "resource temporarily unavailable",
+                "too many connections",
             ]
-            
+
             is_retryable = any(
-                condition in error_msg.lower() 
-                for condition in retryable_conditions
+                condition in error_msg.lower() for condition in retryable_conditions
             )
-            
+
             # Check for specific non-retryable conditions
             non_retryable_conditions = [
-                "syntax error", "column", "constraint", "relation",
-                "does not exist", "invalid", "permission denied",
-                "authentication failed"
+                "syntax error",
+                "column",
+                "constraint",
+                "relation",
+                "does not exist",
+                "invalid",
+                "permission denied",
+                "authentication failed",
             ]
-            
+
             is_non_retryable = any(
-                condition in error_msg.lower()
-                for condition in non_retryable_conditions
+                condition in error_msg.lower() for condition in non_retryable_conditions
             )
-            
+
             # Log with appropriate level based on retryability
-            if is_non_retryable or (not is_retryable and hasattr(e, 'orig')):
+            if is_non_retryable or (not is_retryable and hasattr(e, "orig")):
                 # Check original database error if available
-                if hasattr(e, 'orig'):
+                if hasattr(e, "orig"):
                     orig_error = str(e.orig)
                     if any(condition in orig_error.lower() for condition in retryable_conditions):
                         is_retryable = True
-            
+
             log_level = logging.WARNING if is_retryable else logging.ERROR
             logging.getLogger(__name__).log(
                 log_level,
@@ -756,12 +774,12 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                 is_retryable,
                 exc_info=True,
             )
-            
+
             # Raise only if retryable to trigger retry logic
             if is_retryable:
                 raise
-            return False # Non-retryable error
-        except Exception as e: # Catch any other unexpected errors
+            return False  # Non-retryable error
+        except Exception as e:  # Catch any other unexpected errors
             logging.getLogger(__name__).error(
                 "Unexpected error in _attempt_db_insert: %s",
                 str(e),
@@ -774,7 +792,7 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
         max_retries = 3
         base_backoff = 1.0  # seconds
         attempt = 0
-        
+
         while attempt < max_retries:
             try:
                 if await self._attempt_db_insert(record_data):
@@ -806,7 +824,7 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                         str(db_err),
                     )
                     await asyncio.sleep(wait_time)
-            except OSError as conn_err: # Network/connection issues
+            except OSError as conn_err:  # Network/connection issues
                 attempt += 1
                 if attempt >= max_retries:
                     logging.getLogger(__name__).error(
@@ -832,8 +850,8 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                 # Non-database errors, likely programming errors - don't retry
                 logging.getLogger(__name__).error(
                     "AsyncPostgresHandler: Non-retryable error for record: %s. Error: %s",
-                    record_data.get("message", "N/A"), 
-                    e, 
+                    record_data.get("message", "N/A"),
+                    e,
                     exc_info=True,
                 )
                 return  # Stop processing this record
@@ -875,18 +893,22 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
         if not self._closed:
             self._closed = True
             # Ensure task is created before trying to put None on queue if it wasn't started
-            if self._task is None and self._loop: # Ensure the task is running or has run
-                 self.start_processing() # Try to start it if it never did
+            if self._task is None and self._loop:  # Ensure the task is running or has run
+                self.start_processing()  # Try to start it if it never did
 
-            if self._loop and self._loop.is_running(): # Check if loop is available for call_soon_threadsafe
-                 self._loop.call_soon_threadsafe(lambda: self._queue.put_nowait(None))
-            else: # Fallback if loop is closed, try to put directly (might fail if full)
+            if (
+                self._loop and self._loop.is_running()
+            ):  # Check if loop is available for call_soon_threadsafe
+                self._loop.call_soon_threadsafe(lambda: self._queue.put_nowait(None))
+            else:  # Fallback if loop is closed, try to put directly (might fail if full)
                 try:
                     self._queue.put_nowait(None)
                 except QueueFull:
-                    logging.getLogger(__name__).error("AsyncPostgresHandler: Queue full while trying to add sentinel in close().")
+                    logging.getLogger(__name__).error(
+                        "AsyncPostgresHandler: Queue full while trying to add sentinel in close()."
+                    )
 
-        super().close() # Calls Handler.close()
+        super().close()  # Calls Handler.close()
 
     async def wait_closed(self) -> None:
         """Wait for the queue processing task to finish.
@@ -903,7 +925,7 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
 
 class LogHandlerFactory:
     """Factory for creating enterprise logging handlers with proper type annotations."""
-    
+
     # Mapping of handler types to concrete classes
     HANDLER_CLASSES: Dict[HandlerType, Type[BaseLogHandler]] = {
         HandlerType.CONSOLE: EnterpriseConsoleLogHandler,
@@ -912,47 +934,49 @@ class LogHandlerFactory:
         HandlerType.INFLUXDB: EnterpriseInfluxDBLogHandler,
         HandlerType.DATABASE: EnterpriseAsyncPostgresHandler,
     }
-    
+
     @classmethod
     def create_handler(cls, config: HandlerConfig) -> BaseLogHandler:
         """Create logging handler from configuration.
-        
+
         Replaces placeholder handler types with concrete implementations.
-        
+
         Args:
             config: Handler configuration specifying type and parameters
-            
+
         Returns:
             Concrete handler implementation
-            
+
         Raises:
             ValueError: If handler type is not supported
             RuntimeError: If handler creation fails
         """
         handler_class = cls.HANDLER_CLASSES.get(config.handler_type)
-        
+
         if not handler_class:
             raise ValueError(f"Unsupported handler type: {config.handler_type}")
-        
+
         try:
             handler = handler_class(config)
-            
+
             # Apply filters if configured
             for filter_name in config.filters:
                 log_filter = cls._create_filter(filter_name)
                 if log_filter:
                     handler.addFilter(log_filter)
-            
+
             return handler
-            
+
         except Exception as e:
             raise RuntimeError(f"Failed to create handler {config.name}: {e}")
-    
+
     @classmethod
-    def register_handler_class(cls, handler_type: HandlerType, handler_class: Type[BaseLogHandler]) -> None:
+    def register_handler_class(
+        cls, handler_type: HandlerType, handler_class: Type[BaseLogHandler]
+    ) -> None:
         """Register custom handler class for extensibility."""
         cls.HANDLER_CLASSES[handler_type] = handler_class
-    
+
     @classmethod
     def _create_filter(cls, filter_name: str) -> Optional[logging.Filter]:
         """Create logging filter by name."""
@@ -960,7 +984,7 @@ class LogHandlerFactory:
         return None
 
 
-class LoggerService:
+class LoggerService(ServiceProtocol):
     """Enterprise logging service with comprehensive handler management.
 
     Configures and manages logging to multiple destinations including console,
@@ -968,10 +992,10 @@ class LoggerService:
     and enterprise-grade handler implementations.
     """
 
-    _influx_client: Optional["InfluxDBClient"] = None # type: ignore[name-defined]
-    _influx_write_api: Optional["WriteApi"] = None # type: ignore[name-defined]
-    _sqlalchemy_engine: AsyncEngine | None = None # Added
-    _sqlalchemy_session_factory: async_sessionmaker[AsyncSession] | None = None # Added
+    _influx_client: Optional["InfluxDBClient"] = None  # type: ignore[name-defined]
+    _influx_write_api: Optional["WriteApi"] = None  # type: ignore[name-defined]
+    _sqlalchemy_engine: AsyncEngine | None = None  # Added
+    _sqlalchemy_session_factory: async_sessionmaker[AsyncSession] | None = None  # Added
 
     def __init__(
         self,
@@ -1011,12 +1035,16 @@ class LoggerService:
         # SQLAlchemy DB Handler setup
         self._db_config: dict[str, Any] = self._config_manager.get("logging.database", {})
         self._db_enabled = bool(self._db_config.get("enabled", False))
-        self._db_session_maker = db_session_maker # Store the session_maker
-        self._async_handler: EnterpriseAsyncPostgresHandler | None = None # Updated to enterprise handler
+        self._db_session_maker = db_session_maker  # Store the session_maker
+        self._async_handler: EnterpriseAsyncPostgresHandler | None = (
+            None  # Updated to enterprise handler
+        )
         # self._db_pool: PoolType | None = None # Removed, using session_maker
 
         # Queue and thread for handling synchronous logging calls from async context
-        self._queue: queue.Queue[tuple[Callable[..., None], tuple, dict]] = queue.Queue() # Keep this for sync calls
+        self._queue: queue.Queue[tuple[Callable[..., None], tuple, dict]] = (
+            queue.Queue()
+        )  # Keep this for sync calls
         self._thread = threading.Thread(target=self._process_log_queue, daemon=True)
         self._stop_event = threading.Event()
         self._loggers: dict[str, logging.Logger] = {}
@@ -1025,6 +1053,11 @@ class LoggerService:
         self._setup_logging()
         self._thread.start()
         self.info("LoggerService initialized.", source_module="LoggerService")
+
+    async def initialize(self) -> None:
+        """Async initialization hook for compatibility with ServiceProtocol."""
+        # No asynchronous setup currently required
+        return None
 
     def _process_log_queue(self) -> None:
         """Worker thread target to process log messages from the queue."""
@@ -1105,7 +1138,7 @@ class LoggerService:
 
     def _filter_sensitive_data(
         self,
-        context: Mapping[str, object] | None, # Changed to Mapping
+        context: Mapping[str, object] | None,  # Changed to Mapping
     ) -> dict[str, object] | None:
         """Recursively filter sensitive data from log context.
 
@@ -1191,7 +1224,12 @@ class LoggerService:
 
         # Log the message using the standard logging interface
         logger.log(
-            level, message, *args, exc_info=exc_info, extra=extra_data, stacklevel=2,
+            level,
+            message,
+            *args,
+            exc_info=exc_info,
+            extra=extra_data,
+            stacklevel=2,
         )  # Pass *args
         # stacklevel=2 ensures filename/lineno are from the caller of this
         # method
@@ -1215,7 +1253,11 @@ class LoggerService:
             context: Optional context information
         """
         self.log(
-            logging.DEBUG, message, *args, source_module=source_module, context=context,
+            logging.DEBUG,
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
         )  # Pass *args
 
     def info(
@@ -1235,7 +1277,11 @@ class LoggerService:
             context: Optional context information
         """
         self.log(
-            logging.INFO, message, *args, source_module=source_module, context=context,
+            logging.INFO,
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
         )  # Pass *args
 
     def warning(
@@ -1255,7 +1301,11 @@ class LoggerService:
             context: Optional context information
         """
         self.log(
-            logging.WARNING, message, *args, source_module=source_module, context=context,
+            logging.WARNING,
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
         )  # Pass *args
 
     def error(
@@ -1345,22 +1395,22 @@ class LoggerService:
 
     def initialize_enterprise_handlers(self) -> None:
         """Initialize enterprise handlers from configuration."""
-        
+
         handlers_config = self._config_manager.get("logging.enterprise_handlers", [])
-        
+
         for handler_config_data in handlers_config:
             try:
                 # Create handler configuration
                 config = HandlerConfig(
-                    handler_type=HandlerType(handler_config_data['type']),
-                    name=handler_config_data['name'],
-                    level=LogLevel(handler_config_data.get('level', 'INFO')),
-                    format_string=handler_config_data.get('format'),
-                    parameters=handler_config_data.get('parameters', {}),
-                    enabled=handler_config_data.get('enabled', True),
-                    filters=handler_config_data.get('filters', [])
+                    handler_type=HandlerType(handler_config_data["type"]),
+                    name=handler_config_data["name"],
+                    level=LogLevel(handler_config_data.get("level", "INFO")),
+                    format_string=handler_config_data.get("format"),
+                    parameters=handler_config_data.get("parameters", {}),
+                    enabled=handler_config_data.get("enabled", True),
+                    filters=handler_config_data.get("filters", []),
                 )
-                
+
                 # Create and register handler
                 if config.enabled:
                     if config.handler_type == HandlerType.DATABASE:
@@ -1372,18 +1422,20 @@ class LoggerService:
                         else:
                             self.warning(
                                 "Database handler requested but session_maker not available",
-                                source_module="LoggerService"
+                                source_module="LoggerService",
                             )
                             continue
                     else:
                         handler = LogHandlerFactory.create_handler(config)
-                    
+
                     self._enterprise_handlers[config.name] = handler
                     self._handler_configs[config.name] = config
                     self._root_logger.addHandler(handler)
-                    
-                    self.info(f"Initialized enterprise handler: {config.name} ({config.handler_type.value})")
-                
+
+                    self.info(
+                        f"Initialized enterprise handler: {config.name} ({config.handler_type.value})"
+                    )
+
             except Exception as e:
                 self.error(f"Failed to initialize enterprise handler: {e}")
 
@@ -1393,12 +1445,12 @@ class LoggerService:
 
     def add_enterprise_handler(self, config: HandlerConfig) -> bool:
         """Add new enterprise handler at runtime."""
-        
+
         try:
             if config.name in self._enterprise_handlers:
                 self.warning(f"Enterprise handler {config.name} already exists")
                 return False
-            
+
             if config.handler_type == HandlerType.DATABASE:
                 # Special handling for database handler
                 if self._db_session_maker:
@@ -1410,53 +1462,53 @@ class LoggerService:
                     return False
             else:
                 handler = LogHandlerFactory.create_handler(config)
-            
+
             self._enterprise_handlers[config.name] = handler
             self._handler_configs[config.name] = config
             self._root_logger.addHandler(handler)
-            
+
             self.info(f"Added enterprise handler: {config.name}")
             return True
-            
+
         except Exception as e:
             self.error(f"Failed to add enterprise handler {config.name}: {e}")
             return False
 
     def remove_enterprise_handler(self, name: str) -> bool:
         """Remove enterprise handler by name."""
-        
+
         if name in self._enterprise_handlers:
             handler = self._enterprise_handlers[name]
             self._root_logger.removeHandler(handler)
             handler.close()
-            
+
             del self._enterprise_handlers[name]
             del self._handler_configs[name]
-            
+
             self.info(f"Removed enterprise handler: {name}")
             return True
-        
+
         return False
 
     def get_enterprise_handler_statistics(self) -> Dict[str, Dict[str, Any]]:
         """Get statistics for all enterprise handlers."""
-        
+
         stats = {}
-        
+
         for name, handler in self._enterprise_handlers.items():
             stats[name] = {
-                'type': self._handler_configs[name].handler_type.value,
-                'emit_count': handler.emit_count,
-                'error_count': handler.error_count,
-                'last_emit_time': handler.last_emit_time,
-                'enabled': self._handler_configs[name].enabled
+                "type": self._handler_configs[name].handler_type.value,
+                "emit_count": handler.emit_count,
+                "error_count": handler.error_count,
+                "last_emit_time": handler.last_emit_time,
+                "enabled": self._handler_configs[name].enabled,
             }
-        
+
         return stats
 
     def flush_all_enterprise_handlers(self) -> None:
         """Flush all enterprise handlers."""
-        
+
         for handler in self._enterprise_handlers.values():
             try:
                 handler.flush()
@@ -1465,7 +1517,7 @@ class LoggerService:
 
     def close_all_enterprise_handlers(self) -> None:
         """Close all enterprise handlers."""
-        
+
         for handler in self._enterprise_handlers.values():
             try:
                 handler.close()
@@ -1524,9 +1576,9 @@ class LoggerService:
             # and asserted non-None, these isinstance checks are less critical
             # but don't hurt if config_manager.get could return non-str for some reason.
             # However, the primary issue for mypy is None vs str.
-            if not isinstance(token, str): # This check might be deemed redundant by mypy now
+            if not isinstance(token, str):  # This check might be deemed redundant by mypy now
                 raise TypeError("Token must be a string")
-            if not isinstance(org, str): # This check might be deemed redundant by mypy now
+            if not isinstance(org, str):  # This check might be deemed redundant by mypy now
                 raise TypeError("Organization must be a string")
 
             # Now use the imported InfluxDBClient
@@ -1582,7 +1634,7 @@ class LoggerService:
             for key, value in tags.items():
                 point = point.tag(key, str(value))
 
-            valid_fields: dict[str, Any] = {} # Changed to Any for diagnosis
+            valid_fields: dict[str, Any] = {}  # Changed to Any for diagnosis
             for key, value in fields.items():
                 if isinstance(value, float | int | bool | str):
                     valid_fields[key] = value
@@ -1590,7 +1642,7 @@ class LoggerService:
                     valid_fields[key] = float(value)
                 else:
                     self.warning(
-                        "Unsupported type for InfluxDB field '%s': %s. " "Converting to string.",
+                        "Unsupported type for InfluxDB field '%s': %s. Converting to string.",
                         key,
                         type(value),
                         source_module="LoggerService",
@@ -1678,10 +1730,10 @@ class LoggerService:
         # Initialize SQLAlchemy engine and session factory if DB logging is enabled
         if self._db_enabled:
             await self._initialize_sqlalchemy()
-            
+
         # Initialize enterprise handlers (includes database handler if configured)
         self.initialize_enterprise_handlers()
-        
+
         # Legacy database handler setup (if not using enterprise handlers)
         if self._db_enabled and self._async_handler is None and self._db_session_maker:
             self.info(
@@ -1692,8 +1744,10 @@ class LoggerService:
             db_config = HandlerConfig(
                 handler_type=HandlerType.DATABASE,
                 name="legacy_database",
-                level=LogLevel(str(self._config_manager.get("logging.database.level", "INFO")).upper()),
-                enabled=True
+                level=LogLevel(
+                    str(self._config_manager.get("logging.database.level", "INFO")).upper()
+                ),
+                enabled=True,
             )
             try:
                 self._async_handler = EnterpriseAsyncPostgresHandler(
@@ -1704,7 +1758,6 @@ class LoggerService:
                 logging.info("Legacy SQLAlchemy Database logging handler added in start().")
             except Exception:
                 logging.exception("Failed to add legacy EnterpriseAsyncPostgresHandler in start()")
-
 
         # Subscribe to LOG events from the event bus
         try:
@@ -1725,15 +1778,25 @@ class LoggerService:
         for handler in self._enterprise_handlers.values():
             if isinstance(handler, EnterpriseAsyncPostgresHandler):
                 handler.start_processing()
-                self.info(f"Enterprise database handler {handler.config.name} processing started.", source_module="LoggerService")
-        
+                self.info(
+                    f"Enterprise database handler {handler.config.name} processing started.",
+                    source_module="LoggerService",
+                )
+
         # Start the legacy DB handler's internal processing task
         if self._async_handler:
             self._async_handler.start_processing()
-            self.info("Legacy AsyncPostgresHandler processing started.", source_module="LoggerService")
-        elif self._db_enabled and not any(isinstance(h, EnterpriseAsyncPostgresHandler) for h in self._enterprise_handlers.values()):
-            self.error("DB logging enabled, but no database handlers initialized in start().", source_module="LoggerService")
-
+            self.info(
+                "Legacy AsyncPostgresHandler processing started.", source_module="LoggerService"
+            )
+        elif self._db_enabled and not any(
+            isinstance(h, EnterpriseAsyncPostgresHandler)
+            for h in self._enterprise_handlers.values()
+        ):
+            self.error(
+                "DB logging enabled, but no database handlers initialized in start().",
+                source_module="LoggerService",
+            )
 
     async def stop(self) -> None:
         """Shut down the logger service gracefully.
@@ -1759,26 +1822,43 @@ class LoggerService:
         for name, handler in self._enterprise_handlers.items():
             try:
                 if isinstance(handler, EnterpriseAsyncPostgresHandler):
-                    self.info(f"Closing enterprise database handler {name}...", source_module="LoggerService")
+                    self.info(
+                        f"Closing enterprise database handler {name}...",
+                        source_module="LoggerService",
+                    )
                     handler.close()
                     if hasattr(handler, "wait_closed"):
                         await asyncio.wait_for(handler.wait_closed(), timeout=10.0)
-                        self.info(f"Enterprise database handler {name} closed gracefully.", source_module="LoggerService")
+                        self.info(
+                            f"Enterprise database handler {name} closed gracefully.",
+                            source_module="LoggerService",
+                        )
                 else:
                     handler.close()
                     self.info(f"Enterprise handler {name} closed.", source_module="LoggerService")
             except TimeoutError:
-                self.warning(f"Timeout waiting for enterprise handler {name} to close.", source_module="LoggerService")
+                self.warning(
+                    f"Timeout waiting for enterprise handler {name} to close.",
+                    source_module="LoggerService",
+                )
             except Exception as e:
-                self.error(f"Error closing enterprise handler {name}: {e}", source_module="LoggerService", exc_info=True)
+                self.error(
+                    f"Error closing enterprise handler {name}: {e}",
+                    source_module="LoggerService",
+                    exc_info=True,
+                )
 
         # Close the legacy SQLAlchemy handler
         if self._async_handler:
-            self.info("Closing legacy SQLAlchemy database log handler...", source_module="LoggerService")
+            self.info(
+                "Closing legacy SQLAlchemy database log handler...", source_module="LoggerService"
+            )
             self._async_handler.close()
             try:
                 if hasattr(self._async_handler, "wait_closed"):
-                    await asyncio.wait_for(self._async_handler.wait_closed(), timeout=10.0) # Increased timeout
+                    await asyncio.wait_for(
+                        self._async_handler.wait_closed(), timeout=10.0
+                    )  # Increased timeout
                     self.info(
                         "Legacy SQLAlchemy database log handler closed gracefully.",
                         source_module="LoggerService",
@@ -1808,7 +1888,10 @@ class LoggerService:
     async def _initialize_sqlalchemy(self) -> None:
         """Initialize the SQLAlchemy engine and session factory for database logging."""
         if not self._db_enabled:
-            self.info("Database logging is disabled. SQLAlchemy setup skipped.", source_module="LoggerService")
+            self.info(
+                "Database logging is disabled. SQLAlchemy setup skipped.",
+                source_module="LoggerService",
+            )
             return
 
         db_url: str | None = self._config_manager.get("logging.database.connection_string")
@@ -1817,34 +1900,41 @@ class LoggerService:
                 "Database logging enabled but connection_string is missing. SQLAlchemy setup failed.",
                 source_module="LoggerService",
             )
-            self._db_enabled = False # Disable DB logging if URL is missing
+            self._db_enabled = False  # Disable DB logging if URL is missing
             return
 
         try:
             self.info(
                 "Initializing SQLAlchemy async engine for logging...",
                 source_module="LoggerService",
-                context={"database_url": str(db_url)[:str(db_url).find("@")] + "@********" if "@" in str(db_url) else str(db_url)}, # Mask credentials
+                context={
+                    "database_url": str(db_url)[: str(db_url).find("@")] + "@********"
+                    if "@" in str(db_url)
+                    else str(db_url)
+                },  # Mask credentials
             )
             pool_size = self._config_manager.get_int("logging.database.pool_size", 5)
             max_overflow = self._config_manager.get_int("logging.database.max_overflow", 10)
             echo_sql = self._config_manager.get("logging.database.echo_sql", False)
 
             self._sqlalchemy_engine = create_async_engine(
-                str(db_url), # Ensure db_url is a string
+                str(db_url),  # Ensure db_url is a string
                 pool_size=pool_size,
                 max_overflow=max_overflow,
                 echo=echo_sql,
             )
             # Use async_sessionmaker for AsyncEngine and AsyncSession
             self._sqlalchemy_session_factory = async_sessionmaker(
-                bind=self._sqlalchemy_engine, class_=AsyncSession, expire_on_commit=False, autoflush=False,
+                bind=self._sqlalchemy_engine,
+                class_=AsyncSession,
+                expire_on_commit=False,
+                autoflush=False,
             )
             self.info(
                 "SQLAlchemy async engine and session factory initialized successfully.",
                 source_module="LoggerService",
             )
-        except SQLAlchemyError as e: # Catch SQLAlchemy specific errors
+        except SQLAlchemyError as e:  # Catch SQLAlchemy specific errors
             self.critical(
                 "Failed to initialize SQLAlchemy engine: %s. Disabling DB logging.",
                 e,
@@ -1853,8 +1943,8 @@ class LoggerService:
             )
             self._sqlalchemy_engine = None
             self._sqlalchemy_session_factory = None
-            self._db_enabled = False # Disable DB logging on error
-        except Exception as e: # Catch any other unexpected errors
+            self._db_enabled = False  # Disable DB logging on error
+        except Exception as e:  # Catch any other unexpected errors
             self.critical(
                 "An unexpected error occurred during SQLAlchemy engine initialization: %s. Disabling DB logging.",
                 e,
@@ -1863,7 +1953,7 @@ class LoggerService:
             )
             self._sqlalchemy_engine = None
             self._sqlalchemy_session_factory = None
-            self._db_enabled = False # Disable DB logging on error
+            self._db_enabled = False  # Disable DB logging on error
 
     async def _handle_log_event(self, event: LogEvent) -> None:
         """Handle a LogEvent received from the event bus.

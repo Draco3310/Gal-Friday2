@@ -10,6 +10,7 @@ from .historical_data_service_interface import HistoricalDataService
 from .market_price_service_interface import MarketPriceService
 from .predictor_interface import PredictorInterface
 from .strategy_interface import StrategyInterface
+from .service_protocol import ServiceProtocol
 
 __all__ = [
     "ExecutionHandlerInterface",
@@ -18,4 +19,5 @@ __all__ = [
     "MarketPriceService",
     "PredictorInterface",
     "StrategyInterface",
+    "ServiceProtocol",
 ]

@@ -29,6 +29,8 @@ from typing import (
     TypeVar,
 )
 
+from .interfaces.service_protocol import ServiceProtocol
+
 # Third-party imports
 import typer
 from rich import print as rich_print
@@ -46,8 +48,9 @@ from .logger_service import (  # LoggerService for hints, ExcInfoType for runtim
 # Create TYPE_CHECKING specific imports
 if TYPE_CHECKING:
     from .core.halt_recovery import HaltRecoveryManager
+
     # Define a protocol for connection pools
-    class PoolProtocol(Protocol): # type: ignore[misc]
+    class PoolProtocol(Protocol):  # type: ignore[misc]
         """Protocol for connection pools."""
 
     # Type variable for connection pools
@@ -90,7 +93,7 @@ app = typer.Typer(help="Gal-Friday Trading System Control CLI")
 console = Console()
 
 
-class CLIService:
+class CLIService(ServiceProtocol):
     """Handle Command-Line Interface interactions for runtime control through Typer."""
 
     def __init__(
@@ -122,6 +125,11 @@ class CLIService:
         self._input_thread: threading.Thread | None = None
         self._background_tasks: set[asyncio.Task] = set()
         self.logger.info("CLIService initialized.", source_module=self.__class__.__name__)
+
+    async def initialize(self) -> None:
+        """Async initialization hook for compatibility with ServiceProtocol."""
+        # No asynchronous setup currently required
+        return None
 
     def launch_background_task(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Create a background task, add it to the tracking set, and set a done callback."""
@@ -195,7 +203,7 @@ class CLIService:
             )
             console.print("\n--- Gal-Friday CLI Ready (Fallback Mode) ---")
             console.print(
-                "Type a command (e.g., 'status', 'halt', 'stop') or '--help' " # E501
+                "Type a command (e.g., 'status', 'halt', 'stop') or '--help' "  # E501
                 "and press Enter.",
             )
             console.print("(Note: CLI runs in a separate thread)")
@@ -281,7 +289,7 @@ class CLIService:
                 source_module=self.__class__.__name__,
                 context={"command": " ".join(args)},
             )
-            self.logger.exception( # TRY400
+            self.logger.exception(  # TRY400
                 "Command execution failed - check logs for details",
                 source_module=self.__class__.__name__,
             )
@@ -573,7 +581,7 @@ class MockLoggerService(LoggerService):
         pubsub_manager: Optional["PubSubManager"],
         *,
         log_level: str = "INFO",
-        capture_logs: bool = True
+        capture_logs: bool = True,
     ) -> None:
         """Initialize the mock logger."""
         self._config_manager = config_manager
@@ -582,15 +590,9 @@ class MockLoggerService(LoggerService):
         self.capture_logs = capture_logs
         self._captured_logs: list[dict[str, Any]] = []
         self._lock = threading.Lock()
-        
+
         # Log level hierarchy
-        self._log_levels = {
-            "DEBUG": 0,
-            "INFO": 1,
-            "WARNING": 2,
-            "ERROR": 3,
-            "CRITICAL": 4
-        }
+        self._log_levels = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 
     def _should_log(self, level: str) -> bool:
         """Check if message should be logged based on level."""
@@ -603,18 +605,18 @@ class MockLoggerService(LoggerService):
         *args: object,
         source_module: str | None = None,
         context: Mapping[str, object] | None = None,
-        exc_info: ExcInfoType = None
+        exc_info: ExcInfoType = None,
     ) -> None:
         """Internal logging method."""
         if not self._should_log(level):
             return
-            
+
         # Format message with args
         try:
             formatted_message = message % args if args else message
         except (TypeError, ValueError):
             formatted_message = f"{message} {args}" if args else message
-        
+
         # Create log entry
         log_entry = {
             "level": level,
@@ -622,21 +624,21 @@ class MockLoggerService(LoggerService):
             "source_module": source_module,
             "context": dict(context) if context else None,
             "exc_info": exc_info,
-            "timestamp": datetime.now(timezone.utc)
+            "timestamp": datetime.now(timezone.utc),
         }
-        
+
         # Capture logs if enabled
         if self.capture_logs:
             with self._lock:
                 self._captured_logs.append(log_entry)
-        
+
         # Print to console
         prefix = f"[{source_module}]" if source_module else ""
         rich_print(f"{level} {prefix}: {formatted_message}")
-        
+
         if exc_info and not isinstance(exc_info, bool):
             rich_print(f"Exception: {exc_info}")
-        
+
         if context:
             rich_print(f"Context: {context}")
 
@@ -679,7 +681,14 @@ class MockLoggerService(LoggerService):
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log error message."""
-        self._log("ERROR", message, *args, source_module=source_module, context=context, exc_info=exc_info)
+        self._log(
+            "ERROR",
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
+            exc_info=exc_info,
+        )
 
     def exception(
         self,
@@ -690,8 +699,16 @@ class MockLoggerService(LoggerService):
     ) -> None:
         """Log exception message with traceback."""
         import sys
+
         exc_info = sys.exc_info()[1]
-        self._log("EXCEPTION", message, *args, source_module=source_module, context=context, exc_info=exc_info)
+        self._log(
+            "EXCEPTION",
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
+            exc_info=exc_info,
+        )
 
     def critical(
         self,
@@ -702,7 +719,14 @@ class MockLoggerService(LoggerService):
         exc_info: ExcInfoType = None,
     ) -> None:
         """Log critical message."""
-        self._log("CRITICAL", message, *args, source_module=source_module, context=context, exc_info=exc_info)
+        self._log(
+            "CRITICAL",
+            message,
+            *args,
+            source_module=source_module,
+            context=context,
+            exc_info=exc_info,
+        )
 
     def get_captured_logs(self, level: str | None = None) -> list[dict[str, Any]]:
         """Get captured logs, optionally filtered by level."""
@@ -731,24 +755,22 @@ class MockPubSubManager(PubSubManager):
 
     async def publish(self, event: Any) -> None:
         """Publish an event to subscribers."""
-        event_type = getattr(event, 'event_type', str(type(event).__name__))
-        
+        event_type = getattr(event, "event_type", str(type(event).__name__))
+
         # Record published event
         with self._lock:
-            self._published_events.append({
-                "event_type": event_type,
-                "event": event,
-                "timestamp": datetime.now(timezone.utc)
-            })
-            
+            self._published_events.append(
+                {"event_type": event_type, "event": event, "timestamp": datetime.now(timezone.utc)}
+            )
+
             subscribers = self._subscribers.get(event_type, [])
-        
+
         # Call subscribers
         for handler in subscribers:
             try:
-                if hasattr(handler, '__call__'):
+                if hasattr(handler, "__call__"):
                     result = handler(event)
-                    if hasattr(result, '__await__'):
+                    if hasattr(result, "__await__"):
                         await result
             except Exception as e:
                 self._logger.error(f"Error in event handler: {e}")
@@ -791,23 +813,10 @@ class MockConfigManager(ConfigManager):
     def __init__(self, *, config_data: dict[str, Any] | None = None) -> None:
         """Initialize the mock config manager."""
         self._config = config_data or {
-            "cli": {
-                "port": 8080,
-                "host": "localhost",
-                "timeout": 30
-            },
-            "portfolio": {
-                "valuation_currency": "USD",
-                "max_positions": 10
-            },
-            "risk_manager": {
-                "max_drawdown_pct": 10.0,
-                "position_size_pct": 2.0
-            },
-            "monitoring": {
-                "check_interval_seconds": 60,
-                "halt_on_errors": True
-            }
+            "cli": {"port": 8080, "host": "localhost", "timeout": 30},
+            "portfolio": {"valuation_currency": "USD", "max_positions": 10},
+            "risk_manager": {"max_drawdown_pct": 10.0, "position_size_pct": 2.0},
+            "monitoring": {"check_interval_seconds": 60, "halt_on_errors": True},
         }
         self._lock = threading.Lock()
 
@@ -815,7 +824,7 @@ class MockConfigManager(ConfigManager):
         """Get a configuration value using dot notation."""
         with self._lock:
             try:
-                keys = key.split('.')
+                keys = key.split(".")
                 value = self._config
                 for k in keys:
                     value = value[k]
@@ -834,7 +843,7 @@ class MockConfigManager(ConfigManager):
     def set(self, key: str, value: Any) -> None:
         """Set a configuration value (useful for testing)."""
         with self._lock:
-            keys = key.split('.')
+            keys = key.split(".")
             config = self._config
             for k in keys[:-1]:
                 if k not in config:
@@ -858,12 +867,12 @@ class MockPortfolioManager(PortfolioManager):
             "winning_trades": 15,
             "losing_trades": 5,
             "total_trades": 20,
-            "last_updated": datetime.now(timezone.utc)
+            "last_updated": datetime.now(timezone.utc),
         }
-        
+
         if initial_state:
             self._default_state.update(initial_state)
-        
+
         self._current_state = self._default_state.copy()
         self._lock = threading.Lock()
 
@@ -887,12 +896,9 @@ class MockPortfolioManager(PortfolioManager):
         """Simulate a trade result for testing."""
         with self._lock:
             self._current_state["unrealized_pnl"] = (
-                self._current_state.get("unrealized_pnl", Decimal("0"))
-                + profit_loss
+                self._current_state.get("unrealized_pnl", Decimal("0")) + profit_loss
             )
-            self._current_state["total_trades"] = (
-                self._current_state.get("total_trades", 0) + 1
-            )
+            self._current_state["total_trades"] = self._current_state.get("total_trades", 0) + 1
 
 
 class MockMonitoringService(MonitoringService):
@@ -919,15 +925,17 @@ class MockMonitoringService(MonitoringService):
                 self._is_halted = True
                 self._halt_reason = reason
                 self._halt_timestamp = datetime.now(timezone.utc)
-                
+
                 # Record halt event
-                self._halt_history.append({
-                    "action": "halt",
-                    "reason": reason,
-                    "source": source,
-                    "timestamp": self._halt_timestamp
-                })
-                
+                self._halt_history.append(
+                    {
+                        "action": "halt",
+                        "reason": reason,
+                        "source": source,
+                        "timestamp": self._halt_timestamp,
+                    }
+                )
+
                 console.print(f"HALTING SYSTEM - Source: {source}, Reason: {reason}")
             else:
                 console.print(f"System already halted. Current reason: {self._halt_reason}")
@@ -938,14 +946,12 @@ class MockMonitoringService(MonitoringService):
             if self._is_halted:
                 self._is_halted = False
                 self._resume_timestamp = datetime.now(timezone.utc)
-                
+
                 # Record resume event
-                self._halt_history.append({
-                    "action": "resume",
-                    "source": source,
-                    "timestamp": self._resume_timestamp
-                })
-                
+                self._halt_history.append(
+                    {"action": "resume", "source": source, "timestamp": self._resume_timestamp}
+                )
+
                 console.print(f"RESUMING SYSTEM - Source: {source}")
             else:
                 console.print("System is not currently halted")
@@ -973,7 +979,7 @@ class MockMainAppController:
                 self._running = False
                 self._shutdown_timestamp = datetime.now(timezone.utc)
                 console.print("SHUTTING DOWN APPLICATION")
-                
+
                 # Execute shutdown callbacks
                 for callback in self._shutdown_callbacks:
                     try:
@@ -1030,16 +1036,14 @@ def _create_mock_app_controller() -> MockMainAppController:
     return MockMainAppController()
 
 
-def _create_mock_services() -> (
-    tuple[
-        MockLoggerService,
-        MockConfigManager,
-        MockPubSubManager,
-        MockMonitoringService,
-        MockMainAppController,
-        MockPortfolioManager,
-    ]
-):
+def _create_mock_services() -> tuple[
+    MockLoggerService,
+    MockConfigManager,
+    MockPubSubManager,
+    MockMonitoringService,
+    MockMainAppController,
+    MockPortfolioManager,
+]:
     """Create all mock services needed for testing.
 
     Returns:
@@ -1144,387 +1148,385 @@ async def example_main() -> None:
 
 class CLIServiceRunner:
     """Production-grade CLI service runner with proper lifecycle management."""
-    
+
     def __init__(self) -> None:
         """Initialize the CLI service runner."""
         self.cli_service: Optional[CLIService] = None
         self.logger = logging.getLogger(__name__)
         self.shutdown_requested = False
-        
+
     def setup_argument_parser(self) -> argparse.ArgumentParser:
         """Setup command line argument parsing."""
-        
+
         parser = argparse.ArgumentParser(
-            description='Gal Friday CLI Service - Trading System Command Line Interface',
+            description="Gal Friday CLI Service - Trading System Command Line Interface",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
   python cli_service.py --config config/production.yaml --port 8080
   python cli_service.py --mode paper_trading --log-level DEBUG
   python cli_service.py --health-check
-            """
+            """,
         )
-        
+
         # Configuration options
         parser.add_argument(
-            '--config', '-c',
+            "--config",
+            "-c",
             type=str,
-            default='config/default.yaml',
-            help='Path to configuration file (default: config/default.yaml)'
+            default="config/default.yaml",
+            help="Path to configuration file (default: config/default.yaml)",
         )
-        
+
         parser.add_argument(
-            '--log-level', '-l',
-            choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-            default='INFO',
-            help='Set logging level (default: INFO)'
+            "--log-level",
+            "-l",
+            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            default="INFO",
+            help="Set logging level (default: INFO)",
         )
-        
+
         parser.add_argument(
-            '--log-file',
-            type=str,
-            help='Path to log file (default: logs to console)'
+            "--log-file", type=str, help="Path to log file (default: logs to console)"
         )
-        
+
         # Service options
         parser.add_argument(
-            '--port', '-p',
-            type=int,
-            default=8080,
-            help='CLI service port (default: 8080)'
+            "--port", "-p", type=int, default=8080, help="CLI service port (default: 8080)"
         )
-        
+
         parser.add_argument(
-            '--host',
-            type=str,
-            default='localhost',
-            help='CLI service host (default: localhost)'
+            "--host", type=str, default="localhost", help="CLI service host (default: localhost)"
         )
-        
+
         parser.add_argument(
-            '--mode', '-m',
-            choices=['live_trading', 'paper_trading', 'backtesting', 'data_collection'],
-            help='Trading mode to start in'
+            "--mode",
+            "-m",
+            choices=["live_trading", "paper_trading", "backtesting", "data_collection"],
+            help="Trading mode to start in",
         )
-        
+
         # Operational commands
         parser.add_argument(
-            '--health-check',
-            action='store_true',
-            help='Perform health check and exit'
+            "--health-check", action="store_true", help="Perform health check and exit"
         )
-        
+
         parser.add_argument(
-            '--validate-config',
-            action='store_true',
-            help='Validate configuration and exit'
+            "--validate-config", action="store_true", help="Validate configuration and exit"
         )
-        
+
         parser.add_argument(
-            '--example',
-            action='store_true',
-            help='Run example/demo mode with mock services'
+            "--example", action="store_true", help="Run example/demo mode with mock services"
         )
-        
+
+        parser.add_argument("--daemon", "-d", action="store_true", help="Run as daemon process")
+
         parser.add_argument(
-            '--daemon', '-d',
-            action='store_true',
-            help='Run as daemon process'
+            "--version", "-v", action="version", version="Gal Friday CLI Service v1.0.0"
         )
-        
-        parser.add_argument(
-            '--version', '-v',
-            action='version',
-            version='Gal Friday CLI Service v1.0.0'
-        )
-        
+
         return parser
-    
+
     def setup_logging(self, log_level: str, log_file: Optional[str] = None) -> None:
         """Setup comprehensive logging configuration."""
-        
+
         # Create formatter
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
-        
+
         # Setup root logger
         root_logger = logging.getLogger()
         root_logger.setLevel(getattr(logging, log_level))
-        
+
         # Clear existing handlers
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
-        
+
         # Console handler
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
-        
+
         # File handler if specified
         if log_file:
             log_path = Path(log_file)
             log_path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             file_handler = logging.FileHandler(log_file)
             file_handler.setFormatter(formatter)
             root_logger.addHandler(file_handler)
-            
+
             self.logger.info(f"Logging to file: {log_file}")
-        
+
         self.logger.info(f"Logging level set to: {log_level}")
-    
+
     def setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
-        
+
         def signal_handler(signum: int, frame: Any) -> None:
             signal_name = signal.Signals(signum).name
             self.logger.info(f"Received signal {signal_name}, initiating graceful shutdown...")
             self.shutdown_requested = True
-        
+
         # Handle common termination signals
-        signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
+        signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
         signal.signal(signal.SIGTERM, signal_handler)  # Termination request
-        
-        if hasattr(signal, 'SIGHUP'):
+
+        if hasattr(signal, "SIGHUP"):
             signal.signal(signal.SIGHUP, signal_handler)  # Hangup (Unix)
-    
+
     def validate_configuration(self, config_path: str) -> bool:
         """Validate configuration file and settings."""
-        
+
         try:
             config_file = Path(config_path)
             if not config_file.exists():
                 self.logger.error(f"Configuration file not found: {config_path}")
                 return False
-            
+
             # Load and validate configuration
             try:
                 config_manager = ConfigManager(config_path)
-                
+
                 # Perform basic validation
-                required_sections = ['database', 'logging', 'services']
+                required_sections = ["database", "logging", "services"]
                 missing_sections = []
                 for section in required_sections:
                     if not config_manager.get(section):
                         missing_sections.append(section)
-                
+
                 if missing_sections:
-                    self.logger.warning(f"Missing optional configuration sections: {missing_sections}")
+                    self.logger.warning(
+                        f"Missing optional configuration sections: {missing_sections}"
+                    )
                     # Don't fail for missing sections, just warn
-                
+
                 self.logger.info(f"Configuration validation successful: {config_path}")
                 return True
-                
+
             except Exception as e:
                 self.logger.error(f"Error loading configuration: {e}")
                 return False
-                
+
         except Exception as e:
             self.logger.error(f"Configuration validation failed: {e}")
             return False
-    
+
     async def perform_health_check(self, config_path: str) -> bool:
         """Perform comprehensive health check."""
-        
+
         try:
             self.logger.info("Starting health check...")
-            
+
             # Check configuration
             if not self.validate_configuration(config_path):
                 return False
-            
+
             # Check database connectivity
             try:
                 config_manager = ConfigManager(config_path)
-                
+
                 # Test database connection
-                db_config = config_manager.get('database')
+                db_config = config_manager.get("database")
                 if db_config:
                     self.logger.info("Database configuration found")
                     # Add actual database connectivity test here if needed
                 else:
                     self.logger.info("No database configuration found (may be optional)")
-                
+
             except Exception as e:
                 self.logger.error(f"Database health check failed: {e}")
                 return False
-            
+
             # Check required directories
-            required_dirs = ['logs', 'data', 'config']
+            required_dirs = ["logs", "data", "config"]
             for dir_name in required_dirs:
                 dir_path = Path(dir_name)
                 if not dir_path.exists():
                     self.logger.warning(f"Creating missing directory: {dir_name}")
                     dir_path.mkdir(parents=True, exist_ok=True)
-            
+
             self.logger.info("Health check completed successfully")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Health check failed: {e}")
             return False
-    
+
     async def start_cli_service(self, args: argparse.Namespace) -> None:
         """Start the CLI service with proper initialization."""
-        
+
         try:
             self.logger.info("Initializing CLI service...")
-            
+
             # Load configuration
             config_manager = ConfigManager(args.config)
-            
+
             # === ENTERPRISE-GRADE SERVICE INITIALIZATION ===
             # Initialize services in proper dependency order with comprehensive error handling
-            
+
             # 1. Database Connection Pool (foundational service)
             self.logger.info("Initializing database connection pool...")
             try:
                 from .dal.connection_pool import DatabaseConnectionPool
-                
+
                 db_connection_pool = DatabaseConnectionPool(
-                    config=config_manager,
-                    logger=self.logger
+                    config=config_manager, logger=self.logger
                 )
                 await db_connection_pool.initialize()
                 session_maker = db_connection_pool.get_session_maker()
-                
+
                 if not session_maker:
                     raise RuntimeError("Failed to get session maker from database connection pool")
-                    
+
                 self.logger.info("Database connection pool initialized successfully")
-                
+
             except Exception as e:
-                self.logger.error(f"Failed to initialize database connection pool: {e}", exc_info=True)
+                self.logger.error(
+                    f"Failed to initialize database connection pool: {e}", exc_info=True
+                )
                 raise RuntimeError(f"Database initialization failed: {e}") from e
-            
+
             # 2. PubSub Manager (core event system)
             self.logger.info("Initializing PubSub manager...")
             try:
                 from .core.pubsub import PubSubManager
-                
-                pubsub_manager = PubSubManager(
-                    logger=self.logger,
-                    config_manager=config_manager
-                )
+
+                pubsub_manager = PubSubManager(logger=self.logger, config_manager=config_manager)
                 await pubsub_manager.start()
                 self.logger.info("PubSub manager initialized and started successfully")
-                
+
             except Exception as e:
                 self.logger.error(f"Failed to initialize PubSub manager: {e}", exc_info=True)
                 raise RuntimeError(f"PubSub manager initialization failed: {e}") from e
-            
+
             # 3. Enhanced Logger Service (with database and enterprise features)
             self.logger.info("Initializing enterprise logger service...")
             try:
                 from .logger_service import LoggerService as EnterpriseLoggerService
-                
+
                 enterprise_logger = EnterpriseLoggerService(
                     config_manager=config_manager,
                     pubsub_manager=pubsub_manager,
-                    db_session_maker=session_maker
+                    db_session_maker=session_maker,
                 )
                 await enterprise_logger.start()
                 self.logger.info("Enterprise logger service initialized successfully")
-                
+
             except Exception as e:
-                self.logger.error(f"Failed to initialize enterprise logger service: {e}", exc_info=True)
+                self.logger.error(
+                    f"Failed to initialize enterprise logger service: {e}", exc_info=True
+                )
                 # Continue with basic logger - don't fail startup
                 enterprise_logger = self.logger
                 self.logger.warning("Continuing with basic logger service")
-            
+
             # 4. Market Price Service (required for portfolio manager)
             self.logger.info("Initializing market price service...")
             try:
                 # Use real Kraken market price service for production-grade live market data
                 from .market_price.kraken_service import KrakenMarketPriceService
-                
+
                 # Validate Kraken API configuration
                 kraken_api_url = config_manager.get("kraken.api_url", "https://api.kraken.com")
                 if not kraken_api_url:
                     raise ValueError("Kraken API URL not configured")
-                
+
                 market_price_service = KrakenMarketPriceService(
-                    config_manager=config_manager,
-                    logger_service=enterprise_logger
+                    config_manager=config_manager, logger_service=enterprise_logger
                 )
                 await market_price_service.start()
-                self.logger.info(f"Kraken market price service initialized successfully - Live market data active from {kraken_api_url}")
-                
+                self.logger.info(
+                    f"Kraken market price service initialized successfully - Live market data active from {kraken_api_url}"
+                )
+
                 # Test the connection with a simple price request
                 try:
                     test_price = await market_price_service.get_latest_price("BTC/USD")
                     if test_price:
-                        self.logger.info(f"Market data connection verified - BTC/USD: ${test_price}")
+                        self.logger.info(
+                            f"Market data connection verified - BTC/USD: ${test_price}"
+                        )
                     else:
-                        self.logger.warning("Market data connection test returned no price - continuing anyway")
+                        self.logger.warning(
+                            "Market data connection test returned no price - continuing anyway"
+                        )
                 except Exception as test_e:
-                    self.logger.warning(f"Market data connection test failed: {test_e} - continuing anyway")
-                
+                    self.logger.warning(
+                        f"Market data connection test failed: {test_e} - continuing anyway"
+                    )
+
             except Exception as e:
                 self.logger.error(f"Failed to initialize market price service: {e}", exc_info=True)
                 # For CLI service, we can continue with a fallback instead of hard failing
-                self.logger.warning("Falling back to simulated market price service for development purposes")
+                self.logger.warning(
+                    "Falling back to simulated market price service for development purposes"
+                )
                 try:
                     from .simulated_market_price_service import SimulatedMarketPriceService
+
                     market_price_service = SimulatedMarketPriceService(
                         config_manager=config_manager,
                         logger=enterprise_logger,
-                        pubsub=pubsub_manager
+                        pubsub=pubsub_manager,
                     )
                     await market_price_service.start()
                     self.logger.info("Simulated market price service initialized as fallback")
                 except Exception as fallback_e:
-                    self.logger.error(f"Even fallback market price service failed: {fallback_e}", exc_info=True)
-                    raise RuntimeError(f"All market price service initialization attempts failed: {e}, {fallback_e}") from e
-            
+                    self.logger.error(
+                        f"Even fallback market price service failed: {fallback_e}", exc_info=True
+                    )
+                    raise RuntimeError(
+                        f"All market price service initialization attempts failed: {e}, {fallback_e}"
+                    ) from e
+
             # 5. Portfolio Manager (comprehensive portfolio management)
             self.logger.info("Initializing portfolio manager...")
             try:
                 from .portfolio_manager import PortfolioManager
-                
+
                 portfolio_manager = PortfolioManager(
                     config_manager=config_manager,
                     pubsub_manager=pubsub_manager,
                     market_price_service=market_price_service,
                     logger_service=enterprise_logger,
                     session_maker=session_maker,
-                    execution_handler=None  # Can be added later when execution handler is available
+                    execution_handler=None,  # Can be added later when execution handler is available
                 )
                 await portfolio_manager.start()
                 self.logger.info("Portfolio manager initialized successfully")
-                
+
             except Exception as e:
                 self.logger.error(f"Failed to initialize portfolio manager: {e}", exc_info=True)
                 raise RuntimeError(f"Portfolio manager initialization failed: {e}") from e
-            
+
             # 6. Monitoring Service (comprehensive system monitoring)
             self.logger.info("Initializing monitoring service...")
             try:
                 from .monitoring_service import MonitoringService
-                
+
                 monitoring_service = MonitoringService(
                     config_manager=config_manager,
                     pubsub_manager=pubsub_manager,
                     portfolio_manager=portfolio_manager,
                     logger_service=enterprise_logger,
                     execution_handler=None,  # Can be added later
-                    halt_coordinator=None    # Will be auto-created by MonitoringService
+                    halt_coordinator=None,  # Will be auto-created by MonitoringService
                 )
                 await monitoring_service.start()
                 self.logger.info("Monitoring service initialized successfully")
-                
+
             except Exception as e:
                 self.logger.error(f"Failed to initialize monitoring service: {e}", exc_info=True)
                 raise RuntimeError(f"Monitoring service initialization failed: {e}") from e
-            
+
             # 7. Main Application Controller (GalFridayApp or compatible)
             self.logger.info("Initializing main application controller...")
             try:
                 # For CLI service, we can use a simplified app controller or create our own
                 from .main import GalFridayApp
-                
+
                 main_app_controller = GalFridayApp()
                 # Set up the app controller with the services we've initialized
                 main_app_controller.config = config_manager
@@ -1534,13 +1536,16 @@ Examples:
                 main_app_controller.monitoring_service = monitoring_service
                 main_app_controller.db_connection_pool = db_connection_pool
                 main_app_controller.session_maker = session_maker
-                
+
                 self.logger.info("Main application controller initialized successfully")
-                
+
             except Exception as e:
-                self.logger.error(f"Failed to initialize main application controller: {e}", exc_info=True)
+                self.logger.error(
+                    f"Failed to initialize main application controller: {e}", exc_info=True
+                )
                 # Create a simplified controller as fallback
                 from .cli_service_mocks import MockMainAppController
+
                 main_app_controller = MockMainAppController()
                 self.logger.warning("Using simplified application controller as fallback")
 
@@ -1550,14 +1555,18 @@ Examples:
                 main_app_controller=main_app_controller,
                 logger_service=enterprise_logger,
                 portfolio_manager=portfolio_manager,
-                recovery_manager=None  # Can be added later when HaltRecoveryManager is available
+                recovery_manager=None,  # Can be added later when HaltRecoveryManager is available
             )
-            
+
             # 9. Start the CLI service
             await self.cli_service.start()
-            
-            self.logger.info(f"Enterprise CLI service started successfully on {args.host}:{args.port}")
-            console.print(f"\n🚀 Gal Friday Enterprise CLI Service started on {args.host}:{args.port}")
+
+            self.logger.info(
+                f"Enterprise CLI service started successfully on {args.host}:{args.port}"
+            )
+            console.print(
+                f"\n🚀 Gal Friday Enterprise CLI Service started on {args.host}:{args.port}"
+            )
             console.print("📊 Real-time monitoring and portfolio management active")
             console.print("📈 Live market data from Kraken exchange connected")
             console.print("🔍 Enterprise logging with database persistence enabled")
@@ -1566,44 +1575,44 @@ Examples:
             console.print("\nAvailable commands: status, halt, resume, stop, recovery_status")
             console.print("Type a command and press Enter, or use --help for more information")
             console.print("Press Ctrl+C to exit\n")
-            
+
             # Run until shutdown requested
             while not self.shutdown_requested:
                 await asyncio.sleep(1)
-                
+
                 # Check if CLI service is still running
                 if not self.cli_service._running:
                     self.logger.info("CLI service stopped externally")
                     break
-                    
+
             # Graceful shutdown of all services
             self.logger.info("Initiating graceful shutdown of all services...")
-            
+
             # Stop services in reverse order
-            if hasattr(self, 'cli_service') and self.cli_service:
+            if hasattr(self, "cli_service") and self.cli_service:
                 await self.cli_service.stop()
-                
+
             await monitoring_service.stop()
             await portfolio_manager.stop()
             await market_price_service.stop()
             await enterprise_logger.stop()
             await pubsub_manager.stop()
             await db_connection_pool.close()
-            
+
             self.logger.info("All services shutdown completed successfully")
-                
+
         except Exception as e:
             self.logger.error(f"Error starting enterprise CLI service: {e}", exc_info=True)
             console.print(f"❌ Failed to start enterprise CLI service: {e}")
             console.print("Check logs for detailed error information")
             raise
-        
+
         finally:
             await self.shutdown_cli_service()
-    
+
     async def shutdown_cli_service(self) -> None:
         """Gracefully shutdown CLI service."""
-        
+
         if self.cli_service:
             try:
                 self.logger.info("Shutting down CLI service...")
@@ -1611,24 +1620,24 @@ Examples:
                 self.logger.info("CLI service shutdown complete")
             except Exception as e:
                 self.logger.error(f"Error during CLI service shutdown: {e}")
-    
+
     def run_daemon_mode(self, args: argparse.Namespace) -> None:
         """Run CLI service in daemon mode."""
-        
+
         try:
             import daemon
             import daemon.pidfile
-            
+
             pid_file = f"/var/run/gal_friday_cli.pid"
-            
+
             with daemon.DaemonContext(
                 pidfile=daemon.pidfile.TimeoutPIDLockFile(pid_file),
                 detach_process=True,
                 stdout=sys.stdout,
-                stderr=sys.stderr
+                stderr=sys.stderr,
             ):
                 asyncio.run(self.start_cli_service(args))
-                
+
         except ImportError:
             self.logger.error("Daemon mode requires 'python-daemon' package")
             sys.exit(1)
@@ -1640,7 +1649,7 @@ Examples:
 def main() -> None:
     """
     Main entry point - comprehensive CLI service startup with proper lifecycle management.
-    
+
     This function replaces the previous empty 'pass' statement with a full-featured
     CLI service runner that includes:
     - Command line argument parsing
@@ -1651,20 +1660,20 @@ def main() -> None:
     - Logging configuration
     - Error handling and recovery
     """
-    
+
     runner = CLIServiceRunner()
-    
+
     try:
         # Parse command line arguments
         parser = runner.setup_argument_parser()
         args = parser.parse_args()
-        
+
         # Setup logging early
         runner.setup_logging(args.log_level, args.log_file)
-        
+
         # Setup signal handlers
         runner.setup_signal_handlers()
-        
+
         # Handle special commands
         if args.validate_config:
             console.print("🔍 Validating configuration...")
@@ -1674,9 +1683,10 @@ def main() -> None:
             else:
                 console.print("❌ Configuration validation failed")
                 sys.exit(1)
-        
+
         if args.health_check:
             console.print("🏥 Performing health check...")
+
             async def run_health_check() -> None:
                 success = await runner.perform_health_check(args.config)
                 if success:
@@ -1685,15 +1695,15 @@ def main() -> None:
                 else:
                     console.print("❌ Health check failed")
                     sys.exit(1)
-            
+
             asyncio.run(run_health_check())
             return
-        
+
         if args.example:
             console.print("🎮 Running example/demo mode...")
             asyncio.run(example_main())
             return
-        
+
         # Start CLI service
         console.print("🌟 Starting Gal Friday CLI Service...")
         if args.daemon:
@@ -1701,12 +1711,12 @@ def main() -> None:
             runner.run_daemon_mode(args)
         else:
             asyncio.run(runner.start_cli_service(args))
-    
+
     except KeyboardInterrupt:
         console.print("\n⚡ Received keyboard interrupt, exiting gracefully...")
         logging.getLogger(__name__).info("Received keyboard interrupt, exiting...")
         sys.exit(0)
-    
+
     except Exception as e:
         console.print(f"\n💥 Fatal error: {e}")
         logging.getLogger(__name__).error(f"Fatal error: {e}", exc_info=True)
