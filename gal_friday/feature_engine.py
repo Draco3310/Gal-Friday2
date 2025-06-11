@@ -60,6 +60,8 @@ from .feature_imputation import (
     ImputationQuality,
     create_imputation_manager
 )
+from .feature_repo import fetch_latest_features
+from .utils.correlation_utils import compute_correlations
 
 from gal_friday.core.events import EventType
 from gal_friday.core.feature_models import PublishedFeaturesV1  # Added for Pydantic model
@@ -4202,35 +4204,40 @@ class FeatureEngine:
     ) -> float | None:
         """Impute based on correlation with other available features."""
         try:
-            # This would analyze correlations with other computed features
-            # For now, use simplified cross-feature relationships
-            
-            # Check if we have related features calculated
-            if hasattr(self, '_current_calculated_features'):
-                calculated = getattr(self, '_current_calculated_features', {})
-                
-                if 'rsi' in feature_name.lower() and any('macd' in k for k in calculated.keys()):
-                    # RSI-MACD correlation
-                    macd_values = [v for k, v in calculated.items() if 'macd' in k.lower()]
-                    if macd_values:
-                        macd_avg = sum(macd_values) / len(macd_values)
-                        # Simple correlation: positive MACD suggests higher RSI
-                        return max(30.0, min(70.0, 50.0 + macd_avg * 10))
-                
-                elif 'volume' in feature_name.lower() and any('spread' in k for k in calculated.keys()):
-                    # Volume-spread relationship
-                    spread_values = [v for k, v in calculated.items() if 'spread' in k.lower()]
-                    if spread_values:
-                        avg_spread = sum(spread_values) / len(spread_values)
-                        # Higher spread might indicate lower volume
-                        return max(0.0, 1000.0 - avg_spread * 100)
-            
-            return None
-            
-        except Exception as e:
+            recent_features = await fetch_latest_features(trading_pair, limit=200)
+            if recent_features is None or feature_name not in recent_features.columns:
+                return None
+
+            corr_matrix = compute_correlations(recent_features)
+            if corr_matrix.empty or feature_name not in corr_matrix.columns:
+                return None
+
+            available = getattr(self, "_current_calculated_features", {})
+            target_corr = corr_matrix[feature_name].drop(feature_name, errors="ignore")
+            target_corr = target_corr.loc[target_corr.index.intersection(available.keys())]
+            if target_corr.empty:
+                return None
+
+            best_feature = target_corr.abs().idxmax()
+            corr_coef = target_corr[best_feature]
+
+            mu_x = recent_features[feature_name].mean()
+            mu_y = recent_features[best_feature].mean()
+            std_x = recent_features[feature_name].std()
+            std_y = recent_features[best_feature].std()
+
+            related_val = available.get(best_feature)
+            if related_val is None or std_y == 0 or pd.isna(std_x) or pd.isna(std_y):
+                return None
+
+            imputed = float(mu_x + corr_coef * (std_x / std_y) * (related_val - mu_y))
+            return imputed
+
+        except Exception as e:  # noqa: BLE001
             self.logger.debug(
                 "Correlation analysis imputation failed: %s",
-                e, source_module=self._source_module
+                e,
+                source_module=self._source_module,
             )
             return None
     
