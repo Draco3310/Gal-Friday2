@@ -21,7 +21,7 @@ from gal_friday.core.pubsub import PubSubManager
 from gal_friday.dal.db_connection import DatabaseConnection
 from gal_friday.execution.websocket_connection_manager import WebSocketConnectionManager
 from gal_friday.logger_service import LoggerService
-from gal_friday.model_lifecycle.experiment_manager import ExperimentConfig, ExperimentManager
+from gal_friday.model_lifecycle.experiment_manager import ExperimentManager
 from gal_friday.model_lifecycle.registry import ModelRegistry, ModelStage
 from gal_friday.model_lifecycle.retraining_pipeline import RetrainingPipeline
 from gal_friday.monitoring.dashboard_service import DashboardService
@@ -256,14 +256,14 @@ class TestEndToEndIntegration:
         )
 
         # Create experiment
-        config = ExperimentConfig(
-            name="Test A/B Experiment",
-            description="Testing model improvements",
-            control_model_id=control_id,
-            treatment_model_id=treatment_id,
-            traffic_split=Decimal("0.5"),
-            min_samples_per_variant=10,
-        )
+        config = {
+            "name": "Test A/B Experiment",
+            "description": "Testing model improvements",
+            "control_model_id": control_id,
+            "treatment_model_id": treatment_id,
+            "traffic_split": Decimal("0.5"),
+            "min_samples_per_variant": 10,
+        }
 
         experiment_id = await experiment_manager.create_experiment(config)
 

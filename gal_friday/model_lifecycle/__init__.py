@@ -2,7 +2,6 @@
 
 from .experiment_manager import (
     AllocationStrategy,
-    ExperimentConfig,
     ExperimentManager,
     ExperimentStatus,
     VariantPerformance,
@@ -23,7 +22,6 @@ __all__ = [
     "DriftDetector",
     "DriftMetrics",
     "DriftType",
-    "ExperimentConfig",
     "ExperimentManager",
     "ExperimentStatus",
     "ModelArtifact",
