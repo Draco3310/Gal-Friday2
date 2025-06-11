@@ -323,6 +323,7 @@ class EventType(Enum):
     TRADE_SIGNAL_APPROVED = auto()  # Approved trade signal from RiskManager
     TRADE_SIGNAL_REJECTED = auto()  # Rejected trade signal from RiskManager
     EXECUTION_REPORT = auto()  # Report from ExecutionHandler (fill, error, etc.)
+    FILL = auto()  # Individual trade fill event
     TRADE_OUTCOME_REPORTED = auto()  # Final outcome of a trade
 
     # System & Operational Events
@@ -1146,6 +1147,20 @@ class ExecutionReportEvent(Event):
             timestamp_exchange=params.timestamp_exchange,
             error_message=params.error_message,
         )
+
+
+@dataclass(frozen=True)
+class FillEvent(Event):
+    """Event representing a single trade fill."""
+
+    order_id: str
+    fill_id: str
+    trading_pair: str
+    side: str
+    price: Decimal
+    quantity: Decimal
+    fee: Decimal
+    event_type: EventType = field(default=EventType.FILL, init=False)
 
 
 @dataclass(frozen=True)

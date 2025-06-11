@@ -25,6 +25,7 @@ from websockets import ClientConnection
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import (
     ExecutionReportEvent,
+    FillEvent,
     MarketDataL2Event,
     MarketDataOHLCVEvent,
     MarketDataTickerEvent,
@@ -698,20 +699,26 @@ class KrakenWebSocketClient:
             )
 
     async def _handle_own_trades(self, message: list) -> None:
-        """Handle own trades updates."""
+        """Handle own trades updates and publish :class:`FillEvent`."""
         trades_data = message[0]
 
         for trade_id, trade_data in trades_data.items():
-            # This represents a fill, update the order
-            order_id = trade_data.get("orderid")
+            order_id = trade_data.get("ordertxid") or trade_data.get("orderid", "")
 
-            # We'll need to maintain order state to properly track fills
-            # For now, publish as execution report
-            self.logger.info(
-                f"Trade executed: {trade_id} for order {order_id}",
+            fill_event = FillEvent(
                 source_module=self._source_module,
-                context={"trade_data": trade_data},
+                event_id=uuid.uuid4(),
+                timestamp=datetime.now(UTC),
+                order_id=order_id,
+                fill_id=str(trade_id),
+                trading_pair=self._map_kraken_pair(trade_data.get("pair", "")),
+                side=str(trade_data.get("type", "")).upper(),
+                price=Decimal(trade_data.get("price", "0")),
+                quantity=Decimal(trade_data.get("vol", "0")),
+                fee=Decimal(trade_data.get("fee", "0")),
             )
+
+            await self.pubsub.publish(fill_event)
 
     async def _handle_ticker(self, message: list) -> None:
         """Handle ticker updates."""

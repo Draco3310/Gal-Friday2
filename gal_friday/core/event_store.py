@@ -419,6 +419,7 @@ class EventStore:
         from gal_friday.core.events import (
             ClosePositionCommand,
             ExecutionReportEvent,
+            FillEvent,
             MarketDataL2Event,
             MarketDataOHLCVEvent,
             MarketDataTickerEvent,
@@ -439,6 +440,7 @@ class EventStore:
             TradeSignalApprovedEvent,
             TradeSignalRejectedEvent,
             ExecutionReportEvent,
+            FillEvent,
             SystemStateEvent,
             PotentialHaltTriggerEvent,
             ClosePositionCommand,
