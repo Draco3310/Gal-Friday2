@@ -170,6 +170,10 @@ class ExecutionError(GalFridayError):
     """Exception raised for errors during order execution."""
 
 
+class ExchangeError(ExecutionError):
+    """Exception raised for exchange API failures."""
+
+
 class ExecutionHandlerError(ExecutionError):
     """Base exception for ExecutionHandler errors."""
 

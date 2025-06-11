@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from decimal import Decimal
 from typing import Any
 
@@ -19,6 +19,8 @@ import aiohttp
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
 from gal_friday.utils.kraken_api import generate_kraken_signature
+from gal_friday.exceptions import ExecutionError as ExchangeError
+from gal_friday.models.order import Order
 
 
 @dataclass
@@ -58,7 +60,7 @@ class BatchOrderResponse:
 
 class ExecutionAdapter(ABC):
     """Abstract base class for exchange execution adapters.
-    
+
     Defines the interface that all exchange adapters must implement,
     abstracting away exchange-specific details for order management.
     """
@@ -69,7 +71,7 @@ class ExecutionAdapter(ABC):
         logger: LoggerService,
     ) -> None:
         """Initialize the execution adapter.
-        
+
         Args:
             config: Configuration manager instance
             logger: Logger service instance
@@ -91,34 +93,34 @@ class ExecutionAdapter(ABC):
     @abstractmethod
     async def place_order(self, order_request: OrderRequest) -> OrderResponse:
         """Place a single order on the exchange.
-        
+
         Args:
             order_request: Standardized order request
-            
+
         Returns:
             Standardized order response
         """
         ...
 
     @abstractmethod
-    async def place_batch_orders(self, batch_request: BatchOrderRequest) -> BatchOrderResponse:
+    async def place_batch_orders(self, orders: list[Order]) -> list[dict]:
         """Place multiple orders simultaneously (if supported).
-        
+
         Args:
-            batch_request: Batch order request
-            
+            orders: Orders to submit
+
         Returns:
-            Batch order response
+            List of order response dictionaries
         """
         ...
 
     @abstractmethod
     async def cancel_order(self, exchange_order_id: str) -> bool:
         """Cancel an order on the exchange.
-        
+
         Args:
             exchange_order_id: Exchange-specific order ID
-            
+
         Returns:
             True if cancellation was successful
         """
@@ -127,10 +129,10 @@ class ExecutionAdapter(ABC):
     @abstractmethod
     async def get_order_status(self, exchange_order_id: str) -> dict[str, Any] | None:
         """Get the current status of an order.
-        
+
         Args:
             exchange_order_id: Exchange-specific order ID
-            
+
         Returns:
             Order status information or None if not found
         """
@@ -139,7 +141,7 @@ class ExecutionAdapter(ABC):
     @abstractmethod
     async def get_account_balances(self) -> dict[str, Decimal]:
         """Get account balances from the exchange.
-        
+
         Returns:
             Dictionary of currency to available balance
         """
@@ -148,7 +150,7 @@ class ExecutionAdapter(ABC):
     @abstractmethod
     async def get_open_positions(self) -> dict[str, Any]:
         """Get open positions from the exchange.
-        
+
         Returns:
             Dictionary of position information
         """
@@ -176,6 +178,9 @@ class KrakenExecutionAdapter(ExecutionAdapter):
 
         # Exchange info storage
         self._pair_info: dict[str, dict[str, Any]] = {}
+
+        # External Kraken API wrapper (if provided)
+        self.kraken_api: Any | None = None
 
         # Rate limiting
         self._last_api_call_time = 0.0
@@ -230,23 +235,52 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 error_message=f"Exception during order placement: {e!s}",
             )
 
-    async def place_batch_orders(self, batch_request: BatchOrderRequest) -> BatchOrderResponse:
-        """Place multiple orders on Kraken using AddOrderBatch if available."""
-        if len(batch_request.orders) == 1:
-            # Single order - use regular AddOrder
-            single_result = await self.place_order(batch_request.orders[0])
-            return BatchOrderResponse(
-                success=single_result.success,
-                order_results=[single_result],
-                error_message=single_result.error_message if not single_result.success else None,
+    async def place_batch_orders(self, orders: list[Order]) -> list[dict]:
+        """Place multiple orders on Kraken using AddOrderBatch."""
+        responses: list[dict] = [
+            {
+                "success": False,
+                "exchange_order_ids": [],
+                "client_order_id": str(order.client_order_id),
+                "error_message": "Failed to translate order request to Kraken format",
+                "raw_response": None,
+            }
+            for order in orders
+        ]
+
+        payloads: list[dict[str, Any]] = []
+        pending_indices: list[int] = []
+
+        for idx, order in enumerate(orders):
+            params = self._create_order_payload(order)
+            if params:
+                payloads.append(params)
+                pending_indices.append(idx)
+
+        if not payloads:
+            return responses
+
+        try:
+            batch_results = await self.kraken_api.add_order_batch(payloads)
+        except Exception as e:  # noqa: BLE001
+            self.logger.exception(
+                "Error placing batch orders on Kraken: %s",
+                str(e),
+                source_module=self.__class__.__name__,
             )
+            raise ExchangeError(f"add_order_batch failed: {e!s}") from e
 
-        # Check if all orders are for SL/TP (contingent orders)
-        if self._are_all_contingent_orders(batch_request.orders):
-            return await self._place_contingent_batch(batch_request)
+        if not isinstance(batch_results, list):
+            raise ExchangeError("Unexpected response format from add_order_batch")
 
-        # For mixed order types, fall back to individual placement
-        return await self._place_orders_individually(batch_request)
+        for order_idx, result in zip(pending_indices, batch_results):
+            parsed = self._parse_add_order_response(
+                result,
+                str(orders[order_idx].client_order_id),
+            )
+            responses[order_idx] = asdict(parsed)
+
+        return responses
 
     async def cancel_order(self, exchange_order_id: str) -> bool:
         """Cancel an order on Kraken."""
@@ -532,6 +566,19 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         quantizer = Decimal("1e-" + str(precision))
         return str(value.quantize(quantizer))
 
+    def _create_order_payload(self, order: Order) -> dict[str, Any] | None:
+        """Create Kraken API payload from an Order model."""
+        request = OrderRequest(
+            trading_pair=order.trading_pair,
+            side=order.side,
+            order_type=order.order_type,
+            quantity=Decimal(str(order.quantity_ordered)),
+            price=Decimal(str(order.limit_price)) if order.limit_price is not None else None,
+            client_order_id=str(order.client_order_id) if order.client_order_id else None,
+            stop_price=Decimal(str(order.stop_price)) if order.stop_price is not None else None,
+        )
+        return self._translate_order_request_to_kraken(request)
+
     def _are_all_contingent_orders(self, orders: list[OrderRequest]) -> bool:
         """Check if all orders are contingent (SL/TP) orders."""
         contingent_types = {"stop-loss", "take-profit", "stop-loss-limit", "take-profit-limit"}
@@ -540,7 +587,6 @@ class KrakenExecutionAdapter(ExecutionAdapter):
     async def _place_contingent_batch(self, batch_request: BatchOrderRequest) -> BatchOrderResponse:
         """Place contingent orders using batch placement logic."""
         # For SL/TP orders, we can potentially use better logic
-        # For now, place individually but could be enhanced with AddOrderBatch
         return await self._place_orders_individually(batch_request)
 
     async def _place_orders_individually(self, batch_request: BatchOrderRequest) -> BatchOrderResponse:
