@@ -86,6 +86,7 @@ if TYPE_CHECKING:
     from gal_friday.core.pubsub import PubSubManager
     from gal_friday.interfaces.historical_data_service_interface import HistoricalDataService
     from gal_friday.logger_service import LoggerService
+    from gal_friday.dal.repositories.history_repository import HistoryRepository
 
 # Define InternalFeatureSpec
 @dataclass
@@ -1005,6 +1006,7 @@ class FeatureEngine:
         pubsub_manager: PubSubManager,
         logger_service: LoggerService,
         historical_data_service: HistoricalDataService | None = None,
+        history_repo: "HistoryRepository | None" = None,
     ) -> None:
         """Initialize the FeatureEngine with configuration and required services.
 
@@ -1029,6 +1031,7 @@ class FeatureEngine:
         self.pubsub_manager = pubsub_manager
         self.logger = logger_service
         self.historical_data_service = historical_data_service
+        self.history_repo = history_repo
         self._source_module = self.__class__.__name__
 
         # Feature configuration derived from config
@@ -4150,40 +4153,49 @@ class FeatureEngine:
     ) -> float | None:
         """Impute based on historical feature patterns and trends."""
         try:
-            # This would connect to a feature history database or cache
-            # For now, simulate historical analysis with OHLCV patterns
-            
-            ohlcv_data = self.ohlcv_history.get(trading_pair)
-            if ohlcv_data is None or len(ohlcv_data) < 20:
+            lookback = max(20, feature_spec.parameters.get("period", 14) * 3)
+            interval = feature_spec.parameters.get("interval", "1m")
+            ohlcv_data = None
+
+            if self.history_repo is not None:
+                ohlcv_data = await self.history_repo.get_recent_ohlcv(
+                    trading_pair, lookback, interval
+                )
+
+            if ohlcv_data is None:
+                ohlcv_data = self.ohlcv_history.get(trading_pair)
+                if ohlcv_data is not None:
+                    ohlcv_data = ohlcv_data.tail(lookback)
+
+            if ohlcv_data is None or len(ohlcv_data) < lookback:
                 return None
-            
-            # Analyze recent price patterns for feature-specific insights
-            recent_data = ohlcv_data.tail(20)
-            
-            if 'rsi' in feature_name.lower():
-                # RSI-specific historical analysis
-                price_changes = recent_data['close'].pct_change().dropna()
-                recent_volatility = price_changes.std()
-                
-                if recent_volatility < 0.01:  # Low volatility
-                    return 50.0  # Neutral RSI
-                elif recent_volatility > 0.05:  # High volatility
-                    # Trending market, RSI likely away from neutral
-                    trend = price_changes.mean()
-                    return 70.0 if trend > 0 else 30.0
-                else:
-                    return 50.0  # Moderate volatility, neutral
-            
-            elif 'macd' in feature_name.lower():
-                # MACD-specific analysis
-                price_momentum = recent_data['close'].diff().mean()
-                return float(price_momentum) if pd.notna(price_momentum) else 0.0
-            
-            elif 'volume' in feature_name.lower():
-                # Volume-related analysis
-                avg_volume = recent_data['volume'].mean()
-                return float(avg_volume) if pd.notna(avg_volume) else 0.0
-            
+
+            recent_data = ohlcv_data.tail(lookback)
+
+            if "rsi" in feature_name.lower():
+                rsi_series = ta.rsi(
+                    recent_data["close"].astype(float),
+                    length=feature_spec.parameters.get("period", 14),
+                )
+                rsi_value = rsi_series.iloc[-1]
+                return float(rsi_value) if pd.notna(rsi_value) else None
+
+            if "macd" in feature_name.lower():
+                macd_df = ta.macd(recent_data["close"].astype(float))
+                if macd_df is not None and not macd_df.empty:
+                    macd_value = macd_df["MACD_12_26_9"].iloc[-1]
+                    return float(macd_value) if pd.notna(macd_value) else None
+                return None
+
+            if "volume" in feature_name.lower():
+                vol_ma = (
+                    recent_data["volume"].astype(float)
+                    .rolling(window=feature_spec.parameters.get("window", 20))
+                    .mean()
+                    .iloc[-1]
+                )
+                return float(vol_ma) if pd.notna(vol_ma) else None
+
             return None
             
         except Exception as e:
