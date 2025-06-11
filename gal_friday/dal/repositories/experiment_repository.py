@@ -63,11 +63,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
 
         async with self.session_maker() as session:
             # This is a simplified version. A full upsert might require more specific handling
-            # of which columns to update on conflict.
-            # For now, let's assume BaseRepository.create or a direct session.merge could work
-            # if the PK is set. Or using pg_insert for full ON CONFLICT control.
-
-            # For simplicity, let's use get then update/create. A true upsert is more complex with ORM.
+            # of which columns to update on conflict. For simplicity, use get then update/create.
             existing_exp = await session.get(Experiment, experiment_data["experiment_id"])
             if existing_exp:
                 # Update existing
@@ -130,11 +126,10 @@ class ExperimentRepository(BaseRepository[Experiment]):
         async with self.session_maker() as session:
             await session.execute(stmt)
             await session.commit()
-            # To return the assignment (even if it already existed and did nothing), we'd need a select after.
-            # For now, let's just return the input or fetch it.
-            # A simple way if insert happened is to return the object, but ON CONFLICT DO NOTHING makes it tricky.
-            # Let's try to fetch it:
-            return await session.get(ExperimentAssignment, (assignment_data["experiment_id"], assignment_data["event_id"]))
+            return await session.get(
+                ExperimentAssignment,
+                (assignment_data["experiment_id"], assignment_data["event_id"]),
+            )
 
 
     async def get_assignment(
@@ -145,7 +140,19 @@ class ExperimentRepository(BaseRepository[Experiment]):
             return await session.get(ExperimentAssignment, (experiment_id, event_id))
 
     async def save_outcome(self, outcome_data: dict[str, Any]) -> ExperimentOutcome:
-        """Saves a prediction outcome for experiment analysis."""
+        """Insert or update a prediction outcome using upsert semantics.
+
+        This method performs an ``INSERT .. ON CONFLICT DO UPDATE`` so that
+        outcomes with the same primary key are updated rather than causing an
+        error.
+
+        Args:
+            outcome_data: Dictionary of outcome fields to persist. ``outcome_id``
+                may be provided to update an existing record.
+
+        Returns:
+            The persisted :class:`ExperimentOutcome` instance.
+        """
         for key in ["experiment_id", "event_id"]: # outcome_id is auto-gen by default
             if isinstance(outcome_data.get(key), str):
                 outcome_data[key] = uuid.UUID(outcome_data[key])
@@ -161,12 +168,71 @@ class ExperimentRepository(BaseRepository[Experiment]):
         if "trade_return" in outcome_data and not isinstance(outcome_data["trade_return"], Decimal):
             outcome_data["trade_return"] = Decimal(str(outcome_data["trade_return"]))
 
+        stmt = pg_insert(ExperimentOutcome).values(**outcome_data)
+        update_cols = {
+            key: stmt.excluded[key]
+            for key in outcome_data.keys()
+            if key != "outcome_id"
+        }
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[ExperimentOutcome.outcome_id],
+            set_=update_cols,
+        ).returning(ExperimentOutcome)
+
         async with self.session_maker() as session:
-            outcome = ExperimentOutcome(**outcome_data)
-            session.add(outcome)
+            result = await session.execute(stmt)
             await session.commit()
-            await session.refresh(outcome)
-            return outcome
+            return result.scalar_one()
+
+    async def get_or_create_outcome(
+        self, outcome_data: dict[str, Any],
+    ) -> ExperimentOutcome:
+        """Retrieve an existing outcome or create a new one.
+
+        The lookup is performed first by ``outcome_id`` if provided; otherwise
+        the combination of ``experiment_id`` and ``event_id`` is used.
+
+        Args:
+            outcome_data: Dictionary containing the outcome information.
+
+        Returns:
+            The existing or newly created :class:`ExperimentOutcome` instance.
+        """
+
+        for key in ["outcome_id", "experiment_id", "event_id"]:
+            if isinstance(outcome_data.get(key), str):
+                outcome_data[key] = uuid.UUID(outcome_data[key])
+
+        if isinstance(outcome_data.get("recorded_at"), str):
+            dt_obj = datetime.fromisoformat(outcome_data["recorded_at"])
+            outcome_data["recorded_at"] = dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
+        elif isinstance(outcome_data.get("recorded_at"), datetime) and outcome_data["recorded_at"].tzinfo is None:
+            outcome_data["recorded_at"] = outcome_data["recorded_at"].replace(tzinfo=UTC)
+
+        if "trade_return" in outcome_data and not isinstance(outcome_data["trade_return"], Decimal):
+            outcome_data["trade_return"] = Decimal(str(outcome_data["trade_return"]))
+
+        async with self.session_maker() as session:
+            instance: ExperimentOutcome | None = None
+
+            if outcome_data.get("outcome_id") is not None:
+                instance = await session.get(ExperimentOutcome, outcome_data["outcome_id"])
+            elif outcome_data.get("experiment_id") and outcome_data.get("event_id"):
+                stmt = select(ExperimentOutcome).where(
+                    ExperimentOutcome.experiment_id == outcome_data["experiment_id"],
+                    ExperimentOutcome.event_id == outcome_data["event_id"],
+                )
+                result = await session.execute(stmt)
+                instance = result.scalar_one_or_none()
+
+            if instance is not None:
+                return instance
+
+            instance = ExperimentOutcome(**outcome_data)
+            session.add(instance)
+            await session.commit()
+            await session.refresh(instance)
+            return instance
 
     async def get_experiment_performance(
         self, experiment_id: uuid.UUID,
