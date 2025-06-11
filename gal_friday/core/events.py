@@ -1242,6 +1242,28 @@ class APIErrorEvent(Event):
 
 
 @dataclass(frozen=True)
+class CriticalAlertEvent(Event):
+    """Event representing a critical system alert."""
+
+    order_id: str
+    alert_message: str
+    event_type: EventType = field(default=EventType.SYSTEM_ERROR, init=False)
+
+    @classmethod
+    def create(
+        cls, source_module: str, order_id: str, message: str,
+    ) -> "CriticalAlertEvent":
+        """Create a new CriticalAlertEvent instance."""
+        return cls(
+            source_module=source_module,
+            event_id=uuid.uuid4(),
+            timestamp=dt.datetime.now(dt.UTC),
+            order_id=order_id,
+            alert_message=message,
+        )
+
+
+@dataclass(frozen=True)
 class ClosePositionCommand(Event):
     """Command to close an open position, typically triggered during a system HALT."""
 
