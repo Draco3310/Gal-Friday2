@@ -29,6 +29,11 @@ import psutil  # Added for system resource monitoring
 from .logger_service import LoggerService
 from .portfolio_manager import PortfolioManager
 from .dal.repositories.history_repository import HistoryRepository
+from .monitoring.alerting_system import (
+    Alert as ExternalAlert,
+    AlertSeverity as ExternalAlertSeverity,
+    AlertingSystem,
+)
 
 
 class MetricType(str, Enum):
@@ -159,7 +164,12 @@ class PerformanceMetrics:
 class MetricsCollectionSystem:
     """Enterprise-grade metrics collection and alerting system."""
 
-    def __init__(self, config: dict[str, Any], logger: LoggerService) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        logger: LoggerService,
+        alerting_system: AlertingSystem | None = None,
+    ) -> None:
         """Initialize the metrics collection system.
         
         Args:
@@ -169,6 +179,7 @@ class MetricsCollectionSystem:
         self.config = config
         self.logger = logger
         self._source_module = "MetricsCollectionSystem"
+        self.alerting_system = alerting_system
         
         # Metrics storage and buffering
         self.metrics_buffer: list[Metric] = []
@@ -1273,28 +1284,40 @@ class MetricsCollectionSystem:
     async def _send_alert_notifications(self, alert: Alert, rule: AlertRule) -> None:
         """Send alert notifications through configured channels."""
         try:
-            # In a production system, this would integrate with:
-            # - Email service
-            # - Slack/Teams webhooks  
-            # - SMS service
-            # - PagerDuty/OpsGenie
-            
             self.logger.info(
-                f"Sending alert notifications for {alert.name} via channels: {rule.notification_channels}",
-                source_module=self._source_module
+                "Sending alert notifications for %s via channels: %s",
+                alert.name,
+                rule.notification_channels,
+                source_module=self._source_module,
             )
-            
-            # For now, just log the notification
-            notification_data = {
-                'alert': alert.to_dict(),
-                'channels': rule.notification_channels,
-                'type': 'alert_triggered'
-            }
-            
-            self.logger.info(
-                f"NOTIFICATION: {json.dumps(notification_data)}",
-                source_module=self._source_module
-            )
+
+            if self.alerting_system:
+                severity_map = {
+                    AlertSeverity.INFO: ExternalAlertSeverity.INFO,
+                    AlertSeverity.WARNING: ExternalAlertSeverity.WARNING,
+                    AlertSeverity.CRITICAL: ExternalAlertSeverity.CRITICAL,
+                    AlertSeverity.EMERGENCY: ExternalAlertSeverity.CRITICAL,
+                }
+                ext_alert = ExternalAlert(
+                    alert_id=alert.alert_id,
+                    title=alert.name,
+                    message=alert.message,
+                    severity=severity_map.get(alert.severity, ExternalAlertSeverity.ERROR),
+                    source=self._source_module,
+                    tags={"rule": rule.name, **alert.metadata},
+                )
+                await self.alerting_system.send_alert(ext_alert)
+            else:
+                notification_data = {
+                    "alert": alert.to_dict(),
+                    "channels": rule.notification_channels,
+                    "type": "alert_triggered",
+                }
+                self.logger.info(
+                    "NOTIFICATION: %s",
+                    json.dumps(notification_data),
+                    source_module=self._source_module,
+                )
             
         except Exception as e:
             self.logger.error(
@@ -1306,16 +1329,33 @@ class MetricsCollectionSystem:
     async def _send_resolution_notification(self, alert: Alert, rule: AlertRule) -> None:
         """Send alert resolution notifications."""
         try:
-            notification_data = {
-                'alert': alert.to_dict(),
-                'channels': rule.notification_channels,
-                'type': 'alert_resolved'
-            }
-            
-            self.logger.info(
-                f"RESOLUTION NOTIFICATION: {json.dumps(notification_data)}",
-                source_module=self._source_module
-            )
+            if self.alerting_system:
+                severity_map = {
+                    AlertSeverity.INFO: ExternalAlertSeverity.INFO,
+                    AlertSeverity.WARNING: ExternalAlertSeverity.WARNING,
+                    AlertSeverity.CRITICAL: ExternalAlertSeverity.CRITICAL,
+                    AlertSeverity.EMERGENCY: ExternalAlertSeverity.CRITICAL,
+                }
+                ext_alert = ExternalAlert(
+                    alert_id=alert.alert_id,
+                    title=f"{alert.name} resolved",
+                    message=alert.message,
+                    severity=severity_map.get(alert.severity, ExternalAlertSeverity.INFO),
+                    source=self._source_module,
+                    tags={"rule": rule.name, **alert.metadata, "resolution": "true"},
+                )
+                await self.alerting_system.send_alert(ext_alert)
+            else:
+                notification_data = {
+                    "alert": alert.to_dict(),
+                    "channels": rule.notification_channels,
+                    "type": "alert_resolved",
+                }
+                self.logger.info(
+                    "RESOLUTION NOTIFICATION: %s",
+                    json.dumps(notification_data),
+                    source_module=self._source_module,
+                )
             
         except Exception as e:
             self.logger.error(
@@ -1732,6 +1772,7 @@ class MonitoringService:
         execution_handler: "ExecutionHandler | None" = None,
         halt_coordinator: Optional["HaltCoordinator"] = None,
         history_repo: "HistoryRepository | None" = None,
+        alerting_system: AlertingSystem | None = None,
     ) -> None:
         """Initialize the MonitoringService.
 
@@ -1750,6 +1791,7 @@ class MonitoringService:
         self.logger = logger_service
         self._execution_handler = execution_handler
         self.history_repo = history_repo
+        self.alerting_system = alerting_system
         self._source = self.__class__.__name__
 
         # Initialize HALT coordinator if not provided
@@ -1786,6 +1828,7 @@ class MonitoringService:
 
         # State for tracking additional monitoring metrics
         self._last_market_data_times: dict[str, datetime] = {}  # pair -> timestamp
+        self._last_market_data_prices: dict[str, Decimal] = {}
         self._consecutive_api_failures: int = 0
         self._consecutive_losses: int = 0
         self._recent_api_errors: deque[float] = deque(
@@ -1799,7 +1842,8 @@ class MonitoringService:
         metrics_config = self.config_manager.get("monitoring", {}).get("metrics_collection", {})
         self._metrics_system = MetricsCollectionSystem(
             config=metrics_config,
-            logger=logger_service
+            logger=logger_service,
+            alerting_system=self.alerting_system,
         )
 
         self.logger.info("MonitoringService initialized with enterprise metrics collection.", source_module=self._source)
@@ -2732,10 +2776,11 @@ class MonitoringService:
         and compares it against the configured maximum drawdown threshold.
         """
         try:
-            # PortfolioManager.get_current_state() needs to be synchronous per design doc
-            # If it becomes async, this needs adjustment (e.g., run_in_executor)
-            # For now, assuming it's sync as requested for MVP.
-            current_state = self._portfolio_manager.get_current_state()
+            # PortfolioManager.get_current_state() is synchronous; run in executor
+            loop = asyncio.get_running_loop()
+            current_state = await loop.run_in_executor(
+                None, self._portfolio_manager.get_current_state
+            )
             drawdown_pct = current_state.get("total_drawdown_pct")
 
             if drawdown_pct is None:
@@ -3135,8 +3180,6 @@ class MonitoringService:
             annualization_factor = (annualization_factor_config) ** 0.5
 
         try:
-            # This would need to be implemented to fetch historical candles
-            # For now, simulating the call
             price_history_candles = await self._get_historical_candles_for_volatility(
                 trading_pair=trading_pair,
                 num_candles=window_size + 1,
@@ -3352,8 +3395,18 @@ class MonitoringService:
                 )
             
             # Method 2: Try to get price from recent market data events
-            # This would require storing price information from market data events
-            # For now, we don't have a direct storage mechanism for this
+            ts = self._last_market_data_times.get(trading_pair)
+            price = self._last_market_data_prices.get(trading_pair)
+            if ts and price is not None:
+                age = (datetime.now(UTC) - ts).total_seconds()
+                if age < self._data_staleness_threshold_s:
+                    self.logger.debug(
+                        "Got market price for %s from cached market data: $%s",
+                        trading_pair,
+                        price,
+                        source_module=self._source,
+                    )
+                    return price
             
             # Method 3: Try to get price from execution handler if it has price lookup
             if self._execution_handler:
@@ -3611,6 +3664,38 @@ class MonitoringService:
                 ts,
                 source_module=self._source,
             )
+
+            # Extract price information if available
+            price: Decimal | None = None
+            if hasattr(event, "close"):
+                price = Decimal(str(event.close))
+            elif hasattr(event, "last_price"):
+                price = Decimal(str(event.last_price))
+            elif hasattr(event, "price"):
+                price = Decimal(str(event.price))
+            elif hasattr(event, "bids") and hasattr(event, "asks"):
+                try:
+                    bid = Decimal(str(event.bids[0][0])) if event.bids else None
+                    ask = Decimal(str(event.asks[0][0])) if event.asks else None
+                    if bid is not None and ask is not None:
+                        price = (bid + ask) / Decimal("2")
+                except Exception:
+                    price = None
+
+            if price is not None:
+                self._last_market_data_prices[pair] = price
+                try:
+                    await self.collect_metric(
+                        f"market_data.price.{pair}",
+                        float(price),
+                        labels={"trading_pair": pair},
+                    )
+                except Exception as e:
+                    self.logger.debug(
+                        "Error collecting market price metric: %s",
+                        e,
+                        source_module=self._source,
+                    )
 
             # Collect market data freshness metric
             try:
