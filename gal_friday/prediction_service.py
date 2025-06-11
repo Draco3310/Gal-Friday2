@@ -1350,10 +1350,10 @@ class PredictionService:
 
         Returns:
             A 1D `np.ndarray` of float32 type containing the feature values in the
-            order specified by `expected_model_features`. If a feature expected by
-            the model is missing in `event_features`, `np.nan` is used for that
-            position. Returns `None` if no features could be processed or if all
-            processed features result in NaN.
+            order specified by `expected_model_features`. Missing or NaN values are
+            replaced with imputed defaults using `_impute_feature_value`. Returns
+            `None` if no features could be processed or if all processed features
+            result in NaN.
         """
         ordered_feature_values: list[float] = []
         missing_features_log: list[str] = []
@@ -1362,20 +1362,30 @@ class PredictionService:
         type_errors_log: list[str] = []
 
         for feature_name in expected_model_features:
-            value = event_features.get(feature_name) # Value is already float or None
+            value = event_features.get(feature_name)  # Value is already float or None
 
-            if value is None: # Feature missing from the validated Pydantic model's output
+            if value is None:
+                # Feature missing from the validated Pydantic model's output.
                 missing_features_log.append(str(feature_name))
-                ordered_feature_values.append(np.nan) # Use np.nan for missing features
+                imputed_value = self._impute_feature_value(feature_name)
+                ordered_feature_values.append(imputed_value)
+                self.logger.debug(
+                    "Imputed missing feature '%s' with value %.4f",
+                    feature_name,
+                    imputed_value,
+                )
                 continue
 
             # Check for NaN explicitly, as Pydantic allows NaN for float if not otherwise restricted
             if np.isnan(value):
                 # This case means the feature was present but its value was NaN.
-                # Depending on policy, this might be an error or acceptable.
-                # For now, we pass it as np.nan.
-                self.logger.debug("Feature '%s' has NaN value.", feature_name)
-                ordered_feature_values.append(np.nan)
+                imputed_value = self._impute_feature_value(feature_name)
+                self.logger.debug(
+                    "Feature '%s' had NaN value. Imputed with %.4f",
+                    feature_name,
+                    imputed_value,
+                )
+                ordered_feature_values.append(imputed_value)
                 continue
 
             # Value should be a float if it's not None and not NaN
@@ -1422,6 +1432,26 @@ class PredictionService:
             return None
 
         return feature_array  # Returns a 1D array
+
+    def _impute_feature_value(self, feature_name: str) -> float:
+        """Return a context-aware default value for a missing feature."""
+        feature_lower = feature_name.lower()
+
+        if "rsi" in feature_lower:
+            return 50.0
+        if "macd" in feature_lower:
+            return 0.0
+        if any(term in feature_lower for term in ["volume", "vol", "vwap"]):
+            return 0.0
+        if any(term in feature_lower for term in ["price", "spread", "wap"]):
+            return 0.0
+        if any(term in feature_lower for term in ["atr", "volatility", "stdev"]):
+            return 0.0
+        if "pct" in feature_lower or "percent" in feature_lower:
+            return 0.0
+        if "imbalance" in feature_lower:
+            return 0.0
+        return 0.0
 
     async def _publish_prediction(self, event: PredictionEvent) -> None:
         """Publish the prediction event to subscribers."""
