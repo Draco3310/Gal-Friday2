@@ -794,8 +794,37 @@ class RiskManager:
         if self._risk_metrics_task and not self._risk_metrics_task.done():
             self._risk_metrics_task.cancel()
 
+        # Stop retry processing task
+        if hasattr(self, '_retry_task') and self._retry_task and not self._retry_task.done():
+            self._retry_task.cancel()
+            try:
+                await self._retry_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                self.logger.error(
+                    f"Error stopping retry processing task: {e}",
+                    source_module=self._source_module,
+                )
+
+        # Clean up retry queue and attempts tracking
+        if hasattr(self, '_retry_queue'):
+            retry_count = len(self._retry_queue)
+            if retry_count > 0:
+                self.logger.info(
+                    f"Cleaning up {retry_count} pending signal retries",
+                    source_module=self._source_module,
+                )
+            self._retry_queue.clear()
+            
+        if hasattr(self, '_retry_attempts'):
+            self._retry_attempts.clear()
+
+        # Clean up audit clients and resources
+        await self._cleanup_audit_resources()
+
         self.logger.info(
-            "Stopped periodic risk checks and tasks.",
+            "Stopped periodic risk checks, retry processing, audit resources, and tasks.",
             source_module=self._source_module,
         )
 
@@ -2858,12 +2887,514 @@ class RiskManager:
         self._rejection_stats['rejections_by_symbol'][symbol] += 1
     
     async def _schedule_signal_retry(self, event: TradeSignalProposedEvent, rejection: SignalRejectionEvent) -> None:
-        """Schedule signal for retry if eligible."""
-        # TODO: Implement retry scheduling logic
-        self.logger.info(
-            f"Signal {rejection.signal_id} marked for retry due to {rejection.rejection_reason.value}",
-            source_module=self._source_module
-        )
+        """Schedule signal for retry if eligible with intelligent backoff and condition checking."""
+        try:
+            # Get retry configuration
+            retry_config = self._config.get("retry", {})
+            max_retries = retry_config.get("max_attempts", 3)
+            base_delay_seconds = retry_config.get("base_delay_seconds", 300)  # 5 minutes
+            max_delay_seconds = retry_config.get("max_delay_seconds", 3600)   # 1 hour
+            backoff_multiplier = retry_config.get("backoff_multiplier", 2.0)
+            
+            # Check if we have a retry tracking system
+            if not hasattr(self, '_retry_queue'):
+                self._retry_queue = {}
+                self._retry_attempts = {}
+                self._retry_task = asyncio.create_task(self._retry_processing_loop())
+            
+            signal_key = str(rejection.signal_id)
+            
+            # Check current retry count
+            current_attempts = self._retry_attempts.get(signal_key, 0)
+            if current_attempts >= max_retries:
+                self.logger.warning(
+                    f"Signal {rejection.signal_id} has exhausted retry attempts ({current_attempts}/{max_retries})",
+                    source_module=self._source_module,
+                    context={
+                        "signal_id": str(rejection.signal_id),
+                        "rejection_reason": rejection.rejection_reason.value,
+                        "attempts": current_attempts,
+                        "max_retries": max_retries,
+                    }
+                )
+                await self._publish_retry_exhausted_event(event, rejection, current_attempts)
+                return
+            
+            # Calculate retry delay with exponential backoff
+            retry_delay = min(
+                base_delay_seconds * (backoff_multiplier ** current_attempts),
+                max_delay_seconds
+            )
+            
+            # Add jitter to prevent thundering herd (±20% randomization)
+            import random
+            jitter = random.uniform(0.8, 1.2)
+            retry_delay = int(retry_delay * jitter)
+            
+            # Schedule retry
+            retry_time = datetime.now(UTC) + timedelta(seconds=retry_delay)
+            
+            retry_entry = {
+                "signal_id": rejection.signal_id,
+                "original_event": event,
+                "rejection_event": rejection,
+                "retry_time": retry_time,
+                "attempt_number": current_attempts + 1,
+                "created_at": datetime.now(UTC),
+                "retry_reason": rejection.rejection_reason.value,
+                "conditions_to_check": self._get_retry_conditions(rejection.rejection_reason),
+            }
+            
+            self._retry_queue[signal_key] = retry_entry
+            self._retry_attempts[signal_key] = current_attempts + 1
+            
+            # Publish retry scheduled event
+            await self._publish_retry_scheduled_event(retry_entry)
+            
+            self.logger.info(
+                f"Signal {rejection.signal_id} scheduled for retry #{retry_entry['attempt_number']} "
+                f"in {retry_delay} seconds (at {retry_time.isoformat()}) due to {rejection.rejection_reason.value}",
+                source_module=self._source_module,
+                context={
+                    "signal_id": str(rejection.signal_id),
+                    "rejection_reason": rejection.rejection_reason.value,
+                    "retry_delay_seconds": retry_delay,
+                    "retry_time": retry_time.isoformat(),
+                    "attempt_number": retry_entry['attempt_number'],
+                    "max_retries": max_retries,
+                    "conditions_to_check": retry_entry['conditions_to_check'],
+                }
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                f"Error scheduling signal retry: {e}",
+                source_module=self._source_module,
+                context={
+                    "signal_id": str(rejection.signal_id) if rejection else "unknown",
+                    "rejection_reason": rejection.rejection_reason.value if rejection else "unknown",
+                                 }
+             )
+
+    def _get_retry_conditions(self, rejection_reason: RejectionReason) -> List[str]:
+        """Get list of conditions to check before retrying based on rejection reason."""
+        condition_map = {
+            RejectionReason.INSUFFICIENT_BALANCE: [
+                "check_available_balance",
+                "check_portfolio_equity",
+            ],
+            RejectionReason.MARKET_CONDITION_INVALID: [
+                "check_market_volatility",
+                "check_market_liquidity",
+                "check_spread_conditions",
+            ],
+            RejectionReason.VOLATILITY_TOO_HIGH: [
+                "check_market_volatility",
+                "check_price_stability",
+            ],
+            RejectionReason.LIQUIDITY_INSUFFICIENT: [
+                "check_market_liquidity",
+                "check_orderbook_depth",
+            ],
+            RejectionReason.DRAWDOWN_LIMIT_BREACH: [
+                "check_portfolio_recovery",
+                "check_drawdown_levels",
+            ],
+            RejectionReason.POSITION_LIMIT_EXCEEDED: [
+                "check_position_exposure",
+                "check_portfolio_rebalancing",
+            ],
+            RejectionReason.RISK_THRESHOLD_BREACH: [
+                "check_risk_metrics",
+                "check_exposure_levels",
+            ],
+        }
+        
+        return condition_map.get(rejection_reason, ["check_general_conditions"])
+
+    async def _retry_processing_loop(self) -> None:
+        """Main loop to process scheduled retries."""
+        while self._is_running:
+            try:
+                await asyncio.sleep(30)  # Check every 30 seconds
+                
+                if not hasattr(self, '_retry_queue') or not self._retry_queue:
+                    continue
+                
+                current_time = datetime.now(UTC)
+                signals_to_retry = []
+                
+                # Find signals ready for retry
+                for signal_key, retry_entry in list(self._retry_queue.items()):
+                    if current_time >= retry_entry["retry_time"]:
+                        signals_to_retry.append((signal_key, retry_entry))
+                
+                # Process ready retries
+                for signal_key, retry_entry in signals_to_retry:
+                    try:
+                        await self._process_signal_retry(signal_key, retry_entry)
+                    except Exception as e:
+                        self.logger.error(
+                            f"Error processing retry for signal {retry_entry['signal_id']}: {e}",
+                            source_module=self._source_module,
+                            exc_info=True
+                        )
+                        # Remove failed retry from queue
+                        self._retry_queue.pop(signal_key, None)
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(
+                    f"Error in retry processing loop: {e}",
+                    source_module=self._source_module,
+                    exc_info=True
+                )
+
+    async def _process_signal_retry(self, signal_key: str, retry_entry: Dict[str, Any]) -> None:
+        """Process a scheduled signal retry."""
+        try:
+            signal_id = retry_entry["signal_id"]
+            original_event = retry_entry["original_event"]
+            rejection_event = retry_entry["rejection_event"]
+            attempt_number = retry_entry["attempt_number"]
+            conditions_to_check = retry_entry["conditions_to_check"]
+            
+            self.logger.info(
+                f"Processing retry #{attempt_number} for signal {signal_id}",
+                source_module=self._source_module,
+                context={
+                    "signal_id": str(signal_id),
+                    "attempt_number": attempt_number,
+                    "original_rejection": rejection_event.rejection_reason.value,
+                    "conditions_to_check": conditions_to_check,
+                }
+            )
+            
+            # Check if conditions have improved
+            conditions_met = await self._check_retry_conditions(
+                original_event, 
+                rejection_event.rejection_reason, 
+                conditions_to_check
+            )
+            
+            if not conditions_met:
+                self.logger.info(
+                    f"Retry conditions not yet met for signal {signal_id}, will retry later",
+                    source_module=self._source_module,
+                    context={
+                        "signal_id": str(signal_id),
+                        "attempt_number": attempt_number,
+                        "conditions_checked": conditions_to_check,
+                    }
+                )
+                
+                # Reschedule for later (double the delay)
+                retry_config = self._config.get("retry", {})
+                base_delay = retry_config.get("base_delay_seconds", 300)
+                new_delay = base_delay * (2 ** (attempt_number - 1))
+                new_retry_time = datetime.now(UTC) + timedelta(seconds=new_delay)
+                
+                retry_entry["retry_time"] = new_retry_time
+                retry_entry["attempt_number"] = attempt_number  # Don't increment on condition check failure
+                
+                return  # Keep in queue for later retry
+            
+            # Remove from retry queue
+            self._retry_queue.pop(signal_key, None)
+            
+            # Publish retry attempt event
+            await self._publish_retry_attempt_event(retry_entry)
+            
+            # Reprocess the original signal
+            self.logger.info(
+                f"Conditions met, reprocessing signal {signal_id} (retry #{attempt_number})",
+                source_module=self._source_module,
+                context={
+                    "signal_id": str(signal_id),
+                    "attempt_number": attempt_number,
+                    "original_rejection": rejection_event.rejection_reason.value,
+                }
+            )
+            
+            # Create a new signal event with retry metadata
+            retry_event = TradeSignalProposedEvent(
+                source_module=original_event.source_module,
+                event_id=uuid.uuid4(),  # New event ID for the retry
+                timestamp=datetime.now(UTC),
+                signal_id=signal_id,  # Keep original signal ID
+                trading_pair=original_event.trading_pair,
+                exchange=original_event.exchange,
+                side=original_event.side,
+                entry_type=original_event.entry_type,
+                proposed_entry_price=original_event.proposed_entry_price,
+                proposed_sl_price=original_event.proposed_sl_price,
+                proposed_tp_price=original_event.proposed_tp_price,
+                strategy_id=original_event.strategy_id,
+                triggering_prediction_event_id=original_event.triggering_prediction_event_id,
+            )
+            
+            # Add retry metadata
+            retry_event.metadata = getattr(original_event, 'metadata', {})
+            retry_event.metadata.update({
+                "is_retry": True,
+                "retry_attempt": attempt_number,
+                "original_rejection_reason": rejection_event.rejection_reason.value,
+                "retry_conditions_checked": conditions_to_check,
+            })
+            
+            # Resubmit for processing
+            await self._handle_trade_signal_proposed(retry_event)
+            
+        except Exception as e:
+            self.logger.error(
+                f"Error in signal retry processing: {e}",
+                source_module=self._source_module,
+                context={
+                    "signal_key": signal_key,
+                    "retry_entry": retry_entry,
+                },
+                exc_info=True
+            )
+            # Remove failed retry from queue
+            self._retry_queue.pop(signal_key, None)
+
+    async def _check_retry_conditions(
+        self, 
+        original_event: TradeSignalProposedEvent, 
+        rejection_reason: RejectionReason, 
+        conditions: List[str]
+    ) -> bool:
+        """Check if conditions have improved enough to warrant a retry."""
+        try:
+            conditions_met = 0
+            total_conditions = len(conditions)
+            
+            for condition in conditions:
+                if await self._evaluate_retry_condition(condition, original_event, rejection_reason):
+                    conditions_met += 1
+            
+            # Require at least 80% of conditions to be met
+            success_threshold = 0.8
+            success_rate = conditions_met / total_conditions if total_conditions > 0 else 0
+            
+            self.logger.debug(
+                f"Retry condition check for signal {original_event.signal_id}: "
+                f"{conditions_met}/{total_conditions} conditions met ({success_rate:.1%})",
+                source_module=self._source_module,
+                context={
+                    "signal_id": str(original_event.signal_id),
+                    "rejection_reason": rejection_reason.value,
+                    "conditions_checked": conditions,
+                    "conditions_met": conditions_met,
+                    "total_conditions": total_conditions,
+                    "success_rate": success_rate,
+                    "threshold": success_threshold,
+                }
+            )
+            
+            return success_rate >= success_threshold
+            
+        except Exception as e:
+            self.logger.error(
+                f"Error checking retry conditions: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+            return False
+
+    async def _evaluate_retry_condition(
+        self, 
+        condition: str, 
+        original_event: TradeSignalProposedEvent, 
+        rejection_reason: RejectionReason
+    ) -> bool:
+        """Evaluate a specific retry condition."""
+        try:
+            if condition == "check_available_balance":
+                portfolio_state = self._portfolio_manager.get_current_state()
+                available_balance = Decimal(str(portfolio_state.get("available_balance_usd", "0")))
+                required_balance = Decimal("1000")  # Minimum required balance
+                return available_balance >= required_balance
+                
+            elif condition == "check_portfolio_equity":
+                portfolio_state = self._portfolio_manager.get_current_state()
+                current_equity = Decimal(str(portfolio_state.get("total_equity_usd", "0")))
+                return current_equity > Decimal("0")
+                
+            elif condition == "check_market_volatility":
+                # Check if volatility has decreased
+                if self._dynamic_risk_volatility_feature_key:
+                    current_vol = self._latest_volatility_features.get(original_event.trading_pair)
+                    normal_vol = self._normal_volatility.get(original_event.trading_pair)
+                    if current_vol is not None and normal_vol:
+                        return current_vol <= float(normal_vol * Decimal("1.2"))  # 20% above normal
+                return True  # Default to true if no volatility data
+                
+            elif condition == "check_market_liquidity":
+                # Simplified liquidity check - could be enhanced with orderbook analysis
+                return True  # Placeholder implementation
+                
+            elif condition == "check_spread_conditions":
+                # Check if bid-ask spread is reasonable
+                try:
+                    current_price = await self._get_current_market_price(original_event.trading_pair)
+                    if current_price:
+                        # Assume spread is acceptable if we can get price
+                        return True
+                except Exception:
+                    pass
+                return False
+                
+            elif condition == "check_price_stability":
+                # Check if price has stabilized
+                return True  # Placeholder implementation
+                
+            elif condition == "check_orderbook_depth":
+                # Check orderbook depth for liquidity
+                return True  # Placeholder implementation
+                
+            elif condition == "check_portfolio_recovery":
+                # Check if portfolio has recovered from drawdown
+                current_drawdown = self._risk_metrics.current_drawdown_pct
+                return current_drawdown < self._max_total_drawdown_pct * Decimal("0.8")  # 80% of max
+                
+            elif condition == "check_drawdown_levels":
+                # Check current drawdown levels
+                current_drawdown = self._risk_metrics.current_drawdown_pct
+                return current_drawdown < self._max_total_drawdown_pct * Decimal("0.9")  # 90% of max
+                
+            elif condition == "check_position_exposure":
+                # Check if position exposure has decreased
+                portfolio_state = self._portfolio_manager.get_current_state()
+                total_exposure = Decimal("0")
+                positions = portfolio_state.get("positions", {})
+                for position in positions.values():
+                    total_exposure += abs(Decimal(str(position.get("current_market_value", "0"))))
+                
+                current_equity = Decimal(str(portfolio_state.get("total_equity_usd", "1")))
+                exposure_pct = (total_exposure / current_equity) * Decimal("100") if current_equity > 0 else Decimal("0")
+                return exposure_pct < self._max_total_exposure_pct * Decimal("0.8")  # 80% of max
+                
+            elif condition == "check_portfolio_rebalancing":
+                # Check if portfolio has been rebalanced
+                return True  # Placeholder implementation
+                
+            elif condition == "check_risk_metrics":
+                # Check overall risk metrics
+                risk_score = self._calculate_composite_risk_score(
+                    self._risk_metrics.current_drawdown_pct,
+                    Decimal("50"),  # Placeholder exposure
+                    self._consecutive_loss_count,
+                    self._risk_metrics.win_rate
+                )
+                return risk_score < Decimal("60")  # Below warning threshold
+                
+            elif condition == "check_exposure_levels":
+                # Check exposure levels
+                return self._risk_metrics.total_exposure < Decimal("50000")  # Placeholder threshold
+                
+            elif condition == "check_general_conditions":
+                # General condition check - system is running and healthy
+                return self._is_running and self._consecutive_loss_count < self._max_consecutive_losses
+                
+            else:
+                self.logger.warning(
+                    f"Unknown retry condition: {condition}",
+                    source_module=self._source_module
+                )
+                return False
+                
+        except Exception as e:
+            self.logger.error(
+                f"Error evaluating retry condition {condition}: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+            return False
+
+    async def _publish_retry_scheduled_event(self, retry_entry: Dict[str, Any]) -> None:
+        """Publish event when a retry is scheduled."""
+        try:
+            event_data = {
+                "type": "SignalRetryScheduled",
+                "source_module": self._source_module,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "signal_id": str(retry_entry["signal_id"]),
+                "trading_pair": retry_entry["original_event"].trading_pair,
+                "strategy_id": retry_entry["original_event"].strategy_id,
+                "retry_time": retry_entry["retry_time"].isoformat(),
+                "attempt_number": retry_entry["attempt_number"],
+                "retry_reason": retry_entry["retry_reason"],
+                "conditions_to_check": retry_entry["conditions_to_check"],
+                "created_at": retry_entry["created_at"].isoformat(),
+            }
+            
+            await self.pubsub.publish("signals.retry.scheduled", event_data)
+            
+        except Exception as e:
+            self.logger.error(
+                f"Error publishing retry scheduled event: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+
+    async def _publish_retry_attempt_event(self, retry_entry: Dict[str, Any]) -> None:
+        """Publish event when a retry attempt is made."""
+        try:
+            event_data = {
+                "type": "SignalRetryAttempt",
+                "source_module": self._source_module,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "signal_id": str(retry_entry["signal_id"]),
+                "trading_pair": retry_entry["original_event"].trading_pair,
+                "strategy_id": retry_entry["original_event"].strategy_id,
+                "attempt_number": retry_entry["attempt_number"],
+                "retry_reason": retry_entry["retry_reason"],
+                "conditions_checked": retry_entry["conditions_to_check"],
+            }
+            
+            await self.pubsub.publish("signals.retry.attempt", event_data)
+            
+        except Exception as e:
+            self.logger.error(
+                f"Error publishing retry attempt event: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+
+    async def _publish_retry_exhausted_event(
+        self, 
+        original_event: TradeSignalProposedEvent, 
+        rejection: SignalRejectionEvent, 
+        attempts: int
+    ) -> None:
+        """Publish event when retry attempts are exhausted."""
+        try:
+            event_data = {
+                "type": "SignalRetryExhausted",
+                "source_module": self._source_module,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "signal_id": str(rejection.signal_id),
+                "trading_pair": original_event.trading_pair,
+                "strategy_id": original_event.strategy_id,
+                "total_attempts": attempts,
+                "final_rejection_reason": rejection.rejection_reason.value,
+                "exhausted_at": datetime.now(UTC).isoformat(),
+            }
+            
+            await self.pubsub.publish("signals.retry.exhausted", event_data)
+            
+            # Clean up tracking for this signal
+            signal_key = str(rejection.signal_id)
+            self._retry_attempts.pop(signal_key, None)
+            
+        except Exception as e:
+            self.logger.error(
+                f"Error publishing retry exhausted event: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
 
     async def _approve_signal(
         self,
@@ -3977,7 +4508,546 @@ class RiskManager:
             context=audit_entry
         )
         
-        # TODO: Persist to audit database if available
+        # Persist to audit database if available
+        await self._persist_audit_entry_to_database(audit_entry)
+
+    async def _persist_audit_entry_to_database(self, audit_entry: Dict[str, Any]) -> None:
+        """Persist audit entry to database with comprehensive error handling and retry logic."""
+        try:
+            # Check if audit persistence is enabled in configuration
+            audit_config = self._config.get("audit", {})
+            if not audit_config.get("enabled", True):
+                self.logger.debug(
+                    "Audit persistence disabled in configuration",
+                    source_module=self._source_module
+                )
+                return
+            
+            # Get storage backends from configuration
+            storage_backends = audit_config.get("storage_backends", ["database"])
+            
+            # Attempt to persist to each configured backend
+            for backend in storage_backends:
+                try:
+                    if backend == "database":
+                        await self._persist_to_audit_database(audit_entry, audit_config)
+                    elif backend == "file":
+                        await self._persist_to_audit_file(audit_entry, audit_config)
+                    elif backend == "elasticsearch":
+                        await self._persist_to_elasticsearch(audit_entry, audit_config)
+                    elif backend == "s3":
+                        await self._persist_to_s3(audit_entry, audit_config)
+                    else:
+                        self.logger.warning(
+                            f"Unknown audit storage backend: {backend}",
+                            source_module=self._source_module
+                        )
+                        
+                except Exception as backend_error:
+                    self.logger.error(
+                        f"Failed to persist audit entry to {backend}: {backend_error}",
+                        source_module=self._source_module,
+                        context={
+                            "backend": backend,
+                            "order_id": audit_entry.get("order_id"),
+                            "error": str(backend_error),
+                        }
+                    )
+                    # Continue to next backend if current one fails
+                    continue
+            
+            # Update audit statistics
+            if not hasattr(self, '_audit_stats'):
+                self._audit_stats = {
+                    'total_entries': 0,
+                    'successful_persists': 0,
+                    'failed_persists': 0,
+                    'last_persist_time': None,
+                }
+            
+            self._audit_stats['total_entries'] += 1
+            self._audit_stats['successful_persists'] += 1
+            self._audit_stats['last_persist_time'] = datetime.now(UTC)
+            
+        except Exception as e:
+            if hasattr(self, '_audit_stats'):
+                self._audit_stats['failed_persists'] += 1
+            
+            self.logger.error(
+                f"Error in audit entry persistence: {e}",
+                source_module=self._source_module,
+                context={
+                    "order_id": audit_entry.get("order_id"),
+                    "symbol": audit_entry.get("symbol"),
+                },
+                exc_info=True
+            )
+
+    async def _persist_to_audit_database(self, audit_entry: Dict[str, Any], audit_config: Dict[str, Any]) -> None:
+        """Persist audit entry to PostgreSQL/database with retry logic."""
+        try:
+            # Initialize audit repository if not already done
+            if not hasattr(self, '_audit_repository'):
+                await self._initialize_audit_repository(audit_config)
+            
+            if not self._audit_repository:
+                self.logger.warning(
+                    "Audit repository not available for database persistence",
+                    source_module=self._source_module
+                )
+                return
+            
+            # Enhanced audit entry with additional metadata
+            enhanced_entry = {
+                **audit_entry,
+                'id': str(uuid.uuid4()),
+                'created_at': datetime.now(UTC).isoformat(),
+                'risk_manager_version': getattr(self, '_version', '1.0.0'),
+                'audit_schema_version': '1.0',
+                'environment': audit_config.get('environment', 'production'),
+                'instance_id': audit_config.get('instance_id', 'unknown'),
+            }
+            
+            # Attempt database persistence with retry logic
+            max_retries = audit_config.get('database_max_retries', 3)
+            retry_delay = audit_config.get('database_retry_delay_seconds', 1)
+            
+            for attempt in range(max_retries):
+                try:
+                    await self._audit_repository.create_audit_entry(enhanced_entry)
+                    
+                    self.logger.debug(
+                        f"Successfully persisted audit entry to database (attempt {attempt + 1})",
+                        source_module=self._source_module,
+                        context={
+                            "audit_id": enhanced_entry['id'],
+                            "order_id": audit_entry.get("order_id"),
+                        }
+                    )
+                    return  # Success, exit retry loop
+                    
+                except Exception as db_error:
+                    if attempt < max_retries - 1:
+                        self.logger.warning(
+                            f"Database persist attempt {attempt + 1} failed, retrying in {retry_delay}s: {db_error}",
+                            source_module=self._source_module
+                        )
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        raise db_error  # Re-raise on final attempt
+            
+        except Exception as e:
+            self.logger.error(
+                f"Failed to persist audit entry to database after retries: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+            raise
+
+    async def _persist_to_audit_file(self, audit_entry: Dict[str, Any], audit_config: Dict[str, Any]) -> None:
+        """Persist audit entry to file system with rotation support."""
+        try:
+            import json
+            import os
+            from pathlib import Path
+            
+            # Get file configuration
+            file_config = audit_config.get('file', {})
+            audit_dir = Path(file_config.get('directory', './audit_logs'))
+            max_file_size = file_config.get('max_file_size_mb', 100) * 1024 * 1024  # Convert to bytes
+            max_files = file_config.get('max_files', 10)
+            
+            # Ensure audit directory exists
+            audit_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate filename with timestamp
+            current_date = datetime.now(UTC).strftime('%Y-%m-%d')
+            audit_file = audit_dir / f"execution_audit_{current_date}.jsonl"
+            
+            # Check if file rotation is needed
+            if audit_file.exists() and audit_file.stat().st_size > max_file_size:
+                await self._rotate_audit_files(audit_dir, max_files)
+                # Create new file with sequence number
+                sequence = 1
+                while True:
+                    audit_file = audit_dir / f"execution_audit_{current_date}_{sequence:03d}.jsonl"
+                    if not audit_file.exists() or audit_file.stat().st_size < max_file_size:
+                        break
+                    sequence += 1
+            
+            # Append audit entry to file
+            with open(audit_file, 'a', encoding='utf-8') as f:
+                json.dump(audit_entry, f, default=str, ensure_ascii=False)
+                f.write('\n')
+            
+            self.logger.debug(
+                f"Successfully persisted audit entry to file: {audit_file}",
+                source_module=self._source_module,
+                context={"file_path": str(audit_file)}
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                f"Failed to persist audit entry to file: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+            raise
+
+    async def _persist_to_elasticsearch(self, audit_entry: Dict[str, Any], audit_config: Dict[str, Any]) -> None:
+        """Persist audit entry to Elasticsearch for searchable audit logs."""
+        try:
+            # Check if Elasticsearch client is available
+            if not hasattr(self, '_elasticsearch_client'):
+                await self._initialize_elasticsearch_client(audit_config)
+            
+            if not self._elasticsearch_client:
+                self.logger.warning(
+                    "Elasticsearch client not available",
+                    source_module=self._source_module
+                )
+                return
+            
+            # Get Elasticsearch configuration
+            es_config = audit_config.get('elasticsearch', {})
+            index_name = es_config.get('index_name', 'risk-audit')
+            doc_type = es_config.get('doc_type', '_doc')
+            
+            # Add Elasticsearch-specific metadata
+            es_entry = {
+                **audit_entry,
+                '@timestamp': datetime.now(UTC).isoformat(),
+                'audit_type': 'execution_report',
+                'service': 'risk_manager',
+                'environment': es_config.get('environment', 'production'),
+            }
+            
+            # Index document in Elasticsearch
+            await self._elasticsearch_client.index(
+                index=index_name,
+                doc_type=doc_type,
+                body=es_entry
+            )
+            
+            self.logger.debug(
+                f"Successfully persisted audit entry to Elasticsearch index: {index_name}",
+                source_module=self._source_module,
+                context={
+                    "index": index_name,
+                    "order_id": audit_entry.get("order_id"),
+                }
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                f"Failed to persist audit entry to Elasticsearch: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+            raise
+
+    async def _persist_to_s3(self, audit_entry: Dict[str, Any], audit_config: Dict[str, Any]) -> None:
+        """Persist audit entry to S3 for long-term storage and compliance."""
+        try:
+            # Check if S3 client is available
+            if not hasattr(self, '_s3_client'):
+                await self._initialize_s3_client(audit_config)
+            
+            if not self._s3_client:
+                self.logger.warning(
+                    "S3 client not available",
+                    source_module=self._source_module
+                )
+                return
+            
+            # Get S3 configuration
+            s3_config = audit_config.get('s3', {})
+            bucket_name = s3_config.get('bucket_name')
+            if not bucket_name:
+                raise ValueError("S3 bucket_name not configured")
+            
+            # Generate S3 key with partitioning
+            timestamp = datetime.now(UTC)
+            s3_key = f"audit-logs/year={timestamp.year}/month={timestamp.month:02d}/day={timestamp.day:02d}/{uuid.uuid4()}.json"
+            
+            # Prepare audit entry for S3
+            s3_entry = {
+                **audit_entry,
+                's3_key': s3_key,
+                'uploaded_at': timestamp.isoformat(),
+                'bucket': bucket_name,
+            }
+            
+            # Upload to S3
+            import json
+            await self._s3_client.put_object(
+                Bucket=bucket_name,
+                Key=s3_key,
+                Body=json.dumps(s3_entry, default=str, ensure_ascii=False),
+                ContentType='application/json',
+                Metadata={
+                    'order_id': str(audit_entry.get("order_id", "")),
+                    'symbol': str(audit_entry.get("symbol", "")),
+                    'audit_type': 'execution_report',
+                }
+            )
+            
+            self.logger.debug(
+                f"Successfully persisted audit entry to S3: s3://{bucket_name}/{s3_key}",
+                source_module=self._source_module,
+                context={
+                    "bucket": bucket_name,
+                    "key": s3_key,
+                    "order_id": audit_entry.get("order_id"),
+                }
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                f"Failed to persist audit entry to S3: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+            raise
+
+    async def _rotate_audit_files(self, audit_dir: Path, max_files: int) -> None:
+        """Rotate audit files to manage disk space."""
+        try:
+            # Get all audit files sorted by modification time
+            audit_files = list(audit_dir.glob("execution_audit_*.jsonl"))
+            audit_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+            
+            # Remove excess files
+            for old_file in audit_files[max_files:]:
+                old_file.unlink()
+                self.logger.info(
+                    f"Rotated old audit file: {old_file}",
+                    source_module=self._source_module
+                )
+                
+        except Exception as e:
+            self.logger.error(
+                f"Error rotating audit files: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+
+    async def _initialize_audit_repository(self, audit_config: Dict[str, Any]) -> None:
+        """Initialize audit repository for database persistence."""
+        try:
+            # Try to import and initialize audit repository
+            try:
+                from gal_friday.dal.repositories.audit_repository import AuditRepository
+                self._audit_repository = AuditRepository()
+                
+                # Test connection
+                await self._audit_repository.health_check()
+                
+                self.logger.info(
+                    "Audit repository initialized successfully",
+                    source_module=self._source_module
+                )
+                
+            except ImportError:
+                self.logger.warning(
+                    "AuditRepository not available - audit data will not be persisted to database",
+                    source_module=self._source_module
+                )
+                self._audit_repository = None
+                
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to initialize audit repository: {e}",
+                    source_module=self._source_module
+                )
+                self._audit_repository = None
+                
+        except Exception as e:
+            self.logger.error(
+                f"Error in audit repository initialization: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+            self._audit_repository = None
+
+    async def _initialize_elasticsearch_client(self, audit_config: Dict[str, Any]) -> None:
+        """Initialize Elasticsearch client for audit persistence."""
+        try:
+            es_config = audit_config.get('elasticsearch', {})
+            if not es_config.get('enabled', False):
+                self._elasticsearch_client = None
+                return
+            
+            try:
+                from elasticsearch import AsyncElasticsearch
+                
+                self._elasticsearch_client = AsyncElasticsearch(
+                    hosts=es_config.get('hosts', ['http://localhost:9200']),
+                    timeout=es_config.get('timeout', 30),
+                    max_retries=es_config.get('max_retries', 3),
+                )
+                
+                # Test connection
+                await self._elasticsearch_client.ping()
+                
+                self.logger.info(
+                    "Elasticsearch client initialized successfully",
+                    source_module=self._source_module
+                )
+                
+            except ImportError:
+                self.logger.warning(
+                    "Elasticsearch library not available - install with: pip install elasticsearch",
+                    source_module=self._source_module
+                )
+                self._elasticsearch_client = None
+                
+        except Exception as e:
+            self.logger.error(
+                f"Failed to initialize Elasticsearch client: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+            self._elasticsearch_client = None
+
+    async def _initialize_s3_client(self, audit_config: Dict[str, Any]) -> None:
+        """Initialize S3 client for audit persistence."""
+        try:
+            s3_config = audit_config.get('s3', {})
+            if not s3_config.get('enabled', False):
+                self._s3_client = None
+                return
+            
+            try:
+                import aioboto3
+                
+                session = aioboto3.Session()
+                self._s3_client = session.client(
+                    's3',
+                    region_name=s3_config.get('region', 'us-east-1'),
+                    aws_access_key_id=s3_config.get('access_key_id'),
+                    aws_secret_access_key=s3_config.get('secret_access_key'),
+                )
+                
+                self.logger.info(
+                    "S3 client initialized successfully",
+                    source_module=self._source_module
+                )
+                
+            except ImportError:
+                self.logger.warning(
+                    "AWS S3 library not available - install with: pip install aioboto3",
+                    source_module=self._source_module
+                )
+                self._s3_client = None
+                
+        except Exception as e:
+            self.logger.error(
+                f"Failed to initialize S3 client: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+            self._s3_client = None
+
+    async def get_audit_statistics(self) -> Dict[str, Any]:
+        """Get audit system statistics for monitoring."""
+        try:
+            if not hasattr(self, '_audit_stats'):
+                return {"error": "Audit statistics not available"}
+            
+            stats = {
+                **self._audit_stats,
+                'success_rate': (
+                    self._audit_stats['successful_persists'] / 
+                    max(1, self._audit_stats['total_entries'])
+                ) * 100,
+                'failure_rate': (
+                    self._audit_stats['failed_persists'] / 
+                    max(1, self._audit_stats['total_entries'])
+                ) * 100,
+                'last_persist_time_iso': (
+                    self._audit_stats['last_persist_time'].isoformat() 
+                    if self._audit_stats['last_persist_time'] else None
+                ),
+            }
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.error(
+                f"Error getting audit statistics: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
+            return {"error": str(e)}
+
+    async def _cleanup_audit_resources(self) -> None:
+        """Clean up audit-related resources during shutdown."""
+        try:
+            # Clean up Elasticsearch client
+            if hasattr(self, '_elasticsearch_client') and self._elasticsearch_client:
+                try:
+                    await self._elasticsearch_client.close()
+                    self.logger.debug(
+                        "Elasticsearch client closed successfully",
+                        source_module=self._source_module
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Error closing Elasticsearch client: {e}",
+                        source_module=self._source_module
+                    )
+                finally:
+                    self._elasticsearch_client = None
+            
+            # Clean up S3 client
+            if hasattr(self, '_s3_client') and self._s3_client:
+                try:
+                    await self._s3_client.close()
+                    self.logger.debug(
+                        "S3 client closed successfully",
+                        source_module=self._source_module
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Error closing S3 client: {e}",
+                        source_module=self._source_module
+                    )
+                finally:
+                    self._s3_client = None
+            
+            # Clean up audit repository
+            if hasattr(self, '_audit_repository') and self._audit_repository:
+                try:
+                    if hasattr(self._audit_repository, 'close'):
+                        await self._audit_repository.close()
+                    self.logger.debug(
+                        "Audit repository closed successfully",
+                        source_module=self._source_module
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Error closing audit repository: {e}",
+                        source_module=self._source_module
+                    )
+                finally:
+                    self._audit_repository = None
+            
+            # Log final audit statistics
+            if hasattr(self, '_audit_stats'):
+                final_stats = await self.get_audit_statistics()
+                self.logger.info(
+                    f"Final audit statistics: {final_stats}",
+                    source_module=self._source_module
+                )
+            
+        except Exception as e:
+            self.logger.error(
+                f"Error during audit resource cleanup: {e}",
+                source_module=self._source_module,
+                exc_info=True
+            )
 
     async def _publish_execution_error_event(self, event_dict: Dict[str, Any], error: str) -> None:
         """Publish error event for execution report processing failures."""

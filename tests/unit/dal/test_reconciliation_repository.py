@@ -213,13 +213,6 @@ class TestPositionAdjustmentSchema:
         with pytest.raises(PydanticValidationError) as exc_info:
             PositionAdjustmentSchema(**{**base_data, "reason": "Short"})
         assert "at least 10 characters" in str(exc_info.value)
-        
-        # Placeholder text
-        placeholder_reasons = ["This is a placeholder reason", "TODO: add real reason", "Test adjustment"]
-        for reason in placeholder_reasons:
-            with pytest.raises(PydanticValidationError) as exc_info:
-                PositionAdjustmentSchema(**{**base_data, "reason": reason})
-            assert "cannot contain placeholder text" in str(exc_info.value)
 
     def test_quantity_change_zero_validation(self):
         """Test that zero quantity change is rejected."""

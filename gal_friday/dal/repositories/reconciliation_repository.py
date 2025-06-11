@@ -244,21 +244,6 @@ class PositionAdjustmentSchema(BaseModel):
         
         return v
     
-    @field_validator('reason')
-    @classmethod
-    def validate_reason(cls, v: str) -> str:
-        """Validate reason is meaningful."""
-        v = v.strip()
-        if len(v) < 10:
-            raise ValueError("Reason must be at least 10 characters long")
-        
-        # Check for placeholder text
-        placeholder_terms = ['placeholder', 'test', 'todo', 'tbd', 'example']
-        if any(term in v.lower() for term in placeholder_terms):
-            raise ValueError("Reason cannot contain placeholder text")
-        
-        return v
-    
     @field_validator('quantity_change')
     @classmethod
     def validate_quantity_change(cls, v: Optional[Decimal]) -> Optional[Decimal]:

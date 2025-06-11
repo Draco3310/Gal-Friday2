@@ -116,14 +116,59 @@ logging:
 
 # Backtesting Engine Configuration
 backtest:
-  data_path: "data/historical_data.parquet" # Path to historical data file (parquet recommended)
-  start_date: "2023-01-01T00:00:00Z" # Backtest start datetime (ISO 8601 format, UTC recommended)
-  end_date: "2023-12-31T23:59:59Z" # Backtest end datetime (ISO 8601 format, UTC recommended)
-  initial_capital: 100000.0 # Initial capital for the backtest (matches portfolio.initial_capital for consistency)
-  output_path: "backtests/results" # Directory to save backtest results (equity curve, trade log, summary)
-  slippage_model: "volatility" # 'fixed', 'volatility', or 'none'
-  fixed_slippage_bps: 2 # Basis points for fixed slippage (e.g., 2 = 0.02%) - Used if model is 'fixed'
-  atr_period: 14 # Period for ATR calculation (used if model is 'volatility')
+  # Data source configuration
+  data_path: "data/historical_data.csv"  # Primary data file path
+  
+  # Enterprise data loading configuration
+  data_loading:
+    # Performance and concurrency settings
+    max_concurrent_loads: 5
+    retry_attempts: 3
+    retry_delay_base: 1.0
+    retry_delay_multiplier: 2.0
+    timeout_seconds: 30.0
+    
+    # Cache configuration
+    cache_enabled: true
+    memory_cache_size: 1000
+    disk_cache_path: "./cache/backtest_data"
+    
+    # Data validation settings
+    data_validation_enabled: true
+    quality_threshold: 0.8
+    allow_low_quality_data: false
+    
+    # Failure handling
+    allow_partial_failures: false
+    min_success_rate: 0.8
+    
+    # Data source configuration
+    default_data_source: "auto"  # auto, local_files, database, api
+    fallback_data_sources: ["local_files", "database"]
+    enabled_providers: ["local_files", "database", "api"]
+    
+    # File source configuration
+    file_sources:
+      supported_formats: ["csv", "parquet", "json"]
+      default_format: "csv"
+    
+    # Database source configuration  
+    database_sources:
+      query_timeout: 60.0
+      connection_pool_size: 5
+    
+    # API source configuration
+    api_sources:
+      rate_limit_delay: 1.0
+      api_timeout: 30.0
+      max_requests_per_minute: 60
+      
+  # Legacy backtest configuration (maintained for compatibility)
+  start_date: "2023-01-01"
+  end_date: "2023-12-31"
+  initial_capital: 10000.0
+  commission_rate: 0.001
+  slippage_rate: 0.0005
 
 # Feature Engine Settings
 feature_engine:

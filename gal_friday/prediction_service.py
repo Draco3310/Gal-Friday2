@@ -1615,9 +1615,6 @@ class PredictionService:
                          hyperparameters: Optional[dict[str, Any]] = None) -> str:
         """Train a new ML model for the specified symbol.
         
-        This method implements the ML pipeline for price prediction with feature engineering
-        as specified in the TODO ticket L156_ml_pipeline.md.
-        
         Args:
             symbol: Trading symbol to train the model for
             training_data: DataFrame with OHLCV market data

@@ -2908,7 +2908,7 @@ class ExecutionHandler:
         """Handle warnings for stop-loss and take-profit parameters."""
         if event.sl_price or event.tp_price:
             self.logger.warning(
-                "SL/TP prices in signal %s; handling deferred in MVP Handler.",
+                "SL/TP prices in signal %s; handling deferred.",
                 event.signal_id,
                 source_module=self.__class__.__name__,
             )

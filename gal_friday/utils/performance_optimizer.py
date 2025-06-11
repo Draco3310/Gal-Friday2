@@ -1141,8 +1141,6 @@ def cache(
     """
     Type-safe caching decorator with comprehensive generic typing.
     
-    Replaces the previous TODO with production-ready generic type support
-    that preserves function signatures and return types.
     """
     
     # Create configuration if not provided

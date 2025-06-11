@@ -2616,13 +2616,33 @@ class MonitoringService:
         elif reduction_type == "QUANTITY":
             quantity_to_reduce = reduction_value
         elif reduction_type == "NOTIONAL_TARGET":
-            # Requires current price to convert target notional to target quantity
-            self.logger.warning(
-                "NOTIONAL_TARGET reduction type for %s requires MarketPriceService integration (TODO).",
-                trading_pair,
-                source_module=self._source,
-            )
-            return
+            # Convert target notional value to target quantity
+            current_price = await self._get_current_market_price(trading_pair)
+            if current_price is None:
+                self.logger.error(
+                    "Cannot get current market price for %s. Unable to calculate NOTIONAL_TARGET reduction.",
+                    trading_pair,
+                    source_module=self._source,
+                )
+                return
+            
+            # Calculate target quantity from notional value
+            target_quantity = reduction_value / current_price
+            
+            # Quantity to reduce is the difference between current and target
+            if abs(current_quantity) > target_quantity:
+                quantity_to_reduce = abs(current_quantity) - target_quantity
+            else:
+                self.logger.info(
+                    "Current position %s (%.6f) is already below target notional (%.6f = $%.2f @ $%.4f). No reduction needed.",
+                    trading_pair,
+                    abs(current_quantity),
+                    target_quantity,
+                    reduction_value,
+                    current_price,
+                    source_module=self._source,
+                )
+                return
         else:
             self.logger.error(
                 "Unknown reduction_type: %s for %s",
@@ -3228,6 +3248,115 @@ class MonitoringService:
             source_module=self._source,
         )
         return None
+
+    async def _get_current_market_price(self, trading_pair: str) -> Decimal | None:
+        """Get current market price for a trading pair.
+        
+        Attempts to get current price from various sources in order of preference:
+        1. Portfolio manager (if it has mark-to-market pricing)
+        2. Recent market data events stored in memory
+        3. Execution handler (if it has price lookup capability)
+        
+        Args:
+            trading_pair: Trading pair to get price for (e.g., "BTC/USD")
+            
+        Returns:
+            Current market price as Decimal, or None if unable to determine price
+        """
+        try:
+            # Method 1: Try to get price from portfolio manager
+            try:
+                current_state = self._portfolio_manager.get_current_state()
+                positions = current_state.get("positions", {})
+                
+                if trading_pair in positions:
+                    position_data = positions[trading_pair]
+                    
+                    # Try to extract current price from position market value
+                    market_value = position_data.get("market_value_usd", 0)
+                    quantity = position_data.get("quantity", 0)
+                    
+                    if float(quantity) != 0 and float(market_value) != 0:
+                        # Calculate implied price from market value and quantity
+                        # Note: This assumes USD-denominated market value
+                        implied_price = Decimal(str(abs(float(market_value)))) / Decimal(str(abs(float(quantity))))
+                        
+                        self.logger.debug(
+                            f"Got market price for {trading_pair} from portfolio position: ${implied_price:.4f}",
+                            source_module=self._source
+                        )
+                        return implied_price
+            except Exception as e:
+                self.logger.debug(
+                    f"Could not get price from portfolio manager for {trading_pair}: {e}",
+                    source_module=self._source
+                )
+            
+            # Method 2: Try to get price from recent market data events
+            # This would require storing price information from market data events
+            # For now, we don't have a direct storage mechanism for this
+            
+            # Method 3: Try to get price from execution handler if it has price lookup
+            if self._execution_handler:
+                try:
+                    # Check if execution handler has a method to get current price
+                    if hasattr(self._execution_handler, 'get_current_price'):
+                        price = await self._execution_handler.get_current_price(trading_pair)
+                        if price is not None:
+                            price_decimal = Decimal(str(price))
+                            self.logger.debug(
+                                f"Got market price for {trading_pair} from execution handler: ${price_decimal:.4f}",
+                                source_module=self._source
+                            )
+                            return price_decimal
+                    
+                    # Alternative: Try to get ticker data if available
+                    if hasattr(self._execution_handler, 'get_ticker'):
+                        ticker_data = await self._execution_handler.get_ticker(trading_pair)
+                        if ticker_data and 'last_price' in ticker_data:
+                            price_decimal = Decimal(str(ticker_data['last_price']))
+                            self.logger.debug(
+                                f"Got market price for {trading_pair} from ticker: ${price_decimal:.4f}",
+                                source_module=self._source
+                            )
+                            return price_decimal
+                    
+                    # Alternative: Try to get from orderbook if available
+                    if hasattr(self._execution_handler, 'get_orderbook'):
+                        orderbook = await self._execution_handler.get_orderbook(trading_pair)
+                        if orderbook and 'bid' in orderbook and 'ask' in orderbook:
+                            bid_price = Decimal(str(orderbook['bid']))
+                            ask_price = Decimal(str(orderbook['ask']))
+                            mid_price = (bid_price + ask_price) / Decimal('2')
+                            
+                            self.logger.debug(
+                                f"Got market price for {trading_pair} from orderbook mid: ${mid_price:.4f} (bid: ${bid_price:.4f}, ask: ${ask_price:.4f})",
+                                source_module=self._source
+                            )
+                            return mid_price
+                            
+                except Exception as e:
+                    self.logger.debug(
+                        f"Could not get price from execution handler for {trading_pair}: {e}",
+                        source_module=self._source
+                    )
+            
+            # Method 4: Fallback - use a simple price estimation or API call
+            # This could be enhanced to call external price APIs as a last resort
+            
+            self.logger.warning(
+                f"Unable to determine current market price for {trading_pair} from any available source",
+                source_module=self._source
+            )
+            return None
+            
+        except Exception as e:
+            self.logger.error(
+                f"Error getting current market price for {trading_pair}: {e}",
+                source_module=self._source,
+                exc_info=True
+            )
+            return None
 
     async def _handle_execution_report(self, event: "ExecutionReportEvent") -> None:
         """Handle execution report events to track consecutive losses.

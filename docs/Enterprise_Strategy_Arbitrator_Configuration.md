@@ -42,7 +42,7 @@ Update your strategy arbitrator configuration to include the new systems:
 strategy_arbitrator:
   # Existing strategy configuration
   strategies:
-    - id: "mvp_threshold_v1"
+    - id: "threshold_v1"
       buy_threshold: 0.65
       sell_threshold: 0.35
       # ... other strategy params ...

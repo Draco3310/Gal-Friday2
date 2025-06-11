@@ -34,6 +34,14 @@ from .logger_service import LoggerService
 # Import MarketPriceService
 from .market_price_service import MarketPriceService
 
+# Import Strategy Selection System
+from .strategy_selection import (
+    StrategySelectionSystem,
+    StrategySelectionContext,
+    StrategyEvaluationResult,
+    MarketConditionSnapshot
+)
+
 
 # === Enterprise-Grade Prediction Interpretation Framework ===
 
@@ -687,6 +695,10 @@ class StrategyArbitrator:
         logger_service: LoggerService,
         market_price_service: MarketPriceService,
         feature_registry_client: FeatureRegistryClient, # Added parameter
+        risk_manager=None,  # Added for strategy selection
+        portfolio_manager=None,  # Added for strategy selection
+        monitoring_service=None,  # Added for strategy selection
+        database_manager=None,  # Added for strategy selection
     ) -> None:
         """Initialize the StrategyArbitrator.
 
@@ -705,10 +717,22 @@ class StrategyArbitrator:
                     config_path: "path/to/interpretation_config.json"  # Optional
                   validation:
                     config_path: "path/to/validation_config.json"      # Optional
+                  strategy_selection:  # New configuration section
+                    enabled: true
+                    selection_frequency_hours: 4
+                    criteria_weights:
+                      performance_score: 0.40
+                      risk_alignment: 0.35
+                      market_fit: 0.20
+                      operational_efficiency: 0.05
             pubsub_manager (PubSubManager): For subscribing/publishing events.
             logger_service (LoggerService): The shared logger instance.
             market_price_service (MarketPriceService): Service to get market prices.
             feature_registry_client (FeatureRegistryClient): Instance of the feature registry client.
+            risk_manager: Risk manager instance for strategy selection integration.
+            portfolio_manager: Portfolio manager instance for strategy selection integration.
+            monitoring_service: Monitoring service instance for strategy selection integration.
+            database_manager: Database manager for strategy performance data access.
         """
         self._config = config.get("strategy_arbitrator", {})
         self.pubsub = pubsub_manager
@@ -735,6 +759,34 @@ class StrategyArbitrator:
             logger_service=logger_service
         )
 
+        # Initialize Strategy Selection System if enabled and dependencies provided
+        self._strategy_selection_enabled = (
+            self._config.get("strategy_selection", {}).get("enabled", False) and
+            all([risk_manager, portfolio_manager, monitoring_service, database_manager])
+        )
+        
+        if self._strategy_selection_enabled:
+            selection_config = self._config.get("strategy_selection", {})
+            self.strategy_selection_system = StrategySelectionSystem(
+                logger=logger_service,
+                config=selection_config,
+                risk_manager=risk_manager,
+                portfolio_manager=portfolio_manager,
+                monitoring_service=monitoring_service,
+                database_manager=database_manager
+            )
+            self.logger.info(
+                "Strategy Selection System initialized and enabled",
+                source_module=self._source_module
+            )
+        else:
+            self.strategy_selection_system = None
+            if self._config.get("strategy_selection", {}).get("enabled", False):
+                self.logger.warning(
+                    "Strategy selection enabled but dependencies not provided - using static selection",
+                    source_module=self._source_module
+                )
+
         self._strategies = self._config.get("strategies", [])
         if not self._strategies:
             # Log error and raise a custom exception or handle gracefully
@@ -742,7 +794,7 @@ class StrategyArbitrator:
             self.logger.error(err_msg, source_module=self._source_module)
             raise StrategyConfigurationError(err_msg)
 
-        # Select the best strategy based on configuration or default to the first one
+        # Select the best strategy based on configuration or use intelligent selection
         self._primary_strategy_config = self._select_best_strategy(self._strategies)
         self._strategy_id = self._primary_strategy_config.get("id", "default_strategy")
 
@@ -772,10 +824,10 @@ class StrategyArbitrator:
 
         # Price change thresholds
         self._price_change_buy_threshold_pct = Decimal(
-            str(self._primary_strategy_config["price_change_buy_threshold_pct"]),
+            str(self._primary_strategy_config.get("price_change_buy_threshold_pct", "0.01")),
         )
         self._price_change_sell_threshold_pct = Decimal(
-            str(self._primary_strategy_config["price_change_sell_threshold_pct"]),
+            str(self._primary_strategy_config.get("price_change_sell_threshold_pct", "-0.01")),
         )
 
         try:
@@ -1754,7 +1806,7 @@ class StrategyArbitrator:
             return generated_event
 
     async def start(self) -> None:
-        """Start listening for prediction events."""
+        """Start listening for prediction events and initialize strategy selection."""
         if self._is_running:
             self.logger.warning(
                 "StrategyArbitrator already running.",
@@ -1766,13 +1818,41 @@ class StrategyArbitrator:
         # Subscribe to PredictionEvent
         self.pubsub.subscribe(EventType.PREDICTION_GENERATED, self._prediction_handler)
 
+        # Start strategy selection system if enabled
+        if self._strategy_selection_enabled and self.strategy_selection_system:
+            try:
+                await self.strategy_selection_system.start()
+                self.logger.info(
+                    "Strategy Selection System started",
+                    source_module=self._source_module
+                )
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to start Strategy Selection System: {e}",
+                    source_module=self._source_module
+                )
+
         self.logger.info("StrategyArbitrator started.", source_module=self._source_module)
 
     async def stop(self) -> None:
-        """Stop the event processing loop."""
+        """Stop the event processing loop and strategy selection."""
         if not self._is_running:
             return
         self._is_running = False
+
+        # Stop strategy selection system if running
+        if self._strategy_selection_enabled and self.strategy_selection_system:
+            try:
+                await self.strategy_selection_system.stop()
+                self.logger.info(
+                    "Strategy Selection System stopped",
+                    source_module=self._source_module
+                )
+            except Exception as e:
+                self.logger.error(
+                    f"Error stopping Strategy Selection System: {e}",
+                    source_module=self._source_module
+                )
 
         # Unsubscribe
         try:
@@ -1818,6 +1898,179 @@ class StrategyArbitrator:
         if proposed_signal_event:
             await self._publish_trade_signal_proposed(proposed_signal_event)
 
+    async def update_strategy_configuration(self, new_strategy_config: dict) -> bool:
+        """Dynamically update strategy configuration during runtime.
+        
+        This method is called by the Strategy Selection System when transitioning
+        to a new strategy. It updates all internal parameters without requiring
+        a restart of the StrategyArbitrator.
+        
+        Args:
+            new_strategy_config: The new strategy configuration dictionary
+            
+        Returns:
+            bool: True if update successful, False otherwise
+        """
+        try:
+            self.logger.info(
+                f"Updating strategy configuration from {self._strategy_id} to {new_strategy_config.get('id')}",
+                source_module=self._source_module
+            )
+            
+            # Store previous configuration for potential rollback
+            previous_config = {
+                "strategy_id": self._strategy_id,
+                "buy_threshold": self._buy_threshold,
+                "sell_threshold": self._sell_threshold,
+                "entry_type": self._entry_type,
+                "sl_pct": self._sl_pct,
+                "tp_pct": self._tp_pct,
+                "confirmation_rules": self._confirmation_rules,
+                "limit_offset_pct": self._limit_offset_pct,
+                "prediction_interpretation": self._prediction_interpretation,
+                "stop_loss_to_take_profit_ratio": self._stop_loss_to_take_profit_ratio,
+                "price_change_buy_threshold_pct": self._price_change_buy_threshold_pct,
+                "price_change_sell_threshold_pct": self._price_change_sell_threshold_pct
+            }
+            
+            # Update strategy parameters
+            self._primary_strategy_config = new_strategy_config
+            self._strategy_id = new_strategy_config.get("id", "default_strategy")
+            
+            # Update thresholds
+            self._buy_threshold = Decimal(str(new_strategy_config["buy_threshold"]))
+            self._sell_threshold = Decimal(str(new_strategy_config["sell_threshold"]))
+            self._entry_type = new_strategy_config.get("entry_type", "MARKET").upper()
+            
+            # Update stop loss and take profit
+            sl_pct_conf = new_strategy_config.get("sl_pct")
+            tp_pct_conf = new_strategy_config.get("tp_pct")
+            self._sl_pct = Decimal(str(sl_pct_conf)) if sl_pct_conf is not None else None
+            self._tp_pct = Decimal(str(tp_pct_conf)) if tp_pct_conf is not None else None
+            
+            # Update other parameters
+            self._confirmation_rules = new_strategy_config.get("confirmation_rules", [])
+            self._limit_offset_pct = Decimal(
+                str(new_strategy_config.get("limit_offset_pct", "0.0001")),
+            )
+            self._prediction_interpretation = new_strategy_config.get(
+                "prediction_interpretation",
+                "directional",
+            )
+            default_rr_ratio_str = new_strategy_config.get(
+                "stop_loss_to_take_profit_ratio", "1.0",
+            )
+            self._stop_loss_to_take_profit_ratio = Decimal(default_rr_ratio_str)
+            
+            # Update price change thresholds
+            self._price_change_buy_threshold_pct = Decimal(
+                str(new_strategy_config.get("price_change_buy_threshold_pct", "0.01")),
+            )
+            self._price_change_sell_threshold_pct = Decimal(
+                str(new_strategy_config.get("price_change_sell_threshold_pct", "-0.01")),
+            )
+            
+            # Validate new configuration
+            try:
+                self._validate_configuration()
+                
+                self.logger.info(
+                    f"Successfully updated to strategy {self._strategy_id}",
+                    source_module=self._source_module
+                )
+                
+                # Log key parameter changes
+                self.logger.info(
+                    f"New parameters - Buy: {self._buy_threshold}, Sell: {self._sell_threshold}, "
+                    f"SL: {self._sl_pct}, TP: {self._tp_pct}, Entry: {self._entry_type}",
+                    source_module=self._source_module
+                )
+                
+                return True
+                
+            except Exception as validation_error:
+                # Rollback on validation failure
+                self.logger.error(
+                    f"Strategy update validation failed: {validation_error}. Rolling back.",
+                    source_module=self._source_module
+                )
+                
+                # Restore previous configuration
+                self._strategy_id = previous_config["strategy_id"]
+                self._buy_threshold = previous_config["buy_threshold"]
+                self._sell_threshold = previous_config["sell_threshold"]
+                self._entry_type = previous_config["entry_type"]
+                self._sl_pct = previous_config["sl_pct"]
+                self._tp_pct = previous_config["tp_pct"]
+                self._confirmation_rules = previous_config["confirmation_rules"]
+                self._limit_offset_pct = previous_config["limit_offset_pct"]
+                self._prediction_interpretation = previous_config["prediction_interpretation"]
+                self._stop_loss_to_take_profit_ratio = previous_config["stop_loss_to_take_profit_ratio"]
+                self._price_change_buy_threshold_pct = previous_config["price_change_buy_threshold_pct"]
+                self._price_change_sell_threshold_pct = previous_config["price_change_sell_threshold_pct"]
+                
+                return False
+                
+        except Exception as e:
+            self.logger.error(
+                f"Error updating strategy configuration: {e}",
+                source_module=self._source_module
+            )
+            return False
+            
+    def get_current_strategy_info(self) -> Dict[str, Any]:
+        """Get information about the currently active strategy.
+        
+        Returns:
+            Dictionary containing current strategy ID and key parameters
+        """
+        return {
+            "strategy_id": self._strategy_id,
+            "buy_threshold": float(self._buy_threshold),
+            "sell_threshold": float(self._sell_threshold),
+            "entry_type": self._entry_type,
+            "sl_pct": float(self._sl_pct) if self._sl_pct else None,
+            "tp_pct": float(self._tp_pct) if self._tp_pct else None,
+            "has_confirmation_rules": bool(self._confirmation_rules),
+            "num_confirmation_rules": len(self._confirmation_rules),
+            "prediction_interpretation": self._prediction_interpretation
+        }
+        
+    async def report_trade_outcome(
+        self, 
+        signal_id: str, 
+        outcome: str, 
+        pnl: Optional[Decimal] = None,
+        exit_reason: Optional[str] = None
+    ) -> None:
+        """Report trade outcome back to strategy selection system for learning.
+        
+        This allows the strategy selection system to track real-world performance
+        of strategies and improve its selection decisions over time.
+        
+        Args:
+            signal_id: The signal ID that resulted in the trade
+            outcome: "win", "loss", or "breakeven"
+            pnl: The profit/loss amount
+            exit_reason: Why the trade was exited (e.g., "tp_hit", "sl_hit", "manual")
+        """
+        if not self._strategy_selection_enabled or not self.strategy_selection_system:
+            return
+            
+        try:
+            # This would be implemented in the strategy selection system
+            # For now, just log the outcome
+            self.logger.info(
+                f"Trade outcome for strategy {self._strategy_id}: "
+                f"signal={signal_id}, outcome={outcome}, pnl={pnl}, exit={exit_reason}",
+                source_module=self._source_module
+            )
+        except Exception as e:
+            self.logger.error(
+                f"Error reporting trade outcome: {e}",
+                source_module=self._source_module
+            )
+
     async def _publish_trade_signal_proposed(self, event: TradeSignalProposedEvent) -> None:
         """Publish the TradeSignalProposedEvent."""
         try:
@@ -1837,14 +2090,14 @@ class StrategyArbitrator:
             )
 
     def _select_best_strategy(self, strategies: list[dict]) -> dict:
-        """Select the best strategy from available strategies.
+        """Select the best strategy from available strategies using intelligent multi-criteria analysis.
         
-        For now, returns the first strategy, but can be extended to include
-        more sophisticated selection logic based on:
-        - Historical performance metrics
-        - Current market conditions
-        - Risk parameters
-        - Strategy-specific criteria
+        This method leverages the enterprise-grade StrategySelectionSystem when available,
+        which evaluates strategies based on:
+        - Historical performance metrics (Sharpe ratio, win rate, drawdown)
+        - Current market conditions (volatility, trend, liquidity)
+        - Risk alignment with portfolio constraints
+        - Operational efficiency (latency, resource usage)
         
         Args:
             strategies: List of strategy configurations
@@ -1852,9 +2105,103 @@ class StrategyArbitrator:
         Returns:
             The selected strategy configuration
         """
-        # TODO: Implement strategy selection logic based on performance metrics
-        # For initial production, we use the first configured strategy
-        return strategies[0]
+        if not strategies:
+            raise StrategyConfigurationError("No strategies available for selection")
+            
+        # If strategy selection system is available and running, use it
+        if self._strategy_selection_enabled and self.strategy_selection_system:
+            try:
+                # Get current strategy if we have one
+                current_strategy_id = getattr(self, '_strategy_id', strategies[0].get("id"))
+                
+                # Create a synchronous wrapper for the async evaluation
+                import asyncio
+                loop = asyncio.get_event_loop()
+                
+                # Force immediate evaluation
+                evaluation_result = loop.run_until_complete(
+                    self.strategy_selection_system.force_strategy_evaluation()
+                )
+                
+                if evaluation_result and evaluation_result.recommendation in ["deploy", "monitor"]:
+                    # Find the strategy configuration for the selected ID
+                    selected_config = next(
+                        (s for s in strategies if s.get("id") == evaluation_result.strategy_id),
+                        None
+                    )
+                    
+                    if selected_config:
+                        self.logger.info(
+                            f"Intelligent strategy selection chose: {evaluation_result.strategy_id} "
+                            f"(score: {evaluation_result.composite_score:.3f}, "
+                            f"confidence: {evaluation_result.confidence_level:.2f})",
+                            source_module=self._source_module
+                        )
+                        
+                        # Log selection reasons
+                        for reason in evaluation_result.reasons[:3]:  # Top 3 reasons
+                            self.logger.info(
+                                f"Selection reason: {reason}",
+                                source_module=self._source_module
+                            )
+                            
+                        return selected_config
+                        
+            except Exception as e:
+                self.logger.error(
+                    f"Error in intelligent strategy selection: {e}. "
+                    f"Falling back to static selection.",
+                    source_module=self._source_module
+                )
+        
+        # Fallback: Static selection based on configuration priority
+        # This could be enhanced with simple heuristics even without the full system
+        
+        # Check if there's a preferred strategy marked in config
+        preferred = next((s for s in strategies if s.get("preferred", False)), None)
+        if preferred:
+            self.logger.info(
+                f"Selected preferred strategy: {preferred.get('id')}",
+                source_module=self._source_module
+            )
+            return preferred
+            
+        # Check for strategy with best static configuration
+        # Simple scoring based on risk parameters
+        best_score = -1
+        best_strategy = strategies[0]
+        
+        for strategy in strategies:
+            score = 0
+            
+            # Prefer strategies with both SL and TP defined
+            if strategy.get("sl_pct") and strategy.get("tp_pct"):
+                score += 2
+                
+            # Prefer strategies with reasonable thresholds
+            buy_threshold = float(strategy.get("buy_threshold", 0.5))
+            if 0.55 <= buy_threshold <= 0.70:
+                score += 1
+                
+            # Prefer strategies with confirmation rules
+            if strategy.get("confirmation_rules"):
+                score += 1
+                
+            # Prefer limit orders over market for better execution
+            if strategy.get("entry_type", "").upper() == "LIMIT":
+                score += 1
+                
+            if score > best_score:
+                best_score = score
+                best_strategy = strategy
+                
+        self.logger.info(
+            f"Static strategy selection chose: {best_strategy.get('id')} "
+            f"(static score: {best_score})",
+            source_module=self._source_module
+        )
+        
+        return best_strategy
 
 
 # Custom Exception for configuration errors

@@ -299,7 +299,6 @@ class OperationalModeManager:
     async def select_and_initialize_operational_mode(self, explicit_mode: Optional[str] = None) -> OperationalMode:
         """Select and initialize the appropriate operational mode.
         
-        This implements the TODO at line 922: operational mode selection logic.
         """
         try:
             self.logger.info("Starting operational mode selection and initialization")
@@ -555,8 +554,7 @@ class OperationalModeManager:
 # --- Enhanced Logging Setup System --- #
 class LoggingSetup:
     """Enterprise-grade logging configuration and initialization.
-    
-    This implements the TODO at line 923: logging setup and CLI initialization.
+
     """
     
     def __init__(self, config: ConfigManagerType):
@@ -683,8 +681,7 @@ class LoggingSetup:
 # --- Enhanced CLI Parser System --- #
 class EnhancedCLIParser:
     """Command line interface parser with comprehensive options.
-    
-    This enhances the basic argparse setup for the TODO at line 923.
+
     """
     
     def __init__(self):
@@ -805,8 +802,7 @@ Examples:
 
 def initialize_application_components(config_manager: ConfigManagerType) -> tuple[logging.Logger, argparse.Namespace, OperationalModeManager]:
     """Initialize application with enhanced logging, CLI setup, and mode management.
-    
-    This is the main entry point that replaces TODOs at lines 709, 922, and 923.
+
     """
     # Setup command line interface
     cli_parser = EnhancedCLIParser()
@@ -1655,8 +1651,6 @@ class GalFridayApp:
         # --- 1. Configuration Loading ---
         self._load_configuration(args.config)
         # No assertion needed, _load_configuration raises SystemExit on failure
-
-        # --- 2. Enterprise-Grade Logging Setup (Replaces TODO line 923) ---
         try:
             # Initialize enterprise logging setup
             self.logging_setup = LoggingSetup(self.config)  # type: ignore
@@ -1673,7 +1667,7 @@ class GalFridayApp:
             setup_logging(self.config, args.log_level)
             log.info("Fallback to basic logging configuration.")
 
-        # --- 3. Operational Mode Manager Setup (Replaces TODO line 922) ---
+        # --- 3. Operational Mode Manager Setup ---
         try:
             # Initialize mode manager
             self.mode_manager = OperationalModeManager(self.config)  # type: ignore

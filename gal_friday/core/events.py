@@ -1264,8 +1264,3 @@ class PredictionConfigUpdatedEvent(Event):
             timestamp=dt.datetime.now(dt.UTC), # DTZ003
             new_prediction_service_config=new_config,
         )
-
-
-# Cleanup placeholder comment
-# Removed the TODO section as definitions are now added.
-# Removed the example creation comment.

@@ -1559,30 +1559,375 @@ class BacktestingEngine:
         start_date: dt.datetime, 
         end_date: dt.datetime
     ) -> None:
-        """Load historical data for specified symbols and date range."""
-        self.logger.info("Loading historical data for comprehensive backtest")
+        """Load historical data for specified symbols and date range.
         
-        # This would typically load from a data source
-        # For now, we'll check if data is already loaded via existing methods
-        # or create placeholder structure
+        Enterprise-grade data loading with multiple sources, caching, validation,
+        and comprehensive error handling.
+        
+        Args:
+            symbols: List of trading symbols to load data for
+            start_date: Start date for data loading
+            end_date: End date for data loading
+            
+        Raises:
+            BacktestError: If data loading fails or no data is available
+        """
+        self.logger.info(
+            f"Loading historical data for {len(symbols)} symbols: {symbols}"
+        )
+        
+        # Get data loading configuration
+        data_config = self._get_data_loading_config()
+        
+        # Initialize data loading statistics
+        loading_stats = {
+            'requested_symbols': len(symbols),
+            'successful_loads': 0,
+            'failed_loads': 0,
+            'cache_hits': 0,
+            'data_sources_used': set(),
+            'total_data_points': 0
+        }
+        
+        try:
+            # Initialize enterprise data loader if not already done
+            if not hasattr(self, '_enterprise_data_loader'):
+                await self._initialize_enterprise_data_loader(data_config)
+            
+            # Load data for each symbol with parallel processing for performance
+            loading_tasks = []
+            for symbol in symbols:
+                task = self._load_symbol_data_with_retry(
+                    symbol, start_date, end_date, data_config, loading_stats
+                )
+                loading_tasks.append(task)
+            
+            # Execute loading tasks with controlled concurrency
+            max_concurrent = data_config.get('max_concurrent_loads', 5)
+            semaphore = asyncio.Semaphore(max_concurrent)
+            
+            async def load_with_semaphore(task):
+                async with semaphore:
+                    return await task
+            
+            # Wait for all loading tasks to complete
+            results = await asyncio.gather(
+                *[load_with_semaphore(task) for task in loading_tasks],
+                return_exceptions=True
+            )
+            
+            # Process results and handle any exceptions
+            successful_symbols = []
+            failed_symbols = []
+            
+            for i, result in enumerate(results):
+                symbol = symbols[i]
+                if isinstance(result, Exception):
+                    self.logger.error(f"Failed to load data for {symbol}: {result}")
+                    failed_symbols.append(symbol)
+                    loading_stats['failed_loads'] += 1
+                elif result:
+                    successful_symbols.append(symbol)
+                    loading_stats['successful_loads'] += 1
+                else:
+                    self.logger.warning(f"No data available for {symbol}")
+                    failed_symbols.append(symbol)
+                    loading_stats['failed_loads'] += 1
+            
+            # Validate loading success
+            self._validate_data_loading_results(
+                successful_symbols, failed_symbols, data_config, loading_stats
+            )
+            
+            # Log comprehensive loading statistics
+            self._log_data_loading_statistics(loading_stats)
+            
+            self.logger.info(
+                f"Successfully loaded data for {len(successful_symbols)}/{len(symbols)} symbols"
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Critical error in data loading: {e}")
+            raise BacktestError(f"Failed to load historical data: {e}")
+
+    def _get_data_loading_config(self) -> dict[str, Any]:
+        """Get comprehensive data loading configuration."""
+        base_config = {
+            'max_concurrent_loads': 5,
+            'retry_attempts': 3,
+            'retry_delay_base': 1.0,
+            'retry_delay_multiplier': 2.0,
+            'cache_enabled': True,
+            'data_validation_enabled': True,
+            'quality_threshold': 0.8,
+            'allow_partial_failures': False,
+            'timeout_seconds': 30.0,
+            'default_data_source': 'auto',
+            'fallback_data_sources': ['local_files', 'database'],
+        }
+        
+        # Override with user configuration
+        user_config = self.config.get('backtest.data_loading', {})
+        if isinstance(user_config, dict):
+            base_config.update(user_config)
+        
+        # Add data source specific configuration
+        base_config.update({
+            'file_sources': {
+                'data_path': self.config.get('backtest.data_path'),
+                'supported_formats': ['csv', 'parquet', 'json'],
+                'default_format': 'csv'
+            },
+            'database_sources': {
+                'primary_db': self.config.get('database.url'),
+                'timeseries_db': self.config.get('influxdb.url'),
+                'query_timeout': 60.0
+            },
+            'api_sources': {
+                'rate_limit_delay': 1.0,
+                'api_timeout': 30.0,
+                'max_requests_per_minute': 60
+            }
+        })
+        
+        return base_config
+
+    async def _initialize_enterprise_data_loader(self, data_config: dict[str, Any]) -> None:
+        """Initialize enterprise-grade data loading infrastructure."""
+        try:
+            # Initialize the comprehensive data loader with caching
+            loader_config = {
+                'memory_cache_size': data_config.get('memory_cache_size', 1000),
+                'disk_cache_path': data_config.get('disk_cache_path', './cache/backtest_data'),
+                'cache_enabled': data_config['cache_enabled'],
+                'providers': data_config.get('enabled_providers', ['local_files', 'database']),
+                'timeout_seconds': data_config['timeout_seconds']
+            }
+            
+            self._enterprise_data_loader = EnterpriseHistoricalDataLoader(
+                config=loader_config,
+                config_manager=self.config,
+                logger=self.logger
+            )
+            
+            await self._enterprise_data_loader.initialize()
+            
+            self.logger.info("Enterprise data loader initialized successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize enterprise data loader: {e}")
+            raise BacktestError(f"Data loader initialization failed: {e}")
+
+    async def _load_symbol_data_with_retry(
+        self,
+        symbol: str,
+        start_date: dt.datetime,
+        end_date: dt.datetime,
+        data_config: dict[str, Any],
+        loading_stats: dict[str, Any]
+    ) -> bool:
+        """Load data for a single symbol with retry logic and comprehensive error handling."""
+        retry_attempts = data_config['retry_attempts']
+        retry_delay = data_config['retry_delay_base']
+        retry_multiplier = data_config['retry_delay_multiplier']
+        
+        for attempt in range(retry_attempts + 1):
+            try:
+                # Create data request with comprehensive parameters
+                data_request = {
+                    'symbol': symbol,
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'data_source': data_config['default_data_source'],
+                    'fallback_sources': data_config['fallback_data_sources'],
+                    'include_volume': True,
+                    'validate_data': data_config['data_validation_enabled'],
+                    'cache_result': data_config['cache_enabled'],
+                    'quality_threshold': data_config['quality_threshold'],
+                    'timeout_seconds': data_config['timeout_seconds']
+                }
+                
+                # Load data using enterprise loader
+                data_result = await self._enterprise_data_loader.load_historical_data(data_request)
+                
+                if data_result and data_result.get('data') is not None:
+                    # Store the loaded data
+                    df = data_result['data']
+                    self._data[symbol] = df
+                    
+                    # Update statistics
+                    loading_stats['total_data_points'] += len(df)
+                    if data_result.get('cache_hit'):
+                        loading_stats['cache_hits'] += 1
+                    if data_result.get('data_source'):
+                        loading_stats['data_sources_used'].add(data_result['data_source'])
+                    
+                    self.logger.debug(
+                        f"Successfully loaded {len(df)} data points for {symbol} "
+                        f"from {data_result.get('data_source', 'unknown')}"
+                    )
+                    return True
+                else:
+                    if attempt < retry_attempts:
+                        self.logger.warning(
+                            f"No data returned for {symbol}, attempt {attempt + 1}/{retry_attempts + 1}"
+                        )
+                    else:
+                        self.logger.error(f"No data available for {symbol} after all retry attempts")
+                        return False
+                        
+            except Exception as e:
+                if attempt < retry_attempts:
+                    self.logger.warning(
+                        f"Attempt {attempt + 1} failed for {symbol}: {e}. "
+                        f"Retrying in {retry_delay:.1f}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= retry_multiplier
+                else:
+                    self.logger.error(f"All retry attempts failed for {symbol}: {e}")
+                    raise BacktestError(f"Failed to load data for {symbol}: {e}")
+        
+        return False
+
+    def _validate_data_loading_results(
+        self,
+        successful_symbols: list[str],
+        failed_symbols: list[str],
+        data_config: dict[str, Any],
+        loading_stats: dict[str, Any]
+    ) -> None:
+        """Validate data loading results and determine if backtest can proceed."""
+        total_symbols = len(successful_symbols) + len(failed_symbols)
+        success_rate = len(successful_symbols) / total_symbols if total_symbols > 0 else 0
+        
+        # Check if we have any data at all
+        if not successful_symbols:
+            raise BacktestError(
+                f"No historical data could be loaded for any symbols. "
+                f"Failed symbols: {failed_symbols}"
+            )
+        
+        # Check if partial failures are acceptable
+        if failed_symbols and not data_config.get('allow_partial_failures', False):
+            raise BacktestError(
+                f"Data loading failed for some symbols and partial failures are not allowed. "
+                f"Failed symbols: {failed_symbols}"
+            )
+        
+        # Check minimum success rate if configured
+        min_success_rate = data_config.get('min_success_rate', 0.8)
+        if success_rate < min_success_rate:
+            raise BacktestError(
+                f"Data loading success rate ({success_rate:.1%}) is below minimum "
+                f"required rate ({min_success_rate:.1%})"
+            )
+        
+        # Validate data quality
+        self._validate_loaded_data_quality(successful_symbols, data_config)
+
+    def _validate_loaded_data_quality(
+        self, 
+        symbols: list[str], 
+        data_config: dict[str, Any]
+    ) -> None:
+        """Validate the quality of loaded data."""
+        if not data_config.get('data_validation_enabled', True):
+            return
+            
+        quality_threshold = data_config.get('quality_threshold', 0.8)
+        quality_issues = []
         
         for symbol in symbols:
             if symbol not in self._data:
-                self.logger.warning(f"No data available for {symbol} - this may cause issues")
+                continue
+                
+            df = self._data[symbol]
+            quality_score = self._calculate_data_quality_score(df, symbol)
+            
+            if quality_score < quality_threshold:
+                quality_issues.append(f"{symbol}: {quality_score:.2f}")
+                self.logger.warning(
+                    f"Data quality for {symbol} ({quality_score:.2f}) "
+                    f"is below threshold ({quality_threshold:.2f})"
+                )
         
-        if not self._data:
-            raise BacktestError("No historical data loaded. Please load data before running backtest.")
-    
-    async def _create_default_services(self, run_config: dict[str, Any]) -> dict[str, Any]:
-        """Create default services for backtesting if none provided."""
-        services = {}
+        if quality_issues and not data_config.get('allow_low_quality_data', False):
+            raise BacktestError(
+                f"Data quality issues detected: {quality_issues}. "
+                f"Set 'allow_low_quality_data: true' to proceed anyway."
+            )
+
+    def _calculate_data_quality_score(self, df: pd.DataFrame, symbol: str) -> float:
+        """Calculate a data quality score for the loaded data."""
+        try:
+            # Basic quality checks
+            total_rows = len(df)
+            if total_rows == 0:
+                return 0.0
+            
+            quality_factors = []
+            
+            # Check for missing values
+            missing_ratio = df.isnull().sum().sum() / (total_rows * len(df.columns))
+            quality_factors.append(1.0 - missing_ratio)
+            
+            # Check for reasonable OHLCV relationships
+            if all(col in df.columns for col in ['open', 'high', 'low', 'close']):
+                # High should be >= Open, Low, Close
+                high_valid = ((df['high'] >= df['open']) & 
+                            (df['high'] >= df['low']) & 
+                            (df['high'] >= df['close'])).mean()
+                
+                # Low should be <= Open, High, Close
+                low_valid = ((df['low'] <= df['open']) & 
+                           (df['low'] <= df['high']) & 
+                           (df['low'] <= df['close'])).mean()
+                
+                quality_factors.extend([high_valid, low_valid])
+            
+            # Check for reasonable price movements (no extreme outliers)
+            if 'close' in df.columns and len(df) > 1:
+                price_changes = df['close'].pct_change().abs()
+                extreme_moves = (price_changes > 0.5).sum()  # >50% moves
+                extreme_ratio = extreme_moves / len(price_changes)
+                quality_factors.append(1.0 - min(extreme_ratio, 1.0))
+            
+            # Check data continuity (no huge gaps)
+            if 'timestamp' in df.columns:
+                df_sorted = df.sort_values('timestamp')
+                time_diffs = df_sorted['timestamp'].diff()
+                if len(time_diffs) > 1:
+                    median_diff = time_diffs.median()
+                    large_gaps = (time_diffs > median_diff * 10).sum()
+                    gap_ratio = large_gaps / len(time_diffs)
+                    quality_factors.append(1.0 - min(gap_ratio, 1.0))
+            
+            # Calculate overall quality score
+            return sum(quality_factors) / len(quality_factors) if quality_factors else 0.0
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating quality score for {symbol}: {e}")
+            return 0.5  # Default middle score if calculation fails
+
+    def _log_data_loading_statistics(self, loading_stats: dict[str, Any]) -> None:
+        """Log comprehensive data loading statistics."""
+        self.logger.info("Data Loading Statistics:")
+        self.logger.info(f"  Requested Symbols: {loading_stats['requested_symbols']}")
+        self.logger.info(f"  Successful Loads: {loading_stats['successful_loads']}")
+        self.logger.info(f"  Failed Loads: {loading_stats['failed_loads']}")
+        self.logger.info(f"  Cache Hits: {loading_stats['cache_hits']}")
+        self.logger.info(f"  Total Data Points: {loading_stats['total_data_points']:,}")
         
-        # This would create default implementations of required services
-        # For now, return empty dict - services should be provided externally
-        self.logger.info("Using minimal default services for backtesting")
+        if loading_stats['data_sources_used']:
+            sources = ', '.join(loading_stats['data_sources_used'])
+            self.logger.info(f"  Data Sources Used: {sources}")
         
-        return services
-    
+        success_rate = (loading_stats['successful_loads'] / 
+                       loading_stats['requested_symbols'] * 100 
+                       if loading_stats['requested_symbols'] > 0 else 0)
+        self.logger.info(f"  Success Rate: {success_rate:.1f}%")
+
     async def _run_vectorized_backtest(
         self, 
         services: dict[str, Any], 
@@ -2078,3 +2423,406 @@ class BacktestingEngine:
         """Clear all loaded historical data."""
         self._data.clear()
         self.logger.info("Cleared all historical data")
+
+
+class EnterpriseHistoricalDataLoader:
+    """Enterprise-grade historical data loader with multiple sources, caching, and validation."""
+    
+    def __init__(
+        self, 
+        config: dict[str, Any],
+        config_manager: ConfigManagerProtocol,
+        logger: logging.Logger
+    ) -> None:
+        """Initialize the enterprise data loader.
+        
+        Args:
+            config: Loader-specific configuration
+            config_manager: Global configuration manager
+            logger: Logger instance for comprehensive logging
+        """
+        self.config = config
+        self.config_manager = config_manager
+        self.logger = logger
+        self._source_module = self.__class__.__name__
+        
+        # Data providers registry
+        self._providers: dict[str, Any] = {}
+        
+        # Cache infrastructure
+        self._memory_cache: dict[str, Any] = {}
+        self._disk_cache_enabled = config.get('cache_enabled', True)
+        self._disk_cache_path = Path(config.get('disk_cache_path', './cache/backtest_data'))
+        
+        # Performance tracking
+        self._stats = {
+            'total_requests': 0,
+            'cache_hits': 0,
+            'provider_requests': 0,
+            'failed_requests': 0,
+            'total_data_points_loaded': 0
+        }
+        
+        # Request tracking for rate limiting
+        self._request_times: dict[str, list[dt.datetime]] = {}
+        
+    async def initialize(self) -> None:
+        """Initialize the enterprise data loader and its providers."""
+        try:
+            self.logger.info("Initializing Enterprise Historical Data Loader")
+            
+            # Create cache directory
+            if self._disk_cache_enabled:
+                self._disk_cache_path.mkdir(parents=True, exist_ok=True)
+                self.logger.info(f"Disk cache enabled at: {self._disk_cache_path}")
+            
+            # Initialize data providers
+            await self._initialize_providers()
+            
+            self.logger.info(
+                f"Enterprise data loader initialized with {len(self._providers)} providers"
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize enterprise data loader: {e}")
+            raise
+    
+    async def _initialize_providers(self) -> None:
+        """Initialize available data providers based on configuration."""
+        providers_config = self.config.get('providers', ['local_files'])
+        
+        for provider_name in providers_config:
+            try:
+                if provider_name == 'local_files':
+                    self._providers['local_files'] = LocalFileDataProvider(
+                        config=self.config_manager,
+                        logger=self.logger
+                    )
+                elif provider_name == 'database':
+                    self._providers['database'] = DatabaseDataProvider(
+                        config=self.config_manager,
+                        logger=self.logger
+                    )
+                elif provider_name == 'api':
+                    self._providers['api'] = APIDataProvider(
+                        config=self.config_manager,
+                        logger=self.logger
+                    )
+                
+                self.logger.info(f"Initialized data provider: {provider_name}")
+                
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize provider {provider_name}: {e}")
+    
+    async def load_historical_data(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        """Load historical data with comprehensive error handling and caching.
+        
+        Args:
+            request: Data request parameters including symbol, dates, sources, etc.
+            
+        Returns:
+            Dictionary containing loaded data and metadata, or None if failed
+        """
+        self._stats['total_requests'] += 1
+        
+        try:
+            # Generate cache key for this request
+            cache_key = self._generate_cache_key(request)
+            
+            # Try cache first if enabled
+            if request.get('cache_result', True):
+                cached_result = await self._get_from_cache(cache_key)
+                if cached_result:
+                    self._stats['cache_hits'] += 1
+                    self.logger.debug(f"Cache hit for {request['symbol']}")
+                    return cached_result
+            
+            # Load from providers
+            result = await self._load_from_providers(request)
+            
+            # Cache the result if successful
+            if result and request.get('cache_result', True):
+                await self._store_in_cache(cache_key, result)
+            
+            if result:
+                self._stats['total_data_points_loaded'] += len(result.get('data', []))
+            
+            return result
+            
+        except Exception as e:
+            self._stats['failed_requests'] += 1
+            self.logger.error(f"Failed to load data for {request.get('symbol', 'unknown')}: {e}")
+            return None
+    
+    async def _load_from_providers(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        """Load data from available providers with fallback logic."""
+        symbol = request['symbol']
+        data_source = request.get('data_source', 'auto')
+        fallback_sources = request.get('fallback_sources', ['local_files'])
+        
+        # Determine providers to try
+        providers_to_try = []
+        
+        if data_source == 'auto':
+            # Use intelligent provider selection
+            providers_to_try = self._select_optimal_providers(request)
+        elif data_source in self._providers:
+            providers_to_try = [data_source]
+        else:
+            # Use fallback sources
+            providers_to_try = [src for src in fallback_sources if src in self._providers]
+        
+        if not providers_to_try:
+            self.logger.error(f"No available providers for {symbol}")
+            return None
+        
+        # Try each provider until successful
+        for provider_name in providers_to_try:
+            try:
+                self.logger.debug(f"Trying provider {provider_name} for {symbol}")
+                
+                provider = self._providers[provider_name]
+                result = await provider.load_data(request)
+                
+                if result and result.get('data') is not None:
+                    # Validate data quality if requested
+                    if request.get('validate_data', True):
+                        quality_score = self._validate_data_quality(result['data'], symbol)
+                        quality_threshold = request.get('quality_threshold', 0.8)
+                        
+                        if quality_score < quality_threshold:
+                            self.logger.warning(
+                                f"Data quality for {symbol} from {provider_name} "
+                                f"({quality_score:.2f}) below threshold ({quality_threshold:.2f})"
+                            )
+                            continue  # Try next provider
+                    
+                    # Success - add metadata
+                    result.update({
+                        'data_source': provider_name,
+                        'cache_hit': False,
+                        'quality_score': quality_score if 'quality_score' in locals() else None
+                    })
+                    
+                    self._stats['provider_requests'] += 1
+                    self.logger.debug(f"Successfully loaded {symbol} from {provider_name}")
+                    return result
+                    
+            except Exception as e:
+                self.logger.warning(f"Provider {provider_name} failed for {symbol}: {e}")
+                continue
+        
+        # All providers failed
+        self.logger.error(f"All providers failed for {symbol}")
+        return None
+    
+    def _select_optimal_providers(self, request: dict[str, Any]) -> list[str]:
+        """Select optimal data providers based on request characteristics."""
+        providers = []
+        
+        # Prioritize based on data availability and performance
+        if 'local_files' in self._providers:
+            providers.append('local_files')  # Fastest for backtesting
+        
+        if 'database' in self._providers:
+            providers.append('database')  # Good for large datasets
+        
+        if 'api' in self._providers:
+            providers.append('api')  # Most comprehensive but slowest
+        
+        return providers
+    
+    def _generate_cache_key(self, request: dict[str, Any]) -> str:
+        """Generate a unique cache key for the request."""
+        key_parts = [
+            request['symbol'],
+            request['start_date'].isoformat(),
+            request['end_date'].isoformat(),
+            str(request.get('include_volume', True)),
+            str(request.get('data_source', 'auto'))
+        ]
+        return '_'.join(key_parts)
+    
+    async def _get_from_cache(self, cache_key: str) -> dict[str, Any] | None:
+        """Retrieve data from cache (memory first, then disk)."""
+        # Try memory cache first
+        if cache_key in self._memory_cache:
+            return self._memory_cache[cache_key]
+        
+        # Try disk cache
+        if self._disk_cache_enabled:
+            cache_file = self._disk_cache_path / f"{cache_key}.pkl"
+            if cache_file.exists():
+                try:
+                    import pickle
+                    with cache_file.open('rb') as f:
+                        cached_data = pickle.load(f)
+                    
+                    # Store in memory cache for next time
+                    self._memory_cache[cache_key] = cached_data
+                    return cached_data
+                    
+                except Exception as e:
+                    self.logger.warning(f"Failed to load from disk cache: {e}")
+        
+        return None
+    
+    async def _store_in_cache(self, cache_key: str, data: dict[str, Any]) -> None:
+        """Store data in cache (both memory and disk)."""
+        # Store in memory cache
+        self._memory_cache[cache_key] = data
+        
+        # Store in disk cache
+        if self._disk_cache_enabled:
+            try:
+                import pickle
+                cache_file = self._disk_cache_path / f"{cache_key}.pkl"
+                with cache_file.open('wb') as f:
+                    pickle.dump(data, f)
+            except Exception as e:
+                self.logger.warning(f"Failed to store in disk cache: {e}")
+    
+    def _validate_data_quality(self, df: pd.DataFrame, symbol: str) -> float:
+        """Validate data quality and return a score between 0 and 1."""
+        if df.empty:
+            return 0.0
+        
+        quality_factors = []
+        
+        # Check for missing values
+        missing_ratio = df.isnull().sum().sum() / (len(df) * len(df.columns))
+        quality_factors.append(1.0 - missing_ratio)
+        
+        # Check OHLCV data consistency
+        if all(col in df.columns for col in ['open', 'high', 'low', 'close']):
+            # High >= max(open, low, close)
+            high_valid = ((df['high'] >= df['open']) & (df['high'] >= df['low']) & 
+                         (df['high'] >= df['close'])).mean()
+            
+            # Low <= min(open, high, close)
+            low_valid = ((df['low'] <= df['open']) & (df['low'] <= df['high']) & 
+                        (df['low'] <= df['close'])).mean()
+            
+            quality_factors.extend([high_valid, low_valid])
+        
+        # Check for reasonable data distribution
+        if 'close' in df.columns and len(df) > 1:
+            price_changes = df['close'].pct_change().abs()
+            extreme_moves = (price_changes > 1.0).sum()  # >100% moves
+            extreme_ratio = extreme_moves / len(price_changes)
+            quality_factors.append(1.0 - min(extreme_ratio, 1.0))
+        
+        return sum(quality_factors) / len(quality_factors) if quality_factors else 0.0
+    
+    def get_statistics(self) -> dict[str, Any]:
+        """Get loader performance statistics."""
+        return self._stats.copy()
+
+
+class LocalFileDataProvider:
+    """Data provider for loading from local files (CSV, Parquet, etc.)."""
+    
+    def __init__(self, config: ConfigManagerProtocol, logger: logging.Logger) -> None:
+        """Initialize the local file data provider."""
+        self.config = config
+        self.logger = logger
+        self._source_module = self.__class__.__name__
+    
+    async def load_data(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        """Load data from local files."""
+        try:
+            symbol = request['symbol']
+            start_date = request['start_date']
+            end_date = request['end_date']
+            
+            # Get data path from configuration
+            data_path = self.config.get('backtest.data_path')
+            if not data_path:
+                self.logger.error("No data path configured for local file provider")
+                return None
+            
+            # Load data based on file format
+            path_obj = Path(data_path)
+            
+            if path_obj.suffix.lower() == '.csv':
+                df = pd.read_csv(data_path, parse_dates=['timestamp'])
+            elif path_obj.suffix.lower() == '.parquet':
+                df = pd.read_parquet(data_path)
+            else:
+                self.logger.error(f"Unsupported file format: {path_obj.suffix}")
+                return None
+            
+            # Filter by symbol if multi-symbol file
+            if 'symbol' in df.columns:
+                df = df[df['symbol'] == symbol]
+            elif 'pair' in df.columns:
+                df = df[df['pair'] == symbol]
+            
+            # Filter by date range
+            if 'timestamp' in df.columns:
+                df = df[(df['timestamp'] >= start_date) & (df['timestamp'] <= end_date)]
+            
+            # Validate required columns
+            required_cols = {'open', 'high', 'low', 'close', 'volume'}
+            if not required_cols.issubset(df.columns):
+                missing = required_cols - set(df.columns)
+                self.logger.error(f"Missing required columns: {missing}")
+                return None
+            
+            if df.empty:
+                self.logger.warning(f"No data found for {symbol} in specified date range")
+                return None
+            
+            return {'data': df, 'source': 'local_file'}
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load data from local file: {e}")
+            return None
+
+
+class DatabaseDataProvider:
+    """Data provider for loading from database sources."""
+    
+    def __init__(self, config: ConfigManagerProtocol, logger: logging.Logger) -> None:
+        """Initialize the database data provider."""
+        self.config = config
+        self.logger = logger
+        self._source_module = self.__class__.__name__
+    
+    async def load_data(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        """Load data from database sources."""
+        try:
+            # This is a placeholder for database integration
+            # In a real implementation, this would connect to PostgreSQL or InfluxDB
+            # and execute queries to retrieve historical data
+            
+            self.logger.info("Database data provider not yet implemented")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load data from database: {e}")
+            return None
+
+
+class APIDataProvider:
+    """Data provider for loading from external APIs."""
+    
+    def __init__(self, config: ConfigManagerProtocol, logger: logging.Logger) -> None:
+        """Initialize the API data provider."""
+        self.config = config
+        self.logger = logger
+        self._source_module = self.__class__.__name__
+    
+    async def load_data(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        """Load data from external APIs."""
+        try:
+            # This is a placeholder for API integration
+            # In a real implementation, this would connect to external data providers
+            # like Yahoo Finance, Alpha Vantage, etc.
+            
+            self.logger.info("API data provider not yet implemented")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load data from API: {e}")
+            return None

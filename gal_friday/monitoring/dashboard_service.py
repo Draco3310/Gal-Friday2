@@ -225,7 +225,6 @@ class RealTimeDashboard:
     async def start_dashboard(self) -> None:
         """
         Start real-time dashboard service
-        Implementation replaces TODO with comprehensive dashboard system
         """
         
         try:
