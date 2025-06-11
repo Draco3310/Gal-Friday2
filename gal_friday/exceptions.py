@@ -195,6 +195,10 @@ class DatabaseError(GalFridayError):
     """Exception raised for database-related errors."""
 
 
+class DatabaseConnectionError(DatabaseError):
+    """Exception raised when a database connection fails."""
+
+
 class GalFridayTimeoutError(GalFridayError):
     """Exception raised for timeout errors."""
 
