@@ -188,10 +188,20 @@ class StrategyTransitionPlan:
 
 class StrategyPerformanceAnalyzer:
     """Analyzes and tracks strategy performance metrics."""
-    
-    def __init__(self, logger: LoggerService, config: Dict[str, Any]):
+
+    def __init__(
+        self,
+        logger: LoggerService,
+        config: Dict[str, Any],
+        trade_repository: Any,
+        portfolio_snapshot_repository: Any,
+        execution_repository: Any,
+    ) -> None:
         self.logger = logger
         self.config = config
+        self.trade_repository = trade_repository
+        self.portfolio_snapshot_repository = portfolio_snapshot_repository
+        self.execution_repository = execution_repository
         self._source_module = self.__class__.__name__
         
         # Performance history storage
@@ -484,33 +494,66 @@ class StrategyPerformanceAnalyzer:
         }
         
     async def _fetch_strategy_trades(
-        self, 
-        strategy_id: str, 
+        self,
+        strategy_id: str,
         lookback_period: timedelta
     ) -> List[Dict[str, Any]]:
         """Fetch trades for a strategy within lookback period."""
-        # This would query the database in production
-        # Placeholder for now - should integrate with DAL
-        return []
+        start_date = datetime.utcnow() - lookback_period
+        end_date = datetime.utcnow()
+        try:
+            trades = await self.trade_repository.get_trades_by_strategy(
+                strategy_id, start_date, end_date
+            )
+        except Exception as exc:  # pragma: no cover - DB errors
+            self.logger.error(
+                f"Failed to fetch trades for {strategy_id}: {exc}",
+                source_module=self._source_module,
+            )
+            return []
+
+        return [t.to_dict() if hasattr(t, "to_dict") else t for t in trades]
         
     async def _fetch_portfolio_snapshots(
-        self, 
+        self,
         lookback_period: timedelta
     ) -> List[Dict[str, Any]]:
         """Fetch portfolio snapshots within lookback period."""
-        # This would query the database in production
-        # Placeholder for now - should integrate with DAL
-        return []
+        start_date = datetime.utcnow() - lookback_period
+        end_date = datetime.utcnow()
+        try:
+            snapshots = await self.portfolio_snapshot_repository.get_snapshots_in_period(
+                start_date, end_date
+            )
+        except Exception as exc:  # pragma: no cover - DB errors
+            self.logger.error(
+                f"Failed to fetch portfolio snapshots: {exc}",
+                source_module=self._source_module,
+            )
+            return []
+
+        return [s.to_dict() if hasattr(s, "to_dict") else s for s in snapshots]
         
     async def _fetch_execution_metrics(
-        self, 
-        strategy_id: str, 
+        self,
+        strategy_id: str,
         lookback_period: timedelta
     ) -> List[Dict[str, Any]]:
         """Fetch execution metrics for a strategy."""
-        # This would query the database in production
-        # Placeholder for now - should integrate with DAL
-        return []
+        start_date = datetime.utcnow() - lookback_period
+        end_date = datetime.utcnow()
+        try:
+            metrics = await self.execution_repository.get_metrics_by_strategy(
+                strategy_id, start_date, end_date
+            )
+        except Exception as exc:  # pragma: no cover - DB errors
+            self.logger.error(
+                f"Failed to fetch execution metrics for {strategy_id}: {exc}",
+                source_module=self._source_module,
+            )
+            return []
+
+        return [m.to_dict() if hasattr(m, "to_dict") else m for m in metrics]
         
     def get_performance_trend(
         self, 
