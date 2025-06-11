@@ -888,10 +888,13 @@ class StrategyArbitrator(ServiceProtocol):
             )
             raise StrategyConfigurationError from value_error
 
-    async def initialize(self) -> None:
+    async def initialize(self, *args, **kwargs) -> None:
         """Async initialization hook for compatibility with ServiceProtocol."""
         # No asynchronous setup required at this time
-        return None
+        self.logger.debug(
+            "StrategyArbitrator initialization complete.",
+            source_module=self._source_module,
+        )
 
     def _validate_core_parameters(self) -> None:
         """Validate core strategy parameters like entry type, thresholds, SL/TP percentages."""
