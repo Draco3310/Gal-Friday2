@@ -643,6 +643,48 @@ class RiskManager:
         self.logger.info("RiskManager configured.", source_module=self._source_module)
         self._validate_config()
 
+    def get_available_risk_budget(self) -> Decimal:
+        """Return available risk budget based on current exposure limits."""
+
+        try:
+            portfolio_state = self._portfolio_manager.get_current_state()
+        except Exception as exc:  # pragma: no cover - defensive catch
+            self.logger.error(
+                f"Failed to retrieve portfolio state for risk budget: {exc}",
+                source_module=self._source_module,
+            )
+            return Decimal("0")
+
+        try:
+            equity_raw = portfolio_state.get("total_equity") or portfolio_state.get(
+                "total_equity_usd",
+            )
+            equity = Decimal(str(equity_raw)) if equity_raw is not None else Decimal("0")
+        except (InvalidOperation, ValueError):  # pragma: no cover - logging handles
+            self.logger.warning(
+                "Invalid total_equity value from PortfolioManager.",
+                source_module=self._source_module,
+            )
+            equity = Decimal("0")
+
+        try:
+            exposure_pct_raw = portfolio_state.get("total_exposure_pct")
+            exposure_pct = (
+                Decimal(str(exposure_pct_raw)) if exposure_pct_raw is not None else Decimal("0")
+            )
+        except (InvalidOperation, ValueError):  # pragma: no cover - logging handles
+            self.logger.warning(
+                "Invalid total_exposure_pct value from PortfolioManager.",
+                source_module=self._source_module,
+            )
+            exposure_pct = Decimal("0")
+
+        available_pct = self._max_total_exposure_pct - exposure_pct
+        if available_pct < 0:
+            available_pct = Decimal("0")
+
+        return equity * (available_pct / Decimal("100"))
+
     def _validate_config(self) -> None:
         """Validate risk parameters from configuration.
 

@@ -2038,15 +2038,33 @@ class StrategySelectionSystem:
         # Get available strategies
         available_strategies = self.config.get("available_strategies", [current_strategy])
         
-        # Get portfolio state (would come from portfolio manager)
-        portfolio_state = {"total_equity": 100000.0}  # Placeholder
+        portfolio_state: Dict[str, Any] = {}
+        try:
+            pm = self.risk_evaluator.portfolio_manager
+            if pm is not None:
+                portfolio_state = pm.get_current_state()
+        except Exception as exc:  # pragma: no cover - defensive catch
+            self.logger.error(
+                f"Failed to retrieve portfolio state: {exc}",
+                source_module=self._source_module,
+            )
+            portfolio_state = {}
         
         # Assess market conditions
         trading_pairs = self.config.get("trading_pairs", ["XRP/USD", "DOGE/USD"])
         market_conditions = await self.market_monitor.assess_market_conditions(trading_pairs)
         
-        # Calculate risk budget (would come from risk manager)
-        risk_budget = Decimal("20000.0")  # Placeholder
+        risk_budget = Decimal("0")
+        try:
+            rm = self.risk_evaluator.risk_manager
+            if rm is not None:
+                risk_budget = rm.get_available_risk_budget()
+        except Exception as exc:  # pragma: no cover - defensive catch
+            self.logger.error(
+                f"Failed to retrieve risk budget: {exc}",
+                source_module=self._source_module,
+            )
+            risk_budget = Decimal("0")
         
         return StrategySelectionContext(
             timestamp=datetime.utcnow(),
