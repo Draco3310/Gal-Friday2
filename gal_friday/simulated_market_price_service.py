@@ -301,12 +301,34 @@ class HistoricalDataLoader:
 
     async def _load_from_provider(self, request: DataRequest) -> List[HistoricalDataPoint]:
         """Load data from appropriate provider"""
-        self.cache_stats['provider_requests'] += 1
+        provider: HistoricalDataProvider | None = None
 
-        # For now, return empty list - would integrate with actual providers
-        # In real implementation, this would fetch from external data sources
-        return []
+        if request.data_source is not None:
+            provider = self.providers.get(request.data_source)
+            if provider is None:
+                raise DataLoadingError(
+                    f"No provider configured for data source: {request.data_source}"
+                )
+        else:
+            for candidate in self.providers.values():
+                try:
+                    if await candidate.validate_symbol(request.symbol):
+                        provider = candidate
+                        break
+                except Exception as exc:  # pragma: no cover - defensive
+                    self.logger.error("Provider validation failed: %s", exc)
 
+        if provider is None:
+            raise DataLoadingError(
+                f"No provider available for symbol: {request.symbol}"
+            )
+
+        self.cache_stats["provider_requests"] += 1
+
+        try:
+            return await provider.fetch_data(request)
+        except Exception as exc:  # pragma: no cover - wrap and rethrow
+            raise DataLoadingError(str(exc)) from exc
     def _generate_cache_key(self, request: DataRequest) -> str:
         """Generate unique cache key for request"""
         key_parts = [
