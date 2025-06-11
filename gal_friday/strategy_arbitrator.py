@@ -22,7 +22,12 @@ from abc import ABC, abstractmethod
 from .interfaces.service_protocol import ServiceProtocol
 
 # Event imports
-from .core.events import EventType, PredictionEvent, TradeSignalProposedEvent
+from .core.events import (
+    EventType,
+    PredictionEvent,
+    TradeSignalProposedEvent,
+    TradeOutcomeEvent,
+)
 
 # Import FeatureRegistryClient
 from .core.feature_registry_client import FeatureRegistryClient
@@ -2124,10 +2129,29 @@ class StrategyArbitrator(ServiceProtocol):
             return
 
         try:
-            # This would be implemented in the strategy selection system
-            # For now, just log the outcome
+            outcome_event = TradeOutcomeEvent.create(
+                source_module=self._source_module,
+                signal_id=uuid.UUID(signal_id),
+                strategy_id=self._strategy_id,
+                outcome=outcome,
+                pnl=pnl,
+                exit_reason=exit_reason,
+            )
+
+            await self.pubsub.publish(outcome_event)
+
+            await self.logger.log_timeseries(
+                measurement="trade_outcomes",
+                tags={
+                    "strategy_id": self._strategy_id,
+                    "outcome": outcome,
+                    "exit_reason": exit_reason or "unknown",
+                },
+                fields={"pnl": float(pnl) if pnl is not None else 0.0},
+            )
+
             self.logger.info(
-                f"Trade outcome for strategy {self._strategy_id}: "
+                f"Reported trade outcome for strategy {self._strategy_id}: "
                 f"signal={signal_id}, outcome={outcome}, pnl={pnl}, exit={exit_reason}",
                 source_module=self._source_module,
             )

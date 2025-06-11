@@ -101,6 +101,21 @@ def mock_logger():
         def exception(self, message, **kwargs):
             self.log("ERROR", message, **kwargs)
 
+        async def log_timeseries(
+            self,
+            measurement: str,
+            tags: dict[str, str],
+            fields: dict[str, object],
+            timestamp: datetime | None = None,
+        ) -> None:
+            self.log(
+                "TS",
+                measurement,
+                tags=tags,
+                fields=fields,
+                timestamp=timestamp,
+            )
+
     return MockLogger()
 
 
