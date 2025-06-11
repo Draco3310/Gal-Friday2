@@ -55,6 +55,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, RobustScaler, StandardScaler
 from sklearn.base import BaseEstimator, TransformerMixin
 
+from .model_registry import ImputationModelRegistry, build_ml_features
+
 # Advanced imputation system for crypto trading data
 from .feature_imputation import (
     ImputationManager,
@@ -103,6 +105,8 @@ class InternalFeatureSpec:
     parameters: dict[str, Any] = field(default_factory=dict) # Dictionary of parameters passed to the feature calculator function.
     imputation: dict[str, Any] | str | None = None # Configuration for the output imputation step in the pipeline (e.g., `{"strategy": "constant", "fill_value": 0.0}`). Applied as a final fallback.
     scaling: dict[str, Any] | str | None = None    # Configuration for the output scaling step (e.g., `{"method": "standard"}`). Applied by FeatureEngine.
+    imputation_model_key: str | None = None  # Key referencing ML model for imputation
+    imputation_model_version: str | None = None  # Optional version of the imputation model
     description: str = "" # Human-readable description of the feature and its configuration.
     version: str | None = None # Version string for the feature definition, loaded from the registry.
     output_properties: dict[str, Any] = field(default_factory=dict) # Dictionary describing expected output characteristics (e.g., `{"value_type": "float", "range": [0, 1]}`).
@@ -1114,6 +1118,10 @@ class FeatureEngine:
             source_module=self._source_module
         )
 
+        # Registry for ML-based imputation models
+        models_path = config.get("imputation_model_registry", {}).get("path", "imputation_models")
+        self.imputation_model_registry = ImputationModelRegistry(models_path)
+
         # Build pipelines after initializing components
         self._build_feature_pipelines()
 
@@ -1250,6 +1258,8 @@ class FeatureEngine:
                 parameters=parameters,
                 imputation=imputation_cfg,
                 scaling=scaling_cfg,
+                imputation_model_key=raw_cfg_dict.get("imputation_model_key"),
+                imputation_model_version=str(raw_cfg_dict.get("imputation_model_version")) if raw_cfg_dict.get("imputation_model_version") is not None else None,
                 description=description,
             )
             parsed_specs[key] = spec_val
@@ -1397,6 +1407,8 @@ class FeatureEngine:
 
         imputation_cfg = config_dict.get("imputation")
         scaling_cfg = config_dict.get("scaling")
+        imputation_model_key = config_dict.get("imputation_model_key")
+        imputation_model_version = config_dict.get("imputation_model_version")
         description = config_dict.get("description", f"{calculator_type} feature based on {feature_key}")
         version = config_dict.get("version")
         output_properties = config_dict.get("output_properties", {})
@@ -1418,6 +1430,8 @@ class FeatureEngine:
             parameters=parameters,
             imputation=imputation_cfg,
             scaling=scaling_cfg,
+            imputation_model_key=imputation_model_key,
+            imputation_model_version=str(imputation_model_version) if imputation_model_version is not None else None,
             description=description,
             version=str(version) if version is not None else None, # Ensure version is string
             output_properties=output_properties if isinstance(output_properties, dict) else {},
@@ -4232,46 +4246,64 @@ class FeatureEngine:
         feature_spec: InternalFeatureSpec,
         validation_context: dict[str, Any]
     ) -> float | None:
-        """Impute using machine learning patterns (simplified for now)."""
+        """Impute missing values using a trained ML model."""
         try:
-            # This would use trained ML models for imputation
-            # For now, implement a simple pattern-based approach
-
-            ohlcv_data = self.ohlcv_history.get(trading_pair)
-            if ohlcv_data is None or len(ohlcv_data) < 10:
+            model_key = feature_spec.imputation_model_key
+            model_version = feature_spec.imputation_model_version
+            if not model_key:
                 return None
 
-            # Simple pattern recognition
-            recent_closes = ohlcv_data['close'].tail(5).astype(float)
+            model_registry: ImputationModelRegistry | None = getattr(self, "imputation_model_registry", None)
+            if not model_registry:
+                self.logger.warning("Imputation model registry not available.", source_module=self._source_module)
+                return None
 
-            if len(recent_closes) >= 3:
-                # Detect simple patterns
-                trend = recent_closes.diff().mean()
-                volatility = recent_closes.std()
+            model = model_registry.get_model(model_key, model_version)
+            if not model:
+                self.logger.warning(
+                    f"Imputation model {model_key} (version: {model_version or 'latest'}) not found.",
+                    source_module=self._source_module,
+                )
+                return None
 
-                # Pattern-based imputation
-                if 'rsi' in feature_name.lower():
-                    if trend > 0 and volatility > recent_closes.mean() * 0.02:
-                        return 58.0  # Bullish with volatility
-                    elif trend < 0 and volatility > recent_closes.mean() * 0.02:
-                        return 42.0  # Bearish with volatility
-                    else:
-                        return 50.0  # Stable pattern
+            # Build features for the ML model
+            # This requires access to other features and data
+            ml_features = await build_ml_features(
+                trading_pair=trading_pair,
+                timestamp=validation_context.get("timestamp"),
+                feature_repo=self.feature_repo,  # Assuming feature_repo is available
+                required_features=model.required_features
+            )
 
-                elif 'macd' in feature_name.lower():
-                    return float(trend * 100) if pd.notna(trend) else 0.0
+            if ml_features is None:
+                return None
 
-            return None
+            # Ensure features are in the correct format (e.g., DataFrame)
+            if isinstance(ml_features, dict):
+                ml_features = pd.DataFrame([ml_features])
+
+            # Predict the missing value
+            prediction = model.predict(ml_features)
+            imputed_value = float(prediction[0])
+
+            self.logger.info(
+                f"Imputed {feature_name} using ML model {model_key}: {imputed_value:.4f}",
+                source_module=self._source_module,
+            )
+            return imputed_value
 
         except Exception as e:
             self.logger.debug(
-                "ML pattern imputation failed: %s",
-                e, source_module=self._source_module
+                "ML-based imputation failed for %s: %s",
+                feature_name,
+                e,
+                source_module=self._source_module,
+                context={"feature_spec": feature_spec},
             )
             return None
 
     async def _analyze_current_market_conditions(self, trading_pair: str) -> dict[str, Any]:
-        """Analyze current market conditions for context-aware processing."""
+        """Analyzes current market conditions to inform imputation strategies."""
         try:
             ohlcv_data = self.ohlcv_history.get(trading_pair)
             if ohlcv_data is None or len(ohlcv_data) < 20:
