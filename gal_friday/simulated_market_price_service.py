@@ -623,11 +623,76 @@ class PriceInterpolator:
         random_factor = np.random.uniform(0.8, 1.2)
         return max(0, base_volume * random_factor)
 
-    async def _spline_interpolation(self, df: pd.DataFrame, before_idx: int, after_idx: int,
-                                  timestamps: List[datetime], gap: DataGap) -> List[Dict[str, Any]]:
-        """Spline interpolation - simplified implementation"""
-        # Fallback to linear for now
-        return await self._linear_interpolation(df, before_idx, after_idx, timestamps, gap)
+    async def _spline_interpolation(
+        self,
+        df: pd.DataFrame,
+        before_idx: int,
+        after_idx: int,
+        timestamps: List[datetime],
+        gap: DataGap,
+    ) -> List[Dict[str, Any]]:
+        """Perform cubic spline interpolation with fallback to linear."""
+
+        try:
+            from scipy.interpolate import CubicSpline
+        except Exception:
+            self.logger.warning(
+                "SciPy not available, falling back to linear interpolation",
+            )
+            return await self._linear_interpolation(df, before_idx, after_idx, timestamps, gap)
+
+        window_start = max(0, before_idx - 2)
+        window_end = min(len(df) - 1, after_idx + 2)
+        window = df.iloc[window_start : window_end + 1].copy()
+        window["timestamp"] = pd.to_datetime(window["timestamp"])
+        window = window.set_index("timestamp")
+
+        if len(window) < 4:
+            self.logger.warning(
+                "Not enough data for spline interpolation, falling back to linear",
+            )
+            return await self._linear_interpolation(df, before_idx, after_idx, timestamps, gap)
+
+        numeric_index = window.index.astype("int64") // 10**9
+        numeric_timestamps = (pd.Series(timestamps).astype("int64") // 10**9).values
+
+        numeric_cols = [
+            col
+            for col in ["open", "high", "low", "close", "volume"]
+            if col in window.columns and pd.api.types.is_numeric_dtype(window[col])
+        ]
+
+        splines = {
+            col: CubicSpline(numeric_index, window[col].astype(float).values)
+            for col in numeric_cols
+        }
+
+        before_point = df.iloc[before_idx]
+        after_point = df.iloc[after_idx]
+
+        interpolated_points: List[Dict[str, Any]] = []
+        total_duration = (gap.end_time - gap.start_time).total_seconds()
+
+        for idx, ts in enumerate(timestamps):
+            num_ts = numeric_timestamps[idx]
+            factor = (ts - gap.start_time).total_seconds() / total_duration if total_duration > 0 else 0
+            point: Dict[str, Any] = {"timestamp": ts}
+
+            for col in numeric_cols:
+                value = float(splines[col](num_ts))
+                if col == "volume":
+                    linear_base = before_point["volume"] + factor * (
+                        after_point["volume"] - before_point["volume"]
+                    )
+                    random_volume = self._interpolate_volume(before_point, after_point, factor)
+                    random_factor = random_volume / linear_base if linear_base else 1.0
+                    value = max(0.0, value * random_factor)
+                point[col] = value
+
+            point["interpolated"] = True
+            interpolated_points.append(point)
+
+        return interpolated_points
 
     async def _volatility_adjusted_interpolation(self, df: pd.DataFrame, before_idx: int, after_idx: int,
                                                timestamps: List[datetime], gap: DataGap) -> List[Dict[str, Any]]:
