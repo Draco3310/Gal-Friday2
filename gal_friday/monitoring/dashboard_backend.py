@@ -26,9 +26,14 @@ from gal_friday.core.events import (
     TradeSignalProposedEvent,
 )
 from gal_friday.core.pubsub import PubSubManager
+from gal_friday.dal.models.order import Order
+from gal_friday.execution_handler import ExecutionHandler
 from gal_friday.logger_service import LoggerService
 from gal_friday.monitoring_service import MonitoringService
 from gal_friday.portfolio_manager import PortfolioManager
+from gal_friday.services.correlation_service import CorrelationService
+
+MIN_POSITIONS_FOR_CORRELATION = 2
 
 
 class ConnectionManager:
@@ -91,15 +96,21 @@ class ConnectionManager:
 
 
 class MetricsCollector:
-    """Collects and aggregates system metrics."""
+    """Collect and aggregate system metrics."""
 
-    def __init__(self, redis_client: aioredis.Redis | None = None) -> None:
-        """Initialize the MetricsCollector with optional Redis client.
+    def __init__(
+        self,
+        redis_client: aioredis.Redis | None = None,
+        correlation_service: CorrelationService | None = None,
+    ) -> None:
+        """Initialize the collector.
 
         Args:
-            redis_client: Optional Redis client for persistent metric storage
+            redis_client: Optional Redis client for persistent storage.
+            correlation_service: Service used for risk calculations.
         """
         self.redis = redis_client
+        self.correlation_service = correlation_service
         self.metrics_buffer: deque[dict[str, Any]] = deque(maxlen=1000)
         self.aggregated_metrics: dict[str, dict[str, float | int | str]] = {}
 
@@ -204,15 +215,16 @@ class MetricsCollector:
                 for p in latest_positions.values()
             ),
             "max_position_size": max(
-                abs(float(p.get("value", 0)))
-                for p in latest_positions.values()
-            ) if latest_positions else 0,
-            "correlation_risk": self.calculate_correlation_risk(latest_positions),
+                abs(float(p.get("value", 0))) for p in latest_positions.values()
+            )
+            if latest_positions
+            else 0,
+            "correlation_risk": await self.calculate_correlation_risk(latest_positions),
         }
 
     def calculate_uptime(self) -> float:
         """Calculate system uptime percentage.
-        
+
         Returns:
             float: Uptime percentage (0-100)
         """
@@ -227,35 +239,36 @@ class MetricsCollector:
 
         return round((uptime_minutes / total_minutes) * 100, 2)
 
-    def calculate_correlation_risk(self, positions: dict) -> float:
-        """Calculate correlation risk for current positions.
-        
-        Args:
-            positions: Dictionary of current positions
-            
-        Returns:
-            float: Correlation risk score (0-100)
-        """
-        if not positions or len(positions) < 2:
+    async def calculate_correlation_risk(self, positions: dict) -> float:
+        """Calculate correlation risk for current positions."""
+        if (
+            not positions
+            or len(positions) < MIN_POSITIONS_FOR_CORRELATION
+            or not self.correlation_service
+        ):
             return 0.0
 
-        # Simplified correlation risk calculation
-        # In production, this would use actual price correlation data
-        # For now, calculate based on position concentration
-        position_values = [abs(float(p.get("value", 0))) for p in positions.values()]
-        total_value = sum(position_values)
-
-        if total_value == 0:
+        pairs = list(positions.keys())
+        try:
+            matrix = await self.correlation_service.get_portfolio_correlation_matrix(pairs)
+        except Exception as exc:  # pragma: no cover - service failures
+            self.correlation_service.logger.error(
+                f"Correlation calculation failed: {exc}",
+                source_module=self.__class__.__name__,
+            )
             return 0.0
 
-        # Calculate concentration using Herfindahl index
-        concentration_index = sum((v/total_value)**2 for v in position_values)
+        correlations = [
+            abs(float(matrix[p1][p2]))
+            for p1 in pairs
+            for p2 in pairs
+            if p1 != p2 and p2 in matrix.get(p1, {})
+        ]
+        if not correlations:
+            return 0.0
 
-        # Convert to risk score (0-100)
-        # Higher concentration = higher risk
-        correlation_risk = round(concentration_index * 100, 2)
-
-        return min(correlation_risk, 100.0)  # Cap at 100
+        avg_corr = sum(correlations) / len(correlations)
+        return min(round(avg_corr * 100, 2), 100.0)
 
 
 # Global instances
@@ -337,6 +350,16 @@ def get_monitoring_service() -> MonitoringService:
 def get_portfolio_manager() -> PortfolioManager:
     """Get portfolio manager."""
     return app.state.portfolio_manager  # type: ignore[no-any-return]
+
+
+def get_execution_handler() -> ExecutionHandler:
+    """Get execution handler."""
+    return app.state.execution_handler  # type: ignore[no-any-return]
+
+
+def get_correlation_service() -> CorrelationService:
+    """Get correlation service."""
+    return app.state.correlation_service  # type: ignore[no-any-return]
 
 
 # REST API Endpoints
@@ -435,25 +458,28 @@ async def get_aggregated_metrics() -> dict[str, Any]:
 
 
 @app.get("/api/orders/active")
-async def get_active_orders() -> dict[str, Any]:
-    """Get list of active orders."""
-    # This would connect to execution handler
-    # For now, return mock data
-    return {
-        "orders": [
-            {
-                "order_id": "O1234",
-                "pair": "XRP/USD",
-                "side": "BUY",
-                "type": "LIMIT",
-                "quantity": 1000,
-                "price": 0.4999,
-                "status": "OPEN",
-                "filled": 300,
-                "timestamp": datetime.now(UTC).isoformat(),
-            },
-        ],
-    }
+async def get_active_orders(
+    handler: ExecutionHandler = Depends(get_execution_handler),  # noqa: B008
+) -> dict[str, Any]:
+    """Return currently active orders."""
+    orders: list[Order] = []
+    if getattr(handler, "persistence", None):
+        orders = await handler.persistence.get_active_orders()  # type: ignore[assignment]
+
+    def _serialize(order: Order) -> dict[str, Any]:
+        return {
+            "order_id": str(order.id),
+            "pair": order.trading_pair,
+            "side": order.side,
+            "type": order.order_type,
+            "quantity": float(order.quantity),
+            "price": float(order.limit_price) if order.limit_price is not None else None,
+            "status": order.status,
+            "filled": float(order.filled_quantity or 0),
+            "timestamp": order.created_at.isoformat(),
+        }
+
+    return {"orders": [_serialize(o) for o in orders]}
 
 
 @app.get("/api/trades/history")
@@ -634,12 +660,14 @@ class EventBroadcaster:
 
 
 # Initialize the dashboard with system components
-def initialize_dashboard(
+def initialize_dashboard(  # noqa: PLR0913
     config: ConfigManager,
     pubsub: PubSubManager,
     monitoring: MonitoringService,
     portfolio: PortfolioManager,
     logger: LoggerService,
+    execution_handler: ExecutionHandler,
+    correlation_service: CorrelationService,
 ) -> FastAPI:
     """Initialize dashboard with system components."""
     app.state.config = config
@@ -647,6 +675,9 @@ def initialize_dashboard(
     app.state.monitoring_service = monitoring
     app.state.portfolio_manager = portfolio
     app.state.logger = logger
+    app.state.execution_handler = execution_handler
+    app.state.correlation_service = correlation_service
+    metrics_collector.correlation_service = correlation_service
 
     # Create event broadcaster
     broadcaster = EventBroadcaster(pubsub, manager)
