@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING  # For relationship type hints
+from typing import TYPE_CHECKING, Any  # For relationship type hints and to_dict
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -63,6 +63,25 @@ class Trade(Base):
             f"strategy_id='{self.strategy_id}', realized_pnl={self.realized_pnl})>"
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return a dictionary of column values with type-safe conversions.
+
+        Iterates model columns dynamically and converts ``uuid.UUID``,
+        ``datetime``, and ``Decimal`` values into serializable forms.
+        """
+        result: dict[str, Any] = {}
+        for name in self.__table__.columns.keys():
+            value = getattr(self, name)
+            if isinstance(value, uuid.UUID):
+                result[name] = str(value)
+            elif isinstance(value, datetime):
+                result[name] = value.isoformat()
+            elif isinstance(value, Decimal):
+                result[name] = str(value)
+            else:
+                result[name] = value
+        return result
+
     def to_event(self) -> "MarketDataTradeEvent": # Added to_event with type hints
         """Converts the Trade object to a MarketDataTradeEvent.
         This represents the entry part of the trade as a market event.
@@ -95,9 +114,6 @@ class Trade(Base):
         # In a real implementation:
         # from gal_friday.core.events import MarketDataTradeEvent
         # return MarketDataTradeEvent(**event_data)
-
-        # Returning dict for now
-        # return MarketDataTradeEvent(**event_data) # Old way
 
         # Explicitly pass arguments
         return MarketDataTradeEvent(
