@@ -28,6 +28,7 @@ from gal_friday.core.events import (
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
 from gal_friday.monitoring_service import MonitoringService
+from gal_friday.monitoring.live_data_collector import LiveDataCollector
 from gal_friday.portfolio_manager import PortfolioManager
 
 
@@ -436,24 +437,37 @@ async def get_aggregated_metrics() -> dict[str, Any]:
 
 @app.get("/api/orders/active")
 async def get_active_orders() -> dict[str, Any]:
-    """Get list of active orders."""
-    # This would connect to execution handler
-    # For now, return mock data
-    return {
-        "orders": [
-            {
-                "order_id": "O1234",
-                "pair": "XRP/USD",
-                "side": "BUY",
-                "type": "LIMIT",
-                "quantity": 1000,
-                "price": 0.4999,
-                "status": "OPEN",
-                "filled": 300,
+    """Get list of active orders from execution handler."""
+    try:
+        data_collector = app.state.live_data_collector
+        if data_collector:
+            orders = await data_collector.get_active_orders()
+            return {
+                "orders": orders,
+                "count": len(orders),
+                "timestamp": datetime.now(UTC).isoformat()
+            }
+        else:
+            # Return empty result if data collector not available
+            return {
+                "orders": [],
+                "count": 0,
                 "timestamp": datetime.now(UTC).isoformat(),
-            },
-        ],
-    }
+                "error": "Data collector not initialized"
+            }
+            
+    except Exception as e:
+        logger = app.state.logger
+        if logger:
+            logger.error(f"Failed to get active orders: {e}", source_module="dashboard")
+        
+        # Return empty result on error instead of mock data
+        return {
+            "orders": [],
+            "count": 0,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "error": "Failed to retrieve active orders"
+        }
 
 
 @app.get("/api/trades/history")
@@ -468,6 +482,159 @@ async def get_trade_history(limit: int = 50) -> dict[str, Any]:
         "trades": trades[:limit],
         "total": len(trades),
     }
+
+
+@app.get("/api/trades/live")
+async def get_live_trades(limit: int = 50) -> dict[str, Any]:
+    """Get live trade history from execution handler."""
+    try:
+        data_collector = app.state.live_data_collector
+        if data_collector:
+            trades = await data_collector.get_recent_trades(limit)
+            return {
+                "trades": trades,
+                "count": len(trades),
+                "timestamp": datetime.now(UTC).isoformat()
+            }
+        else:
+            return {
+                "trades": [],
+                "count": 0,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "error": "Data collector not initialized"
+            }
+            
+    except Exception as e:
+        logger = app.state.logger
+        if logger:
+            logger.error(f"Failed to get live trades: {e}", source_module="dashboard")
+        
+        return {
+            "trades": [],
+            "count": 0,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "error": "Failed to retrieve live trades"
+        }
+
+
+@app.get("/api/portfolio/live")
+async def get_live_portfolio() -> dict[str, Any]:
+    """Get live portfolio metrics."""
+    try:
+        data_collector = app.state.live_data_collector
+        if data_collector:
+            portfolio_metrics = await data_collector.get_portfolio_metrics()
+            return {
+                "portfolio": portfolio_metrics,
+                "timestamp": datetime.now(UTC).isoformat()
+            }
+        else:
+            return {
+                "portfolio": {},
+                "timestamp": datetime.now(UTC).isoformat(),
+                "error": "Data collector not initialized"
+            }
+            
+    except Exception as e:
+        logger = app.state.logger
+        if logger:
+            logger.error(f"Failed to get portfolio metrics: {e}", source_module="dashboard")
+        
+        return {
+            "portfolio": {},
+            "timestamp": datetime.now(UTC).isoformat(),
+            "error": "Failed to retrieve portfolio metrics"
+        }
+
+
+@app.get("/api/strategy/live")
+async def get_live_strategy_metrics() -> dict[str, Any]:
+    """Get live strategy performance metrics."""
+    try:
+        data_collector = app.state.live_data_collector
+        if data_collector:
+            strategy_metrics = await data_collector.get_strategy_metrics()
+            return {
+                "strategy": strategy_metrics,
+                "timestamp": datetime.now(UTC).isoformat()
+            }
+        else:
+            return {
+                "strategy": {},
+                "timestamp": datetime.now(UTC).isoformat(),
+                "error": "Data collector not initialized"
+            }
+            
+    except Exception as e:
+        logger = app.state.logger
+        if logger:
+            logger.error(f"Failed to get strategy metrics: {e}", source_module="dashboard")
+        
+        return {
+            "strategy": {},
+            "timestamp": datetime.now(UTC).isoformat(),
+            "error": "Failed to retrieve strategy metrics"
+        }
+
+
+@app.get("/api/risk/live")
+async def get_live_risk_metrics() -> dict[str, Any]:
+    """Get live risk management metrics."""
+    try:
+        data_collector = app.state.live_data_collector
+        if data_collector:
+            risk_metrics = await data_collector.get_risk_metrics()
+            return {
+                "risk": risk_metrics,
+                "timestamp": datetime.now(UTC).isoformat()
+            }
+        else:
+            return {
+                "risk": {},
+                "timestamp": datetime.now(UTC).isoformat(),
+                "error": "Data collector not initialized"
+            }
+            
+    except Exception as e:
+        logger = app.state.logger
+        if logger:
+            logger.error(f"Failed to get risk metrics: {e}", source_module="dashboard")
+        
+        return {
+            "risk": {},
+            "timestamp": datetime.now(UTC).isoformat(),
+            "error": "Failed to retrieve risk metrics"
+        }
+
+
+@app.get("/api/system/health")
+async def get_system_health() -> dict[str, Any]:
+    """Get comprehensive system health metrics."""
+    try:
+        data_collector = app.state.live_data_collector
+        if data_collector:
+            health_metrics = await data_collector.get_system_health()
+            return {
+                "health": health_metrics,
+                "timestamp": datetime.now(UTC).isoformat()
+            }
+        else:
+            return {
+                "health": {},
+                "timestamp": datetime.now(UTC).isoformat(),
+                "error": "Data collector not initialized"
+            }
+            
+    except Exception as e:
+        logger = app.state.logger
+        if logger:
+            logger.error(f"Failed to get system health: {e}", source_module="dashboard")
+        
+        return {
+            "health": {},
+            "timestamp": datetime.now(UTC).isoformat(),
+            "error": "Failed to retrieve system health"
+        }
 
 
 # WebSocket endpoints
@@ -640,6 +807,9 @@ def initialize_dashboard(
     monitoring: MonitoringService,
     portfolio: PortfolioManager,
     logger: LoggerService,
+    execution_handler: Any = None,
+    strategy_selection: Any = None,
+    risk_manager: Any = None,
 ) -> FastAPI:
     """Initialize dashboard with system components."""
     app.state.config = config
@@ -647,6 +817,23 @@ def initialize_dashboard(
     app.state.monitoring_service = monitoring
     app.state.portfolio_manager = portfolio
     app.state.logger = logger
+    
+    # Initialize live data collector if components are available
+    if execution_handler or portfolio or strategy_selection or risk_manager:
+        app.state.live_data_collector = LiveDataCollector(
+            logger=logger,
+            pubsub_manager=pubsub,
+            execution_handler=execution_handler,
+            portfolio_manager=portfolio,
+            strategy_selection=strategy_selection,
+            risk_manager=risk_manager,
+            monitoring_service=monitoring
+        )
+        
+        # Start data collection
+        asyncio.create_task(app.state.live_data_collector.start_data_collection())
+    else:
+        app.state.live_data_collector = None
 
     # Create event broadcaster
     broadcaster = EventBroadcaster(pubsub, manager)

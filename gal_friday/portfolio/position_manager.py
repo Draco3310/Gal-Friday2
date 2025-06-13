@@ -18,6 +18,11 @@ from ..exceptions import DataValidationError
 from ..logger_service import LoggerService
 
 
+class PositionCreationError(Exception):
+    """Error raised when position creation fails."""
+    pass
+
+
 @dataclass
 class TradeInfo:
     """Represents information about a single trade.
@@ -429,14 +434,13 @@ class PositionManager:
             return created_position
         except Exception as e:
             self.logger.exception(f"Error creating new position in DB for {trading_pair}: {e}", source_module=self._source_module)
-            # Decide on error handling: re-raise, or return a specific error object/None
-            raise # Re-raise for now
+            # Re-raise with additional context for proper error handling upstream
+            raise PositionCreationError(f"Failed to create position for {trading_pair}: {str(e)}") from e
 
     async def get_total_realized_pnl(self, trading_pair: str | None = None) -> Decimal:
         """Get total realized PnL for a specific pair or all pairs from database."""
-        # This would require an aggregate query on the database.
-        # BaseRepository doesn't have a sum method, so this needs custom query.
-        # Or, iterate all positions if not too many. For now, simplified:
+        # Implementation uses repository pattern for data access
+        # For large datasets, consider implementing an aggregate query method in the repository
         if trading_pair:
             position = await self.position_repository.get_position_by_pair(trading_pair)
             return position.realized_pnl if position and position.realized_pnl else Decimal(0)
@@ -446,9 +450,8 @@ class PositionManager:
         total_pnl = sum((pos.realized_pnl for pos in all_positions if pos.realized_pnl is not None), Decimal(0))
         return total_pnl
 
-    # _TradeRecordParams and _TradeRecordKwargs might be less relevant if TradeInfo is not directly stored with PositionModel
-    # or if trade recording is handled by a separate TradeRepository.
-    # For now, keeping if the internal logic still uses them to construct TradeInfo objects if needed.
+    # Internal data structures for trade record management
+    # These are used to construct TradeInfo objects for position updates
     @dataclass
     class _TradeRecordParams: # Can remain for internal use if TradeInfo objects are constructed
         """Container for trade record parameters."""

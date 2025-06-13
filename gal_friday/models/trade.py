@@ -92,14 +92,7 @@ class Trade(Base):
             "side": self.side, # Side of the entry trade
             "trade_id": str(self.trade_id), # Use the Trade's own ID or a fill ID if available
         }
-        # In a real implementation:
-        # from gal_friday.core.events import MarketDataTradeEvent
-        # return MarketDataTradeEvent(**event_data)
-
-        # Returning dict for now
-        # return MarketDataTradeEvent(**event_data) # Old way
-
-        # Explicitly pass arguments
+        # Return the properly typed MarketDataTradeEvent
         return MarketDataTradeEvent(
             source_module=self.__class__.__name__,
             event_id=uuid.uuid4(), # New event ID for this specific event

@@ -185,6 +185,22 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         # Rate limiting
         self._last_api_call_time = 0.0
         self._api_call_delay = 1.0  # Minimum delay between API calls
+        
+        # Initialize enhanced components
+        try:
+            from gal_friday.execution_handler_enhancements import (
+                KrakenErrorClassifier,
+                OptimizedBatchProcessor
+            )
+            self._error_classifier = KrakenErrorClassifier(logger)
+            self._batch_processor = OptimizedBatchProcessor(self, logger, config)
+        except ImportError:
+            self.logger.warning(
+                "Enhanced execution components not available, using basic functionality",
+                source_module=self.__class__.__name__
+            )
+            self._error_classifier = None
+            self._batch_processor = None
 
     async def initialize(self) -> None:
         """Initialize the Kraken adapter."""
@@ -591,6 +607,33 @@ class KrakenExecutionAdapter(ExecutionAdapter):
 
     async def _place_orders_individually(self, batch_request: BatchOrderRequest) -> BatchOrderResponse:
         """Place orders individually when batch placement is not available."""
+        # Try to use OptimizedBatchProcessor if available
+        if hasattr(self, '_batch_processor'):
+            from gal_friday.execution_handler_enhancements import BatchStrategy
+            
+            # Use smart routing strategy for optimal performance
+            batch_result = await self._batch_processor.process_batch_orders(
+                batch_request.orders,
+                BatchStrategy.SMART_ROUTING
+            )
+            
+            # Convert to BatchOrderResponse format
+            order_results = []
+            for order_result in batch_result.successful_orders + batch_result.failed_orders:
+                order_results.append(OrderResponse(
+                    success=order_result.get('success', False),
+                    exchange_order_ids=order_result.get('exchange_order_ids', []),
+                    client_order_id=order_result.get('client_order_id'),
+                    error_message=order_result.get('error')
+                ))
+            
+            return BatchOrderResponse(
+                success=batch_result.success_rate >= 0.5,  # Consider batch successful if at least 50% succeed
+                order_results=order_results,
+                error_message=f"Batch execution completed with {batch_result.success_rate:.1%} success rate" if batch_result.success_rate < 1.0 else None,
+            )
+        
+        # Fallback to original individual placement
         results = []
         overall_success = True
 

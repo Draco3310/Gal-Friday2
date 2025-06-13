@@ -95,10 +95,5 @@ class Order(Base):
             "timestamp_exchange": self.last_updated_at or self.submitted_at or self.created_at, # Best available exchange-related timestamp
             "error_message": self.error_message,
         }
-        # In a real implementation:
-        # from gal_friday.core.events import ExecutionReportEvent
-        # from decimal import Decimal # at top
-        # return ExecutionReportEvent(**event_data)
-
-        # Returning dict for now
-        return ExecutionReportEvent(**event_data) # Should be ExecutionReportEvent(**event_data)
+        # Return the properly typed ExecutionReportEvent
+        return ExecutionReportEvent(**event_data)

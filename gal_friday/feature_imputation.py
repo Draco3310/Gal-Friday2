@@ -704,28 +704,97 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
         missing_mask: pd.Series, 
         context: Optional[Dict[str, Any]]
     ) -> pd.Series:
-        """Impute considering different market sessions (though crypto is 24/7)."""
-        # For crypto, this could consider different regional trading patterns
-        # or exchange-specific patterns
-        
-        imputed_data = data.copy()
-        
-        # Simple implementation: consider hour of day patterns
-        if hasattr(data.index, 'hour'):
-            hourly_patterns = data.groupby(data.index.hour).mean()
+        """Impute considering different market sessions with advanced patterns."""
+        try:
+            # Import enhanced temporal pattern engine if available
+            from .feature_engine_enhancements import AdvancedTemporalPatternEngine
             
-            for idx in data.index[missing_mask]:
-                hour = idx.hour
-                if hour in hourly_patterns:
-                    # Use hourly average with some adjustment
-                    base_value = hourly_patterns[hour]
-                    recent_trend = data.iloc[-5:].mean() - data.iloc[-10:-5].mean()
-                    imputed_data[idx] = base_value + recent_trend * 0.5
-        else:
-            # Fallback
-            imputed_data = data.fillna(method='ffill')
+            # Use advanced temporal pattern analysis
+            pattern_engine = AdvancedTemporalPatternEngine(self.logger)
             
-        return imputed_data
+            # Create DataFrame for pattern analysis
+            df = pd.DataFrame({'value': data})
+            temporal_patterns = pattern_engine.extract_temporal_patterns(df, 'value')
+            
+            imputed_data = data.copy()
+            
+            # Use market session effects if available
+            if 'market_sessions' in temporal_patterns and hasattr(data.index, 'hour'):
+                session_effects = temporal_patterns['market_sessions']
+                
+                for idx in data.index[missing_mask]:
+                    hour = idx.hour
+                    
+                    # Find which session this hour belongs to
+                    session_value = None
+                    for session_name, session_info in session_effects.items():
+                        if 'hours' in session_info:
+                            # Parse hours from string like "22:00-10:00 UTC"
+                            hours_str = session_info['hours'].replace(' UTC', '')
+                            start_str, end_str = hours_str.split('-')
+                            start_hour = int(start_str.split(':')[0])
+                            end_hour = int(end_str.split(':')[0])
+                            
+                            # Check if hour is in session (handle crossing midnight)
+                            if start_hour > end_hour:
+                                if hour >= start_hour or hour < end_hour:
+                                    session_value = session_info.get('mean', data.mean())
+                                    break
+                            else:
+                                if start_hour <= hour < end_hour:
+                                    session_value = session_info.get('mean', data.mean())
+                                    break
+                    
+                    if session_value is not None:
+                        # Add trend adjustment
+                        recent_data = data.iloc[max(0, data.index.get_loc(idx) - 5):data.index.get_loc(idx)]
+                        if len(recent_data.dropna()) > 1:
+                            trend = recent_data.dropna().diff().mean()
+                            imputed_data[idx] = session_value + trend * 0.3
+                        else:
+                            imputed_data[idx] = session_value
+                    else:
+                        # Fallback to hourly patterns
+                        if 'time_of_day' in temporal_patterns:
+                            hourly_stats = temporal_patterns['time_of_day'].get('hourly_statistics', {})
+                            if 'mean' in hourly_stats and hour in hourly_stats['mean']:
+                                imputed_data[idx] = hourly_stats['mean'][hour]
+                
+            elif hasattr(data.index, 'hour'):
+                # Fallback to simple hourly patterns
+                hourly_patterns = data.groupby(data.index.hour).mean()
+                
+                for idx in data.index[missing_mask]:
+                    hour = idx.hour
+                    if hour in hourly_patterns:
+                        base_value = hourly_patterns[hour]
+                        recent_trend = data.iloc[-5:].mean() - data.iloc[-10:-5].mean()
+                        imputed_data[idx] = base_value + recent_trend * 0.5
+            else:
+                # Final fallback
+                imputed_data = data.fillna(method='ffill')
+                
+            return imputed_data
+            
+        except ImportError:
+            # Fallback to simple implementation
+            imputed_data = data.copy()
+            
+            if hasattr(data.index, 'hour'):
+                hourly_patterns = data.groupby(data.index.hour).mean()
+                
+                for idx in data.index[missing_mask]:
+                    hour = idx.hour
+                    if hour in hourly_patterns:
+                        # Use hourly average with some adjustment
+                        base_value = hourly_patterns[hour]
+                        recent_trend = data.iloc[-5:].mean() - data.iloc[-10:-5].mean()
+                        imputed_data[idx] = base_value + recent_trend * 0.5
+            else:
+                # Fallback
+                imputed_data = data.fillna(method='ffill')
+                
+            return imputed_data
         
     def validate_parameters(self) -> bool:
         """Validate crypto financial imputation parameters."""

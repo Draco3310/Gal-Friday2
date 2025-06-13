@@ -761,16 +761,50 @@ class AdvancedFeatureExtractor:
 
     # Market microstructure features
     def _calculate_effective_spread(self, data: pd.DataFrame, l2_data: dict[str, Any]) -> pd.Series:
-        """Calculate effective spread from L2 data."""
-        # Implementation would use actual trade prices vs. midpoint
-        # This is a simplified version
-        if 'bids' in l2_data and 'asks' in l2_data and l2_data['bids'] and l2_data['asks']:
-            bid_price = float(l2_data['bids'][0][0])
-            ask_price = float(l2_data['asks'][0][0])
-            midpoint = (bid_price + ask_price) / 2
-            spread = ask_price - bid_price
-            return pd.Series([spread / midpoint * 10000], index=[data.index[-1]])  # in basis points
-        return pd.Series([], dtype=float)
+        """Calculate effective spread from L2 data with production-grade implementation."""
+        try:
+            # Import enhanced spread calculator if available
+            from .feature_engine_enhancements import (
+                AdvancedSpreadCalculator, 
+                MarketMicrostructureData
+            )
+            
+            # Convert l2_data to MarketMicrostructureData
+            bids = [(float(p), float(s)) for p, s in l2_data.get('bids', [])]
+            asks = [(float(p), float(s)) for p, s in l2_data.get('asks', [])]
+            trades = l2_data.get('trades', [])
+            
+            microstructure_data = MarketMicrostructureData(
+                timestamp=data.index[-1] if len(data) > 0 else pd.Timestamp.now(),
+                bids=bids,
+                asks=asks,
+                trades=trades
+            )
+            
+            # Use advanced calculator
+            spread_calculator = AdvancedSpreadCalculator(self.logger)
+            spread_metrics = spread_calculator.calculate_effective_spread(
+                microstructure_data, 
+                trades
+            )
+            
+            # Return effective spread in basis points
+            if 'effective_spread_bps_mean' in spread_metrics:
+                return pd.Series([spread_metrics['effective_spread_bps_mean']], index=[data.index[-1]])
+            elif 'quoted_spread_bps' in spread_metrics:
+                return pd.Series([spread_metrics['quoted_spread_bps']], index=[data.index[-1]])
+            else:
+                return pd.Series([], dtype=float)
+                
+        except ImportError:
+            # Fallback to original implementation
+            if 'bids' in l2_data and 'asks' in l2_data and l2_data['bids'] and l2_data['asks']:
+                bid_price = float(l2_data['bids'][0][0])
+                ask_price = float(l2_data['asks'][0][0])
+                midpoint = (bid_price + ask_price) / 2
+                spread = ask_price - bid_price
+                return pd.Series([spread / midpoint * 10000], index=[data.index[-1]])  # in basis points
+            return pd.Series([], dtype=float)
 
     def _calculate_quoted_spread(self, data: pd.DataFrame, l2_data: dict[str, Any]) -> pd.Series:
         """Calculate quoted spread."""
@@ -4109,7 +4143,46 @@ class FeatureEngine:
             if historical_data is None or historical_data.empty:
                 return None
 
-            # Example: Impute using moving average
+            # Use enhanced imputation if available
+            try:
+                from .feature_engine_enhancements import IntelligentImputationEngine, ImputationStrategy
+                
+                # Create pandas series from historical data
+                hist_series = pd.Series(
+                    historical_data["value"].values,
+                    index=pd.to_datetime(historical_data["timestamp"])
+                )
+                
+                # Use intelligent imputation engine
+                imputation_engine = IntelligentImputationEngine(self.logger)
+                feature_metadata = {
+                    feature_name: {
+                        'type': 'technical' if any(ind in feature_name.lower() for ind in ['rsi', 'macd', 'bb', 'sma', 'ema']) else 'volume' if 'volume' in feature_name.lower() else 'unknown',
+                        'category': 'indicator'
+                    }
+                }
+                
+                # Impute using regime-aware strategy
+                imputed_df = pd.DataFrame({feature_name: hist_series})
+                imputed_data, report = imputation_engine.impute_features(
+                    imputed_df,
+                    feature_metadata,
+                    ImputationStrategy.REGIME_AWARE
+                )
+                
+                if feature_name in imputed_data.columns:
+                    last_value = imputed_data[feature_name].iloc[-1]
+                    self.logger.debug(
+                        "Imputed %s using intelligent regime-aware method: %.4f", 
+                        feature_name, 
+                        last_value
+                    )
+                    return float(last_value) if pd.notna(last_value) else None
+                    
+            except ImportError:
+                pass  # Fall back to simple implementation
+            
+            # Fallback: Simple imputation using moving average
             if "rsi" in feature_name.lower() or "macd" in feature_name.lower():
                 ma = historical_data["value"].rolling(window=5, min_periods=1).mean().iloc[-1]
                 self.logger.debug(
@@ -4117,7 +4190,7 @@ class FeatureEngine:
                 )
                 return float(ma) if pd.notna(ma) else None
 
-            # Example: Impute volume with its historical mean
+            # Fallback: Impute volume with its historical mean
             if "volume" in feature_name.lower():
                 vol_ma = historical_data["value"].mean()
                 self.logger.debug(
@@ -4555,8 +4628,70 @@ class FeatureEngine:
         validated = features.copy()
         business_violations = []
 
-        # Example business rules
+        # Use enhanced validation if available
         try:
+            from .feature_engine_enhancements import ComprehensiveFeatureValidator
+            
+            # Create feature validator
+            validator = ComprehensiveFeatureValidator(self.logger)
+            
+            # Get historical data if available
+            historical_data = None
+            if hasattr(self, 'history_repo') and self.history_repo:
+                try:
+                    # Get recent historical features for validation
+                    hist_features = await self.history_repo.get_feature_history(
+                        trading_pair=trading_pair,
+                        lookback=100,  # Last 100 data points
+                        interval="1h"
+                    )
+                    if hist_features is not None and not hist_features.empty:
+                        historical_data = hist_features.pivot(
+                            index='timestamp', 
+                            columns='feature_name', 
+                            values='value'
+                        )
+                except Exception:
+                    pass  # Continue without historical data
+            
+            # Comprehensive validation
+            validated_features, validation_report = validator.validate_features(
+                features,
+                {},  # Feature metadata would be populated in production
+                historical_data
+            )
+            
+            # Extract violations from report
+            if 'statistical_tests' in validation_report:
+                consistency = validation_report['statistical_tests'].get('consistency', {})
+                
+                # Check spread consistency
+                if 'spread_consistency' in consistency and not consistency['spread_consistency'].get('consistent', True):
+                    business_violations.append("inconsistent_spreads")
+                
+                # Check RSI bounds
+                if 'rsi_bounds' in consistency and not consistency['rsi_bounds'].get('within_bounds', True):
+                    business_violations.append("rsi_out_of_bounds")
+                
+                # Check for outliers
+                outliers = validation_report['statistical_tests'].get('outliers', {})
+                for feature_name, outlier_info in outliers.items():
+                    if outlier_info.get('is_outlier', False):
+                        business_violations.append(f"outlier_{feature_name}")
+            
+            # Apply corrections
+            if 'corrections_applied' in validation_report:
+                for feature_name, correction in validation_report['corrections_applied'].items():
+                    self.logger.info(
+                        f"Applied correction to {feature_name}: {correction['reason']}",
+                        source_module=self._source_module
+                    )
+            
+            # Update validated features
+            validated.update(validated_features)
+            
+        except ImportError:
+            # Fallback to simple business rules
             # Check for logical consistency in spread features
             if 'abs_spread' in features and 'pct_spread' in features:
                 abs_spread = features.get('abs_spread', 0)

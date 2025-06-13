@@ -71,14 +71,7 @@ class Signal(Base):
             # 'triggering_prediction' field in event might need more data if available
             "triggering_prediction": {"value": self.prediction_value} if self.prediction_value is not None else None,
         }
-        # In a real implementation:
-        # from gal_friday.core.events import TradeSignalProposedEvent
-        # return TradeSignalProposedEvent(**event_data)
-
-        # Returning dict for now
-        # return TradeSignalProposedEvent(**event_data) # Old way
-
-        # Explicitly pass arguments
+        # Return the properly typed TradeSignalProposedEvent
         return TradeSignalProposedEvent(
             source_module=self.__class__.__name__,
             event_id=uuid.uuid4(), # New event_id for this event

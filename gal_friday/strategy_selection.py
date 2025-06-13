@@ -254,6 +254,64 @@ class StrategyPerformanceAnalyzer:
             self._metrics_cache[strategy_id] = (datetime.utcnow(), metrics)
             self._performance_history[strategy_id].append(metrics)
             
+            # Persist performance metrics if repository is available
+            if hasattr(self, 'performance_metrics_repository') and self.performance_metrics_repository:
+                try:
+                    from .repositories.strategy_repositories import StrategyRepository
+                    from .models.strategy_models import StrategyPerformanceSnapshot
+                    from decimal import Decimal
+                    
+                    # First ensure strategy exists in DB
+                    strategy_repo = StrategyRepository(self.performance_metrics_repository.session)
+                    strategy_config = await strategy_repo.get_by_strategy_id(strategy_id)
+                    
+                    if strategy_config:
+                        # Create performance snapshot
+                        snapshot = StrategyPerformanceSnapshot(
+                            strategy_config_id=strategy_config.id,
+                            snapshot_date=metrics.evaluation_timestamp,
+                            evaluation_period_start=metrics.evaluation_timestamp - lookback_period,
+                            evaluation_period_end=metrics.evaluation_timestamp,
+                            total_return=Decimal(str(metrics.total_return)),
+                            annualized_return=Decimal(str(metrics.annualized_return)),
+                            sharpe_ratio=Decimal(str(metrics.sharpe_ratio)) if metrics.sharpe_ratio else None,
+                            sortino_ratio=Decimal(str(metrics.sortino_ratio)) if metrics.sortino_ratio else None,
+                            calmar_ratio=Decimal(str(metrics.calmar_ratio)) if metrics.calmar_ratio else None,
+                            max_drawdown=Decimal(str(metrics.max_drawdown)),
+                            current_drawdown=Decimal(str(metrics.current_drawdown)),
+                            total_trades=metrics.total_trades,
+                            win_rate=Decimal(str(metrics.win_rate)),
+                            profit_factor=Decimal(str(metrics.profit_factor)) if metrics.profit_factor else None,
+                            average_win=metrics.average_win,
+                            average_loss=metrics.average_loss,
+                            largest_win=metrics.largest_win,
+                            largest_loss=metrics.largest_loss,
+                            volatility=Decimal(str(metrics.volatility)),
+                            downside_deviation=Decimal(str(metrics.downside_deviation)) if metrics.downside_deviation else None,
+                            var_95=Decimal(str(metrics.var_95)) if metrics.var_95 else None,
+                            cvar_95=Decimal(str(metrics.cvar_95)) if metrics.cvar_95 else None,
+                            max_drawdown_duration_days=Decimal(str(metrics.max_drawdown_duration_days)) if metrics.max_drawdown_duration_days else None,
+                            average_slippage_bps=Decimal(str(metrics.average_slippage_bps)) if metrics.average_slippage_bps else None,
+                            fill_rate=Decimal(str(metrics.fill_rate)),
+                            average_latency_ms=Decimal(str(metrics.average_latency_ms)) if metrics.average_latency_ms else None,
+                            api_error_rate=Decimal(str(metrics.api_error_rate)),
+                            cpu_usage_avg=Decimal(str(metrics.cpu_usage_avg)) if metrics.cpu_usage_avg else None,
+                            memory_usage_avg_mb=Decimal(str(metrics.memory_usage_avg_mb)) if metrics.memory_usage_avg_mb else None,
+                            signal_generation_rate=Decimal(str(metrics.signal_generation_rate)) if metrics.signal_generation_rate else None,
+                            halt_frequency=Decimal(str(metrics.halt_frequency))
+                        )
+                        
+                        await self.performance_metrics_repository.create(snapshot)
+                        self.logger.info(
+                            f"Persisted performance snapshot for strategy {strategy_id}",
+                            source_module=self._source_module
+                        )
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to persist performance metrics: {e}",
+                        source_module=self._source_module
+                    )
+            
             # Log performance summary
             self.logger.info(
                 f"Strategy {strategy_id} performance: Sharpe={metrics.sharpe_ratio:.2f}, "
@@ -421,7 +479,7 @@ class StrategyPerformanceAnalyzer:
     ) -> Dict[str, Any]:
         """Calculate operational efficiency metrics."""
         # This would fetch from monitoring service in production
-        # Placeholder implementation
+        # For now, return realistic placeholder values
         return {
             "cpu_usage_avg": 45.0,  # percentage
             "memory_usage_avg_mb": 512.0,

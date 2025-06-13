@@ -26,12 +26,11 @@ class ExceptionHandlerConfig(Generic[T]):
     include_traceback: bool = True
     source_module: str | None = None
     re_raise: bool = False
-    # Ensure specific_exceptions is initialized as a tuple for the 'except' clause logic later
-    # We'll handle the default (Exception,)
-    # logic within the handler functions if it's None after init.
-    # Or, we could use a field with a default_factory
-    # if we want to initialize it to (Exception,) here.
-    # For now, let the handlers manage the default if it remains None.
+    # Initialize specific_exceptions with proper default
+    def __post_init__(self):
+        """Initialize specific_exceptions with default if not provided."""
+        if self.specific_exceptions is None:
+            self.specific_exceptions = (Exception,)
 
 
 def handle_exceptions(

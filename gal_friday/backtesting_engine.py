@@ -164,70 +164,92 @@ except ImportError:
     logging.getLogger(__name__).warning("Failed to import PubSubManager")
     PubSubManager = None  # type: ignore[assignment,misc]
 
-# Import TA-Lib for technical indicators
+# Import enhanced technical analysis
+from .technical_analysis_enhanced import (
+    TechnicalAnalysisManager,
+    IndicatorConfig,
+    IndicatorType
+)
+
+# Global technical analysis manager (will be initialized when needed)
+_ta_manager: Optional[TechnicalAnalysisManager] = None
+
+def get_ta_manager(config: Dict[str, Any], logger: logging.Logger) -> TechnicalAnalysisManager:
+    """Get or create the global technical analysis manager."""
+    global _ta_manager
+    if _ta_manager is None:
+        _ta_manager = TechnicalAnalysisManager(config, logger)
+    return _ta_manager
+
+# Import TA-Lib for backward compatibility
 try:
     import talib as ta
 except ImportError:
     log = logging.getLogger(__name__)
-    log.warning("TA-Lib not installed. ATR calculation will not work.")
-    # Create a minimal placeholder for ta module
-
+    log.warning("TA-Lib not installed. Using enhanced technical analysis with fallbacks.")
+    # Create a wrapper that uses the enhanced technical analysis
+    
     class TaLib:
-        """Provide minimal placeholder for TA-Lib functionality when library is not available."""
+        """Enhanced TA-Lib wrapper using the production technical analysis system."""
 
         @staticmethod
-        def atr(high: pd.Series, _low: pd.Series, _close: pd.Series, _length: int) -> pd.Series:
-            """Return ATR placeholder values.
+        def atr(high: pd.Series, low: pd.Series, close: pd.Series, length: int) -> pd.Series:
+            """Calculate ATR using enhanced technical analysis.
 
             Returns:
             -------
-                Pandas Series with constant ATR values based on config
+                Pandas Series with ATR values
             """
-            # Default ATR value, configurable through config
-            # This is a placeholder until proper TA-Lib integration
-            # or custom ATR calculation is implemented
-            atr_value = Decimal("20.0")  # Default fallback
-            return pd.Series([atr_value] * len(high), index=high.index)
+            # Get config and logger from somewhere (this is a limitation of static method)
+            # In production, this would be passed properly
+            import logging
+            logger = logging.getLogger(__name__)
+            config = {}
+            
+            try:
+                ta_manager = get_ta_manager(config, logger)
+                
+                data = {
+                    "high": high.values,
+                    "low": low.values,
+                    "close": close.values
+                }
+                
+                indicator_config = IndicatorConfig(
+                    indicator_type=IndicatorType.ATR,
+                    parameters={"timeperiod": length},
+                    fallback_value=20.0
+                )
+                
+                result = ta_manager.calculate_indicator(indicator_config, data)
+                return pd.Series(result.values, index=high.index)
+                
+            except Exception as e:
+                logger.error(f"ATR calculation failed: {e}")
+                # Return fallback values
+                atr_value = Decimal("20.0")
+                return pd.Series([atr_value] * len(high), index=high.index)
 
     ta = TaLib()
 
 
-# Define stubs for optional dependencies
-class PubSubManagerStub:  # type: ignore[misc]
-    """Base stub for PubSubManager when not available."""
+# Import production components from backtesting_components
+from .backtesting_components import (
+    BacktestPubSubManager,
+    BacktestRiskManager,
+    BacktestExchangeInfoService,
+    BacktestComponentFactory
+)
 
-    def __init__(self, logger: Any = None, config_manager: Any = None) -> None:
-        """Initialize stub with any arguments."""
-        self.logger = logger
-        self.config_manager = config_manager
-
-    async def start(self) -> None:
-        """Stub start method."""
-
-    async def stop_consuming(self) -> None:
-        """Stub stop_consuming method."""
-
-    def subscribe(self, event_type: Any, handler: Any) -> None:
-        """Stub subscribe method."""
-
-    def unsubscribe(self, event_type: Any, handler: Any) -> None:
-        """Stub unsubscribe method."""
-
-    async def publish(self, event: Any) -> None:
-        """Stub publish method."""
-
-
-class RiskManagerStub:  # type: ignore[misc]
-    """Base stub for RiskManager when not available."""
-
-
-# Import optional dependencies if available - avoid redefinition
-PubSubManagerClass: type[Any] = PubSubManagerStub  # Default to stub
+# Import optional dependencies if available
+PubSubManagerClass: type[Any] = BacktestPubSubManager  # Use production backtest implementation
 if PubSubManager is not None:
+    # Allow using the real PubSubManager if explicitly configured
     PubSubManagerClass = PubSubManager  # type: ignore[assignment,misc]
 
-RiskManagerClass: type[Any] = RiskManagerStub  # Default to stub
+RiskManagerClass: type[Any] = BacktestRiskManager  # Use production backtest implementation
 if RiskManager is not None:
+    # Allow using the real RiskManager if explicitly configured
     RiskManagerClass = RiskManager  # type: ignore[assignment,misc]
 
 
@@ -235,9 +257,8 @@ if RiskManager is not None:
 log = logging.getLogger(__name__)
 
 
-if TYPE_CHECKING:
-    class ExchangeInfoServiceImpl:  # type: ignore[misc]
-        """Stub implementation of ExchangeInfoService for type checking."""
+# Use production BacktestExchangeInfoService
+ExchangeInfoServiceImpl = BacktestExchangeInfoService
 
 
 # Define missing event classes if they don't exist in core.events
@@ -426,21 +447,60 @@ class BacktestHistoricalDataProviderImpl:
 
     async def get_historical_trades(
         self,
-        _trading_pair: str,  # Unused, kept for interface compatibility
-        _start_time: dt.datetime,  # F821 # Unused, kept for interface compatibility
-        _end_time: dt.datetime,  # F821 # Unused, kept for interface compatibility
+        trading_pair: str,
+        start_time: dt.datetime,
+        end_time: dt.datetime,
     ) -> pd.DataFrame | None:
         """Retrieve historical trade data for a given pair and time range.
 
         Note:
-            This is a placeholder method as the backtest provider doesn't have trade data.
+            In production, this would connect to the database or API to fetch real trade data.
+            For backtesting, we can synthesize trade data from OHLCV bars if needed.
 
         Returns:
         -------
-            Always returns None as trade data is not available in backtest mode.
+            DataFrame with trade data or None if not available.
         """
-        self.logger.warning("Historical trade data not available in backtest mode")
-        return None
+        # Check if we have OHLCV data for this pair
+        if trading_pair not in self._data:
+            self.logger.warning(f"No data available for pair {trading_pair}")
+            return None
+            
+        # Get OHLCV data for the time range
+        ohlcv_data = self._data[trading_pair]
+        mask = (ohlcv_data.index >= start_time) & (ohlcv_data.index <= end_time)
+        filtered_data = ohlcv_data[mask]
+        
+        if filtered_data.empty:
+            return None
+            
+        # Synthesize trade data from OHLCV
+        # In production, this would be real tick data
+        trade_data = []
+        for timestamp, row in filtered_data.iterrows():
+            # Create synthetic trades based on OHLCV
+            # High/Low trades
+            trade_data.append({
+                'timestamp': timestamp,
+                'price': row['high'],
+                'volume': row['volume'] * 0.25,  # Distribute volume
+                'side': 'buy'
+            })
+            trade_data.append({
+                'timestamp': timestamp,
+                'price': row['low'],
+                'volume': row['volume'] * 0.25,
+                'side': 'sell'
+            })
+            # Close price trade
+            trade_data.append({
+                'timestamp': timestamp,
+                'price': row['close'],
+                'volume': row['volume'] * 0.5,
+                'side': 'buy' if row['close'] > row['open'] else 'sell'
+            })
+        
+        return pd.DataFrame(trade_data).set_index('timestamp')
 
 
 # --- Helper Function for Reporting --- #
@@ -1858,6 +1918,134 @@ class BacktestingEngine:
                 f"Set 'allow_low_quality_data: true' to proceed anyway."
             )
 
+    def calculate_technical_indicators(
+        self,
+        symbol: str,
+        indicators: List[str],
+        custom_params: Optional[Dict[str, Dict[str, Any]]] = None
+    ) -> Dict[str, pd.Series]:
+        """Calculate multiple technical indicators for a symbol using enhanced system.
+        
+        Args:
+            symbol: Trading pair symbol
+            indicators: List of indicator names (e.g., ['atr_14', 'rsi_14', 'sma_20'])
+            custom_params: Optional custom parameters for indicators
+            
+        Returns:
+            Dictionary mapping indicator names to pandas Series
+        """
+        if symbol not in self._data:
+            raise ValueError(f"No data available for symbol {symbol}")
+            
+        df = self._data[symbol]
+        
+        # Initialize technical analysis manager if needed
+        ta_manager = get_ta_manager(dict(self.config), self.logger)
+        
+        # Default indicator configurations
+        default_configs = {
+            "atr_14": IndicatorConfig(
+                indicator_type=IndicatorType.ATR,
+                parameters={"timeperiod": 14},
+                fallback_value=20.0
+            ),
+            "atr_20": IndicatorConfig(
+                indicator_type=IndicatorType.ATR,
+                parameters={"timeperiod": 20},
+                fallback_value=20.0
+            ),
+            "rsi_14": IndicatorConfig(
+                indicator_type=IndicatorType.RSI,
+                parameters={"timeperiod": 14},
+                fallback_value=50.0
+            ),
+            "sma_20": IndicatorConfig(
+                indicator_type=IndicatorType.SMA,
+                parameters={"timeperiod": 20}
+            ),
+            "sma_50": IndicatorConfig(
+                indicator_type=IndicatorType.SMA,
+                parameters={"timeperiod": 50}
+            ),
+            "ema_12": IndicatorConfig(
+                indicator_type=IndicatorType.EMA,
+                parameters={"timeperiod": 12}
+            ),
+            "ema_26": IndicatorConfig(
+                indicator_type=IndicatorType.EMA,
+                parameters={"timeperiod": 26}
+            ),
+            "bbands_20": IndicatorConfig(
+                indicator_type=IndicatorType.BBANDS,
+                parameters={"timeperiod": 20, "nbdevup": 2.0, "nbdevdn": 2.0}
+            ),
+            "macd": IndicatorConfig(
+                indicator_type=IndicatorType.MACD,
+                parameters={"fastperiod": 12, "slowperiod": 26, "signalperiod": 9}
+            ),
+            "vwap": IndicatorConfig(
+                indicator_type=IndicatorType.VWAP,
+                parameters={}
+            )
+        }
+        
+        # Convert DataFrame to numpy arrays
+        data = {
+            "open": df["open"].values if "open" in df.columns else None,
+            "high": df["high"].values if "high" in df.columns else None,
+            "low": df["low"].values if "low" in df.columns else None,
+            "close": df["close"].values if "close" in df.columns else None,
+            "volume": df["volume"].values if "volume" in df.columns else None,
+        }
+        
+        # Remove None values
+        data = {k: v for k, v in data.items() if v is not None}
+        
+        results = {}
+        
+        for indicator_name in indicators:
+            try:
+                # Get configuration
+                if indicator_name in default_configs:
+                    config = default_configs[indicator_name]
+                else:
+                    # Try to parse custom indicator name (e.g., "rsi_20")
+                    parts = indicator_name.split("_")
+                    if len(parts) >= 2 and parts[0].upper() in [t.value.upper() for t in IndicatorType]:
+                        indicator_type = IndicatorType(parts[0].lower())
+                        period = int(parts[1]) if parts[1].isdigit() else 14
+                        config = IndicatorConfig(
+                            indicator_type=indicator_type,
+                            parameters={"timeperiod": period}
+                        )
+                    else:
+                        self.logger.warning(f"Unknown indicator: {indicator_name}")
+                        continue
+                
+                # Apply custom parameters if provided
+                if custom_params and indicator_name in custom_params:
+                    config.parameters.update(custom_params[indicator_name])
+                
+                # Calculate indicator
+                result = ta_manager.calculate_indicator(config, data)
+                
+                # Handle multiple outputs
+                if isinstance(result.values, tuple):
+                    # For indicators like MACD, Bollinger Bands
+                    for i, values in enumerate(result.values):
+                        suffix = ["", "_signal", "_hist"] if config.indicator_type == IndicatorType.MACD else [f"_{i}" for _ in result.values]
+                        key = f"{indicator_name}{suffix[i] if i > 0 else ''}"
+                        results[key] = pd.Series(values, index=df.index)
+                else:
+                    # Single output
+                    results[indicator_name] = pd.Series(result.values, index=df.index)
+                    
+            except Exception as e:
+                self.logger.error(f"Failed to calculate {indicator_name}: {e}")
+                continue
+        
+        return results
+
     def _calculate_data_quality_score(self, df: pd.DataFrame, symbol: str) -> float:
         """Calculate a data quality score for the loaded data."""
         try:
@@ -2780,49 +2968,137 @@ class LocalFileDataProvider:
             return None
 
 
-class DatabaseDataProvider:
-    """Data provider for loading from database sources."""
+class DatabaseDataProviderAdapter:
+    """Adapter to use the production DatabaseDataProvider in backtesting."""
     
     def __init__(self, config: ConfigManagerProtocol, logger: logging.Logger) -> None:
-        """Initialize the database data provider."""
+        """Initialize the database data provider adapter."""
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
+        
+        # Import and initialize the production DatabaseDataProvider
+        from .providers.database_provider import DatabaseDataProvider
+        from .simulated_market_price_service import DataRequest
+        
+        self._provider = DatabaseDataProvider(dict(config), logger)
+        self._initialized = False
     
     async def load_data(self, request: dict[str, Any]) -> dict[str, Any] | None:
-        """Load data from database sources."""
+        """Load data from database sources using production provider."""
         try:
-            # This is a placeholder for database integration
-            # In a real implementation, this would connect to PostgreSQL or InfluxDB
-            # and execute queries to retrieve historical data
+            # Initialize provider if needed
+            if not self._initialized:
+                await self._provider.initialize()
+                self._initialized = True
             
-            self.logger.info("Database data provider not yet implemented")
-            return None
+            # Convert request to DataRequest format
+            from .simulated_market_price_service import DataRequest
+            
+            data_request = DataRequest(
+                symbol=request.get('symbol', 'XRP/USD'),
+                start_date=request.get('start_date'),
+                end_date=request.get('end_date'),
+                frequency=request.get('frequency', '1m')
+            )
+            
+            # Fetch data
+            historical_points = await self._provider.fetch_data(data_request)
+            
+            if not historical_points:
+                return None
+            
+            # Convert to DataFrame format expected by backtesting
+            data = []
+            for point in historical_points:
+                data.append({
+                    'timestamp': point.timestamp,
+                    'open': point.open,
+                    'high': point.high,
+                    'low': point.low,
+                    'close': point.close,
+                    'volume': point.volume
+                })
+            
+            df = pd.DataFrame(data)
+            if not df.empty:
+                df.set_index('timestamp', inplace=True)
+            
+            return {'data': df, 'source': 'database'}
             
         except Exception as e:
             self.logger.error(f"Failed to load data from database: {e}")
             return None
+    
+    async def cleanup(self) -> None:
+        """Clean up database connections."""
+        if self._initialized:
+            await self._provider.cleanup()
 
 
-class APIDataProvider:
-    """Data provider for loading from external APIs."""
+class APIDataProviderAdapter:
+    """Adapter to use the production APIDataProvider in backtesting."""
     
     def __init__(self, config: ConfigManagerProtocol, logger: logging.Logger) -> None:
-        """Initialize the API data provider."""
+        """Initialize the API data provider adapter."""
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
+        
+        # Import and initialize the production APIDataProvider
+        from .providers.api_provider import APIDataProvider
+        from .simulated_market_price_service import DataRequest
+        
+        self._provider = APIDataProvider(dict(config), logger)
+        self._initialized = False
     
     async def load_data(self, request: dict[str, Any]) -> dict[str, Any] | None:
-        """Load data from external APIs."""
+        """Load data from external APIs using production provider."""
         try:
-            # This is a placeholder for API integration
-            # In a real implementation, this would connect to external data providers
-            # like Yahoo Finance, Alpha Vantage, etc.
+            # Initialize provider if needed
+            if not self._initialized:
+                await self._provider.initialize()
+                self._initialized = True
             
-            self.logger.info("API data provider not yet implemented")
-            return None
+            # Convert request to DataRequest format
+            from .simulated_market_price_service import DataRequest
+            
+            data_request = DataRequest(
+                symbol=request.get('symbol', 'XRP/USD'),
+                start_date=request.get('start_date'),
+                end_date=request.get('end_date'),
+                frequency=request.get('frequency', '1m')
+            )
+            
+            # Fetch data
+            historical_points = await self._provider.fetch_data(data_request)
+            
+            if not historical_points:
+                return None
+            
+            # Convert to DataFrame format expected by backtesting
+            data = []
+            for point in historical_points:
+                data.append({
+                    'timestamp': point.timestamp,
+                    'open': point.open,
+                    'high': point.high,
+                    'low': point.low,
+                    'close': point.close,
+                    'volume': point.volume
+                })
+            
+            df = pd.DataFrame(data)
+            if not df.empty:
+                df.set_index('timestamp', inplace=True)
+            
+            return {'data': df, 'source': 'api'}
             
         except Exception as e:
             self.logger.error(f"Failed to load data from API: {e}")
             return None
+    
+    async def cleanup(self) -> None:
+        """Clean up API connections."""
+        if self._initialized:
+            await self._provider.cleanup()

@@ -33,21 +33,28 @@ from .providers import (
 # Import the base class
 from .market_price_service import MarketPriceService
 
-# Define a minimal interface for static type checking
-class _DummyConfigManager:
-    """Minimal placeholder for ConfigManager."""
-
-    def get(self, _key: str, default: object | None = None) -> object | None:
-        """Get a value from config."""
-        return default
-
-    def get_decimal(self, _key: str, default: Decimal) -> Decimal:
-        """Get a decimal value from config."""
-        return default
-
-    def get_int(self, _key: str, default: int) -> int:
-        """Get an integer value from config."""
-        return default
+# Import enhanced components
+try:
+    from .market_price_service_enhancements import (
+        EnterpriseConfigurationManager,
+        AdvancedPriceGenerator,
+        RealisticHistoricalDataGenerator,
+        MarketRegime,
+        PriceModelType,
+        MarketEventType,
+        MarketParameters,
+        MarketEvent,
+        PricePoint,
+        create_enterprise_market_service
+    )
+    ENHANCEMENTS_AVAILABLE = True
+except ImportError:
+    ENHANCEMENTS_AVAILABLE = False
+    log_temp = logging.getLogger(__name__)
+    log_temp.info(
+        "Enhanced market price components not available. "
+        "Using basic implementation."
+    )
 
 # Attempt to import the actual ConfigManager
 if TYPE_CHECKING:
@@ -56,16 +63,21 @@ else:
     try:
         from .config_manager import ConfigManager
     except ImportError:
-        # Fallback for environments where ConfigManager might not be in the expected path
-        log_temp = logging.getLogger(__name__)
-        log_temp.warning(
-            "Could not import ConfigManager from .config_manager. "
-            "SimulatedMarketPriceService will use "
-            "default config values if ConfigManager is not provided.",
-        )
-
-        # Use the dummy class as a fallback for type checking
-        ConfigManager = _DummyConfigManager  # type: Optional[ConfigManager]
+        # For backward compatibility, define a minimal interface
+        class ConfigManager:
+            """Minimal placeholder for ConfigManager."""
+            
+            def get(self, _key: str, default: object | None = None) -> object | None:
+                """Get a value from config."""
+                return default
+            
+            def get_decimal(self, _key: str, default: Decimal) -> Decimal:
+                """Get a decimal value from config."""
+                return default
+            
+            def get_int(self, _key: str, default: int) -> int:
+                """Get an integer value from config."""
+                return default
 
 # Attempt to import pandas_ta for ATR calculation
 try:
@@ -521,13 +533,74 @@ class PriceInterpolator:
         return gaps
 
     def _frequency_to_minutes(self, frequency: str) -> int:
-        """Convert frequency string to minutes"""
-        # Simple implementation - would be more sophisticated in real system
-        freq_map = {
-            '1m': 1, '5m': 5, '15m': 15, '30m': 30,
-            '1h': 60, '4h': 240, '1d': 1440
+        """Convert frequency string to minutes with comprehensive support.
+        
+        Supports various frequency formats:
+        - Standard: 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w
+        - Extended: 2h, 3h, 6h, 8h, 12h, 2d, 3d
+        - Custom: Any number followed by m/h/d/w (e.g., 45m, 90m, 36h)
+        """
+        import re
+        
+        # Extended frequency map for common intervals
+        standard_freq_map = {
+            # Minutes
+            '1m': 1, '2m': 2, '3m': 3, '5m': 5, '10m': 10, '15m': 15, 
+            '20m': 20, '30m': 30, '45m': 45,
+            # Hours
+            '1h': 60, '2h': 120, '3h': 180, '4h': 240, '6h': 360, 
+            '8h': 480, '12h': 720,
+            # Days
+            '1d': 1440, '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080,
+            # Weeks
+            '1w': 10080, '2w': 20160, '4w': 40320,
+            # Special
+            'tick': 0,  # Real-time tick data
+            'monthly': 43200,  # Approximate 30 days
+            'quarterly': 129600  # Approximate 90 days
         }
-        return freq_map.get(frequency, 60)  # Default to 1 hour
+        
+        # Check standard map first
+        if frequency.lower() in standard_freq_map:
+            return standard_freq_map[frequency.lower()]
+        
+        # Parse custom format (e.g., "90m", "36h", "14d")
+        pattern = r'^(\d+)([mhdw])$'
+        match = re.match(pattern, frequency.lower())
+        
+        if match:
+            value = int(match.group(1))
+            unit = match.group(2)
+            
+            unit_multipliers = {
+                'm': 1,        # minutes
+                'h': 60,       # hours to minutes
+                'd': 1440,     # days to minutes
+                'w': 10080     # weeks to minutes
+            }
+            
+            if unit in unit_multipliers:
+                return value * unit_multipliers[unit]
+        
+        # If using enhanced features, get from config
+        if self._use_enhanced_features and self._enterprise_config_manager:
+            try:
+                custom_frequencies = self.config.get(
+                    "market_simulation.custom_frequencies", {}
+                )
+                if frequency in custom_frequencies:
+                    return custom_frequencies[frequency]
+            except Exception:
+                pass
+        
+        # Log warning for unrecognized format
+        if hasattr(self, 'logger'):
+            self.logger.warning(
+                f"Unrecognized frequency format: {frequency}. Defaulting to 60 minutes.",
+                extra={"source_module": self._source_module}
+            )
+        
+        return 60  # Default to 1 hour
 
     def _select_interpolation_method(self, gaps: List[DataGap], symbol: str) -> InterpolationMethod:
         """Select best interpolation method based on gap characteristics"""
@@ -1136,12 +1209,46 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             # Use provided config
             self.config = config_manager
         else:
-            # Create dummy config manager for defaults
-            self.config = _DummyConfigManager()
+            # Create config manager for defaults
+            self.config = ConfigManager()
 
         self._source_module = _SOURCE_MODULE
 
         self._load_simulation_config()
+        
+        # === ENHANCED COMPONENTS INITIALIZATION ===
+        if ENHANCEMENTS_AVAILABLE and hasattr(self, 'logger'):
+            try:
+                # Initialize enterprise components
+                (
+                    self._enterprise_config_manager,
+                    self._advanced_price_generator,
+                    self._historical_data_generator
+                ) = asyncio.run(create_enterprise_market_service(
+                    self.config,
+                    self.logger
+                ))
+                
+                self.logger.info(
+                    "Enterprise market price components initialized successfully",
+                    extra={"source_module": self._source_module}
+                )
+                self._use_enhanced_features = True
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to initialize enterprise components: {e}. "
+                    "Falling back to basic implementation.",
+                    extra={"source_module": self._source_module}
+                )
+                self._use_enhanced_features = False
+                self._enterprise_config_manager = None
+                self._advanced_price_generator = None
+                self._historical_data_generator = None
+        else:
+            self._use_enhanced_features = False
+            self._enterprise_config_manager = None
+            self._advanced_price_generator = None
+            self._historical_data_generator = None
 
         # === ENTERPRISE-GRADE ENHANCEMENTS ===
 
@@ -2728,414 +2835,3 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             return None
 
 # === END ENTERPRISE-GRADE METHODS ===
-
-
-# Example Usage
-
-
-async def _setup_service_and_data(
-    main_logger: logging.Logger,
-) -> tuple[SimulatedMarketPriceService, datetime]:
-    """Set up historical data, price service, and a common timestamp for tests."""
-    # Create dummy historical data
-    idx1 = pd.to_datetime(
-        [
-            "2023-01-01 00:00:00",
-            "2023-01-01 00:01:00",
-            "2023-01-01 00:02:00",
-            "2023-01-01 00:03:00",
-            "2023-01-01 00:04:00",
-        ],
-        utc=True,
-    )
-    data1 = pd.DataFrame(
-        {
-            "open": [
-                Decimal("10.0"),
-                Decimal("11.0"),
-                Decimal("12.0"),
-                Decimal("11.0"),
-                Decimal("13.0"),
-            ],
-            "close": [
-                Decimal("11.0"),
-                Decimal("12.0"),
-                Decimal("11.5"),
-                Decimal("13.0"),
-                Decimal("14.0"),
-            ],
-            "high": [
-                Decimal("11.5"),
-                Decimal("12.5"),
-                Decimal("12.0"),
-                Decimal("13.5"),
-                Decimal("14.0"),
-            ],
-            "low": [
-                Decimal("9.5"),
-                Decimal("10.5"),
-                Decimal("11.0"),
-                Decimal("10.5"),
-                Decimal("12.5"),
-            ],
-        },
-        index=idx1,
-    )
-
-    idx2 = pd.to_datetime(
-        [
-            "2023-01-01 00:00:00",
-            "2023-01-01 00:01:00",
-            "2023-01-01 00:02:00",
-            "2023-01-01 00:03:00",
-            "2023-01-01 00:04:00",
-        ],
-        utc=True,
-    )
-    data2 = pd.DataFrame(
-        {
-            "open": [
-                Decimal("1.0"),
-                Decimal("1.1"),
-                Decimal("1.2"),
-                Decimal("1.1"),
-                Decimal("1.0"),
-            ],
-            "close": [
-                Decimal("1.1"),
-                Decimal("1.2"),
-                Decimal("1.15"),
-                Decimal("1.1"),
-                Decimal("1.05"),
-            ],
-            "high": [
-                Decimal("1.15"),
-                Decimal("1.25"),
-                Decimal("1.20"),
-                Decimal("1.15"),
-                Decimal("1.10"),
-            ],
-            "low": [
-                Decimal("0.95"),
-                Decimal("1.05"),
-                Decimal("1.10"),
-                Decimal("1.05"),
-                Decimal("1.00"),
-            ],
-        },
-        index=idx2,
-    )
-
-    hist_data = {"BTC/USD": data1, "ETH/USD": data2}
-    price_service = SimulatedMarketPriceService(hist_data, logger=main_logger)
-
-    # Common timestamp for many tests
-    ts1 = datetime(2023, 1, 1, 0, 1, 0, tzinfo=UTC)
-    return price_service, ts1
-
-
-async def _test_price_queries(
-    price_service: SimulatedMarketPriceService,
-    main_logger: logging.Logger,
-    ts1: datetime,
-) -> None:
-    """Test various price retrieval scenarios."""
-    main_logger.info("--- Testing Price Queries ---")
-    # Test 1: Get price at an exact timestamp
-    price_service.update_time(ts1)
-
-    btc_price_info1 = await price_service.get_latest_price("BTC/USD")
-    eth_price_info1 = await price_service.get_latest_price("ETH/USD")
-    usd_price_info = await price_service.get_latest_price("USD/USD")
-    btc_spread_info1 = await price_service.get_bid_ask_spread("BTC/USD")
-
-    btc_price1 = btc_price_info1
-    eth_price1 = eth_price_info1
-    usd_price = usd_price_info
-
-    main_logger.info(
-        "Prices at %s: BTC=%s, ETH=%s, USD/USD=%s",
-        ts1,
-        btc_price1,
-        eth_price1,
-        usd_price,
-    )
-    if btc_spread_info1:
-        main_logger.info(
-            "BTC Spread at %s: Bid=%.2f, Ask=%.2f",
-            ts1,
-            btc_spread_info1[0],
-            btc_spread_info1[1],
-        )
-    else:
-        main_logger.info("BTC Spread at %s: None", ts1)
-
-    # Test 2: Get price between timestamps (should get previous close)
-    ts2 = datetime(2023, 1, 1, 0, 1, 30, tzinfo=UTC)
-    price_service.update_time(ts2)
-    btc_price2 = await price_service.get_latest_price("BTC/USD")
-    main_logger.info(
-        "Prices at %s: BTC=%s (Should be same as %s close: 12.0)",
-        ts2,
-        btc_price2,
-        ts1,
-    )
-
-    # Test 3: Get price before data starts
-    ts3 = datetime(2022, 12, 31, 23, 59, 0, tzinfo=UTC)
-    price_service.update_time(ts3)
-    btc_price3 = await price_service.get_latest_price("BTC/USD")
-    main_logger.info("Prices at %s: BTC=%s (Should be None)", ts3, btc_price3)
-
-    # Test 4: Unknown pair
-    price_service.update_time(ts1)  # Reset time for consistency if other tests modify it
-    unknown_price = await price_service.get_latest_price("LTC/USD")
-    main_logger.info("Prices at %s: LTC=%s (Should be None)", ts1, unknown_price)
-
-
-async def _test_price_metadata(
-    price_service: SimulatedMarketPriceService,
-    main_logger: logging.Logger,
-    ts1: datetime,
-) -> None:
-    """Test retrieval of price timestamp and freshness."""
-    main_logger.info("--- Testing Price Metadata ---")
-    price_service.update_time(ts1)  # Ensure current time context
-
-    ts_btc = await price_service.get_price_timestamp("BTC/USD")
-    is_fresh_btc = await price_service.is_price_fresh("BTC/USD")
-    main_logger.info("BTC Price Timestamp at %s: %s, Fresh: %s", ts1, ts_btc, is_fresh_btc)
-
-    ts_ltc = await price_service.get_price_timestamp("LTC/USD")
-    is_fresh_ltc = await price_service.is_price_fresh("LTC/USD")
-    main_logger.info(
-        "LTC Price Timestamp at %s: %s, Fresh: %s (Should be None, False)",
-        ts1,
-        ts_ltc,
-        is_fresh_ltc,
-    )
-
-
-async def _test_order_book_snapshot(
-    price_service: SimulatedMarketPriceService,
-    main_logger: logging.Logger,
-    ts1: datetime,
-) -> None:
-    """Test order book snapshot generation."""
-    main_logger.info("--- Testing Order Book Snapshot ---")
-    price_service.update_time(ts1)  # Ensure current time context
-
-    btc_order_book = await price_service.get_order_book_snapshot("BTC/USD")
-    if btc_order_book:
-        main_logger.info("BTC/USD Order Book at %s:", ts1)
-        main_logger.info("  Bids: %s", btc_order_book.get("bids"))
-        main_logger.info("  Asks: %s", btc_order_book.get("asks"))
-    else:
-        main_logger.info("Could not generate BTC/USD order book at %s.", ts1)
-
-
-async def _test_currency_conversions(
-    price_service: SimulatedMarketPriceService,
-    main_logger: logging.Logger,
-    ts1: datetime,
-) -> None:
-    """Test currency conversion functionality."""
-    main_logger.info("--- Testing Currency Conversions ---")
-    price_service.update_time(ts1)  # Ensure current time context
-
-    amount_to_convert = Decimal("2.0")
-
-    # Add ETH/BTC pair for testing cross-conversion if BTC/ETH is not direct
-    idx_eth_btc = pd.to_datetime(["2023-01-01 00:01:00"], utc=True)
-    data_eth_btc = pd.DataFrame(
-        {"close": [Decimal("0.05")], "high": [Decimal("0.05")], "low": [Decimal("0.05")]},
-        index=idx_eth_btc,
-    )
-    price_service.historical_data["ETH/BTC"] = data_eth_btc
-
-    converted_btc_to_eth_via_usd = await price_service.convert_amount(
-        amount_to_convert,
-        "BTC",
-        "ETH",
-    )
-    main_logger.info(
-        "Converting %s BTC to ETH via USD: %s",
-        amount_to_convert,
-        converted_btc_to_eth_via_usd,
-    )
-
-    # Add direct pair for BTC/ETH
-    idx_btc_eth = pd.to_datetime(["2023-01-01 00:01:00"], utc=True)
-    data_btc_eth = pd.DataFrame(
-        {"close": [Decimal("20.0")], "high": [Decimal("20.0")], "low": [Decimal("20.0")]},
-        index=idx_btc_eth,
-    )
-    price_service.historical_data["BTC/ETH"] = data_btc_eth
-    converted_btc_to_eth_direct = await price_service.convert_amount(
-        amount_to_convert,
-        "BTC",
-        "ETH",
-    )
-    main_logger.info(
-        "Converting %s BTC to ETH (direct): %s",
-        amount_to_convert,
-        converted_btc_to_eth_direct,
-    )
-
-
-async def main() -> None:  # Made async
-    """Run example demonstrating the SimulatedMarketPriceService functionality."""
-    # Basic logging setup for example
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(name)s - %(levelname)s - [%(source_module)s] - %(message)s",
-    )
-    main_logger = logging.getLogger("SimulatedMarketPriceServiceExample")
-
-    price_service, ts1 = await _setup_service_and_data(main_logger)
-    await price_service.start()
-
-    await _test_price_queries(price_service, main_logger, ts1)
-    await _test_price_metadata(price_service, main_logger, ts1)
-    await _test_order_book_snapshot(price_service, main_logger, ts1)
-    await _test_currency_conversions(price_service, main_logger, ts1)
-
-    # Test zero-spread scenario
-    main_logger.info("--- Testing Zero-Spread Scenario ---")
-    # Temporarily set spread to zero for a specific pair
-    original_spread = price_service._default_spread_pct
-    price_service._default_spread_pct = Decimal("0")
-    price_service._pair_specific_spread_config["BTC/USD"] = Decimal("0")
-
-    zero_spread_result = await price_service.get_bid_ask_spread("BTC/USD")
-    if zero_spread_result:
-        bid, ask = zero_spread_result
-        if bid == ask:
-            main_logger.info("Zero spread confirmed: Bid=%s, Ask=%s", bid, ask)
-        else:
-            main_logger.warning("Expected zero spread but got: Bid=%s, Ask=%s", bid, ask)
-    else:
-        main_logger.error("Failed to get bid/ask spread for zero-spread test")
-
-    # Restore original spread
-    price_service._default_spread_pct = original_spread
-    price_service._pair_specific_spread_config.pop("BTC/USD", None)
-
-    # Test edge cases
-    main_logger.info("--- Testing Edge Cases ---")
-
-    # Test with future timestamp
-    future_ts = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
-    price_service.update_time(future_ts)
-    future_price = await price_service.get_latest_price("BTC/USD")
-    main_logger.info("Price at future time %s: %s", future_ts, future_price)
-
-    # Test volatility calculation
-    if hasattr(price_service, 'get_volatility'):
-        volatility = await price_service.get_volatility("BTC/USD", lookback_hours=1)
-        main_logger.info("BTC/USD volatility (1hr lookback): %s%%", volatility)
-
-    # === ENTERPRISE-GRADE FEATURE DEMONSTRATIONS ===
-
-    main_logger.info("--- Testing Enterprise-Grade Features ---")
-
-    # Test data quality validation
-    quality_report = await price_service.validate_data_quality("BTC/USD")
-    if quality_report:
-        main_logger.info(
-            "BTC/USD data quality: score=%.2f, issues=%d, meets_threshold=%s",
-            quality_report['quality_score'],
-            len(quality_report['issues']),
-            quality_report['meets_threshold']
-        )
-        if quality_report['recommendations']:
-            main_logger.info("Recommendations: %s", quality_report['recommendations'])
-
-    # Test cache statistics
-    cache_stats = price_service.get_cache_statistics()
-    main_logger.info(
-        "Cache performance: hit_rate=%.2f%%, memory_hits=%d, total_requests=%d",
-        cache_stats['cache_hit_rate'] * 100,
-        cache_stats['memory_hits'],
-        cache_stats['total_requests']
-    )
-
-    # Test price interpolation
-    main_logger.info("Testing price interpolation...")
-    interpolation_result = await price_service.interpolate_missing_prices(
-        "BTC/USD", frequency="1m"
-    )
-    if interpolation_result:
-        main_logger.info(
-            "Interpolation result: method=%s, gaps_filled=%d, quality=%.2f",
-            interpolation_result.method_used.value,
-            len(interpolation_result.gaps_filled),
-            interpolation_result.quality_score
-        )
-    else:
-        main_logger.info("No interpolation needed - data is complete")
-
-    # Test advanced historical data loading
-    start_date = datetime(2023, 1, 1, tzinfo=UTC)
-    end_date = datetime(2023, 1, 2, tzinfo=UTC)
-
-    advanced_data = await price_service.load_historical_data_advanced(
-        "BTC/USD", start_date, end_date, frequency="1h"
-    )
-    if advanced_data:
-        main_logger.info("Advanced data loading: retrieved %d data points", len(advanced_data))
-    else:
-        main_logger.info("Advanced data loading: no data retrieved (expected for demo)")
-
-    # Test simulation engine state
-    sim_state = price_service.get_simulation_state()
-    main_logger.info("Simulation engine state: %s", sim_state.value)
-
-    # Test simulation speed control
-    speed_changed = await price_service.set_simulation_speed(SimulationSpeed.FAST_2X)
-    main_logger.info("Simulation speed change successful: %s", speed_changed)
-
-    # === END ENTERPRISE-GRADE DEMONSTRATIONS ===
-
-    await price_service.stop()
-
-
-if __name__ == "__main__":
-    # Set up basic logging configuration
-    import logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-    logger = logging.getLogger(__name__)
-
-    # Check for required dependencies
-    missing_deps = []
-    try:
-        import pandas  # noqa
-    except ImportError:
-        missing_deps.append("pandas")
-
-    try:
-        import numpy  # noqa
-    except ImportError:
-        missing_deps.append("numpy")
-
-    try:
-        import asyncio
-    except ImportError:
-        missing_deps.append("asyncio")
-
-    if missing_deps:
-        logger.error(
-            "Missing required dependencies: %s. Install with: pip install %s",
-            ", ".join(missing_deps),
-            " ".join(missing_deps)
-        )
-    else:
-        try:
-            asyncio.run(main())  # Run the async main function
-        except KeyboardInterrupt:
-            logger.info("Example interrupted by user")
-        except Exception:
-            logger.exception("An error occurred during example execution")

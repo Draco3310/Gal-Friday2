@@ -1806,27 +1806,10 @@ class ExecutionHandler(ServiceProtocol):
             if hasattr(self, "market_price_service") and self.market_price_service:
                 market_data_service = self.market_price_service
             else:
-                # Create a minimal market data service for shutdown decisions
-                class MinimalMarketDataService:
-                    def __init__(self, config, logger):
-                        self.config = config
-                        self.logger = logger
-
-                    async def get_current_price(self, symbol: str) -> Optional[float]:
-                        """Get current market price for symbol"""
-                        # This would be implemented to fetch from price service
-                        return None
-
-                    async def is_market_open(self, symbol: str) -> bool:
-                        """Check if market is currently open"""
-                        # Basic implementation - could be enhanced with exchange hours
-                        return True
-
-                    async def get_volatility(self, symbol: str) -> Optional[float]:
-                        """Get current volatility for symbol"""
-                        return None
-
-                market_data_service = MinimalMarketDataService(self.config, self.logger)
+                # Import enhanced market data service
+                from gal_friday.execution_handler_enhancements import EnhancedMarketDataService
+                
+                market_data_service = EnhancedMarketDataService(self.config, self.logger)
 
             self.logger.info(
                 "Market data service initialized for shutdown decisions",
@@ -2478,7 +2461,12 @@ class ExecutionHandler(ServiceProtocol):
 
     def _is_retryable_error(self, error_str: str) -> bool:
         """Check if a Kraken error string indicates a potentially transient issue."""
-        # Add known transient error codes/messages from Kraken docs
+        # Use enhanced error classifier if available
+        if hasattr(self, '_error_classifier'):
+            error_instance = self._error_classifier.classify_error(error_str)
+            return self._error_classifier.should_retry(error_instance)
+        
+        # Fallback to basic error codes
         retryable_codes = [
             "EGeneral:Temporary",
             "EService:Unavailable",
