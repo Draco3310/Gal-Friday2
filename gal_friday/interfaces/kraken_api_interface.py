@@ -151,8 +151,7 @@ class KrakenAPIInterface(ABC):
     @abstractmethod
     async def get_tradable_asset_pairs(
         self,
-        pairs: list[str] | None = None,
-    ) -> dict[str, Any]:
+        pairs: list[str] | None = None) -> dict[str, Any]:
         """Get tradable asset pairs information.
 
         Args:
@@ -184,8 +183,7 @@ class KrakenAPIInterface(ABC):
         self,
         pair: str,
         interval: int = 1,
-        since: int | None = None,
-    ) -> dict[str, Any]:
+        since: int | None = None) -> dict[str, Any]:
         """Get OHLC data for a trading pair.
 
         Args:
@@ -204,8 +202,7 @@ class KrakenAPIInterface(ABC):
     async def get_order_book(
         self,
         pair: str,
-        count: int = 100,
-    ) -> dict[str, Any]:
+        count: int = 100) -> dict[str, Any]:
         """Get order book for a trading pair.
 
         Args:
@@ -223,8 +220,7 @@ class KrakenAPIInterface(ABC):
     async def get_recent_trades(
         self,
         pair: str,
-        since: int | None = None,
-    ) -> dict[str, Any]:
+        since: int | None = None) -> dict[str, Any]:
         """Get recent trades for a trading pair.
 
         Args:
@@ -289,8 +285,7 @@ class KrakenAPIInterface(ABC):
         start: int | None = None,
         end: int | None = None,
         ofs: int | None = None,
-        closetime: str = "both",
-    ) -> dict[str, KrakenOrderInfo]:
+        closetime: str = "both") -> dict[str, KrakenOrderInfo]:
         """Get closed orders.
 
         Args:
@@ -312,8 +307,7 @@ class KrakenAPIInterface(ABC):
     async def query_orders_info(
         self,
         order_ids: list[str],
-        trades: bool = False,
-    ) -> dict[str, KrakenOrderInfo]:
+        trades: bool = False) -> dict[str, KrakenOrderInfo]:
         """Query information about specific orders.
 
         Args:
@@ -335,12 +329,11 @@ class KrakenAPIInterface(ABC):
         trades: bool = False,
         start: int | None = None,
         end: int | None = None,
-        ofs: int | None = None,
-    ) -> dict[str, Any]:
+        ofs: int | None = None) -> dict[str, Any]:
         """Get trades history.
 
         Args:
-            type_filter: Type of trade to retrieve
+            type_filter: Type[Any] of trade to retrieve
             trades: Whether to include trades info in output
             start: Starting unix timestamp
             end: Ending unix timestamp
@@ -358,8 +351,7 @@ class KrakenAPIInterface(ABC):
     async def query_trades_info(
         self,
         trade_ids: list[str],
-        trades: bool = False,
-    ) -> dict[str, Any]:
+        trades: bool = False) -> dict[str, Any]:
         """Query information about specific trades.
 
         Args:
@@ -397,14 +389,13 @@ class KrakenAPIInterface(ABC):
         type_filter: str = "all",
         start: int | None = None,
         end: int | None = None,
-        ofs: int | None = None,
-    ) -> dict[str, Any]:
+        ofs: int | None = None) -> dict[str, Any]:
         """Get ledgers information.
 
         Args:
             asset: Asset to retrieve ledger info for
             aclass: Asset class to retrieve info for
-            type_filter: Type of ledger to retrieve
+            type_filter: Type[Any] of ledger to retrieve
             start: Starting unix timestamp
             end: Ending unix timestamp
             ofs: Result offset
@@ -455,12 +446,11 @@ class KrakenAPIInterface(ABC):
         format_type: str = "CSV",
         fields: str | None = None,
         start: int | None = None,
-        end: int | None = None,
-    ) -> dict[str, Any]:
+        end: int | None = None) -> dict[str, Any]:
         """Request export report.
 
         Args:
-            report: Type of report to request
+            report: Type[Any] of report to request
             description: Description for the report
             format_type: Format of the report (CSV, TSV)
             fields: Fields to include in report
@@ -511,7 +501,7 @@ class KrakenAPIInterface(ABC):
 
         Args:
             id: Report ID to delete
-            type: Type of report to delete
+            type: Type[Any] of report to delete
 
         Returns:
             Deletion confirmation
@@ -538,8 +528,7 @@ class KrakenAPIInterface(ABC):
         expiretm: str | None = None,
         close: dict[str, str] | None = None,
         trading_agreement: str = "agree",
-        validate: bool = False,
-    ) -> KrakenOrderResult:
+        validate: bool = False) -> KrakenOrderResult:
         """Add a new order.
 
         Args:
@@ -577,8 +566,7 @@ class KrakenAPIInterface(ABC):
         price2: str | None = None,
         oflags: str | None = None,
         newuserref: str | None = None,
-        validate: bool = False,
-    ) -> dict[str, Any]:
+        validate: bool = False) -> dict[str, Any]:
         """Edit an existing order.
 
         Args:

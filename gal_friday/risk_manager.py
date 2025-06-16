@@ -23,8 +23,7 @@ from .core.events import (
     EventType,
     PotentialHaltTriggerEvent,
     TradeSignalProposedEvent,
-    ExecutionReportEvent,
-)
+    ExecutionReportEvent)
 
 # First-party (Gal-Friday) core component imports
 from .core.feature_registry_client import FeatureRegistryClient
@@ -220,9 +219,9 @@ class ValidationResult:
     is_valid: bool
     original_value: Decimal
     validated_value: Decimal
-    adjustments_made: List[str] = field(default_factory=list)
-    validation_errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    adjustments_made: List[str] = field(default_factory=list[Any])
+    validation_errors: List[str] = field(default_factory=list[Any])
+    warnings: List[str] = field(default_factory=list[Any])
 
 
 @dataclass
@@ -234,8 +233,8 @@ class LotSizeResult:
     calculated_units: Decimal
     calculated_notional: Decimal
     exchange_valid: bool
-    adjustments_made: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    adjustments_made: List[str] = field(default_factory=list[Any])
+    warnings: List[str] = field(default_factory=list[Any])
 
 
 # Custom exceptions
@@ -433,8 +432,7 @@ class RiskManager:
         portfolio_manager: PortfolioManager,
         logger_service: LoggerService,
         market_price_service: MarketPriceService,
-        exchange_info_service: ExchangeInfoService,
-    ) -> None:
+        exchange_info_service: ExchangeInfoService) -> None:
         """Initialize the RiskManager with configuration and dependencies.
 
         Args:
@@ -465,10 +463,10 @@ class RiskManager:
         self.feature_registry_client = FeatureRegistryClient()
 
         self._is_running = False
-        self._main_task: asyncio.Task | None = None
-        self._periodic_check_task: asyncio.Task | None = None
-        self._dynamic_risk_adjustment_task: asyncio.Task | None = None
-        self._risk_metrics_task: asyncio.Task | None = None
+        self._main_task: asyncio.Task[Any] | None = None
+        self._periodic_check_task: asyncio.Task[Any] | None = None
+        self._dynamic_risk_adjustment_task: asyncio.Task[Any] | None = None
+        self._risk_metrics_task: asyncio.Task[Any] | None = None
         self._source_module = self.__class__.__name__
 
         # Event Handlers
@@ -482,7 +480,7 @@ class RiskManager:
         self._recent_trades: list[dict[str, Any]] = []
         self._cached_conversion_rates: dict[str, Decimal] = {}
         self._cached_conversion_timestamps: dict[str, datetime] = {}
-        self._normal_volatility: dict[str, Decimal] = {} # Type hint Dict
+        self._normal_volatility: dict[str, Decimal] = {} # Type[Any] hint Dict
         self._normal_volatility_logged_missing: dict[str, bool] = {}
 
         # Enhanced risk metrics tracking
@@ -520,8 +518,8 @@ class RiskManager:
 
         # For dynamic risk based on FeatureEngine features
         self._dynamic_risk_volatility_feature_key: str | None = None
-        self._dynamic_risk_target_pairs: list[str] = [] # Type hint List
-        self._latest_volatility_features: dict[str, float] = {} # Type hint Dict
+        self._dynamic_risk_target_pairs: list[str] = [] # Type[Any] hint List
+        self._latest_volatility_features: dict[str, float] = {} # Type[Any] hint Dict
 
         # Initialize risk metrics repository if available
         try:
@@ -530,8 +528,7 @@ class RiskManager:
         except ImportError:
             self.logger.warning(
                 "RiskMetricsRepository not available - risk metrics will not be persisted to database",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             self._risk_metrics_repository = None
 
         # Load configuration (including new dynamic risk params)
@@ -557,63 +554,51 @@ class RiskManager:
         self._max_weekly_drawdown_pct = Decimal(str(limits.get("max_weekly_drawdown_pct", 5.0)))
         self._max_consecutive_losses = int(limits.get("max_consecutive_losses", 5))
         self._max_exposure_per_asset_pct = Decimal(
-            str(limits.get("max_exposure_per_asset_pct", 10.0)),
-        )
+            str(limits.get("max_exposure_per_asset_pct", 10.0)))
         self._max_total_exposure_pct = Decimal(str(limits.get("max_total_exposure_pct", 25.0)))
         self._max_order_size_usd = Decimal(str(limits.get("max_order_size_usd", 10000)))
         self._risk_per_trade_pct = Decimal(
-            str(self._config.get("sizing", {}).get("risk_per_trade_pct", "0.5")),
-        )
+            str(self._config.get("sizing", {}).get("risk_per_trade_pct", "0.5")))
         # Added default_tp_rr_ratio from config or defaults to 2.0
         self._default_tp_rr_ratio = Decimal(
-            str(self._config.get("sizing", {}).get("default_tp_rr_ratio", "2.0")),
-        )
+            str(self._config.get("sizing", {}).get("default_tp_rr_ratio", "2.0")))
         self._check_interval_s = self._config.get("check_interval_s", 60)
         self._min_sl_distance_pct = Decimal(str(self._config.get("min_sl_distance_pct", "0.01")))
         self._max_single_position_pct = Decimal(
-            str(self._config.get("max_single_position_pct", "100.0")),
-        )
+            str(self._config.get("max_single_position_pct", "100.0")))
         # New config values for pre-trade checks
         self._fat_finger_max_deviation_pct = Decimal(
-            str(self._config.get("fat_finger_max_deviation_pct", "5.0")),
-        )
+            str(self._config.get("fat_finger_max_deviation_pct", "5.0")))
         self._taker_fee_pct = Decimal(
-            str(self._config.get("exchange", {}).get("taker_fee_pct", "0.26")),
-        ) / Decimal("100")  # Convert percentage to decimal
+            str(self._config.get("exchange", {}).get("taker_fee_pct", "0.26"))) / Decimal("100")  # Convert percentage to decimal
         # Portfolio valuation currency (e.g., "USD")
         self._valuation_currency = str(self._config.get("portfolio_valuation_currency", "USD"))
 
         # Add new configuration for dynamic risk adjustment
         self._enable_dynamic_risk_adjustment = bool(
-            self._config.get("enable_dynamic_risk_adjustment", False),
-        )
+            self._config.get("enable_dynamic_risk_adjustment", False))
         self._risk_adjustment_interval_s = int(
-            self._config.get("risk_adjustment_interval_s", 900),
-        )
+            self._config.get("risk_adjustment_interval_s", 900))
         self._volatility_window_size = int(
-            self._config.get("volatility_window_size", 24),
-        )
+            self._config.get("volatility_window_size", 24))
         self._risk_metrics_interval_s = int(
-            self._config.get("risk_metrics_interval_s", 60),
-        )
+            self._config.get("risk_metrics_interval_s", 60))
 
         # New: Config for dynamic risk adjustment via FeatureEngine features
         self._dynamic_risk_volatility_feature_key = self._config.get("dynamic_risk_volatility_feature_key")
         self._dynamic_risk_target_pairs = self._config.get("dynamic_risk_target_pairs", [])
 
-        # Initialize monitored pairs - use dynamic risk target pairs or fall back to configured list
+        # Initialize monitored pairs - use dynamic risk target pairs or fall back to configured list[Any]
         self._monitored_pairs = self._dynamic_risk_target_pairs or self._config.get("monitored_pairs", ["XRP/USD", "DOGE/USD"])
 
         if self._enable_dynamic_risk_adjustment and not self._dynamic_risk_volatility_feature_key:
             self.logger.warning(
                 "Dynamic risk adjustment is enabled, but no 'dynamic_risk_volatility_feature_key' "
-                "is configured. Dynamic adjustments based on FeatureEngine features will not occur.",
-            )
+                "is configured. Dynamic adjustments based on FeatureEngine features will not occur.")
         if self._enable_dynamic_risk_adjustment and not self._dynamic_risk_target_pairs:
             self.logger.warning(
                 "Dynamic risk adjustment is enabled, but 'dynamic_risk_target_pairs' is empty. "
-                "Adjustments will not apply to any specific pair via FeatureEngine features.",
-            )
+                "Adjustments will not apply to any specific pair via FeatureEngine features.")
 
         # Validate dynamic_risk_volatility_feature_key against Feature Registry
         if self._enable_dynamic_risk_adjustment and self._dynamic_risk_volatility_feature_key:
@@ -622,8 +607,7 @@ class RiskManager:
                     "FeatureRegistryClient not available or not loaded. "
                     "Cannot validate 'dynamic_risk_volatility_feature_key': '%s' against the registry.",
                     self._dynamic_risk_volatility_feature_key,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             else:
                 definition = self.feature_registry_client.get_feature_definition(self._dynamic_risk_volatility_feature_key)
                 if definition is None:
@@ -631,14 +615,12 @@ class RiskManager:
                         "The configured 'dynamic_risk_volatility_feature_key': '%s' was not found in the Feature Registry. "
                         "Dynamic risk adjustment based on this feature may not work as expected.",
                         self._dynamic_risk_volatility_feature_key,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                 else:
                     self.logger.debug(
                         "Dynamic risk volatility feature '%s' validated against Feature Registry.",
                         self._dynamic_risk_volatility_feature_key,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
 
         self.logger.info("RiskManager configured.", source_module=self._source_module)
         self._validate_config()
@@ -651,20 +633,17 @@ class RiskManager:
         except Exception as exc:  # pragma: no cover - defensive catch
             self.logger.error(
                 f"Failed to retrieve portfolio state for risk budget: {exc}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return Decimal("0")
 
         try:
             equity_raw = portfolio_state.get("total_equity") or portfolio_state.get(
-                "total_equity_usd",
-            )
+                "total_equity_usd")
             equity = Decimal(str(equity_raw)) if equity_raw is not None else Decimal("0")
         except (InvalidOperation, ValueError):  # pragma: no cover - logging handles
             self.logger.warning(
                 "Invalid total_equity value from PortfolioManager.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             equity = Decimal("0")
 
         try:
@@ -675,8 +654,7 @@ class RiskManager:
         except (InvalidOperation, ValueError):  # pragma: no cover - logging handles
             self.logger.warning(
                 "Invalid total_exposure_pct value from PortfolioManager.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             exposure_pct = Decimal("0")
 
         available_pct = self._max_total_exposure_pct - exposure_pct
@@ -698,12 +676,10 @@ class RiskManager:
             value: Decimal,
             name: str,
             lower_bound: Decimal = Decimal("0"),
-            upper_bound: Decimal = Decimal("100"),
-        ) -> None:
+            upper_bound: Decimal = Decimal("100")) -> None:
             if not (lower_bound <= value <= upper_bound):
                 config_errors.append(
-                    f"{name} ({value}%) is outside the valid range [{lower_bound}-{upper_bound}].",
-                )
+                    f"{name} ({value}%) is outside the valid range [{lower_bound}-{upper_bound}].")
 
         check_percentage(self._max_total_drawdown_pct, "max_total_drawdown_pct")
         check_percentage(self._max_daily_drawdown_pct, "max_daily_drawdown_pct")
@@ -714,39 +690,33 @@ class RiskManager:
         check_percentage(
             self._risk_per_trade_pct,
             "risk_per_trade_pct",
-            upper_bound=Decimal("100"),
-        )
+            upper_bound=Decimal("100"))
         # min_sl_distance_pct must be > 0
         check_percentage(
             self._min_sl_distance_pct,
             "min_sl_distance_pct",
-            lower_bound=Decimal("0.001"),
-        )
+            lower_bound=Decimal("0.001"))
         check_percentage(self._max_single_position_pct, "max_single_position_pct")
 
         if self._default_tp_rr_ratio <= 0:
             config_errors.append(
-                f"default_tp_rr_ratio ({self._default_tp_rr_ratio}) must be positive.",
-            )
+                f"default_tp_rr_ratio ({self._default_tp_rr_ratio}) must be positive.")
 
         if self._max_consecutive_losses < 1:
             config_errors.append(
-                f"max_consecutive_losses ({self._max_consecutive_losses}) must be at least 1.",
-            )
+                f"max_consecutive_losses ({self._max_consecutive_losses}) must be at least 1.")
 
         if config_errors:
             for error_msg in config_errors:
                 self.logger.debug(
                     f"Configuration Error: {error_msg}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             # Log critical message and continue as per whiteboard,
             # rather than raising an exception.
             error_msg_str = "; ".join(config_errors)
             self.logger.critical(
                 f"RiskManager has configuration errors. Review settings: {error_msg_str}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def start(self) -> None:
         """Starts the RiskManager service.
@@ -785,8 +755,7 @@ class RiskManager:
             if not self._dynamic_risk_volatility_feature_key:
                 self.logger.info("No dynamic_risk_volatility_feature_key configured. Starting fallback dynamic risk adjustment loop.")
                 self._dynamic_risk_adjustment_task = asyncio.create_task(
-                    self._dynamic_risk_adjustment_loop_fallback(),
-                )
+                    self._dynamic_risk_adjustment_loop_fallback())
             else:
                 self.logger.info(f"Dynamic risk adjustment configured with feature key: {self._dynamic_risk_volatility_feature_key}. Adjustments will be event-driven.")
 
@@ -818,13 +787,11 @@ class RiskManager:
             self.pubsub.unsubscribe(EventType.FEATURES_CALCULATED, self._feature_event_handler)
             self.logger.info(
                 "Unsubscribed from TRADE_SIGNAL_PROPOSED, EXECUTION_REPORT, and FEATURES_CALCULATED.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except Exception:
             self.logger.exception(
                 "Error unsubscribing RiskManager handlers",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
         # Stop periodic checks
         if self._periodic_check_task and not self._periodic_check_task.done():
@@ -846,8 +813,7 @@ class RiskManager:
             except Exception as e:
                 self.logger.error(
                     f"Error stopping retry processing task: {e}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
         # Clean up retry queue and attempts tracking
         if hasattr(self, '_retry_queue'):
@@ -855,8 +821,7 @@ class RiskManager:
             if retry_count > 0:
                 self.logger.info(
                     f"Cleaning up {retry_count} pending signal retries",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             self._retry_queue.clear()
             
         if hasattr(self, '_retry_attempts'):
@@ -867,8 +832,7 @@ class RiskManager:
 
         self.logger.info(
             "Stopped periodic risk checks, retry processing, audit resources, and tasks.",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     async def _periodic_risk_check_loop(self) -> None:
         """Periodically check portfolio risk metrics."""
@@ -885,8 +849,7 @@ class RiskManager:
             except Exception:
                 self.logger.exception(
                     "Error in periodic risk check",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
     async def _handle_feature_event(self, event_dict: dict[str, Any]) -> None:
         """Handles incoming `FeatureEvent`s (payload expected as `dict[str, float]`)
@@ -914,7 +877,7 @@ class RiskManager:
             features_data = payload.get("features")
 
             if not trading_pair or not features_data or not isinstance(features_data, dict):
-                self.logger.warning("FEATURES_CALCULATED event missing trading_pair or valid features dict.")
+                self.logger.warning("FEATURES_CALCULATED event missing trading_pair or valid features dict[str, Any].")
                 return
 
             if trading_pair in self._dynamic_risk_target_pairs:
@@ -924,21 +887,18 @@ class RiskManager:
                     if np.isnan(volatility_value):
                         self.logger.debug(
                             f"Volatility feature '{self._dynamic_risk_volatility_feature_key}' "
-                            f"is NaN for {trading_pair}. Skipping update.",
-                        )
+                            f"is NaN for {trading_pair}. Skipping update.")
                         return
 
                     self.logger.debug(
                         f"Received volatility feature '{self._dynamic_risk_volatility_feature_key}' "
-                        f"value {volatility_value:.4f} for {trading_pair}.",
-                    )
+                        f"value {volatility_value:.4f} for {trading_pair}.")
                     self._latest_volatility_features[trading_pair] = float(volatility_value)
                     await self._update_risk_parameters_based_on_volatility(trading_pair)
                 else:
                     self.logger.debug(
                         f"Volatility feature '{self._dynamic_risk_volatility_feature_key}' "
-                        f"not found or invalid type ({type(volatility_value)}) in event for {trading_pair}.",
-                    )
+                        f"not found or invalid type ({type(volatility_value)}) in event for {trading_pair}.")
 
     async def _dynamic_risk_adjustment_loop_fallback(self) -> None:
         """Fallback loop for dynamic risk adjustment if FeatureEngine-based feature
@@ -983,8 +943,7 @@ class RiskManager:
 
     async def _handle_trade_signal_proposed(
         self,
-        event: TradeSignalProposedEvent,
-    ) -> None:
+        event: TradeSignalProposedEvent) -> None:
         """Handle incoming trade signal proposals.
 
         This is the main entry point for risk assessment of a trade.
@@ -1005,8 +964,7 @@ class RiskManager:
                 await self._reject_signal(
                     event.signal_id,
                     event,
-                    f"Invalid proposed price format: {e}",
-                )
+                    f"Invalid proposed price format: {e}")
                 return
 
             # --- Stage 1: Initial Validation & Price Rounding ---
@@ -1014,29 +972,24 @@ class RiskManager:
                 event=event,
                 proposed_entry_price_decimal=proposed_entry_price_decimal,
                 proposed_sl_price_decimal=proposed_sl_price_decimal,
-                proposed_tp_price_decimal=proposed_tp_price_decimal,
-            )
+                proposed_tp_price_decimal=proposed_tp_price_decimal)
             (
                 rounded_entry_price,
                 rounded_sl_price,
-                rounded_tp_price,
-            ) = await self._stage1_initial_validation_and_price_rounding(stage1_ctx)
+                rounded_tp_price) = await self._stage1_initial_validation_and_price_rounding(stage1_ctx)
 
             # --- Stage 2: Fat Finger & Stop-Loss Distance (Market Price Dependent) ---
             current_market_price_for_validation = await self._get_current_market_price(
-                event.trading_pair,
-            )
+                event.trading_pair)
             stage2_ctx = Stage2Context(
                 event=event,
                 rounded_entry_price=rounded_entry_price,
                 rounded_sl_price=rounded_sl_price,
-                current_market_price_for_validation=current_market_price_for_validation,
-            )
+                current_market_price_for_validation=current_market_price_for_validation)
             (
                 effective_entry_price_for_non_limit,
                 ref_entry_for_calculation,
-                final_rounded_entry_price,
-            ) = await self._stage2_market_price_dependent_checks(stage2_ctx)
+                final_rounded_entry_price) = await self._stage2_market_price_dependent_checks(stage2_ctx)
 
             self._validate_and_raise_if_error(
                 error_condition=(
@@ -1048,10 +1001,9 @@ class RiskManager:
                     "Internal error: ref_entry or final_rounded_entry is None after "
                     "Stage 2 for signal %(signal_id)s."
                 ),
-                log_context={"signal_id": str(event.signal_id)},
-            )
+                log_context={"signal_id": str(event.signal_id)})
 
-            # Type assertions for mypy - after the validation above, these cannot be None
+            # Type[Any] assertions for mypy - after the validation above, these cannot be None
             assert ref_entry_for_calculation is not None
             assert final_rounded_entry_price is not None
 
@@ -1067,8 +1019,7 @@ class RiskManager:
                     "Portfolio state or total_equity_usd not available for signal "
                     "%(signal_id)s."
                 ),
-                log_context={"signal_id": str(event.signal_id)},
-            )
+                log_context={"signal_id": str(event.signal_id)})
 
             current_equity = portfolio_state.get("total_equity_usd")
             if (
@@ -1083,8 +1034,7 @@ class RiskManager:
                         "Equity (neither total_equity_usd nor equity) not found for "
                         "signal %(signal_id)s."
                     ),
-                    log_context={"signal_id": str(event.signal_id)},
-                )
+                    log_context={"signal_id": str(event.signal_id)})
 
             current_equity_decimal: Decimal
             try:
@@ -1097,8 +1047,7 @@ class RiskManager:
                     context={
                         "signal_id": str(event.signal_id),
                         "equity_val": str(current_equity),
-                    },
-                )
+                    })
                 reason = "Invalid equity."
                 raise SignalValidationStageError(reason, stage_name_pre_s3) from e
 
@@ -1107,11 +1056,9 @@ class RiskManager:
                 current_equity_decimal=current_equity_decimal,
                 ref_entry_for_calculation=ref_entry_for_calculation,
                 rounded_sl_price=rounded_sl_price,
-                portfolio_state=portfolio_state,
-            )
+                portfolio_state=portfolio_state)
             initial_rounded_calculated_qty, state_values = await self._stage3_position_sizing_and_portfolio_checks(
-                stage3_ctx,
-            )
+                stage3_ctx)
 
             # --- Stage 4: Position Scaling (if applicable) ---
             position_scaling_ctx = PositionScalingContext(
@@ -1120,8 +1067,7 @@ class RiskManager:
                 side=event.side,
                 ref_entry_price=ref_entry_for_calculation,
                 portfolio_state=portfolio_state,
-                initial_calculated_qty=initial_rounded_calculated_qty,
-            )
+                initial_calculated_qty=initial_rounded_calculated_qty)
             # _check_position_scaling & _perform_final_pre_trade_validations
             # return (bool, reason) and are not yet converted to raise
             # SignalValidationStageError directly. So they are handled by the
@@ -1131,8 +1077,7 @@ class RiskManager:
                 can_scale,
                 scale_rejection_reason,
                 final_trade_action,
-                final_quantity,
-            ) = self._check_position_scaling(position_scaling_ctx)
+                final_quantity) = self._check_position_scaling(position_scaling_ctx)
 
             self._validate_and_raise_if_error(
                 error_condition=not can_scale,
@@ -1141,8 +1086,7 @@ class RiskManager:
                 log_message=(
                     "Position scaling check failed for signal %(signal_id)s. " "Reason: %(reason)s"
                 ),
-                log_context={"signal_id": str(event.signal_id), "reason": scale_rejection_reason},
-            )
+                log_context={"signal_id": str(event.signal_id), "reason": scale_rejection_reason})
 
             current_qty_to_trade = (
                 final_quantity if final_quantity is not None else initial_rounded_calculated_qty
@@ -1153,8 +1097,7 @@ class RiskManager:
                 failure_reason="Quantity zero after scaling.",
                 stage_name="Stage4: Position Scaling",
                 log_message="Quantity became zero after scaling for signal %(signal_id)s.",
-                log_context={"signal_id": str(event.signal_id)},
-            )
+                log_context={"signal_id": str(event.signal_id)})
 
             # --- Stage 5: Final Pre-Trade Validation (includes balance check) ---
             final_effective_entry_price = (
@@ -1168,13 +1111,11 @@ class RiskManager:
                 failure_reason="Internal error: final effective price missing.",
                 stage_name="Stage5: Pre-Final Validation",
                 log_message="Final effective entry price is None for signal %(signal_id)s.",
-                log_context={"signal_id": str(event.signal_id)},
-            )
+                log_context={"signal_id": str(event.signal_id)})
             if final_effective_entry_price is None:
                 raise SignalValidationStageError(
                     "Final effective entry price is None",
-                    "final_validation",
-                )
+                    "final_validation")
 
             final_validation_ctx = FinalValidationDataContext(
                 event=event,
@@ -1192,13 +1133,11 @@ class RiskManager:
                 rounded_sl_price=rounded_sl_price,
                 rounded_tp_price=rounded_tp_price,
                 effective_entry_price=final_effective_entry_price,
-                ref_entry_for_calculation=ref_entry_for_calculation,
-            )
+                ref_entry_for_calculation=ref_entry_for_calculation)
 
             (
                 is_final_valid,
-                final_rejection_reason,
-            ) = await self._perform_final_pre_trade_validations(final_validation_ctx)
+                final_rejection_reason) = await self._perform_final_pre_trade_validations(final_validation_ctx)
 
             self._validate_and_raise_if_error(
                 error_condition=not is_final_valid,
@@ -1208,30 +1147,26 @@ class RiskManager:
                     "Final pre-trade validation failed for signal %(signal_id)s. "
                     "Reason: %(reason)s"
                 ),
-                log_context={"signal_id": str(event.signal_id), "reason": final_rejection_reason},
-            )
+                log_context={"signal_id": str(event.signal_id), "reason": final_rejection_reason})
 
             self.logger.info(
                 "Trade signal %(signal_id)s passed all risk checks.",
                 source_module=self._source_module,
-                context={"signal_id": str(event.signal_id)},
-            )
+                context={"signal_id": str(event.signal_id)})
 
             # Approve the signal
             await self._approve_signal(
                 event.signal_id,
                 event,
                 current_qty_to_trade,
-                final_rounded_entry_price,
-            )
+                final_rounded_entry_price)
 
         except SignalValidationStageError as e:
             await self._reject_signal(event.signal_id, event, e.reason)
 
     async def _perform_final_pre_trade_validations(
         self,
-        ctx: FinalValidationDataContext,
-    ) -> tuple[bool, str | None]:
+        ctx: FinalValidationDataContext) -> tuple[bool, str | None]:
         """Perform final overall portfolio and risk checks before approval."""
         # Check 1: Max Exposure per Asset
         # This requires knowing the value of existing position in this asset + new trade value.
@@ -1249,8 +1184,7 @@ class RiskManager:
             if asset_position_data:
                 # Assuming 'current_market_value' is in USD or valuation currency
                 current_asset_exposure_usd = Decimal(
-                    str(asset_position_data.get("current_market_value", "0")),
-                )
+                    str(asset_position_data.get("current_market_value", "0")))
 
         total_potential_asset_exposure_usd = current_asset_exposure_usd + value_of_new_trade_usd
 
@@ -1272,8 +1206,7 @@ class RiskManager:
                     "trading_pair": ctx.trading_pair,
                     "exposure": f"{total_potential_asset_exposure_usd:.2f}",
                     "limit": f"{max_asset_exposure_allowed_usd:.2f}",
-                },
-            )
+                })
             return False, reason
 
         # Check 2: Max Total Portfolio Exposure
@@ -1281,8 +1214,7 @@ class RiskManager:
         if ctx.portfolio_state and "positions" in ctx.portfolio_state:
             for pair_data in ctx.portfolio_state["positions"].values():
                 current_total_exposure_usd += Decimal(
-                    str(pair_data.get("current_market_value", "0")),
-                )
+                    str(pair_data.get("current_market_value", "0")))
 
         total_potential_portfolio_exposure_usd = (
             current_total_exposure_usd + value_of_new_trade_usd
@@ -1305,8 +1237,7 @@ class RiskManager:
                     "signal_id": str(ctx.signal_id),
                     "exposure": f"{total_potential_portfolio_exposure_usd:.2f}",
                     "limit": f"{max_portfolio_exposure_allowed_usd:.2f}",
-                },
-            )
+                })
             return False, reason
 
         # Check 3: Sufficient Free Balance (SRS FR-506)
@@ -1316,8 +1247,7 @@ class RiskManager:
                 "Available balance not found in portfolio state for signal %(signal_id)s. "
                 "Cannot verify funds.",
                 source_module=self._source_module,
-                context={"signal_id": str(ctx.signal_id)},
-            )
+                context={"signal_id": str(ctx.signal_id)})
             return False, "Available balance missing in portfolio state for fund check."
 
         estimated_order_cost_usd = ctx.initial_rounded_calculated_qty * ctx.effective_entry_price
@@ -1339,8 +1269,7 @@ class RiskManager:
                     "signal_id": str(ctx.signal_id),
                     "cost": f"{total_estimated_cost_with_fee_usd:.2f}",
                     "balance": f"{available_balance_usd:.2f}",
-                },
-            )
+                })
             return False, reason
 
         # Check 4: Drawdown limits
@@ -1355,8 +1284,7 @@ class RiskManager:
         period_initial_equity: Decimal | None,
         max_period_drawdown_pct: Decimal,
         pm_provided_drawdown_pct_str: str | None,
-        period_name: str,
-    ) -> str | None:
+        period_name: str) -> str | None:
         """Check a single drawdown limit (e.g., total, daily, weekly)."""
         breached_reason: str | None = None
 
@@ -1376,8 +1304,7 @@ class RiskManager:
                     context={
                         "period_name_lower": period_name.lower(),
                         "pm_val": pm_provided_drawdown_pct_str,
-                    },
-                )
+                    })
                 # Fall through to recalculate if PM value is invalid
 
         # If PM didn't provide it, or it was invalid, or no breach yet, calculate it
@@ -1394,8 +1321,7 @@ class RiskManager:
                     "PM did not provide valid %(period_name_lower)s_drawdown_pct. "
                     "Calculated: %(calc_dd).2f%%",
                     source_module=self._source_module,
-                    context={"period_name_lower": period_name.lower(), "calc_dd": calculated_dd},
-                )
+                    context={"period_name_lower": period_name.lower(), "calc_dd": calculated_dd})
             if calculated_dd > max_period_drawdown_pct:
                 breached_reason = (
                     f"{period_name} drawdown limit breached (calculated): "
@@ -1406,14 +1332,12 @@ class RiskManager:
     async def _check_drawdown_limits(
         self,
         portfolio_state: dict[str, Any],
-        is_pre_trade_check: bool = False,
-    ) -> bool:
+        is_pre_trade_check: bool = False) -> bool:
         """Check portfolio against configured drawdown limits."""
         if not portfolio_state:
             self.logger.warning(
                 "Cannot check drawdown limits: Portfolio state is empty.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return True
 
         state_values = self._extract_relevant_portfolio_values(portfolio_state)
@@ -1422,8 +1346,7 @@ class RiskManager:
         if current_equity is None:
             self.logger.warning(
                 "Cannot check drawdown limits: Current equity not found in portfolio state.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return True
 
         breached_limit_reason: str | None = None
@@ -1434,8 +1357,7 @@ class RiskManager:
             state_values.get("initial_equity_usd"),
             self._max_total_drawdown_pct,
             portfolio_state.get("total_drawdown_pct"),
-            "Total",
-        )
+            "Total")
 
         # Check Daily Drawdown if no breach yet
         if breached_limit_reason is None:
@@ -1444,8 +1366,7 @@ class RiskManager:
                 state_values.get("daily_initial_equity_usd"),
                 self._max_daily_drawdown_pct,
                 portfolio_state.get("daily_drawdown_pct"),
-                "Daily",
-            )
+                "Daily")
 
         # Check Weekly Drawdown if no breach yet
         if breached_limit_reason is None and self._max_weekly_drawdown_pct is not None:
@@ -1454,8 +1375,7 @@ class RiskManager:
                 state_values.get("weekly_initial_equity_usd"),
                 self._max_weekly_drawdown_pct,
                 portfolio_state.get("weekly_drawdown_pct"),
-                "Weekly",
-            )
+                "Weekly")
 
         if breached_limit_reason:
             self.logger.critical(
@@ -1466,8 +1386,7 @@ class RiskManager:
                     "initial_equity_usd": state_values.get("initial_equity_usd"),
                     "daily_initial_equity_usd": state_values.get("daily_initial_equity_usd"),
                     "weekly_initial_equity_usd": state_values.get("weekly_initial_equity_usd"),
-                },
-            )
+                })
             if not is_pre_trade_check:
                 details_dict = {
                     "check_type": "drawdown_limit",
@@ -1479,8 +1398,7 @@ class RiskManager:
                     source_module=self._source_module,
                     event_id=uuid.uuid4(),
                     timestamp=datetime.now(UTC),
-                    reason=reason_with_details,
-                )
+                    reason=reason_with_details)
                 await self.pubsub.publish(event_payload)
             return False
 
@@ -1515,8 +1433,7 @@ class RiskManager:
         if current_volatility_float is None:
             self.logger.debug(
                 "No live volatility feature value available for %s to perform dynamic risk adjustment.",
-                trading_pair,
-            )
+                trading_pair)
             return
 
         try:
@@ -1524,8 +1441,7 @@ class RiskManager:
         except InvalidOperation:
             self.logger.warning(
                 "Invalid volatility feature value '%s' for %s. Cannot perform dynamic risk adjustment.",
-                current_volatility_float, trading_pair,
-            )
+                current_volatility_float, trading_pair)
             return
 
         normal_vol = self._normal_volatility.get(trading_pair) # This is Decimal
@@ -1533,8 +1449,7 @@ class RiskManager:
 
         if normal_vol and normal_vol > Decimal(0):
             static_configured_risk_pct = Decimal(
-                str(self._config.get("sizing", {}).get("risk_per_trade_pct", "0.5")),
-            )
+                str(self._config.get("sizing", {}).get("risk_per_trade_pct", "0.5")))
             new_risk_pct = current_risk_setting_before_adj
 
             if current_volatility > normal_vol * Decimal("1.5"):  # High volatility
@@ -1548,8 +1463,7 @@ class RiskManager:
                             f"for {trading_pair} due to high volatility "
                             f"({current_volatility:.4f} vs normal ~{normal_vol:.4f}). Volatility feature: {self._dynamic_risk_volatility_feature_key}"
                         ),
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     self._risk_per_trade_pct = new_risk_pct
 
             elif current_volatility < normal_vol * Decimal("0.75"):  # Low volatility
@@ -1567,8 +1481,7 @@ class RiskManager:
                             f"({current_volatility:.4f} vs normal ~{normal_vol:.4f}). "
                             f"Capped at {static_configured_risk_pct:.3f}%. Volatility feature: {self._dynamic_risk_volatility_feature_key}"
                         ),
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     self._risk_per_trade_pct = new_risk_pct
 
             elif self._risk_per_trade_pct != static_configured_risk_pct: # Volatility is normal, ensure risk is at static config
@@ -1579,8 +1492,7 @@ class RiskManager:
                         f"Reverting risk per trade from {self._risk_per_trade_pct:.3f}% "
                         f"to static configured {static_configured_risk_pct:.3f}%. Volatility feature: {self._dynamic_risk_volatility_feature_key}"
                     ),
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 self._risk_per_trade_pct = static_configured_risk_pct
 
         else:
@@ -1594,13 +1506,11 @@ class RiskManager:
                         f"Normal volatility not calibrated or is zero. "
                         "Using static risk per trade."
                     ),
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 self._normal_volatility_logged_missing[trading_pair] = True
 
             static_configured_risk_pct = Decimal(
-                str(self._config.get("sizing", {}).get("risk_per_trade_pct", "0.5")),
-            )
+                str(self._config.get("sizing", {}).get("risk_per_trade_pct", "0.5")))
             if self._risk_per_trade_pct != static_configured_risk_pct:
                 self.logger.info(
                     (
@@ -1612,8 +1522,7 @@ class RiskManager:
                     context={
                         "trading_pair": trading_pair,
                         "static_risk_pct": static_configured_risk_pct,
-                    },
-                )
+                    })
                 self._risk_per_trade_pct = static_configured_risk_pct
 
     async def _calibrate_normal_volatility(self) -> None:
@@ -1625,8 +1534,7 @@ class RiskManager:
         """
         self.logger.info(
             "Starting normal volatility calibration process.",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
         # Check configuration for volatility calculation mode
         volatility_mode = self._config.get("risk.volatility_mode", "daily")  # "daily" or "intraday"
@@ -1660,15 +1568,13 @@ class RiskManager:
                 self.logger.debug(
                     f"Fetching {volatility_mode} volatility data for {trading_pair} "
                     f"from {since_datetime} with timeframe {timeframe}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
                 # Fetch historical data with appropriate timeframe
                 historical_data = await self._market_price_service.get_historical_ohlcv(
                     trading_pair=trading_pair,
                     timeframe=timeframe,
-                    since=since_datetime,
-                )
+                    since=since_datetime)
 
                 if not historical_data or len(historical_data) < min_data_points_for_stddev:
                     self.logger.warning(
@@ -1684,8 +1590,7 @@ class RiskManager:
                             "fetched_points": len(historical_data) if historical_data else 0,
                             "min_points": min_data_points_for_stddev,
                             "volatility_mode": volatility_mode,
-                        },
-                    )
+                        })
                     self._normal_volatility_logged_missing[trading_pair] = True
                     continue
 
@@ -1709,8 +1614,7 @@ class RiskManager:
                             "closing_prices_count": len(closing_prices),
                             "min_points": min_data_points_for_stddev,
                             "volatility_mode": volatility_mode,
-                        },
-                    )
+                        })
                     self._normal_volatility_logged_missing[trading_pair] = True
                     continue
 
@@ -1731,8 +1635,7 @@ class RiskManager:
                             context={
                                 "trading_pair": trading_pair,
                                 "prev_price": closing_prices[i - 1],
-                            },
-                        )
+                            })
 
                 # Need at least 2 returns for stdev, realistically more
                 if len(log_returns) < min_data_points_for_stddev - 1:
@@ -1748,8 +1651,7 @@ class RiskManager:
                             "log_returns_count": len(log_returns),
                             "min_needed_for_stdev": min_data_points_for_stddev - 1,
                             "volatility_mode": volatility_mode,
-                        },
-                    )
+                        })
                     self._normal_volatility_logged_missing[trading_pair] = True
                     continue
 
@@ -1792,8 +1694,7 @@ class RiskManager:
                             "log_returns_count": len(log_returns),
                             "closing_prices_count": len(closing_prices),
                             "lookback_period": f"{lookback_hours}h" if volatility_mode == "intraday" else f"{lookback_days}d",
-                        },
-                    )
+                        })
                     # Mark as calibrated
                     self._normal_volatility_logged_missing[trading_pair] = False
                 else:
@@ -1806,22 +1707,19 @@ class RiskManager:
                         context={
                             "trading_pair": trading_pair,
                             "log_returns_count": len(log_returns),
-                        },
-                    )
+                        })
                     self._normal_volatility_logged_missing[trading_pair] = True
 
             except Exception:
                 self.logger.exception(
                     f"Error during {volatility_mode} volatility calibration for {trading_pair}",
                     source_module=self._source_module,
-                    context={"trading_pair": trading_pair, "volatility_mode": volatility_mode},
-                )
+                    context={"trading_pair": trading_pair, "volatility_mode": volatility_mode})
                 self._normal_volatility_logged_missing[trading_pair] = True
 
         self.logger.info(
             f"{volatility_mode.capitalize()} volatility calibration process finished.",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     def _get_periods_per_day(self, timeframe: str) -> int:
         """Convert timeframe string to number of periods per trading day."""
@@ -1839,8 +1737,7 @@ class RiskManager:
 
     def _calculate_and_validate_prices(
         self,
-        ctx: PriceRoundingContext,
-    ) -> tuple[
+        ctx: PriceRoundingContext) -> tuple[
         bool,
         str | None,
         Decimal | None,
@@ -1853,8 +1750,7 @@ class RiskManager:
         if ctx.effective_entry_price is not None:
             rounded_entry_price = self._round_price_to_tick_size(
                 ctx.effective_entry_price,
-                ctx.trading_pair,
-            )
+                ctx.trading_pair)
 
         # Validate and calculate SL price
         if ctx.sl_price is None:
@@ -1893,8 +1789,7 @@ class RiskManager:
     def _round_price_to_tick_size(
         self,
         price: Decimal | None,
-        trading_pair: str,
-    ) -> Decimal | None:
+        trading_pair: str) -> Decimal | None:
         """Round price to exchange tick size."""
         if price is None:
             return None
@@ -1905,8 +1800,7 @@ class RiskManager:
             # Handle missing method in ExchangeInfoService
             self.logger.warning(
                 "ExchangeInfoService does not implement get_tick_size method",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             tick_size = None
         if not tick_size or tick_size <= 0:
             # Default tick size if not found
@@ -1922,14 +1816,12 @@ class RiskManager:
             self.logger.exception(
                 f"Error rounding price to tick size for {trading_pair}",
                 source_module=self._source_module,
-                context={"trading_pair": trading_pair, "price": price, "tick_size": tick_size, "error": str(e)},
-            )
+                context={"trading_pair": trading_pair, "price": price, "tick_size": tick_size, "error": str(e)})
             return None
 
     def _validate_prices_fat_finger_and_sl_distance(
         self,
-        ctx: PriceValidationContext,
-    ) -> tuple[bool, str | None]:
+        ctx: PriceValidationContext) -> tuple[bool, str | None]:
         """Validate prices for fat finger and stop loss distance."""
         # Fat finger check for limit orders
         if ctx.entry_type == "LIMIT" and ctx.current_market_price is not None and ctx.rounded_entry_price is not None:
@@ -1958,8 +1850,7 @@ class RiskManager:
         current_equity: Decimal,
         ref_entry_price: Decimal,
         rounded_sl_price: Decimal,
-        portfolio_state: dict[str, Any],
-    ) -> SizingResult:
+        portfolio_state: dict[str, Any]) -> SizingResult:
         """Calculate position size based on risk parameters."""
         try:
             # Calculate risk amount
@@ -1970,8 +1861,7 @@ class RiskManager:
             if risk_per_unit <= 0:
                 return SizingResult(
                     is_valid=False,
-                    rejection_reason="Invalid risk per unit (SL too close to entry)",
-                )
+                    rejection_reason="Invalid risk per unit (SL too close to entry)")
 
             # Calculate raw position size
             raw_quantity = risk_amount / risk_per_unit
@@ -1979,14 +1869,12 @@ class RiskManager:
             # Apply lot size constraints
             rounded_quantity, _ = self._calculate_lot_size_with_fallback(
                 raw_quantity,
-                event.trading_pair,
-            )
+                event.trading_pair)
 
             if rounded_quantity <= 0:
                 return SizingResult(
                     is_valid=False,
-                    rejection_reason="Position size below minimum tradeable amount",
-                )
+                    rejection_reason="Position size below minimum tradeable amount")
 
             # Calculate position value
             position_value = rounded_quantity * ref_entry_price
@@ -1997,14 +1885,12 @@ class RiskManager:
                 scaled_quantity = self._max_order_size_usd / ref_entry_price
                 rounded_quantity, _ = self._calculate_lot_size_with_fallback(
                     scaled_quantity,
-                    event.trading_pair,
-                )
+                    event.trading_pair)
 
                 if rounded_quantity <= 0:
                     return SizingResult(
                         is_valid=False,
-                        rejection_reason=f"Position value exceeds max order size ${self._max_order_size_usd}",
-                    )
+                        rejection_reason=f"Position value exceeds max order size ${self._max_order_size_usd}")
                 position_value = rounded_quantity * ref_entry_price
 
             # Check against max single position percentage
@@ -2012,31 +1898,26 @@ class RiskManager:
             if position_pct > self._max_single_position_pct:
                 return SizingResult(
                     is_valid=False,
-                    rejection_reason=f"Position size {position_pct:.2f}% exceeds max {self._max_single_position_pct}%",
-                )
+                    rejection_reason=f"Position size {position_pct:.2f}% exceeds max {self._max_single_position_pct}%")
 
             return SizingResult(
                 is_valid=True,
                 quantity=rounded_quantity,
                 risk_amount=risk_amount,
-                position_value=position_value,
-            )
+                position_value=position_value)
 
         except Exception as e:
             self.logger.exception(
                 "Error calculating position size",
                 source_module=self._source_module,
-                context={"signal_id": str(event.signal_id)},
-            )
+                context={"signal_id": str(event.signal_id)})
             return SizingResult(
                 is_valid=False,
-                rejection_reason=f"Position sizing error: {e!s}",
-            )
+                rejection_reason=f"Position sizing error: {e!s}")
 
     def _check_position_scaling(
         self,
-        ctx: PositionScalingContext,
-    ) -> tuple[bool, str | None, str | None, Decimal | None]:
+        ctx: PositionScalingContext) -> tuple[bool, str | None, str | None, Decimal | None]:
         """Check if position needs scaling based on existing positions."""
         # Check if we already have a position in this pair
         existing_position = None
@@ -2084,8 +1965,7 @@ class RiskManager:
 
     def _extract_relevant_portfolio_values(
         self,
-        portfolio_state: dict[str, Any],
-    ) -> dict[str, Decimal]:
+        portfolio_state: dict[str, Any]) -> dict[str, Decimal]:
         """Extract and convert relevant portfolio values to Decimal."""
         extracted = {}
 
@@ -2107,8 +1987,7 @@ class RiskManager:
             except (InvalidOperation, ValueError):
                 self.logger.warning(
                     f"Invalid value for {field}: {value}, using default {default}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 extracted[field] = Decimal(default)
 
         # Handle special cases
@@ -2150,8 +2029,7 @@ class RiskManager:
             if not execution_report.average_price or execution_report.average_price <= 0:
                 self.logger.warning(
                     f"Execution report {execution_report.order_id} has no valid average fill price",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return
             
             # Add to execution buffer for tracking
@@ -2164,8 +2042,7 @@ class RiskManager:
             if not portfolio_state:
                 self.logger.error(
                     "Could not get portfolio state for execution report processing",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return
             
             # Calculate realized P&L from this execution
@@ -2197,15 +2074,13 @@ class RiskManager:
                 f"Processed execution report {execution_report.order_id}: "
                 f"PnL={realized_pnl:.4f} if realized_pnl else 'N/A', "
                 f"Consecutive losses={self._consecutive_loss_count}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             
         except Exception as e:
             self.logger.error(
                 f"Error processing execution report for loss tracking: {e}",
                 source_module=self._source_module,
-                context={"event_dict": event_dict},
-            )
+                context={"event_dict": event_dict})
             # Publish error event for monitoring
             await self._publish_execution_error_event(event_dict, str(e))
 
@@ -2259,8 +2134,7 @@ class RiskManager:
         except Exception as e:
             self.logger.error(
                 f"Error calculating realized P&L: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None
 
     async def _update_risk_metrics_from_execution(
@@ -2326,8 +2200,7 @@ class RiskManager:
         except Exception as e:
             self.logger.error(
                 f"Error updating risk metrics: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def _check_consecutive_loss_thresholds(self) -> None:
         """Check if consecutive loss thresholds are breached and take action."""
@@ -2336,8 +2209,7 @@ class RiskManager:
             if self._consecutive_loss_count >= self._max_consecutive_losses:
                 self.logger.error(
                     f"CRITICAL: Maximum consecutive losses reached: {self._consecutive_loss_count}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 
                 # Publish halt trigger event
                 halt_event = {
@@ -2362,14 +2234,12 @@ class RiskManager:
                 
                 self.logger.warning(
                     f"Risk per trade reduced to {self._risk_per_trade_pct:.2f}% due to consecutive losses",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 
         except Exception as e:
             self.logger.error(
                 f"Error checking consecutive loss thresholds: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def _publish_risk_metrics_update(
         self,
@@ -2419,8 +2289,7 @@ class RiskManager:
                 var_95=self._risk_metrics.var_95,
                 expected_shortfall=self._risk_metrics.expected_shortfall,
                 sharpe_ratio=self._risk_metrics.sharpe_ratio,
-                win_rate=self._risk_metrics.win_rate,
-            )
+                win_rate=self._risk_metrics.win_rate)
             self._metrics_history.append(current_snapshot)
             if len(self._metrics_history) > self._max_metrics_history:
                 self._metrics_history.pop(0)
@@ -2428,8 +2297,7 @@ class RiskManager:
         except Exception as e:
             self.logger.error(
                 f"Error publishing risk metrics update: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def _risk_metrics_loop(self) -> None:
         """Periodically calculate and update comprehensive risk metrics.
@@ -2451,8 +2319,7 @@ class RiskManager:
                 if not portfolio_state:
                     self.logger.error(
                         "Could not get portfolio state for risk metrics calculation",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     continue
                 
                 # Extract key values
@@ -2501,8 +2368,7 @@ class RiskManager:
                     except (InvalidOperation, ValueError) as e:
                         self.logger.warning(
                             f"Invalid position value: {e}",
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
                 
                 # Calculate exposure percentages
                 total_exposure_pct = (total_exposure / current_equity) * Decimal("100") if current_equity > 0 else Decimal("0")
@@ -2602,8 +2468,7 @@ class RiskManager:
                     current_drawdown_pct=current_drawdown_pct,
                     total_exposure_pct=total_exposure_pct,
                     consecutive_losses=self._consecutive_loss_count,
-                    win_rate=win_rate,
-                )
+                    win_rate=win_rate)
                 
                 # Update risk metrics object with all calculated values
                 self._risk_metrics.consecutive_losses = self._consecutive_loss_count
@@ -2672,13 +2537,11 @@ class RiskManager:
                             peak_equity=self._peak_equity,
                             var_95=var_95,
                             expected_shortfall=expected_shortfall,
-                            sharpe_ratio=sharpe_ratio,
-                        )
+                            sharpe_ratio=sharpe_ratio)
                     except Exception as e:
                         self.logger.error(
                             f"Failed to persist risk metrics: {e}",
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
                 
                 # Publish comprehensive risk metrics event
                 risk_metrics_event = {
@@ -2737,8 +2600,7 @@ class RiskManager:
                 await self._check_risk_thresholds(
                     current_drawdown_pct=current_drawdown_pct,
                     total_exposure_pct=total_exposure_pct,
-                    risk_score=risk_score,
-                )
+                    risk_score=risk_score)
                 
                 self.logger.debug(
                     "Risk metrics calculated and published",
@@ -2756,15 +2618,13 @@ class RiskManager:
             except Exception:
                 self.logger.exception(
                     "Error in risk metrics loop",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
     async def _reject_signal(
         self,
         signal_id: uuid.UUID,
         event: TradeSignalProposedEvent,
-        reason: str,
-    ) -> None:
+        reason: str) -> None:
         """Enhanced signal rejection workflow with categorization and comprehensive logging."""
         try:
             # Categorize rejection reason and determine severity
@@ -3019,7 +2879,7 @@ class RiskManager:
              )
 
     def _get_retry_conditions(self, rejection_reason: RejectionReason) -> List[str]:
-        """Get list of conditions to check before retrying based on rejection reason."""
+        """Get list[Any] of conditions to check before retrying based on rejection reason."""
         condition_map = {
             RejectionReason.INSUFFICIENT_BALANCE: [
                 "check_available_balance",
@@ -3067,7 +2927,7 @@ class RiskManager:
                 signals_to_retry = []
                 
                 # Find signals ready for retry
-                for signal_key, retry_entry in list(self._retry_queue.items()):
+                for signal_key, retry_entry in list[Any](self._retry_queue.items()):
                     if current_time >= retry_entry["retry_time"]:
                         signals_to_retry.append((signal_key, retry_entry))
                 
@@ -3173,8 +3033,7 @@ class RiskManager:
                 proposed_sl_price=original_event.proposed_sl_price,
                 proposed_tp_price=original_event.proposed_tp_price,
                 strategy_id=original_event.strategy_id,
-                triggering_prediction_event_id=original_event.triggering_prediction_event_id,
-            )
+                triggering_prediction_event_id=original_event.triggering_prediction_event_id)
             
             # Add retry metadata
             retry_event.metadata = getattr(original_event, 'metadata', {})
@@ -3443,8 +3302,7 @@ class RiskManager:
         signal_id: uuid.UUID,
         event: TradeSignalProposedEvent,
         approved_quantity: Decimal,
-        approved_entry_price: Decimal | None,
-    ) -> None:
+        approved_entry_price: Decimal | None) -> None:
         """Enhanced signal approval handling with comprehensive portfolio checks and event publication."""
         try:
             # Get current portfolio state for impact analysis
@@ -3705,8 +3563,7 @@ class RiskManager:
 
     async def _stage1_initial_validation_and_price_rounding(
         self,
-        ctx: Stage1Context,
-    ) -> tuple[Decimal | None, Decimal, Decimal | None]:
+        ctx: Stage1Context) -> tuple[Decimal | None, Decimal, Decimal | None]:
         """Stage 1: Initial validation and price rounding."""
         try:
             # Create PriceRoundingContext for the helper method
@@ -3716,8 +3573,7 @@ class RiskManager:
                 trading_pair=ctx.event.trading_pair,
                 effective_entry_price=ctx.proposed_entry_price_decimal,
                 sl_price=ctx.proposed_sl_price_decimal,
-                tp_price=ctx.proposed_tp_price_decimal,
-            )
+                tp_price=ctx.proposed_tp_price_decimal)
             
             # Use existing price calculation and validation method
             (
@@ -3725,8 +3581,7 @@ class RiskManager:
                 error_msg,
                 rounded_entry_price,
                 rounded_sl_price,
-                rounded_tp_price,
-            ) = self._calculate_and_validate_prices(price_rounding_ctx)
+                rounded_tp_price) = self._calculate_and_validate_prices(price_rounding_ctx)
             
             if not is_valid:
                 self._validate_and_raise_if_error(
@@ -3777,15 +3632,13 @@ class RiskManager:
             self.logger.exception(
                 "Unexpected error in Stage 1 validation",
                 source_module=self._source_module,
-                context={"signal_id": str(ctx.event.signal_id)},
-            )
+                context={"signal_id": str(ctx.event.signal_id)})
             self._validate_and_raise_if_error(
                 error_condition=True,
                 failure_reason=f"Stage 1 error: {str(e)}",
                 stage_name="Stage1_InitialValidation",
                 log_message=f"Stage 1 unexpected error: {str(e)}",
-                log_context={"signal_id": str(ctx.event.signal_id)},
-            )
+                log_context={"signal_id": str(ctx.event.signal_id)})
 
     async def _get_current_market_price(self, trading_pair: str) -> Decimal | None:
         """Get current market price for a trading pair."""
@@ -3793,8 +3646,7 @@ class RiskManager:
 
     async def _stage2_market_price_dependent_checks(
         self,
-        ctx: Stage2Context,
-    ) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+        ctx: Stage2Context) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
         """Stage 2: Market price dependent checks (fat finger, SL distance)."""
         try:
             # Determine effective entry price for non-limit orders
@@ -3824,8 +3676,7 @@ class RiskManager:
                 rounded_entry_price=ctx.rounded_entry_price,
                 rounded_sl_price=ctx.rounded_sl_price,
                 effective_entry_price_for_non_limit=effective_entry_price_for_non_limit,
-                current_market_price=ctx.current_market_price_for_validation,
-            )
+                current_market_price=ctx.current_market_price_for_validation)
             
             # Perform fat finger and SL distance validation
             is_valid, error_msg = self._validate_prices_fat_finger_and_sl_distance(price_validation_ctx)
@@ -3884,15 +3735,13 @@ class RiskManager:
             self.logger.exception(
                 "Unexpected error in Stage 2 validation",
                 source_module=self._source_module,
-                context={"signal_id": str(ctx.event.signal_id)},
-            )
+                context={"signal_id": str(ctx.event.signal_id)})
             self._validate_and_raise_if_error(
                 error_condition=True,
                 failure_reason=f"Stage 2 error: {str(e)}",
                 stage_name="Stage2_MarketPriceChecks",
                 log_message=f"Stage 2 unexpected error: {str(e)}",
-                log_context={"signal_id": str(ctx.event.signal_id)},
-            )
+                log_context={"signal_id": str(ctx.event.signal_id)})
 
     def _validate_and_raise_if_error(
         self,
@@ -3900,21 +3749,18 @@ class RiskManager:
         failure_reason: str,
         stage_name: str,
         log_message: str,
-        log_context: dict[str, Any] | None = None,
-    ) -> None:
+        log_context: dict[str, Any] | None = None) -> None:
         """Validate condition and raise SignalValidationStageError if error."""
         if error_condition:
             self.logger.error(
                 log_message,
                 source_module=self._source_module,
-                context=log_context,
-            )
+                context=log_context)
             raise SignalValidationStageError(failure_reason, stage_name)
 
     async def _stage3_position_sizing_and_portfolio_checks(
         self,
-        ctx: Stage3Context,
-    ) -> tuple[Decimal, dict[str, Decimal]]:
+        ctx: Stage3Context) -> tuple[Decimal, dict[str, Decimal]]:
         """Stage 3: Position sizing and portfolio checks."""
         try:
             # Calculate position size
@@ -3923,8 +3769,7 @@ class RiskManager:
                 current_equity=ctx.current_equity_decimal,
                 ref_entry_price=ctx.ref_entry_for_calculation,
                 rounded_sl_price=ctx.rounded_sl_price,
-                portfolio_state=ctx.portfolio_state,
-            )
+                portfolio_state=ctx.portfolio_state)
             
             if not sizing_result.is_valid:
                 self._validate_and_raise_if_error(
@@ -3950,8 +3795,7 @@ class RiskManager:
                 side=ctx.event.side,
                 ref_entry_price=ctx.ref_entry_for_calculation,
                 portfolio_state=ctx.portfolio_state,
-                initial_calculated_qty=initial_calculated_qty,
-            )
+                initial_calculated_qty=initial_calculated_qty)
             
             is_valid, error_msg, position_action, final_quantity = self._check_position_scaling(position_scaling_ctx)
             
@@ -3999,21 +3843,18 @@ class RiskManager:
             self.logger.exception(
                 "Unexpected error in Stage 3 validation",
                 source_module=self._source_module,
-                context={"signal_id": str(ctx.event.signal_id)},
-            )
+                context={"signal_id": str(ctx.event.signal_id)})
             self._validate_and_raise_if_error(
                 error_condition=True,
                 failure_reason=f"Stage 3 error: {str(e)}",
                 stage_name="Stage3_PositionSizing",
                 log_message=f"Stage 3 unexpected error: {str(e)}",
-                log_context={"signal_id": str(ctx.event.signal_id)},
-            )
+                log_context={"signal_id": str(ctx.event.signal_id)})
 
     def _calculate_lot_size_with_fallback(
         self,
         raw_quantity: Decimal,
-        trading_pair: str,
-    ) -> tuple[Decimal, bool]:
+        trading_pair: str) -> tuple[Decimal, bool]:
         """Calculate lot size with fallback logic.
         
         Args:
@@ -4045,8 +3886,7 @@ class RiskManager:
             except Exception as e:
                 self.logger.warning(
                     f"Error getting exchange info for {trading_pair}: {e}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             
             # Use default step size if not available
             if not step_size or step_size <= 0:
@@ -4060,8 +3900,7 @@ class RiskManager:
                 
                 self.logger.debug(
                     f"Using default step size {step_size} for {trading_pair}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             
             # Round down to step size
             if step_size > 0:
@@ -4073,15 +3912,13 @@ class RiskManager:
             if min_quantity and rounded_qty < min_quantity:
                 self.logger.warning(
                     f"Quantity {rounded_qty} below minimum {min_quantity} for {trading_pair}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return Decimal("0"), False
             
             if max_quantity and rounded_qty > max_quantity:
                 self.logger.warning(
                     f"Quantity {rounded_qty} above maximum {max_quantity} for {trading_pair}, capping",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 rounded_qty = (max_quantity // step_size) * step_size
             
             # Final validation
@@ -4126,8 +3963,7 @@ class RiskManager:
         current_drawdown_pct: Decimal,
         total_exposure_pct: Decimal,
         consecutive_losses: int,
-        win_rate: Decimal,
-    ) -> Decimal:
+        win_rate: Decimal) -> Decimal:
         """Calculate a composite risk score from 0-100 based on multiple factors.
         
         Higher scores indicate higher risk levels.
@@ -4211,8 +4047,7 @@ class RiskManager:
         except Exception as e:
             self.logger.error(
                 f"Error calculating composite risk score: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             # Return high risk score on error
             return Decimal("75")
 
@@ -4220,8 +4055,7 @@ class RiskManager:
         self,
         current_drawdown_pct: Decimal,
         total_exposure_pct: Decimal,
-        risk_score: Decimal,
-    ) -> None:
+        risk_score: Decimal) -> None:
         """Check if risk thresholds are breached and publish alerts.
         
         Args:
@@ -4249,8 +4083,7 @@ class RiskManager:
                 )
                 self.logger.warning(
                     f"Auto-reduced risk per trade to {self._risk_per_trade_pct:.2f}% due to critical risk score",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             
             # Check warning risk score threshold (>60)
             elif risk_score > Decimal("60"):
@@ -4307,20 +4140,17 @@ class RiskManager:
                         self.logger.error(
                             f"CRITICAL RISK ALERT: {alert['message']}",
                             source_module=self._source_module,
-                            context=alert,
-                        )
+                            context=alert)
                     else:
                         self.logger.warning(
                             f"Risk alert: {alert['message']}",
                             source_module=self._source_module,
-                            context=alert,
-                        )
+                            context=alert)
                         
         except Exception as e:
             self.logger.error(
                 f"Error checking risk thresholds: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def _parse_execution_report(self, event_dict: Dict[str, Any]) -> Optional[ExecutionReport]:
         """Parse execution report from various formats into standardized model."""
@@ -4340,8 +4170,7 @@ class RiskManager:
                     realized_pnl=None,  # Will be calculated separately
                     timestamp=event.timestamp,
                     signal_id=str(event.signal_id) if hasattr(event, 'signal_id') else None,
-                    strategy_id=event.strategy_id if hasattr(event, 'strategy_id') else None,
-                )
+                    strategy_id=event.strategy_id if hasattr(event, 'strategy_id') else None)
             elif "txid" in event_dict:
                 # Kraken format
                 return self._parse_kraken_execution_report(event_dict)
@@ -4371,8 +4200,7 @@ class RiskManager:
                 filled_quantity=Decimal(str(raw_report.get("vol_exec", "0"))),
                 average_price=Decimal(str(raw_report.get("price", "0"))),
                 commission=Decimal(str(raw_report.get("fee", "0"))),
-                timestamp=datetime.fromtimestamp(raw_report.get("closetm", 0), tz=UTC),
-            )
+                timestamp=datetime.fromtimestamp(raw_report.get("closetm", 0), tz=UTC))
         except Exception as e:
             self.logger.error(f"Error parsing Kraken execution report: {e}")
             return None
@@ -4389,8 +4217,7 @@ class RiskManager:
                 average_price=Decimal(str(raw_report.get("fill_price", "0"))),
                 commission=Decimal(str(raw_report.get("commission", "0"))),
                 timestamp=datetime.fromisoformat(raw_report.get("timestamp", datetime.now(UTC).isoformat())),
-                realized_pnl=Decimal(str(raw_report.get("realized_pnl", "0"))) if "realized_pnl" in raw_report else None,
-            )
+                realized_pnl=Decimal(str(raw_report.get("realized_pnl", "0"))) if "realized_pnl" in raw_report else None)
         except Exception as e:
             self.logger.error(f"Error parsing simulated execution report: {e}")
             return None
@@ -4406,8 +4233,7 @@ class RiskManager:
                 filled_quantity=Decimal(str(raw_report.get("filled_quantity", "0"))),
                 average_price=Decimal(str(raw_report.get("average_price", "0"))),
                 commission=Decimal(str(raw_report.get("commission", "0"))),
-                timestamp=datetime.now(UTC),
-            )
+                timestamp=datetime.now(UTC))
         except Exception as e:
             self.logger.error(f"Error parsing generic execution report: {e}")
             return None
@@ -4471,7 +4297,7 @@ class RiskManager:
 
     async def _evaluate_risk_conditions(self, report: ExecutionReport, realized_pnl: Optional[Decimal], 
                                        portfolio_state: Dict[str, Any]) -> List[str]:
-        """Evaluate risk conditions and return list of triggered events."""
+        """Evaluate risk conditions and return list[Any] of triggered events."""
         risk_events = []
         
         # Check consecutive loss limits
@@ -4857,7 +4683,7 @@ class RiskManager:
         """Rotate audit files to manage disk space."""
         try:
             # Get all audit files sorted by modification time
-            audit_files = list(audit_dir.glob("execution_audit_*.jsonl"))
+            audit_files = list[Any](audit_dir.glob("execution_audit_*.jsonl"))
             audit_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
             
             # Remove excess files
@@ -4927,8 +4753,7 @@ class RiskManager:
                 self._elasticsearch_client = AsyncElasticsearch(
                     hosts=es_config.get('hosts', ['http://localhost:9200']),
                     timeout=es_config.get('timeout', 30),
-                    max_retries=es_config.get('max_retries', 3),
-                )
+                    max_retries=es_config.get('max_retries', 3))
                 
                 # Test connection
                 await self._elasticsearch_client.ping()
@@ -4969,8 +4794,7 @@ class RiskManager:
                     's3',
                     region_name=s3_config.get('region', 'us-east-1'),
                     aws_access_key_id=s3_config.get('access_key_id'),
-                    aws_secret_access_key=s3_config.get('secret_access_key'),
-                )
+                    aws_secret_access_key=s3_config.get('secret_access_key'))
                 
                 self.logger.info(
                     "S3 client initialized successfully",

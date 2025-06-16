@@ -29,10 +29,10 @@ from gal_friday.core.events import (
     MarketDataL2Event,
     MarketDataOHLCVEvent,
     MarketDataTickerEvent,
-    MarketDataTradeEvent,
-)
+    MarketDataTradeEvent)
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
+from typing import Any
 
 
 class ConnectionState(Enum):
@@ -46,7 +46,7 @@ class ConnectionState(Enum):
 
 
 class TokenCache(TypedDict):
-    """Type for WebSocket token cache."""
+    """Type[Any] for WebSocket token cache."""
     token: str
     expires_at: float
 
@@ -99,8 +99,8 @@ class OrderBookLevel:
 class OrderBookSnapshot:
     """Complete order book snapshot."""
     symbol: str
-    bids: list[OrderBookLevel] = field(default_factory=list)
-    asks: list[OrderBookLevel] = field(default_factory=list)
+    bids: list[OrderBookLevel] = field(default_factory=list[Any])
+    asks: list[OrderBookLevel] = field(default_factory=list[Any])
     timestamp: float = field(default_factory=time.time)
     sequence: int = 0
     
@@ -134,11 +134,11 @@ class ProcessingMetrics:
 
 
 # Constants for message parsing
-MESSAGE_MIN_LENGTH = 4  # Minimum length of a valid message list
-MESSAGE_CHANNEL_INDEX = 2  # Index of channel name in message list
-MESSAGE_CHANNEL_NAME_INDEX = 2  # Index of channel name in message list
-MESSAGE_DATA_INDEX = 1  # Index of data in message list
-MESSAGE_PAIR_INDEX = 3  # Index of trading pair in message list
+MESSAGE_MIN_LENGTH = 4  # Minimum length of a valid message list[Any]
+MESSAGE_CHANNEL_INDEX = 2  # Index of channel name in message list[Any]
+MESSAGE_CHANNEL_NAME_INDEX = 2  # Index of channel name in message list[Any]
+MESSAGE_DATA_INDEX = 1  # Index of data in message list[Any]
+MESSAGE_PAIR_INDEX = 3  # Index of trading pair in message list[Any]
 
 
 class ExecutionHandlerAuthenticationError(ValueError):
@@ -165,8 +165,7 @@ class KrakenWebSocketClient:
         self,
         config: ConfigManager,
         pubsub: PubSubManager,
-        logger: LoggerService,
-    ) -> None:
+        logger: LoggerService) -> None:
         """Initialize Kraken WebSocket client.
 
         Args:
@@ -205,7 +204,7 @@ class KrakenWebSocketClient:
 
         # Message handling
         self.sequence_numbers: dict[str, int] = {}
-        self.message_handlers: dict[str, Callable] = {
+        self.message_handlers: dict[str, Callable[..., Any]] = {
             "ticker": self._handle_ticker,
             "book": self._handle_orderbook,
             "trade": self._handle_trades,
@@ -218,7 +217,7 @@ class KrakenWebSocketClient:
         self.reconnect_delay = 1.0
         self.max_reconnect_delay = 60.0
         self.heartbeat_interval = 30.0
-        self._connection_tasks: list[asyncio.Task] = []
+        self._connection_tasks: list[asyncio.Task[Any]] = []
 
         # Order book state management
         self.order_books: dict[str, OrderBookSnapshot] = {}
@@ -244,31 +243,26 @@ class KrakenWebSocketClient:
         try:
             # Connect to public WebSocket
             self._connection_tasks.append(
-                asyncio.create_task(self._connect_public()),
-            )
+                asyncio.create_task(self._connect_public()))
 
             # Connect to private WebSocket
             self._connection_tasks.append(
-                asyncio.create_task(self._connect_private()),
-            )
+                asyncio.create_task(self._connect_private()))
 
             # Start heartbeat
             self._connection_tasks.append(
-                asyncio.create_task(self._heartbeat_loop()),
-            )
+                asyncio.create_task(self._heartbeat_loop()))
 
             self.state = ConnectionState.CONNECTED
             self.logger.info(
                 "WebSocket connections established",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
         except Exception:
             self.state = ConnectionState.ERROR
             self.logger.exception(
                 "Failed to establish WebSocket connections",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             await self._reconnect()
 
     async def _connect_public(self) -> None:
@@ -279,8 +273,7 @@ class KrakenWebSocketClient:
                     self.ws_public = ws
                     self.logger.info(
                         "Public WebSocket connected",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
 
                     # Resubscribe to channels
                     await self._resubscribe_public()
@@ -292,15 +285,13 @@ class KrakenWebSocketClient:
             except websockets.exceptions.ConnectionClosed:
                 self.logger.warning(
                     "Public WebSocket connection closed",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 await asyncio.sleep(self.reconnect_delay)
 
             except Exception:
                 self.logger.exception(
                     "Error in public WebSocket",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 await asyncio.sleep(self.reconnect_delay)
 
     async def _connect_private(self) -> None:
@@ -331,8 +322,7 @@ class KrakenWebSocketClient:
                         self.state = ConnectionState.AUTHENTICATED
                         self.logger.info(
                             "Private WebSocket authenticated",
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
 
                         # Handle messages
                         async for message in ws:
@@ -343,15 +333,13 @@ class KrakenWebSocketClient:
             except websockets.exceptions.ConnectionClosed:
                 self.logger.warning(
                     "Private WebSocket connection closed",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 await asyncio.sleep(self.reconnect_delay)
 
             except Exception:
                 self.logger.exception(
                     "Error in private WebSocket",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 await asyncio.sleep(self.reconnect_delay)
 
     async def _get_ws_token(self) -> str:
@@ -374,8 +362,7 @@ class KrakenWebSocketClient:
             self.logger.debug(
                 "Using cached WebSocket token",
                 source_module=self._source_module,
-                context={"expires_in": self._ws_token_cache["expires_at"] - current_time},
-            )
+                context={"expires_in": self._ws_token_cache["expires_at"] - current_time})
             return self._ws_token_cache["token"]  # This is definitely a string based on our TokenCache type
 
         # Generate new token
@@ -387,13 +374,11 @@ class KrakenWebSocketClient:
             # Create signature
             post_data = f"nonce={nonce}"
             message = endpoint.encode() + hashlib.sha256(
-                f"{nonce}{post_data}".encode(),
-            ).digest()
+                f"{nonce}{post_data}".encode()).digest()
             signature = hmac.new(
                 self.api_secret,
                 message,  # message is already bytes
-                hashlib.sha512,
-            ).digest()
+                hashlib.sha512).digest()
 
             # Make API request
             headers = {
@@ -406,15 +391,13 @@ class KrakenWebSocketClient:
                 async with session.post(
                     f"{self.api_base_url}{endpoint}",
                     headers=headers,
-                    data=post_data,
-                ) as response:
+                    data=post_data) as response:
                     result = await response.json()
 
             # Handle response
             if result.get("error"):
                 raise ExecutionHandlerAuthenticationError(
-                    f"Failed to get WebSocket token: {result['error']}",
-                )
+                    f"Failed to get WebSocket token: {result['error']}")
 
             token = cast("str", result["result"]["token"])
 
@@ -427,8 +410,7 @@ class KrakenWebSocketClient:
             self.logger.info(
                 "Successfully retrieved new WebSocket token",
                 source_module=self._source_module,
-                context={"expires_in": 900},
-            )
+                context={"expires_in": 900})
 
             return token
 
@@ -437,19 +419,16 @@ class KrakenWebSocketClient:
                 "Failed to retrieve WebSocket token: %s",
                 str(e),
                 source_module=self._source_module,
-                context={"error_type": type(e).__name__},
-            )
+                context={"error_type": type(e).__name__})
             raise ExecutionHandlerAuthenticationError(
-                f"WebSocket token retrieval failed: {e}",
-            ) from e
+                f"WebSocket token retrieval failed: {e}") from e
 
     async def subscribe_market_data(self, pairs: list[str], channels: list[str]) -> None:
         """Subscribe to market data channels."""
         if not self.ws_public:
             self.logger.error(
                 "Cannot subscribe - public WebSocket not connected",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return
 
         for channel in channels:
@@ -464,8 +443,7 @@ class KrakenWebSocketClient:
 
         self.logger.info(
             f"Subscribed to {channels} for {pairs}",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     async def _resubscribe_public(self) -> None:
         """Resubscribe to all public channels after reconnection."""
@@ -486,8 +464,7 @@ class KrakenWebSocketClient:
                 elif "errorMessage" in message:
                     self.logger.error(
                         f"WebSocket error: {message['errorMessage']}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
             elif isinstance(message, list) and len(message) >= MESSAGE_MIN_LENGTH:
                 # Data message format: [channelID, data, channelName, pair]
                 channel_name = (
@@ -503,13 +480,11 @@ class KrakenWebSocketClient:
         except json.JSONDecodeError as e:
             self.logger.error(
                 f"Invalid JSON in WebSocket message: {raw_message}, error: {e!s}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except Exception as e:
             self.logger.exception(
                 f"Error processing public WebSocket message: {e!s}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def _process_private_message(self, raw_message: str) -> None:
         """Process private WebSocket message."""
@@ -530,10 +505,9 @@ class KrakenWebSocketClient:
         except Exception:
             self.logger.exception(
                 "Error processing private WebSocket message",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
-    async def _handle_event_message(self, message: dict) -> None:
+    async def _handle_event_message(self, message: dict[str, Any]) -> None:
         """Handle WebSocket event messages."""
         try:
             event = message.get("event")
@@ -541,20 +515,17 @@ class KrakenWebSocketClient:
             if event == "systemStatus":
                 self.logger.info(
                     f"System status: {message.get('status')}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             elif event == "subscriptionStatus":
                 status = message.get("status")
                 if status == "subscribed":
                     self.logger.info(
                         f"Successfully subscribed to {message.get('channelName')}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                 elif status == "error":
                     self.logger.error(
                         f"Subscription error: {message.get('errorMessage')}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
             elif isinstance(message, list) and len(message) >= MESSAGE_MIN_LENGTH:
                 # Data message format: [channelID, data, channelName, pair]
                 channel_name = (
@@ -569,10 +540,9 @@ class KrakenWebSocketClient:
         except Exception as e:
             self.logger.exception(
                 f"Error in _handle_event_message: {e!s}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
-    async def _handle_open_orders(self, message: list) -> None:
+    async def _handle_open_orders(self, message: list[Any]) -> None:
         """Handle open orders updates."""
         orders_data = message[0]
 
@@ -611,12 +581,11 @@ class KrakenWebSocketClient:
                 ),
                 commission=Decimal(order_data.get("fee", "0")) if order_data.get("fee") else None,
                 signal_id=uuid.UUID(order_data.get("userref", str(uuid.uuid4()))),
-                error_message=order_data.get("reason") if status == "CANCELLED" else None,
-            )
+                error_message=order_data.get("reason") if status == "CANCELLED" else None)
 
             await self.pubsub.publish(event)
 
-    async def _handle_orderbook(self, message: list) -> None:
+    async def _handle_orderbook(self, message: list[Any]) -> None:
         """Handle order book updates with comprehensive processing and error handling."""
         start_time = time.time()
         
@@ -698,7 +667,7 @@ class KrakenWebSocketClient:
                 raw_data=message
             )
 
-    async def _handle_own_trades(self, message: list) -> None:
+    async def _handle_own_trades(self, message: list[Any]) -> None:
         """Handle own trades updates and publish :class:`FillEvent`."""
         trades_data = message[0]
 
@@ -715,20 +684,18 @@ class KrakenWebSocketClient:
                 side=str(trade_data.get("type", "")).upper(),
                 price=Decimal(trade_data.get("price", "0")),
                 quantity=Decimal(trade_data.get("vol", "0")),
-                fee=Decimal(trade_data.get("fee", "0")),
-            )
+                fee=Decimal(trade_data.get("fee", "0")))
 
             await self.pubsub.publish(fill_event)
 
-    async def _handle_ticker(self, message: list) -> None:
+    async def _handle_ticker(self, message: list[Any]) -> None:
         """Handle ticker updates."""
         try:
             if len(message) < 4:
                 self.logger.warning(
                     "Invalid ticker message format",
                     source_module=self._source_module,
-                    context={"message_length": len(message)},
-                )
+                    context={"message_length": len(message)})
                 return
 
             # Kraken ticker format: [channelID, data, "ticker", pair]
@@ -753,8 +720,7 @@ class KrakenWebSocketClient:
                 high_24h=Decimal(data["h"][1]),  # 24h high
                 low_24h=Decimal(data["l"][1]),  # 24h low
                 trades_24h=int(data["t"][1]),  # 24h trade count
-                timestamp_exchange=datetime.now(UTC),
-            )
+                timestamp_exchange=datetime.now(UTC))
 
             await self.pubsub.publish(ticker_event)
 
@@ -765,24 +731,21 @@ class KrakenWebSocketClient:
                     "bid": str(ticker_event.bid),
                     "ask": str(ticker_event.ask),
                     "last": str(ticker_event.last_price),
-                },
-            )
+                })
 
         except Exception:
             self.logger.exception(
                 "Error handling ticker message",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
-    async def _handle_trades(self, message: list) -> None:
+    async def _handle_trades(self, message: list[Any]) -> None:
         """Handle public trades."""
         try:
             if len(message) < 4:
                 self.logger.warning(
                     "Invalid trade message format",
                     source_module=self._source_module,
-                    context={"message_length": len(message)},
-                )
+                    context={"message_length": len(message)})
                 return
 
             # Kraken trade format: [channelID, [[price, volume, time, side, orderType, misc]], "trade", pair]
@@ -803,31 +766,27 @@ class KrakenWebSocketClient:
                     price=Decimal(trade[0]),
                     volume=Decimal(trade[1]),
                     side="buy" if trade[3] == "b" else "sell",
-                    timestamp_exchange=datetime.fromtimestamp(float(trade[2]), tz=UTC),
-                )
+                    timestamp_exchange=datetime.fromtimestamp(float(trade[2]), tz=UTC))
 
                 await self.pubsub.publish(trade_event)
 
             self.logger.debug(
                 f"Published {len(trades_data)} trade events for {pair}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
         except Exception:
             self.logger.exception(
                 "Error handling trades message",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
-    async def _handle_ohlc(self, message: list) -> None:
+    async def _handle_ohlc(self, message: list[Any]) -> None:
         """Handle OHLC candle updates."""
         try:
             if len(message) < 4:
                 self.logger.warning(
                     "Invalid OHLC message format",
                     source_module=self._source_module,
-                    context={"message_length": len(message)},
-                )
+                    context={"message_length": len(message)})
                 return
 
             # Kraken OHLC format: [channelID, [time, etime, open, high, low, close, vwap, volume, count], "ohlc-interval", pair]
@@ -853,8 +812,7 @@ class KrakenWebSocketClient:
                 high=str(ohlc_data[3]),
                 low=str(ohlc_data[4]),
                 close=str(ohlc_data[5]),
-                volume=str(ohlc_data[7]),
-            )
+                volume=str(ohlc_data[7]))
 
             await self.pubsub.publish(ohlc_event)
 
@@ -865,18 +823,16 @@ class KrakenWebSocketClient:
                     "open": str(ohlc_event.open),
                     "close": str(ohlc_event.close),
                     "volume": str(ohlc_event.volume),
-                },
-            )
+                })
 
         except Exception:
             self.logger.exception(
                 "Error handling OHLC message",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     # Order book processing methods
     
-    def _validate_orderbook_message(self, message: list) -> bool:
+    def _validate_orderbook_message(self, message: list[Any]) -> bool:
         """Validate basic order book message structure."""
         try:
             if len(message) < MESSAGE_MIN_LENGTH:
@@ -896,7 +852,7 @@ class KrakenWebSocketClient:
         except Exception:
             return False
     
-    async def _process_order_book_data(self, symbol: str, data: dict) -> bool:
+    async def _process_order_book_data(self, symbol: str, data: dict[str, Any]) -> bool:
         """Process order book data with comprehensive error handling."""
         try:
             # Check for stale data
@@ -938,7 +894,7 @@ class KrakenWebSocketClient:
             )
             return False
     
-    async def _process_snapshot_data(self, symbol: str, data: dict) -> bool:
+    async def _process_snapshot_data(self, symbol: str, data: dict[str, Any]) -> bool:
         """Process order book snapshot data."""
         try:
             # Create new order book snapshot
@@ -974,7 +930,7 @@ class KrakenWebSocketClient:
             self.logger.error(f"Error processing snapshot data for {symbol}: {e}")
             return False
     
-    async def _process_incremental_data(self, symbol: str, data: dict) -> bool:
+    async def _process_incremental_data(self, symbol: str, data: dict[str, Any]) -> bool:
         """Process incremental order book updates."""
         try:
             # Initialize order book if not exists
@@ -1004,7 +960,7 @@ class KrakenWebSocketClient:
             self.logger.error(f"Error processing incremental data for {symbol}: {e}")
             return False
     
-    async def _process_bid_levels(self, order_book: OrderBookSnapshot, bids: list) -> bool:
+    async def _process_bid_levels(self, order_book: OrderBookSnapshot, bids: list[Any]) -> bool:
         """Process bid levels for snapshot data."""
         try:
             processed_count = 0
@@ -1042,7 +998,7 @@ class KrakenWebSocketClient:
             self.logger.error(f"Error processing bid levels: {e}")
             return False
     
-    async def _process_ask_levels(self, order_book: OrderBookSnapshot, asks: list) -> bool:
+    async def _process_ask_levels(self, order_book: OrderBookSnapshot, asks: list[Any]) -> bool:
         """Process ask levels for snapshot data."""
         try:
             processed_count = 0
@@ -1080,7 +1036,7 @@ class KrakenWebSocketClient:
             self.logger.error(f"Error processing ask levels: {e}")
             return False
     
-    async def _process_bid_updates(self, order_book: OrderBookSnapshot, updates: list) -> bool:
+    async def _process_bid_updates(self, order_book: OrderBookSnapshot, updates: list[Any]) -> bool:
         """Process bid updates for incremental data."""
         try:
             processed_count = 0
@@ -1106,7 +1062,7 @@ class KrakenWebSocketClient:
             self.logger.error(f"Error processing bid updates: {e}")
             return False
     
-    async def _process_ask_updates(self, order_book: OrderBookSnapshot, updates: list) -> bool:
+    async def _process_ask_updates(self, order_book: OrderBookSnapshot, updates: list[Any]) -> bool:
         """Process ask updates for incremental data."""
         try:
             processed_count = 0
@@ -1132,7 +1088,7 @@ class KrakenWebSocketClient:
             self.logger.error(f"Error processing ask updates: {e}")
             return False
     
-    async def _extract_price_quantity(self, level_data: list) -> tuple[Optional[Decimal], Optional[Decimal]]:
+    async def _extract_price_quantity(self, level_data: list[Any]) -> tuple[Optional[Decimal], Optional[Decimal]]:
         """Extract and validate price and quantity from level data."""
         try:
             if not isinstance(level_data, list) or len(level_data) < 2:
@@ -1395,7 +1351,7 @@ class KrakenWebSocketClient:
                     key=lambda x: x[1].timestamp,
                     reverse=True
                 )
-                self.order_books = dict(sorted_books[:10])
+                self.order_books = dict[str, Any](sorted_books[:10])
                 self.logger.info("Cleared old order book data to manage memory usage")
     
     async def _update_processing_metrics(self, processing_time: float) -> None:
@@ -1424,7 +1380,7 @@ class KrakenWebSocketClient:
                 "sequence_gaps": self.processing_metrics.sequence_gaps,
                 "recovery_attempts": self.processing_metrics.recovery_attempts
             },
-            "error_counts": dict(self.error_counts),
+            "error_counts": dict[str, Any](self.error_counts),
             "symbols_tracked": len(self.order_books),
             "configuration": {
                 "max_depth": self.max_order_book_depth,
@@ -1493,8 +1449,7 @@ class KrakenWebSocketClient:
             except Exception:
                 self.logger.exception(
                     "Error in heartbeat loop",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
     async def _reconnect(self) -> None:
         """Handle reconnection with exponential backoff."""
@@ -1502,16 +1457,14 @@ class KrakenWebSocketClient:
 
         self.logger.info(
             f"Attempting reconnection in {self.reconnect_delay} seconds",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
         await asyncio.sleep(self.reconnect_delay)
 
         # Exponential backoff
         self.reconnect_delay = min(
             self.reconnect_delay * 2,
-            self.max_reconnect_delay,
-        )
+            self.max_reconnect_delay)
 
         await self.connect()
 
@@ -1532,5 +1485,4 @@ class KrakenWebSocketClient:
 
         self.logger.info(
             "WebSocket connections closed",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)

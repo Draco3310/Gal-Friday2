@@ -39,7 +39,7 @@ class FeatureRegistryClient:
         
         ```yaml
         feature_key_name:
-          calculator_type: "calculator_name"  # Required: Type of calculator/processor
+          calculator_type: "calculator_name"  # Required: Type[Any] of calculator/processor
           parameters:                         # Optional: Calculator parameters
             param1: value1
             param2: value2
@@ -196,7 +196,7 @@ class FeatureRegistryClient:
         class FeatureProcessor:
             \"\"\"Example integration with feature processing pipeline.\"\"\"
             
-            def __init__(self, registry_client: FeatureRegistryClient):
+            def __init__(self, registry_client: FeatureRegistryClient) -> None:
                 self.registry = registry_client
                 if not self.registry.is_loaded():
                     raise ValueError("Feature registry must be loaded for processing")
@@ -265,7 +265,7 @@ class FeatureRegistryClient:
         class RegistryWatcher(FileSystemEventHandler):
             \"\"\"File system watcher for automatic registry reloading.\"\"\"
             
-            def __init__(self, registry_client: FeatureRegistryClient):
+            def __init__(self, registry_client: FeatureRegistryClient) -> None:
                 self.registry = registry_client
                 self._lock = threading.Lock()
             
@@ -420,8 +420,7 @@ class FeatureRegistryClient:
             if not isinstance(data, dict):
                 logger.error(
                     "Feature registry content is not a dictionary. File: %s",
-                    self.registry_path,
-                )
+                    self.registry_path)
                 self._registry_data = {}
                 # Optionally raise RegistryLoadError("Invalid registry format: not a dictionary.")
                 return
@@ -429,23 +428,20 @@ class FeatureRegistryClient:
             self._registry_data = data
             logger.info(
                 "Feature registry loaded successfully from %s. Found %d definitions.",
-                self.registry_path, len(self._registry_data),
-            )
+                self.registry_path, len(self._registry_data))
 
         except yaml.YAMLError as e:
             logger.exception(
                 "Error parsing YAML in feature registry %s",
                 self.registry_path,
-                exc_info=e,
-            )
+                exc_info=e)
             self._registry_data = {}
             # Optionally raise RegistryLoadError(f"YAML parsing error: {e}")
         except Exception as e: # Catch any other unexpected errors during file I/O or loading
             logger.exception(
                 "Unexpected error loading feature registry %s",
                 self.registry_path,
-                exc_info=e,
-            )
+                exc_info=e)
             self._registry_data = {}
             # Optionally raise RegistryLoadError(f"Unexpected loading error: {e}")
 
@@ -503,8 +499,7 @@ class FeatureRegistryClient:
         if self._registry_data is None:
             logger.warning(
                 "Attempted to get feature definition ('%s'), but registry is not loaded.",
-                feature_key,
-            )
+                feature_key)
             return None
 
         definition = self._registry_data.get(feature_key)
@@ -513,15 +508,15 @@ class FeatureRegistryClient:
         return definition
 
     def get_all_feature_keys(self) -> list[str]:
-        """Retrieves a list of all top-level feature keys defined in the registry.
+        """Retrieves a list[Any] of all top-level feature keys defined in the registry.
 
         This method provides a complete inventory of available features in the
         current registry. It's useful for feature discovery, validation, and
         building dynamic feature processing pipelines.
 
         Returns:
-            list[str]: A list of strings, where each string is a unique feature key
-                      from the registry. Returns an empty list if:
+            list[str]: A list[Any] of strings, where each string is a unique feature key
+                      from the registry. Returns an empty list[Any] if:
                       - The registry is not loaded due to initialization errors
                       - The registry file is empty or contains no feature definitions
                       - The registry contains only invalid or malformed entries
@@ -572,14 +567,14 @@ class FeatureRegistryClient:
             ...     return True, f"All {len(features)} features are valid"
 
         Performance Note:
-            This method creates a new list on each call. For frequently accessed
+            This method creates a new list[Any] on each call. For frequently accessed
             feature lists in performance-critical code, consider caching the result
             and refreshing only when the registry is reloaded.
         """
         if self._registry_data is None:
             logger.warning("Attempted to get all feature keys, but registry is not loaded.")
             return []
-        return list(self._registry_data.keys())
+        return list[Any](self._registry_data.keys())
 
     def get_output_properties(self, feature_key: str) -> dict[str, Any] | None:
         """Retrieves the 'output_properties' dictionary for a given feature key.
@@ -667,9 +662,8 @@ class FeatureRegistryClient:
             return definition["output_properties"]  # type: ignore[no-any-return]
         if definition:
             logger.debug(
-                "Feature '%s' found, but 'output_properties' missing or not a dict.",
-                feature_key,
-            )
+                "Feature '%s' found, but 'output_properties' missing or not a dict[str, Any].",
+                feature_key)
         return None
 
     def get_calculator_type(self, feature_key: str) -> str | None:
@@ -699,7 +693,7 @@ class FeatureRegistryClient:
             ...     print(f"Feature uses calculator: {calc_type}")
 
             Feature processing dispatch:
-            >>> def compute_feature(feature_key: str, market_data: dict) -> float:
+            >>> def compute_feature(feature_key: str, market_data: dict[str, Any]) -> float:
             ...     calc_type = client.get_calculator_type(feature_key)
             ...     if not calc_type:
             ...         raise ValueError(f"No calculator type for feature: {feature_key}")
@@ -716,7 +710,7 @@ class FeatureRegistryClient:
 
             Calculator registry pattern:
             >>> class CalculatorFactory:
-            ...     def __init__(self, registry_client: FeatureRegistryClient):
+            ...     def __init__(self, registry_client: FeatureRegistryClient) -> None:
             ...         self.registry = registry_client
             ...         self._calculators = {
             ...             "rsi": RSICalculator(),
@@ -756,8 +750,7 @@ class FeatureRegistryClient:
         if definition:
             logger.debug(
                 "Feature '%s' found, but 'calculator_type' missing or not a string.",
-                feature_key,
-            )
+                feature_key)
         return None
 
     def get_parameters(self, feature_key: str) -> dict[str, Any] | None:
@@ -789,7 +782,7 @@ class FeatureRegistryClient:
             ...     print(f"RSI period: {period}")
 
             Safe parameter handling with defaults:
-            >>> def get_feature_config(feature_key: str, default_params: dict) -> dict:
+            >>> def get_feature_config(feature_key: str, default_params: dict[str, Any]) -> dict[str, Any]:
             ...     params = client.get_parameters(feature_key)
             ...     if params is None:
             ...         logger.warning(f"No parameters found for {feature_key}, using defaults")
@@ -818,7 +811,7 @@ class FeatureRegistryClient:
             ...     return True, "Parameters are valid"
 
             Dynamic parameter override:
-            >>> def compute_with_override(feature_key: str, param_overrides: dict, data: dict):
+            >>> def compute_with_override(feature_key: str, param_overrides: dict[str, Any], data: dict[str, Any]):
             ...     base_params = client.get_parameters(feature_key) or {}
             ...     final_params = {**base_params, **param_overrides}
             ...     
@@ -833,7 +826,7 @@ class FeatureRegistryClient:
             ...         if params:
             ...             param_summary[feature_key] = {
             ...                 "param_count": len(params),
-            ...                 "param_keys": list(params.keys()),
+            ...                 "param_keys": list[Any](params.keys()),
             ...                 "has_period": "period" in params
             ...             }
             ...     return param_summary
@@ -856,8 +849,7 @@ class FeatureRegistryClient:
             logger.debug(
                 "Feature '%s' has 'parameters' defined, but it's not a dictionary "
                 "(found type: %s).",
-                feature_key, type(params).__name__,
-            )
+                feature_key, type(params).__name__)
         return None
 
     def is_loaded(self) -> bool:
@@ -912,7 +904,7 @@ class FeatureRegistryClient:
             ...         raise RuntimeError(f"Missing required features: {missing_features}")
 
             Health check implementation:
-            >>> def registry_health_check() -> dict:
+            >>> def registry_health_check() -> dict[str, Any]:
             ...     client = FeatureRegistryClient()
             ...     health_status = {
             ...         "loaded": client.is_loaded(),
@@ -1026,7 +1018,7 @@ class FeatureRegistryClient:
             >>> from watchdog.events import FileSystemEventHandler
             >>> 
             >>> class RegistryReloadHandler(FileSystemEventHandler):
-            ...     def __init__(self, registry_client: FeatureRegistryClient):
+            ...     def __init__(self, registry_client: FeatureRegistryClient) -> None:
             ...         self.client = registry_client
             ...         self._last_reload = 0
             ...         self._reload_cooldown = 2  # Prevent rapid reloads

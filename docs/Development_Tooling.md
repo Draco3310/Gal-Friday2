@@ -45,7 +45,7 @@ flake8 src tests
 pylint src tests
 mypy src tests
 pydocstyle src tests
-bandit -c pyproject.toml src
+bandit -c pyproject.toml.old src
 
 # Testing
 pytest

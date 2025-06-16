@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from gal_friday.logger_service import LoggerService
+from typing import Any
 
 
 @dataclass
@@ -13,7 +14,7 @@ class SequencedMessage:
     """Message with sequence tracking."""
     sequence: int
     channel: str
-    data: dict
+    data: dict[str, Any]
     timestamp: datetime
     processed: bool = False
 
@@ -32,7 +33,7 @@ class SequenceTracker:
 
         # Track sequences per channel
         self.sequences: dict[str, int] = {}
-        self.gaps: dict[str, list[tuple]] = defaultdict(list)
+        self.gaps: dict[str, list[tuple]] = defaultdict(list[Any])
 
     def check_sequence(self, channel: str, sequence: int) -> list[tuple] | None:
         """Check for sequence gaps.
@@ -54,16 +55,14 @@ class SequenceTracker:
             self.sequences[channel] = sequence
 
             self.logger.warning(
-                f"Sequence gap detected in {channel}: {gap}",
-                source_module=self._source_module,
-            )
+                f"Sequence[Any] gap detected in {channel}: {gap}",
+                source_module=self._source_module)
             return [gap]
 
         # Out of order or duplicate
         self.logger.warning(
             f"Out of order message in {channel}: expected {expected}, got {sequence}",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
         return None
 
     def get_gaps(self, channel: str) -> list[tuple]:
@@ -171,7 +170,7 @@ class WebSocketMessageProcessor:
 
     async def process_message(self,
                             channel: str,
-                            data: dict,
+                            data: dict[str, Any],
                             sequence: int | None = None) -> SequencedMessage | None:
         """Process and validate WebSocket message."""
         try:
@@ -184,15 +183,13 @@ class WebSocketMessageProcessor:
                 sequence=sequence or 0,
                 channel=channel,
                 data=data,
-                timestamp=datetime.now(UTC),
-            )
+                timestamp=datetime.now(UTC))
 
             # Check for duplicates
             if not self.message_cache.add(message):
                 self.logger.debug(
                     f"Duplicate message ignored: {channel}:{sequence}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return None
 
             # Check sequence if provided
@@ -209,11 +206,10 @@ class WebSocketMessageProcessor:
         except Exception:
             self.logger.exception(
                 "Error processing WebSocket message",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None
 
-    def _validate_message(self, channel: str, data: dict) -> bool:
+    def _validate_message(self, channel: str, data: dict[str, Any]) -> bool:
         """Validate message has required fields."""
         required = self.required_fields.get(channel, [])
 
@@ -221,8 +217,7 @@ class WebSocketMessageProcessor:
             if field not in data:
                 self.logger.error(
                     f"Missing required field '{field}' in {channel} message",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
 
         return True
@@ -232,8 +227,7 @@ class WebSocketMessageProcessor:
         for start, end in gaps:
             self.logger.info(
                 f"Attempting to recover gap {start}-{end} in {channel}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
             # Check cache for missing messages
             cached = self.message_cache.get_unprocessed(channel, start, end)
@@ -242,8 +236,7 @@ class WebSocketMessageProcessor:
                 # All messages found in cache
                 self.logger.info(
                     f"Recovered gap from cache: {channel} {start}-{end}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
                 # Mark gap as resolved
                 self.sequence_tracker.clear_gap(channel, start, end)
@@ -252,5 +245,4 @@ class WebSocketMessageProcessor:
                 # In production, this would trigger a recovery mechanism
                 self.logger.warning(
                     f"Unable to recover gap from cache: {channel} {start}-{end}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)

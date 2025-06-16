@@ -69,7 +69,7 @@ class InterpolationConfig:
 class DataInterpolator:
     """Production-grade data interpolation system."""
 
-    def __init__(self, config: InterpolationConfig, logger: LoggerService):
+    def __init__(self, config: InterpolationConfig, logger: LoggerService) -> None:
         """Initialize the data interpolator.
 
         Args:
@@ -105,15 +105,13 @@ class DataInterpolator:
                 f"Interpolating {gap_info.gap_size} missing data points for "
                 f"{gap_info.symbol} ({gap_info.data_type}) gap from "
                 f"{gap_info.start_time} to {gap_info.end_time}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
             # Validate interpolation feasibility
             if not self._validate_interpolation_feasibility(gap_info, preceding_data, following_data):
                 self.logger.warning(
                     f"Gap interpolation not feasible for {gap_info.symbol}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return None
 
             # Select interpolation method
@@ -121,16 +119,14 @@ class DataInterpolator:
 
             # Perform interpolation
             interpolated_data = self._perform_interpolation(
-                method, gap_info, preceding_data, following_data,
-            )
+                method, gap_info, preceding_data, following_data)
 
             # Validate interpolated results
             if self.config.validation_enabled:
                 if not self._validate_interpolated_data(interpolated_data, preceding_data, following_data):
                     self.logger.error(
                         f"Interpolated data failed validation for {gap_info.symbol}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return None
 
             # Update statistics
@@ -142,8 +138,7 @@ class DataInterpolator:
             self.logger.info(
                 f"Successfully interpolated {len(interpolated_data)} data points "
                 f"using {method.value} method for {gap_info.symbol}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
             return interpolated_data
 
@@ -151,8 +146,7 @@ class DataInterpolator:
             self.logger.error(
                 f"Error interpolating data for {gap_info.symbol}: {e}",
                 source_module=self._source_module,
-                exc_info=True,
-            )
+                exc_info=True)
             self._update_interpolation_stats(gap_info, None, success=False)
             return None
 
@@ -165,8 +159,7 @@ class DataInterpolator:
             self.logger.warning(
                 f"Gap duration {gap_info.duration} exceeds maximum "
                 f"{self.config.max_gap_duration} for {gap_info.symbol}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
         # Check surrounding data availability
@@ -175,8 +168,7 @@ class DataInterpolator:
             self.logger.warning(
                 f"Insufficient surrounding data for interpolation: "
                 f"preceding={len(preceding_data)}, following={len(following_data)}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
         # Check data quality
@@ -186,8 +178,7 @@ class DataInterpolator:
                 f"Surrounding data quality too low for reliable interpolation: "
                 f"preceding={gap_info.preceding_data_quality}, "
                 f"following={gap_info.following_data_quality}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
         return True
@@ -287,8 +278,7 @@ class DataInterpolator:
         except ImportError:
             self.logger.warning(
                 "SciPy not available, falling back to linear interpolation",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return self._linear_interpolation(data, time_index)
 
         # Convert timestamps to numeric for spline fitting
@@ -314,14 +304,12 @@ class DataInterpolator:
         result = pd.DataFrame(
             np.column_stack(interpolated_data),
             index=time_index,
-            columns=numeric_columns,
-        )
+            columns=numeric_columns)
 
         return result
 
     def _spline_interpolation(
-        self, data: pd.DataFrame, time_index: pd.DatetimeIndex,
-    ) -> pd.DataFrame:
+        self, data: pd.DataFrame, time_index: pd.DatetimeIndex) -> pd.DataFrame:
         """Perform spline interpolation with fallback to linear."""
         if len(data) < 4:
             # Not enough data points for spline of order 3
@@ -332,8 +320,7 @@ class DataInterpolator:
         except Exception:
             self.logger.warning(
                 "SciPy not available, falling back to linear interpolation",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return self._linear_interpolation(data, time_index)
 
         # Reindex to include interpolation points
@@ -353,8 +340,7 @@ class DataInterpolator:
         self,
         data: pd.DataFrame,
         time_index: pd.DatetimeIndex,
-        gap_info: GapInfo,
-    ) -> pd.DataFrame:
+        gap_info: GapInfo) -> pd.DataFrame:
         """Interpolate using spline and adjust results based on volatility."""
         base = self._spline_interpolation(data, time_index)
 
@@ -363,8 +349,7 @@ class DataInterpolator:
         except Exception:
             self.logger.warning(
                 "pandas_ta not available, skipping volatility adjustment",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return base
 
         required_cols = {"high", "low", "close"}
@@ -383,8 +368,7 @@ class DataInterpolator:
             high=window["high"],
             low=window["low"],
             close=window["close"],
-            length=length,
-        )
+            length=length)
         if atr_series.isna().all():
             return base
 
@@ -416,8 +400,7 @@ class DataInterpolator:
         # Create DataFrame with repeated values
         result = pd.DataFrame(
             [last_values] * len(time_index),
-            index=time_index,
-        )
+            index=time_index)
 
         return result
 
@@ -432,8 +415,7 @@ class DataInterpolator:
         # Create DataFrame with repeated values
         result = pd.DataFrame(
             [first_values] * len(time_index),
-            index=time_index,
-        )
+            index=time_index)
 
         return result
 
@@ -493,14 +475,12 @@ class DataInterpolator:
                 if (interpolated_data[column] < lower_bound).any():
                     self.logger.warning(
                         f"Interpolated {column} values below reasonable range",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return False
                 if (interpolated_data[column] > upper_bound).any():
                     self.logger.warning(
                         f"Interpolated {column} values above reasonable range",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return False
 
             # Check for smoothness (no sudden jumps)
@@ -516,8 +496,7 @@ class DataInterpolator:
                     if pd.notna(typical_diff) and max_diff > typical_diff * 3:  # Allow 3x typical movement
                         self.logger.warning(
                             f"Interpolated {column} shows unusual jumps",
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
                         return False
 
             return True
@@ -590,8 +569,7 @@ class GapDetector:
         self,
         data: pd.DataFrame,
         timestamp_col: str = "timestamp",
-        expected_interval: timedelta | None = None,
-    ) -> list[DataGap]:
+        expected_interval: timedelta | None = None) -> list[DataGap]:
         """Detect gaps in time series data.
 
         Args:
@@ -630,8 +608,7 @@ class GapDetector:
                 # Determine severity
                 severity = self._classify_severity(
                     actual_interval,
-                    expected_interval,
-                )
+                    expected_interval)
 
                 gap = DataGap(
                     start=gap_start,
@@ -639,8 +616,7 @@ class GapDetector:
                     duration=actual_interval,
                     expected_points=expected_points,
                     actual_points=actual_points,
-                    severity=severity,
-                )
+                    severity=severity)
 
                 gaps.append(gap)
 
@@ -652,15 +628,13 @@ class GapDetector:
                     "minor": sum(1 for g in gaps if g.severity == "minor"),
                     "major": sum(1 for g in gaps if g.severity == "major"),
                     "critical": sum(1 for g in gaps if g.severity == "critical"),
-                },
-            )
+                })
 
         return gaps
 
     def analyze_gap_patterns(
         self,
-        gaps: list[DataGap],
-    ) -> dict[str, Any]:
+        gaps: list[DataGap]) -> dict[str, Any]:
         """Analyze patterns in detected gaps.
 
         Args:
@@ -680,7 +654,7 @@ class GapDetector:
         total_duration = sum((g.duration for g in gaps), timedelta())
         durations = [g.duration.total_seconds() for g in gaps]
 
-        durations_seconds = [g.duration.total_seconds() for g in gaps] # ensure list is not empty before np.mean
+        durations_seconds = [g.duration.total_seconds() for g in gaps] # ensure list[Any] is not empty before np.mean
         avg_duration_seconds = np.mean(durations_seconds) if durations_seconds else 0.0
 
         stats = {
@@ -709,8 +683,7 @@ class GapDetector:
         timestamp_col: str = "timestamp",
         method: str = "interpolate",
         symbol: str = "unknown",
-        data_type: str = "ohlcv",
-    ) -> pd.DataFrame:
+        data_type: str = "ohlcv") -> pd.DataFrame:
         """Fill detected gaps in data using enterprise-grade interpolation.
 
         Args:
@@ -719,7 +692,7 @@ class GapDetector:
             timestamp_col: Name of timestamp column
             method: Gap filling method ('interpolate', 'enterprise', 'forward', 'zero')
             symbol: Symbol identifier for the data
-            data_type: Type of data ('ohlcv', 'trades', 'orderbook')
+            data_type: Type[Any] of data ('ohlcv', 'trades', 'orderbook')
 
         Returns:
             DataFrame with filled gaps
@@ -739,15 +712,13 @@ class GapDetector:
                 # Don't fill critical gaps
                 self.logger.warning(
                     f"Skipping critical gap from {gap.start} to {gap.end}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 continue
 
             if method == "enterprise":
                 # Use the new enterprise-grade interpolation system
                 interpolated_data = self._fill_gap_with_interpolation(
-                    gap, filled_data, symbol, data_type,
-                )
+                    gap, filled_data, symbol, data_type)
                 if interpolated_data is not None:
                     # Insert interpolated data into the main DataFrame
                     filled_data = pd.concat([filled_data, interpolated_data]).sort_index()
@@ -759,8 +730,7 @@ class GapDetector:
             missing_times = pd.date_range(
                 start=gap.start + pd.Timedelta(freq),
                 end=gap.end - pd.Timedelta(freq),
-                freq=freq,
-            )
+                freq=freq)
 
             if len(missing_times) == 0:
                 continue
@@ -796,8 +766,7 @@ class GapDetector:
 
         self.logger.info(
             f"Filled {len(gaps)} gaps using {method} method",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
         # Reset index to return DataFrame in original format
         filled_data.reset_index(inplace=True)
@@ -808,15 +777,14 @@ class GapDetector:
         gap: DataGap,
         data: pd.DataFrame,
         symbol: str,
-        data_type: str,
-    ) -> pd.DataFrame | None:
+        data_type: str) -> pd.DataFrame | None:
         """Fill a single gap using the enterprise interpolation system.
 
         Args:
             gap: DataGap object describing the gap
             data: DataFrame with timestamp index
             symbol: Symbol identifier
-            data_type: Type of data
+            data_type: Type[Any] of data
 
         Returns:
             Interpolated data for the gap, or None if interpolation failed
@@ -845,20 +813,17 @@ class GapDetector:
                 gap_size=gap.expected_points,
                 preceding_data_quality=preceding_quality,
                 following_data_quality=following_quality,
-                severity=gap.severity,
-            )
+                severity=gap.severity)
 
             # Use the enterprise interpolation system
             return self.interpolator.interpolate_missing_data(
-                gap_info, preceding_data, following_data,
-            )
+                gap_info, preceding_data, following_data)
 
         except Exception as e:
             self.logger.error(
                 f"Error in enterprise gap filling: {e}",
                 source_module=self._source_module,
-                exc_info=True,
-            )
+                exc_info=True)
             return None
 
     def _calculate_data_quality(self, data: pd.DataFrame) -> float:
@@ -913,8 +878,7 @@ class GapDetector:
         self,
         method_overrides: dict[str, InterpolationMethod] | None = None,
         max_gap_duration: timedelta | None = None,
-        quality_threshold: float | None = None,
-    ) -> None:
+        quality_threshold: float | None = None) -> None:
         """Configure interpolation settings.
 
         Args:
@@ -931,7 +895,7 @@ class GapDetector:
         if quality_threshold is not None:
             self.interpolator.config.quality_threshold = quality_threshold
 
-    def _detect_interval(self, timestamps: pd.Series) -> timedelta:
+    def _detect_interval(self, timestamps: pd.Series[Any]) -> timedelta:
         """Auto-detect the expected interval between timestamps."""
         if len(timestamps) < 2:
             return timedelta(minutes=1)  # Default for insufficient data
@@ -941,8 +905,7 @@ class GapDetector:
         if intervals.empty:
             self.logger.warning(
                 "Could not determine interval from timestamps (empty after diff/dropna), defaulting to 1 minute.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return timedelta(minutes=1)
 
         # Use mode (most common interval)
@@ -957,14 +920,13 @@ class GapDetector:
         if pd.isna(median_val): # Check if median itself is NaT (e.g., if intervals was empty, though covered above)
             self.logger.warning(
                 "Median interval calculation resulted in NaT, defaulting to 1 minute.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return timedelta(minutes=1)
 
         py_delta = median_val.to_pytimedelta()
         return typing_cast("timedelta", py_delta) # Cast to timedelta
 
-    def _detect_frequency(self, timestamps: pd.Series) -> str:
+    def _detect_frequency(self, timestamps: pd.Series[Any]) -> str:
         """Detect pandas frequency string."""
         intervals = timestamps.diff().dropna()
         median_seconds = intervals.median().total_seconds()
@@ -981,8 +943,7 @@ class GapDetector:
     def _classify_severity(
         self,
         actual_interval: timedelta,
-        expected_interval: timedelta,
-    ) -> str:
+        expected_interval: timedelta) -> str:
         """Classify gap severity."""
         ratio = actual_interval / expected_interval
 

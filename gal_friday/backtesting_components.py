@@ -7,13 +7,13 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, Tuple, cast
 
 from .config_manager import ConfigManager
 from .core.events import Event, EventType
 from .core.pubsub import EventHandler
 from .models.order import Order
-from .models.portfolio_snapshot import Position
+from .dal.models.position import Position
 
 
 @dataclass
@@ -45,7 +45,7 @@ class BacktestPubSubManager:
         self._source_module = self.__class__.__name__
         
         # Event subscriptions
-        self._subscribers: Dict[EventType, List[EventHandler]] = defaultdict(list)
+        self._subscribers: Dict[EventType, List[EventHandler]] = defaultdict(list[Any])
         
         # Time simulation
         self._simulation_start = simulation_start
@@ -64,7 +64,7 @@ class BacktestPubSubManager:
         
         # State tracking
         self._is_running = False
-        self._processing_task: Optional[asyncio.Task] = None
+        self._processing_task: Optional[asyncio.Task[Any]] = None
         
         self.logger.info(
             "BacktestPubSubManager initialized for period %s to %s",
@@ -360,7 +360,7 @@ class BacktestRiskManager:
             )
         
         # Check concentration limits
-        symbol_exposure = self._calculate_symbol_exposure(order.trading_pair)
+        symbol_exposure = self._calculate_symbol_exposure(cast(str, order.trading_pair))
         new_exposure = symbol_exposure + (order.quantity * order.price)
         concentration = new_exposure / self._current_value
         
@@ -380,7 +380,7 @@ class BacktestRiskManager:
             )
         
         # Check position count limits
-        position_count = len(self._current_positions.get(order.trading_pair, []))
+        position_count = len(self._current_positions.get(cast(str, order.trading_pair), []))
         if position_count >= self.risk_limits.position_limit_per_symbol:
             violation = {
                 "type": "position_count_exceeded",
@@ -553,7 +553,7 @@ class BacktestExchangeInfoService:
         return symbol_info is not None and symbol_info.is_active
 
     def get_all_symbols(self) -> List[str]:
-        """Get list of all available symbols."""
+        """Get list[Any] of all available symbols."""
         return [info.symbol for info in self._symbols.values() if info.is_active]
 
     def is_market_open(self, current_time: Optional[datetime] = None) -> bool:

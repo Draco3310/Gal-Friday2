@@ -3,9 +3,9 @@
 import os
 from collections.abc import Sequence
 
-from alembic import command  # type: ignore[import-not-found]
-from alembic.config import Config  # type: ignore[import-not-found]
-from alembic.script import ScriptDirectory  # type: ignore[import-not-found]
+from alembic import command  # type: ignore
+from alembic.config import Config  # type: ignore
+from alembic.script import ScriptDirectory  # type: ignore
 from sqlalchemy.exc import SQLAlchemyError
 
 from gal_friday.exceptions import DatabaseConnectionError
@@ -90,8 +90,7 @@ class MigrationManager:
             command.upgrade(alembic_cfg, "head")
             self.logger.info(
                 "Database upgrade to head completed successfully.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except SQLAlchemyError as exc:
             self.logger.exception(
                 "Database error during upgrade to head: %s", exc, source_module=self._source_module
@@ -111,8 +110,7 @@ class MigrationManager:
             command.downgrade(alembic_cfg, version)
             self.logger.info(
                 f"Database downgrade to version {version} completed successfully.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except SQLAlchemyError as exc:
             self.logger.exception(
                 "Database error during downgrade to %s: %s", version, exc, source_module=self._source_module
@@ -144,8 +142,7 @@ class MigrationManager:
             command.stamp(alembic_cfg, revision)
             self.logger.info(
                 f"Database stamped with revision {revision} successfully.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except SQLAlchemyError as exc:
             self.logger.exception(
                 "Database error stamping revision %s: %s", revision, exc, source_module=self._source_module
@@ -166,12 +163,10 @@ class MigrationManager:
                 alembic_cfg,
                 message=message,
                 autogenerate=autogenerate,
-                rev_id=revision_id,
-            )
+                rev_id=revision_id)
             self.logger.info(
                 f"New revision generated successfully: {message}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except SQLAlchemyError as exc:
             self.logger.exception(
                 "Database error generating revision '%s': %s", message, exc, source_module=self._source_module

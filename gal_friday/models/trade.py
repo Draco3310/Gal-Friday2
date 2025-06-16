@@ -54,8 +54,7 @@ class Trade(Base):
     exit_order: Mapped["Order | None"] = relationship(
         "Order",
         foreign_keys=[exit_order_pk],
-        backref="trade_as_exit",
-    )
+        backref="trade_as_exit")
 
     def __repr__(self) -> str: # Added -> str
         return (

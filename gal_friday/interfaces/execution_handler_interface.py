@@ -269,8 +269,7 @@ class ExecutionHandlerInterface(ABC):
     def __init__(
         self,
         exchange_spec: ExchangeSpecification,
-        **kwargs: Unpack[ExecutionHandlerKwargs],
-    ) -> None:
+        **kwargs: Unpack[ExecutionHandlerKwargs]) -> None:
         """Initialize with exchange specification and configuration."""
         self.exchange_spec = exchange_spec
         self.exchange_id = exchange_spec.exchange_id
@@ -348,7 +347,7 @@ class ExecutionHandlerInterface(ABC):
     # Market data and exchange info
     @abstractmethod
     async def get_supported_assets(self) -> list[AssetSpecification]:
-        """Get list of assets supported by this exchange.
+        """Get list[Any] of assets supported by this exchange.
 
         Returns:
             List of asset specifications
@@ -472,8 +471,7 @@ class ExecutionHandlerFactory(Protocol):
     def create_handler(
         self,
         exchange_id: str,
-        **kwargs: Unpack[ExecutionHandlerKwargs],
-    ) -> ExecutionHandlerInterface:
+        **kwargs: Unpack[ExecutionHandlerKwargs]) -> ExecutionHandlerInterface:
         """Create an execution handler for the specified exchange.
 
         Args:

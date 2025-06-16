@@ -66,7 +66,7 @@ class MarketPriceService(abc.ABC):
 
         Returns:
         -------
-            A tuple containing (best_bid, best_ask) as Decimals,
+            A tuple[Any, ...] containing (best_bid, best_ask) as Decimals,
             or None if the spread is unavailable, stale, or the pair
             is not supported. Returns None if bid >= ask (crossed book).
         """
@@ -110,8 +110,7 @@ class MarketPriceService(abc.ABC):
         self,
         from_amount: Decimal,
         from_currency: str,
-        to_currency: str,
-    ) -> Decimal | None:
+        to_currency: str) -> Decimal | None:
         """Convert an amount from one currency to another.
 
         Args:
@@ -149,7 +148,7 @@ class MarketPriceService(abc.ABC):
 
         Returns:
         -------
-            A list of dictionaries, where each dictionary represents an OHLCV candle:
+            A list[Any] of dictionaries, where each dictionary represents an OHLCV candle:
             {'timestamp': datetime_obj, 'open': Decimal, 'high': Decimal,
              'low': Decimal, 'close': Decimal, 'volume': Decimal},
             or None if data is unavailable or an error occurs. Timestamps are UTC.

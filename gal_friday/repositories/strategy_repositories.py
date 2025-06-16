@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, desc, asc, func
 from sqlalchemy.orm import selectinload
 
-from ..base import BaseRepository
+from gal_friday.dal.repositories.base import BaseRepository
 from ..models.strategy_models import (
     StrategyConfig, 
     StrategyPerformanceSnapshot, 
@@ -23,7 +23,7 @@ from ..models.strategy_models import (
 class StrategyRepository(BaseRepository[StrategyConfig]):
     """Repository for strategy configuration management."""
     
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, StrategyConfig)
     
     async def get_by_strategy_id(self, strategy_id: str) -> Optional[StrategyConfig]:
@@ -50,7 +50,7 @@ class StrategyRepository(BaseRepository[StrategyConfig]):
         
         stmt = stmt.order_by(StrategyConfig.updated_at.desc())
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        return list[Any](result.scalars().all())
     
     async def create_strategy_version(
         self, 
@@ -102,13 +102,13 @@ class StrategyRepository(BaseRepository[StrategyConfig]):
             .limit(limit)
         )
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        return list[Any](result.scalars().all())
 
 
 class PerformanceMetricsRepository(BaseRepository[StrategyPerformanceSnapshot]):
     """Repository for strategy performance metrics."""
     
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, StrategyPerformanceSnapshot)
     
     async def get_latest_performance(
@@ -149,7 +149,7 @@ class PerformanceMetricsRepository(BaseRepository[StrategyPerformanceSnapshot]):
         )
         
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        return list[Any](result.scalars().all())
     
     async def get_top_performers(
         self,
@@ -180,7 +180,7 @@ class PerformanceMetricsRepository(BaseRepository[StrategyPerformanceSnapshot]):
         )
         
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        return list[Any](result.scalars().all())
     
     async def get_performance_comparison(
         self,
@@ -208,7 +208,7 @@ class PerformanceMetricsRepository(BaseRepository[StrategyPerformanceSnapshot]):
         snapshots = result.scalars().all()
         
         # Group by strategy_config_id
-        comparison = {}
+        comparison: Dict[UUID, List[StrategyPerformanceSnapshot]] = {}
         for snapshot in snapshots:
             if snapshot.strategy_config_id not in comparison:
                 comparison[snapshot.strategy_config_id] = []
@@ -220,7 +220,7 @@ class PerformanceMetricsRepository(BaseRepository[StrategyPerformanceSnapshot]):
 class SelectionHistoryRepository(BaseRepository[StrategySelectionEvent]):
     """Repository for strategy selection history."""
     
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, StrategySelectionEvent)
     
     async def get_current_selection(self) -> Optional[StrategySelectionEvent]:
@@ -262,7 +262,7 @@ class SelectionHistoryRepository(BaseRepository[StrategySelectionEvent]):
         )
         
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        return list[Any](result.scalars().all())
     
     async def get_strategy_usage_stats(
         self,
@@ -298,7 +298,7 @@ class SelectionHistoryRepository(BaseRepository[StrategySelectionEvent]):
 class StrategyBacktestRepository(BaseRepository[StrategyBacktestResult]):
     """Repository for strategy backtest results."""
     
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, StrategyBacktestResult)
     
     async def get_latest_backtest(

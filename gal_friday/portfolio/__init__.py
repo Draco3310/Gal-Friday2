@@ -11,8 +11,7 @@ from .reconciliation_service import (
     PositionDiscrepancy,
     ReconciliationReport,
     ReconciliationService,
-    ReconciliationStatus,
-)
+    ReconciliationStatus)
 from .valuation_service import ValuationService
 
 __all__ = [

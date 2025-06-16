@@ -22,5 +22,4 @@ class EventLog(Base):
     __table_args__ = (
         Index("idx_event_logs_timestamp", "timestamp"),
         Index("idx_event_logs_event_type", "event_type"),
-        Index("idx_event_logs_correlation_id", "data", postgresql_using="gin"),
-    )
+        Index("idx_event_logs_correlation_id", "data", postgresql_using="gin"))

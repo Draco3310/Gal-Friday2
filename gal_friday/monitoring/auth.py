@@ -12,8 +12,7 @@ security = HTTPBearer()
 
 def verify_api_key(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
-    config: Annotated[ConfigManager, Depends(lambda: ConfigManager())],
-) -> str:
+    config: Annotated[ConfigManager, Depends(lambda: ConfigManager())]) -> str:
     """Verify API key for dashboard access."""
     expected_token = config.get("dashboard.api_token", "dev-token")
 
@@ -21,7 +20,6 @@ def verify_api_key(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+            headers={"WWW-Authenticate": "Bearer"})
 
     return credentials.credentials

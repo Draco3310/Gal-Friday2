@@ -18,6 +18,7 @@ sys.path.insert(0, str(project_root))
 
 from gal_friday.cli_service_mocks import ConfigManager, LoggerService
 from gal_friday.monitoring.dashboard_service import DashboardService, RealTimeDashboard
+from typing import Any
 
 
 async def create_dashboard_app() -> RealTimeDashboard:

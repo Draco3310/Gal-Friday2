@@ -34,13 +34,13 @@ class OrderRequest:
     client_order_id: str | None = None
     time_in_force: str | None = None
     stop_price: Decimal | None = None
-    metadata: dict[str, Any] | None = None
+    metadata: dict | None = None
 
 @dataclass
 class OrderResponse:
     """Standardized order response from exchange."""
     success: bool
-    exchange_order_ids: list[str]
+    exchange_order_ids: list
     client_order_id: str | None
     error_message: str | None = None
     raw_response: dict[str, Any] | None = None
@@ -68,8 +68,7 @@ class ExecutionAdapter(ABC):
     def __init__(
         self,
         config: ConfigManager,
-        logger: LoggerService,
-    ) -> None:
+        logger: LoggerService) -> None:
         """Initialize the execution adapter.
 
         Args:
@@ -103,7 +102,7 @@ class ExecutionAdapter(ABC):
         ...
 
     @abstractmethod
-    async def place_batch_orders(self, orders: list[Order]) -> list[dict]:
+    async def place_batch_orders(self, orders: list[Order]) -> list[dict[str, Any]]:
         """Place multiple orders simultaneously (if supported).
 
         Args:
@@ -167,8 +166,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
     def __init__(
         self,
         config: ConfigManager,
-        logger: LoggerService,
-    ) -> None:
+        logger: LoggerService) -> None:
         """Initialize the Kraken adapter."""
         super().__init__(config, logger)
 
@@ -212,8 +210,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
 
         self.logger.info(
             "Kraken execution adapter initialized",
-            source_module=self.__class__.__name__,
-        )
+            source_module=self.__class__.__name__)
 
     async def cleanup(self) -> None:
         """Clean up Kraken adapter resources."""
@@ -221,8 +218,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             await self._session.close()
             self.logger.info(
                 "Kraken adapter session closed",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
 
     async def place_order(self, order_request: OrderRequest) -> OrderResponse:
         """Place a single order on Kraken."""
@@ -232,8 +228,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 success=False,
                 exchange_order_ids=[],
                 client_order_id=order_request.client_order_id,
-                error_message="Failed to translate order request to Kraken format",
-            )
+                error_message="Failed to translate order request to Kraken format")
 
         try:
             result = await self._make_private_request("/0/private/AddOrder", kraken_params)
@@ -242,18 +237,16 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             self.logger.exception(
                 "Error placing order on Kraken: %s",
                 str(e),
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return OrderResponse(
                 success=False,
                 exchange_order_ids=[],
                 client_order_id=order_request.client_order_id,
-                error_message=f"Exception during order placement: {e!s}",
-            )
+                error_message=f"Exception during order placement: {e!s}")
 
-    async def place_batch_orders(self, orders: list[Order]) -> list[dict]:
+    async def place_batch_orders(self, orders: list[Order]) -> list[dict[str, Any]]:
         """Place multiple orders on Kraken using AddOrderBatch."""
-        responses: list[dict] = [
+        responses: list[dict[str, Any]] = [
             {
                 "success": False,
                 "exchange_order_ids": [],
@@ -282,8 +275,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             self.logger.exception(
                 "Error placing batch orders on Kraken: %s",
                 str(e),
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             raise ExchangeError(f"add_order_batch failed: {e!s}") from e
 
         if not isinstance(batch_results, list):
@@ -292,8 +284,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         for order_idx, result in zip(pending_indices, batch_results):
             parsed = self._parse_add_order_response(
                 result,
-                str(orders[order_idx].client_order_id),
-            )
+                str(orders[order_idx].client_order_id))
             responses[order_idx] = asdict(parsed)
 
         return responses
@@ -308,8 +299,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 self.logger.error(
                     "Kraken cancel order error: %s",
                     result["error"],
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 return False
 
             count = result.get("result", {}).get("count", 0)
@@ -320,8 +310,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 "Exception cancelling order %s: %s",
                 exchange_order_id,
                 str(e),
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return False
 
     async def get_order_status(self, exchange_order_id: str) -> dict[str, Any] | None:
@@ -334,8 +323,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 self.logger.error(
                     "Kraken query order error: %s",
                     result["error"],
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 return None
 
             orders = result.get("result", {})
@@ -346,8 +334,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 "Exception querying order %s: %s",
                 exchange_order_id,
                 str(e),
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return None
 
     async def get_account_balances(self) -> dict[str, Decimal]:
@@ -359,8 +346,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 self.logger.error(
                     "Kraken balance query error: %s",
                     result["error"],
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 return {}
 
             balances = result.get("result", {})
@@ -374,8 +360,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             self.logger.exception(
                 "Exception getting account balances: %s",
                 str(e),
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return {}
 
     async def get_open_positions(self) -> dict[str, Any]:
@@ -387,8 +372,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 self.logger.error(
                     "Kraken open positions query error: %s",
                     result["error"],
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 return {}
 
             return result.get("result", {})
@@ -397,8 +381,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             self.logger.exception(
                 "Exception getting open positions: %s",
                 str(e),
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return {}
 
     def get_exchange_name(self) -> str:
@@ -420,8 +403,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 self.logger.error(
                     "Error loading Kraken asset pairs: %s",
                     data["error"],
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 return
 
             result = data.get("result", {})
@@ -454,15 +436,13 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             self.logger.info(
                 "Loaded info for %d trading pairs",
                 len(self._pair_info),
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
 
         except Exception as e:
             self.logger.exception(
                 "Exception loading exchange info: %s",
                 str(e),
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
 
     def _translate_order_request_to_kraken(self, order_request: OrderRequest) -> dict[str, Any] | None:
         """Translate standardized order request to Kraken format."""
@@ -471,8 +451,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             self.logger.error(
                 "No pair info for %s",
                 order_request.trading_pair,
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return None
 
         kraken_pair = pair_info.get("altname")
@@ -480,8 +459,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             self.logger.error(
                 "No Kraken pair name for %s",
                 order_request.trading_pair,
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return None
 
         params = {
@@ -513,8 +491,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 exchange_order_ids=[],
                 client_order_id=client_order_id,
                 error_message=str(result["error"]),
-                raw_response=result,
-            )
+                raw_response=result)
 
         kraken_result = result.get("result", {})
         txids = kraken_result.get("txid", [])
@@ -525,15 +502,13 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 exchange_order_ids=[],
                 client_order_id=client_order_id,
                 error_message="No transaction IDs returned",
-                raw_response=result,
-            )
+                raw_response=result)
 
         return OrderResponse(
             success=True,
             exchange_order_ids=txids,
             client_order_id=client_order_id,
-            raw_response=result,
-        )
+            raw_response=result)
 
     async def _make_private_request(self, uri_path: str, data: dict[str, Any]) -> dict[str, Any]:
         """Make authenticated request to Kraken API."""
@@ -573,8 +548,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 "Error in private API request to %s: %s",
                 uri_path,
                 str(e),
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return {"error": [f"Request failed: {e!s}"]}
 
     def _format_decimal(self, value: Decimal, precision: int) -> str:
@@ -591,8 +565,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             quantity=Decimal(str(order.quantity_ordered)),
             price=Decimal(str(order.limit_price)) if order.limit_price is not None else None,
             client_order_id=str(order.client_order_id) if order.client_order_id else None,
-            stop_price=Decimal(str(order.stop_price)) if order.stop_price is not None else None,
-        )
+            stop_price=Decimal(str(order.stop_price)) if order.stop_price is not None else None)
         return self._translate_order_request_to_kraken(request)
 
     def _are_all_contingent_orders(self, orders: list[OrderRequest]) -> bool:
@@ -630,8 +603,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             return BatchOrderResponse(
                 success=batch_result.success_rate >= 0.5,  # Consider batch successful if at least 50% succeed
                 order_results=order_results,
-                error_message=f"Batch execution completed with {batch_result.success_rate:.1%} success rate" if batch_result.success_rate < 1.0 else None,
-            )
+                error_message=f"Batch execution completed with {batch_result.success_rate:.1%} success rate" if batch_result.success_rate < 1.0 else None)
         
         # Fallback to original individual placement
         results = []
@@ -646,5 +618,4 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         return BatchOrderResponse(
             success=overall_success,
             order_results=results,
-            error_message="Some orders failed" if not overall_success else None,
-        )
+            error_message="Some orders failed" if not overall_success else None)

@@ -22,8 +22,7 @@ from ..core.pubsub import PubSubManager
 from ..exceptions import (
     ExecutionHandlerAuthenticationError,
     ExecutionHandlerCriticalError,
-    ExecutionHandlerNetworkError,
-)
+    ExecutionHandlerNetworkError)
 
 # Import the proper interface
 from ..interfaces.execution_handler_interface import (
@@ -33,8 +32,7 @@ from ..interfaces.execution_handler_interface import (
     OrderStatus,
     OrderType,
     PositionInfo,
-    TimeInForce,
-)
+    TimeInForce)
 from ..logger_service import LoggerService
 from ..monitoring_service import MonitoringService
 from ..utils.kraken_api import generate_kraken_signature
@@ -126,23 +124,19 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
 
         # Trading fee configuration
         self._default_maker_fee = self.config.get_decimal(
-            "kraken.default_maker_fee_pct", Decimal("0.0016"),
-        )
+            "kraken.default_maker_fee_pct", Decimal("0.0016"))
         self._default_taker_fee = self.config.get_decimal(
-            "kraken.default_taker_fee_pct", Decimal("0.0026"),
-        )
+            "kraken.default_taker_fee_pct", Decimal("0.0026"))
 
         # Validate API credentials
         if not self._api_key or not self._api_secret:
             self.logger.warning(
                 "Kraken API credentials not configured. Live trading will not be available.",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
 
         self.logger.info(
             "KrakenExecutionHandler initialized.",
-            source_module=self.__class__.__name__,
-        )
+            source_module=self.__class__.__name__)
 
     # Core trading operations - implementing ExecutionHandlerInterface
 
@@ -157,8 +151,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         try:
             self.logger.info(
                 f"Submitting {order_request.side} {order_request.order_type.name} order for {order_request.symbol}",  # noqa: E501
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
 
             # Validate order request
             validation_errors = self.validate_order_request(order_request)
@@ -168,8 +161,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 return OrderResponse(
                     success=False,
                     error_code="VALIDATION_ERROR",
-                    error_message=error_msg,
-                )
+                    error_message=error_msg)
 
             # Convert to Kraken format
             kraken_params = self._convert_order_request_to_kraken(order_request)
@@ -185,12 +177,10 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
             return OrderResponse(
                 success=False,
                 error_code="INTERNAL_ERROR",
-                error_message=f"Failed to submit order: {e!s}",
-            )
+                error_message=f"Failed to submit order: {e!s}")
 
     async def cancel_order(
-        self, exchange_order_id: str, symbol: str | None = None,
-    ) -> OrderResponse:
+        self, exchange_order_id: str, symbol: str | None = None) -> OrderResponse:
         """Cancel an existing order.
 
         Args:
@@ -203,8 +193,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         try:
             self.logger.info(
                 f"Cancelling order: {exchange_order_id}",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
 
             uri_path = "/0/private/CancelOrder"
             params = {"txid": exchange_order_id}
@@ -216,8 +205,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                     success=False,
                     exchange_order_id=exchange_order_id,
                     error_code="CANCEL_FAILED",
-                    error_message=str(result["error"]),
-                )
+                    error_message=str(result["error"]))
 
             # Check cancellation count
             count = result.get("result", {}).get("count", 0)
@@ -225,14 +213,12 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 return OrderResponse(
                     success=True,
                     exchange_order_id=exchange_order_id,
-                    status=OrderStatus.CANCELLED,
-                )
+                    status=OrderStatus.CANCELLED)
             return OrderResponse(
                 success=False,
                 exchange_order_id=exchange_order_id,
                 error_code="NOT_CANCELLED",
-                error_message="Order may already be in terminal state",
-            )
+                error_message="Order may already be in terminal state")
 
         except Exception as e:
             await self._trigger_halt_if_needed(e, {"exchange_order_id": exchange_order_id})
@@ -240,12 +226,10 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 success=False,
                 exchange_order_id=exchange_order_id,
                 error_code="INTERNAL_ERROR",
-                error_message=f"Failed to cancel order: {e!s}",
-            )
+                error_message=f"Failed to cancel order: {e!s}")
 
     async def modify_order(
-        self, exchange_order_id: str, modifications: dict[str, Any],
-    ) -> OrderResponse:
+        self, exchange_order_id: str, modifications: dict[str, Any]) -> OrderResponse:
         """Modify an existing order (if supported by exchange).
 
         Args:
@@ -258,8 +242,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         try:
             self.logger.info(
                 f"Modifying order {exchange_order_id}: {modifications}",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
 
             # Build modification parameters
             kraken_params = {"txid": exchange_order_id}
@@ -280,14 +263,12 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                     success=False,
                     exchange_order_id=exchange_order_id,
                     error_code="MODIFY_FAILED",
-                    error_message=str(result["error"]),
-                )
+                    error_message=str(result["error"]))
 
             return OrderResponse(
                 success=True,
                 exchange_order_id=exchange_order_id,
-                status=OrderStatus.OPEN,
-            )
+                status=OrderStatus.OPEN)
 
         except Exception as e:
             await self._trigger_halt_if_needed(e, {"exchange_order_id": exchange_order_id})
@@ -295,12 +276,10 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 success=False,
                 exchange_order_id=exchange_order_id,
                 error_code="INTERNAL_ERROR",
-                error_message=f"Failed to modify order: {e!s}",
-            )
+                error_message=f"Failed to modify order: {e!s}")
 
     async def get_order_status(
-        self, exchange_order_id: str,
-    ) -> OrderResponse:
+        self, exchange_order_id: str) -> OrderResponse:
         """Get current status of an order.
 
         Args:
@@ -320,8 +299,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                     success=False,
                     exchange_order_id=exchange_order_id,
                     error_code="QUERY_FAILED",
-                    error_message=str(result["error"]),
-                )
+                    error_message=str(result["error"]))
 
             order_data = result.get("result", {}).get(exchange_order_id)
             if not order_data:
@@ -329,8 +307,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                     success=False,
                     exchange_order_id=exchange_order_id,
                     error_code="ORDER_NOT_FOUND",
-                    error_message="Order not found",
-                )
+                    error_message="Order not found")
 
             return self._parse_order_data_to_response(order_data, exchange_order_id)
 
@@ -340,8 +317,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 success=False,
                 exchange_order_id=exchange_order_id,
                 error_code="INTERNAL_ERROR",
-                error_message=f"Failed to query order: {e!s}",
-            )
+                error_message=f"Failed to query order: {e!s}")
 
     # Portfolio and position management
 
@@ -358,8 +334,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
             if result.get("error"):
                 self.logger.error(
                     f"Failed to get account balance: {result['error']}",
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 return {}
 
             balances = {}
@@ -370,8 +345,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 except (ValueError, TypeError):
                     self.logger.warning(
                         f"Invalid balance value for {currency}: {balance_str}",
-                        source_module=self.__class__.__name__,
-                    )
+                        source_module=self.__class__.__name__)
 
             return balances
 
@@ -379,13 +353,11 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
             await self._trigger_halt_if_needed(e, {"operation": "get_account_balance"})
             self.logger.error(
                 f"Failed to get account balance: {e!s}",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return {}
 
     async def get_positions(
-        self, symbol: str | None = None,
-    ) -> list[PositionInfo]:
+        self, symbol: str | None = None) -> list[PositionInfo]:
         """Get current positions.
 
         Args:
@@ -405,8 +377,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
             if result.get("error"):
                 self.logger.error(
                     f"Failed to get positions: {result['error']}",
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 return []
 
             positions = []
@@ -420,8 +391,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 except Exception as e:
                     self.logger.warning(
                         f"Failed to parse position {pos_id}: {e!s}",
-                        source_module=self.__class__.__name__,
-                    )
+                        source_module=self.__class__.__name__)
 
             return positions
 
@@ -429,14 +399,13 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
             await self._trigger_halt_if_needed(e, {"operation": "get_positions"})
             self.logger.error(
                 f"Failed to get positions: {e!s}",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return []
 
     # Market data and exchange info
 
     async def get_supported_assets(self) -> list[AssetSpecification]:
-        """Get list of assets supported by this exchange.
+        """Get list[Any] of assets supported by this exchange.
 
         Returns:
             List of asset specifications
@@ -451,8 +420,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
             if not result or result.get("error"):
                 self.logger.error(
                     f"Failed to get asset pairs: {result.get('error') if result else 'No response'}",  # noqa: E501
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 return []
 
             assets = []
@@ -466,8 +434,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 except Exception as e:
                     self.logger.warning(
                         f"Failed to parse asset pair {pair_name}: {e!s}",
-                        source_module=self.__class__.__name__,
-                    )
+                        source_module=self.__class__.__name__)
 
             return assets
 
@@ -475,13 +442,11 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
             await self._trigger_halt_if_needed(e, {"operation": "get_supported_assets"})
             self.logger.error(
                 f"Failed to get supported assets: {e!s}",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return []
 
     async def get_trading_fees(
-        self, symbol: str,
-    ) -> dict[str, Decimal]:
+        self, symbol: str) -> dict[str, Decimal]:
         """Get trading fees for a symbol.
 
         Args:
@@ -499,8 +464,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
             if result.get("error"):
                 self.logger.warning(
                     f"Failed to get trading fees for {symbol}: {result['error']}",
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 # Return default fees
                 return {
                     "maker_fee": self._default_maker_fee,
@@ -518,12 +482,10 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
 
         except Exception as e:
             await self._trigger_halt_if_needed(
-                e, {"operation": "get_trading_fees", "symbol": symbol},
-            )
+                e, {"operation": "get_trading_fees", "symbol": symbol})
             self.logger.error(
                 f"Failed to get trading fees for {symbol}: {e!s}",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return {
                 "maker_fee": self._default_maker_fee,
                 "taker_fee": self._default_taker_fee,
@@ -548,22 +510,19 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 self._connected = True
                 self.logger.info(
                     "Successfully connected to Kraken exchange",
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 return True
             self._connected = False
             self.logger.error(
                 f"Failed to connect to Kraken: {result.get('error') if result else 'No response'}",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return False
 
         except Exception as e:
             self._connected = False
             self.logger.error(
                 f"Failed to connect to Kraken: {e!s}",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return False
 
     async def disconnect(self) -> None:
@@ -571,8 +530,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         self._connected = False
         self.logger.info(
             "Disconnected from Kraken exchange",
-            source_module=self.__class__.__name__,
-        )
+            source_module=self.__class__.__name__)
 
     async def is_connected(self) -> bool:
         """Check if connected to exchange.
@@ -585,8 +543,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
     # Helper methods for data conversion and parsing
 
     def normalize_symbol_for_exchange(
-        self, universal_symbol: str,
-    ) -> str:
+        self, universal_symbol: str) -> str:
         """Convert universal symbol to exchange-specific format.
 
         Args:
@@ -647,16 +604,14 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         return kraken_params
 
     def _parse_add_order_response(
-        self, result: dict[str, Any], order_request: OrderRequest,
-    ) -> OrderResponse:
+        self, result: dict[str, Any], order_request: OrderRequest) -> OrderResponse:
         """Parse Kraken AddOrder response into OrderResponse."""
         if result.get("error"):
             return OrderResponse(
                 success=False,
                 client_order_id=order_request.client_order_id,
                 error_code="KRAKEN_ERROR",
-                error_message=str(result["error"]),
-            )
+                error_message=str(result["error"]))
 
         order_result = result.get("result", {})
         txids = order_result.get("txid", [])
@@ -666,20 +621,17 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 success=False,
                 client_order_id=order_request.client_order_id,
                 error_code="NO_ORDER_ID",
-                error_message="No order ID returned from Kraken",
-            )
+                error_message="No order ID returned from Kraken")
 
         return OrderResponse(
             success=True,
             exchange_order_id=txids[0],
             client_order_id=order_request.client_order_id,
             status=OrderStatus.PENDING,
-            created_at=datetime.utcnow(),
-        )
+            created_at=datetime.utcnow())
 
     def _parse_order_data_to_response(
-        self, order_data: dict[str, Any], exchange_order_id: str,
-    ) -> OrderResponse:
+        self, order_data: dict[str, Any], exchange_order_id: str) -> OrderResponse:
         """Parse Kraken order data into OrderResponse."""
         try:
             # Map Kraken status to our status enum
@@ -707,16 +659,14 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 remaining_quantity=Decimal(vol) - Decimal(vol_exec),
                 average_fill_price=Decimal(price) if price else None,
                 commission=Decimal(fee),
-                raw_response=order_data,
-            )
+                raw_response=order_data)
 
         except Exception as e:
             return OrderResponse(
                 success=False,
                 exchange_order_id=exchange_order_id,
                 error_code="PARSE_ERROR",
-                error_message=f"Failed to parse order data: {e!s}",
-            )
+                error_message=f"Failed to parse order data: {e!s}")
 
     def _parse_position_data(self, pos_id: str, pos_info: dict[str, Any]) -> PositionInfo | None:
         """Parse Kraken position data into PositionInfo."""
@@ -738,19 +688,16 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 quantity=quantity,
                 average_entry_price=avg_price,
                 unrealized_pnl=Decimal(pos_info.get("net", "0")),
-                raw_data=pos_info,
-            )
+                raw_data=pos_info)
 
         except Exception as e:
             self.logger.warning(
                 f"Failed to parse position data for {pos_id}: {e!s}",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return None
 
     def _parse_asset_pair_to_spec(
-        self, pair_name: str, pair_info: dict[str, Any],
-    ) -> AssetSpecification | None:
+        self, pair_name: str, pair_info: dict[str, Any]) -> AssetSpecification | None:
         """Parse Kraken asset pair into AssetSpecification."""
         try:
             from ..core.asset_registry import AssetType
@@ -764,19 +711,16 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 tick_size=Decimal(pair_info.get("tick_size", "0.01")),
                 lot_size=Decimal("1"),  # Default for Kraken
                 exchange_symbol=pair_info.get("altname", pair_name),
-                exchange_metadata=pair_info,
-            )
+                exchange_metadata=pair_info)
 
         except Exception as e:
             self.logger.warning(
                 f"Failed to parse asset pair {pair_name}: {e!s}",
-                source_module=self.__class__.__name__,
-            )
+                source_module=self.__class__.__name__)
             return None
 
     async def _trigger_halt_if_needed(
-        self, error: Exception, context: dict[str, Any],
-    ) -> None:
+        self, error: Exception, context: dict[str, Any]) -> None:
         """Trigger system HALT if error conditions warrant it.
 
         Args:
@@ -789,8 +733,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         should_halt = (
             isinstance(
                 error,
-                ExecutionHandlerCriticalError | ExecutionHandlerAuthenticationError,
-            ) or
+                ExecutionHandlerCriticalError | ExecutionHandlerAuthenticationError) or
             self._consecutive_errors >= self._max_consecutive_errors
         )
 
@@ -799,8 +742,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 source_module=self.__class__.__name__,
                 event_id=uuid.uuid4(),
                 timestamp=datetime.now(UTC),
-                reason=f"Critical execution handler error: {error!s}",
-            )
+                reason=f"Critical execution handler error: {error!s}")
             await self.pubsub.publish(halt_event)
             self.logger.critical(
                 "Triggered potential system HALT due to execution handler errors",
@@ -810,12 +752,10 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                     "consecutive_errors": self._consecutive_errors,
                     "exchange": "kraken",
                     **context,
-                },
-            )
+                })
 
     async def _make_private_request_with_retry(
-        self, uri_path: str, params: dict[str, Any],
-    ) -> dict[str, Any]:
+        self, uri_path: str, params: dict[str, Any]) -> dict[str, Any]:
         """Make authenticated request to Kraken with retry logic."""
         import asyncio
         from typing import cast
@@ -837,9 +777,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                         url,
                         headers=headers,
                         data=params,
-                        timeout=aiohttp.ClientTimeout(total=self._request_timeout),
-                    ) as response,
-                ):
+                        timeout=aiohttp.ClientTimeout(total=self._request_timeout)) as response):
                     response.raise_for_status()
                     result = cast("dict[str, Any]", await response.json())
 
@@ -855,14 +793,12 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                     self.logger.warning(
                         f"Request failed (attempt {attempt + 1}/"
                         f"{self._max_retries + 1}), retrying in {wait_time}s: {e!s}",
-                        source_module=self.__class__.__name__,
-                    )
+                        source_module=self.__class__.__name__)
                     await asyncio.sleep(wait_time)
                     continue
 
                 raise ExecutionHandlerNetworkError(
-                    f"Request failed after {self._max_retries + 1} attempts: {e!s}",
-                ) from e
+                    f"Request failed after {self._max_retries + 1} attempts: {e!s}") from e
 
         # Should not reach here, but just in case
         return {"error": ["Request failed"]}
@@ -880,9 +816,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                     aiohttp.ClientSession() as session,
                     session.get(
                         url,
-                        timeout=aiohttp.ClientTimeout(total=self._request_timeout),
-                    ) as response,
-                ):
+                        timeout=aiohttp.ClientTimeout(total=self._request_timeout)) as response):
                     response.raise_for_status()
                     return cast("dict[str, Any]", await response.json())
 
@@ -892,22 +826,19 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                     self.logger.warning(
                         f"Public request failed (attempt {attempt + 1}/"
                         f"{self._max_retries + 1}), retrying in {wait_time}s: {e!s}",
-                        source_module=self.__class__.__name__,
-                    )
+                        source_module=self.__class__.__name__)
                     await asyncio.sleep(wait_time)
                     continue
 
                 self.logger.error(
                     f"Public request failed after {self._max_retries + 1} attempts: {e!s}",
-                    source_module=self.__class__.__name__,
-                )
+                    source_module=self.__class__.__name__)
                 return None
 
         return None
 
     def _generate_auth_headers(
-        self, uri_path: str, request_data: dict[str, Any],
-    ) -> dict[str, str]:
+        self, uri_path: str, request_data: dict[str, Any]) -> dict[str, str]:
         """Generate Kraken-specific authentication headers."""
         if not self._api_key or not self._api_secret:
             raise KrakenCredentialsMissingError

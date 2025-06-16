@@ -77,7 +77,7 @@ class FeatureSpec(BaseModel):
                 )
             return self.default_value
         
-        # Type validation
+        # Type[Any] validation
         if self.data_type == "float":
             try:
                 value = float(value)
@@ -350,7 +350,7 @@ class PublishedFeaturesV1(BaseModel):
         return completeness
 
     def get_missing_optional_features(self) -> list[str]:
-        """Get list of optional features that are missing (None/default).
+        """Get list[Any] of optional features that are missing (None/default).
         
         Returns:
             List of optional feature names that are missing
@@ -408,6 +408,8 @@ _default_specs = [
     FeatureSpec(
         name="rsi_14_default",
         required=True,
+        default_value=None,
+        data_type="float",
         validation_rules={"min_value": 0, "max_value": 100},
         description="14-period RSI technical indicator"
     ),
@@ -423,6 +425,7 @@ _default_specs = [
         name="volatility_percentile",
         required=False,
         default_value=50.0,
+        data_type="float",
         validation_rules={"min_value": 0, "max_value": 100},
         description="Current volatility as percentile of historical range"
     ),
@@ -430,6 +433,7 @@ _default_specs = [
         name="liquidity_score", 
         required=False,
         default_value=1.0,
+        data_type="float",
         validation_rules={"min_value": 0, "max_value": 10},
         description="Market liquidity score (0-10 scale)"
     ),

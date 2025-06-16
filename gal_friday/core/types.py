@@ -9,8 +9,7 @@ from __future__ import annotations
 
 from collections.abc import (
     Awaitable,  # For PubSubManagerProtocol
-    Callable,
-)
+    Callable)
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Protocol, TypeVar, runtime_checkable
@@ -138,7 +137,7 @@ class ExecutionHandler(Protocol):
 class PubSubManager(Protocol):
     """Protocol for pub/sub management."""
 
-    def subscribe(self, channel: str, callback: Callable[[object], Awaitable[None]]) -> None:
+    def subscribe(self, channel: str, callback: Callable[..., Awaitable[None]]) -> None:
         ...
 
     def publish(self, channel: str, message: object) -> None:
@@ -154,30 +153,28 @@ class BacktestHistoricalDataProvider(Protocol):
         trading_pair: str,
         start_time: datetime,
         end_time: datetime,
-        interval: str = "1d",
-    ) -> pd.DataFrame | None:
+        interval: str = "1d") -> pd.DataFrame | None:
         ...
 
     def get_historical_trades(
         self,
         trading_pair: str,
         start_time: datetime,
-        end_time: datetime,
-    ) -> pd.DataFrame | None:
+        end_time: datetime) -> pd.DataFrame | None:
         ...
 
 
 class ServiceProtocol(Protocol):
     """Protocol for application services."""
 
-    async def initialize(self, *args, **kwargs) -> None:
+    async def initialize(self, *args: Any, **kwargs: Any) -> None:
         """Initialize the service."""
 
     async def start(self) -> None:
         """Start the service."""
 
 
-# Type aliases for better readability
+# Type[Any] aliases for better readability
 LoggerServiceType = LoggerService
 SimulatedMarketPriceServiceType = MarketPriceService
 PortfolioManagerType = PortfolioManager

@@ -6,11 +6,12 @@ via configuration. It replaces the temporary talib_stubs.py file.
 """
 
 from abc import ABC, abstractmethod
-from typing import Union, Optional, Tuple, Dict, Any
+from typing import Union, Optional, Tuple, Dict, Any, cast
 import numpy as np
 import pandas as pd
 import logging
 from decimal import Decimal
+from typing import Any
 
 # Optional imports with graceful fallback
 try:
@@ -32,19 +33,19 @@ class TechnicalAnalysisInterface(ABC):
     """Abstract interface for technical analysis calculations."""
     
     @abstractmethod
-    def rsi(self, close: np.ndarray, timeperiod: int = 14) -> np.ndarray:
+    def rsi(self, close: np.ndarray[Any, Any], timeperiod: int = 14) -> np.ndarray[Any, Any]:
         """Calculate Relative Strength Index."""
         pass
     
     @abstractmethod
     def bbands(
         self, 
-        close: np.ndarray, 
+        close: np.ndarray[Any, Any], 
         timeperiod: int = 20,  # Changed from 5 to match standard
         nbdevup: float = 2.0,
         nbdevdn: float = 2.0,
         matype: int = 0
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands.
         
         Returns:
@@ -53,23 +54,23 @@ class TechnicalAnalysisInterface(ABC):
         pass
     
     @abstractmethod
-    def ema(self, close: np.ndarray, timeperiod: int = 30) -> np.ndarray:
+    def ema(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate Exponential Moving Average."""
         pass
     
     @abstractmethod
-    def sma(self, close: np.ndarray, timeperiod: int = 30) -> np.ndarray:
+    def sma(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate Simple Moving Average."""
         pass
     
     @abstractmethod
     def macd(
         self,
-        close: np.ndarray,
+        close: np.ndarray[Any, Any],
         fastperiod: int = 12,
         slowperiod: int = 26,
         signalperiod: int = 9
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Moving Average Convergence/Divergence.
         
         Returns:
@@ -80,11 +81,11 @@ class TechnicalAnalysisInterface(ABC):
     @abstractmethod
     def atr(
         self,
-        high: np.ndarray,
-        low: np.ndarray, 
-        close: np.ndarray,
+        high: np.ndarray[Any, Any],
+        low: np.ndarray[Any, Any], 
+        close: np.ndarray[Any, Any],
         timeperiod: int = 14
-    ) -> np.ndarray:
+    ) -> np.ndarray[Any, Any]:
         """Calculate Average True Range."""
         pass
 
@@ -92,24 +93,33 @@ class TechnicalAnalysisInterface(ABC):
 class PandasTAImplementation(TechnicalAnalysisInterface):
     """Production implementation using pandas-ta library."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         if not PANDAS_TA_AVAILABLE:
             raise ImportError("pandas-ta library not installed. Run: pip install pandas-ta")
         self.logger = logging.getLogger(__name__)
     
-    def _validate_and_convert(self, data: np.ndarray, min_length: int = 1) -> pd.Series:
-        """Validate and convert input data to pandas Series."""
-        if not isinstance(data, (np.ndarray, pd.Series)):
-            data = np.array(data, dtype=np.float64)
+    def _validate_and_convert(self, data: np.ndarray[Any, Any] | pd.Series[Any] | list[float], min_length: int = 1) -> pd.Series[Any]:
+        """Validate and convert input data to pandas Series.
         
-        if len(data) < min_length:
-            raise ValueError(f"Insufficient data: need at least {min_length} points, got {len(data)}")
-        
-        # Convert to pandas Series for pandas-ta
-        if isinstance(data, np.ndarray):
+        Args:
+            data: Input data as numpy array, pandas Series, or list
+            min_length: Minimum required data length
+            
+        Returns:
+            Pandas Series with float64 dtype
+        """
+        # Convert to pandas Series based on input type
+        if isinstance(data, pd.Series):
+            series = data.astype(np.float64)
+        elif isinstance(data, np.ndarray):
             series = pd.Series(data, dtype=np.float64)
         else:
-            series = data.astype(np.float64)
+            # Handle lists or other array-like objects
+            series = pd.Series(data, dtype=np.float64)
+        
+        # Validate length
+        if len(series) < min_length:
+            raise ValueError(f"Insufficient data: need at least {min_length} points, got {len(series)}")
         
         # Handle NaN values - forward fill then backward fill
         if series.isna().any():
@@ -118,7 +128,7 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         
         return series
     
-    def rsi(self, close: np.ndarray, timeperiod: int = 14) -> np.ndarray:
+    def rsi(self, close: np.ndarray[Any, Any], timeperiod: int = 14) -> np.ndarray[Any, Any]:
         """Calculate Relative Strength Index using pandas-ta."""
         close_series = self._validate_and_convert(close, timeperiod + 1)
         
@@ -131,12 +141,12 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
     
     def bbands(
         self, 
-        close: np.ndarray, 
+        close: np.ndarray[Any, Any], 
         timeperiod: int = 20,
         nbdevup: float = 2.0,
         nbdevdn: float = 2.0,
         matype: int = 0
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using pandas-ta."""
         close_series = self._validate_and_convert(close, timeperiod)
         
@@ -164,9 +174,13 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         middle = middle.fillna(close_series)
         lower = lower.fillna(close_series)
         
-        return (upper.values, middle.values, lower.values)
+        return (
+            cast(np.ndarray[Any, Any], upper.values),
+            cast(np.ndarray[Any, Any], middle.values),
+            cast(np.ndarray[Any, Any], lower.values)
+        )
     
-    def ema(self, close: np.ndarray, timeperiod: int = 30) -> np.ndarray:
+    def ema(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate Exponential Moving Average using pandas-ta."""
         close_series = self._validate_and_convert(close, 1)
         
@@ -177,7 +191,7 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         
         return result.values
     
-    def sma(self, close: np.ndarray, timeperiod: int = 30) -> np.ndarray:
+    def sma(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate Simple Moving Average using pandas-ta."""
         close_series = self._validate_and_convert(close, timeperiod)
         
@@ -190,11 +204,11 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
     
     def macd(
         self,
-        close: np.ndarray,
+        close: np.ndarray[Any, Any],
         fastperiod: int = 12,
         slowperiod: int = 26,
         signalperiod: int = 9
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using pandas-ta."""
         close_series = self._validate_and_convert(close, slowperiod)
         
@@ -226,11 +240,11 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
     
     def atr(
         self,
-        high: np.ndarray,
-        low: np.ndarray,
-        close: np.ndarray,
+        high: np.ndarray[Any, Any],
+        low: np.ndarray[Any, Any],
+        close: np.ndarray[Any, Any],
         timeperiod: int = 14
-    ) -> np.ndarray:
+    ) -> np.ndarray[Any, Any]:
         """Calculate Average True Range using pandas-ta."""
         high_series = self._validate_and_convert(high, timeperiod)
         low_series = self._validate_and_convert(low, timeperiod)
@@ -247,95 +261,106 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
 class TALibImplementation(TechnicalAnalysisInterface):
     """Implementation using the actual TA-Lib library."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         if not TALIB_AVAILABLE:
             raise ImportError("TA-Lib library not installed. See https://github.com/mrjbq7/ta-lib for installation instructions.")
         self.logger = logging.getLogger(__name__)
     
-    def _validate_input(self, data: np.ndarray, min_length: int = 1) -> np.ndarray:
-        """Validate and clean input data."""
-        if not isinstance(data, np.ndarray):
-            data = np.array(data, dtype=np.float64)
+    def _validate_input(self, data: np.ndarray[Any, Any] | list[float], min_length: int = 1) -> np.ndarray[Any, Any]:
+        """Validate and clean input data.
         
-        if len(data) < min_length:
+        Args:
+            data: Input data as numpy array or list
+            min_length: Minimum required data length
+            
+        Returns:
+            Numpy array with float64 dtype
+        """
+        # Ensure we have a numpy array
+        if isinstance(data, np.ndarray):
+            arr = data.astype(np.float64)
+        else:
+            arr = np.array(data, dtype=np.float64)
+        
+        if len(arr) < min_length:
             raise ValueError(f"Insufficient data: need at least {min_length} points")
         
         # TA-Lib handles NaN differently, so we need to be careful
-        if np.isnan(data).any():
+        if np.isnan(arr).any():
             self.logger.warning("NaN values detected in input data")
         
-        return data.astype(np.float64)
+        return arr
     
-    def rsi(self, close: np.ndarray, timeperiod: int = 14) -> np.ndarray:
+    def rsi(self, close: np.ndarray[Any, Any], timeperiod: int = 14) -> np.ndarray[Any, Any]:
         """Calculate RSI using TA-Lib."""
         close = self._validate_input(close, timeperiod + 1)
-        return talib.RSI(close, timeperiod=timeperiod)
+        return cast(np.ndarray[Any, Any], talib.RSI(close, timeperiod=timeperiod))
     
     def bbands(
         self, 
-        close: np.ndarray, 
+        close: np.ndarray[Any, Any], 
         timeperiod: int = 20,
         nbdevup: float = 2.0,
         nbdevdn: float = 2.0,
         matype: int = 0
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using TA-Lib."""
         close = self._validate_input(close, timeperiod)
-        return talib.BBANDS(close, timeperiod=timeperiod, nbdevup=nbdevup, nbdevdn=nbdevdn, matype=matype)
+        return cast(np.ndarray[Any, Any], talib.BBANDS(close, timeperiod=timeperiod, nbdevup=nbdevup, nbdevdn=nbdevdn, matype=matype))
     
-    def ema(self, close: np.ndarray, timeperiod: int = 30) -> np.ndarray:
+    def ema(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate EMA using TA-Lib."""
         close = self._validate_input(close)
-        return talib.EMA(close, timeperiod=timeperiod)
+        return cast(np.ndarray[Any, Any], talib.EMA(close, timeperiod=timeperiod))
     
-    def sma(self, close: np.ndarray, timeperiod: int = 30) -> np.ndarray:
+    def sma(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate SMA using TA-Lib."""
         close = self._validate_input(close, timeperiod)
-        return talib.SMA(close, timeperiod=timeperiod)
+        return cast(np.ndarray[Any, Any], talib.SMA(close, timeperiod=timeperiod))
     
     def macd(
         self,
-        close: np.ndarray,
+        close: np.ndarray[Any, Any],
         fastperiod: int = 12,
         slowperiod: int = 26,
         signalperiod: int = 9
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using TA-Lib."""
         close = self._validate_input(close, slowperiod)
-        return talib.MACD(close, fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod)
+        return cast(np.ndarray[Any, Any], talib.MACD(close, fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod))
     
     def atr(
         self,
-        high: np.ndarray,
-        low: np.ndarray,
-        close: np.ndarray,
+        high: np.ndarray[Any, Any],
+        low: np.ndarray[Any, Any],
+        close: np.ndarray[Any, Any],
         timeperiod: int = 14
-    ) -> np.ndarray:
+    ) -> np.ndarray[Any, Any]:
         """Calculate ATR using TA-Lib."""
         high = self._validate_input(high, timeperiod)
         low = self._validate_input(low, timeperiod)
         close = self._validate_input(close, timeperiod)
-        return talib.ATR(high, low, close, timeperiod=timeperiod)
+        return cast(np.ndarray[Any, Any], talib.ATR(high, low, close, timeperiod=timeperiod))
 
 
 class StubImplementation(TechnicalAnalysisInterface):
     """Stub implementation for testing with more realistic behavior."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
     
-    def rsi(self, close: np.ndarray, timeperiod: int = 14) -> np.ndarray:
+    def rsi(self, close: np.ndarray[Any, Any], timeperiod: int = 14) -> np.ndarray[Any, Any]:
         """Return neutral RSI values for testing."""
         return np.full(len(close), 50.0)
     
     def bbands(
         self, 
-        close: np.ndarray, 
+        close: np.ndarray[Any, Any], 
         timeperiod: int = 20,
         nbdevup: float = 2.0,
         nbdevdn: float = 2.0,
         matype: int = 0
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Return simple bands based on close price."""
         if len(close) < timeperiod:
             middle = close
@@ -350,7 +375,7 @@ class StubImplementation(TechnicalAnalysisInterface):
         
         return (upper, middle, lower)
     
-    def ema(self, close: np.ndarray, timeperiod: int = 30) -> np.ndarray:
+    def ema(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Return simple exponential smoothing for testing."""
         if len(close) == 0:
             return np.array([])
@@ -364,7 +389,7 @@ class StubImplementation(TechnicalAnalysisInterface):
         
         return result
     
-    def sma(self, close: np.ndarray, timeperiod: int = 30) -> np.ndarray:
+    def sma(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Return simple moving average for testing."""
         if len(close) < timeperiod:
             return close
@@ -372,22 +397,22 @@ class StubImplementation(TechnicalAnalysisInterface):
     
     def macd(
         self,
-        close: np.ndarray,
+        close: np.ndarray[Any, Any],
         fastperiod: int = 12,
         slowperiod: int = 26,
         signalperiod: int = 9
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Return zero MACD values for testing."""
         zeros = np.zeros(len(close))
         return (zeros, zeros, zeros)
     
     def atr(
         self,
-        high: np.ndarray,
-        low: np.ndarray,
-        close: np.ndarray,
+        high: np.ndarray[Any, Any],
+        low: np.ndarray[Any, Any],
+        close: np.ndarray[Any, Any],
         timeperiod: int = 14
-    ) -> np.ndarray:
+    ) -> np.ndarray[Any, Any]:
         """Return simple volatility measure for testing."""
         # Simple range calculation
         true_range = high - low
@@ -445,47 +470,44 @@ def _get_service() -> TechnicalAnalysisInterface:
 
 
 # Wrapper functions for backward compatibility
-def rsi(close: np.ndarray, timeperiod: int = 14) -> np.ndarray:
+def rsi(close: np.ndarray[Any, Any], timeperiod: int = 14) -> np.ndarray[Any, Any]:
     """Calculate Relative Strength Index."""
     return _get_service().rsi(close, timeperiod)
 
 
 def bbands(
-    close: np.ndarray,
+    close: np.ndarray[Any, Any],
     timeperiod: int = 20,
     nbdevup: float = 2.0,
     nbdevdn: float = 2.0,
-    matype: int = 0,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    matype: int = 0) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
     """Calculate Bollinger Bands."""
     return _get_service().bbands(close, timeperiod, nbdevup, nbdevdn, matype)
 
 
-def ema(close: np.ndarray, timeperiod: int = 30) -> np.ndarray:
+def ema(close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
     """Calculate Exponential Moving Average."""
     return _get_service().ema(close, timeperiod)
 
 
-def sma(close: np.ndarray, timeperiod: int = 30) -> np.ndarray:
+def sma(close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
     """Calculate Simple Moving Average."""
     return _get_service().sma(close, timeperiod)
 
 
 def macd(
-    close: np.ndarray,
+    close: np.ndarray[Any, Any],
     fastperiod: int = 12,
     slowperiod: int = 26,
-    signalperiod: int = 9,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    signalperiod: int = 9) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
     """Calculate Moving Average Convergence/Divergence."""
     return _get_service().macd(close, fastperiod, slowperiod, signalperiod)
 
 
 def atr(
-    high: np.ndarray,
-    low: np.ndarray,
-    close: np.ndarray,
-    timeperiod: int = 14,
-) -> np.ndarray:
+    high: np.ndarray[Any, Any],
+    low: np.ndarray[Any, Any],
+    close: np.ndarray[Any, Any],
+    timeperiod: int = 14) -> np.ndarray[Any, Any]:
     """Calculate Average True Range."""
     return _get_service().atr(high, low, close, timeperiod)

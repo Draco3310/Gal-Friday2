@@ -23,7 +23,7 @@ class InferenceRequest:
     model_id: str
     model_path: str
     scaler_path: str | None
-    feature_vector: np.ndarray
+    feature_vector: np.ndarray[Any, Any]
     model_feature_names: list[str]
     predictor_specific_config: dict[str, Any]
 
@@ -32,7 +32,7 @@ class InferenceRequest:
 class ModelWithProba(Protocol):
     """Protocol for models that implement predict_proba method."""
 
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Predict class probabilities for samples.
 
         Args:
@@ -51,7 +51,7 @@ class ModelWithPredict(Protocol):
     capabilities through a `predict` method, which is common in scikit-learn
     compatible models.
     """
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Predict target values for the input data.
 
         Args:
@@ -69,7 +69,7 @@ class Model(ModelWithPredict, Protocol):
     This protocol extends ModelWithPredict to include the predict_proba method,
     which is used by classifiers that can predict class probabilities.
     """
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Predict class probabilities for the input data.
 
         Args:
@@ -87,7 +87,7 @@ class Transformer(Protocol):
     This protocol defines the interface for transformers that can transform
     input data, typically used for feature scaling or other preprocessing steps.
     """
-    def transform(self, x: np.ndarray) -> np.ndarray:
+    def transform(self, x: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Transform input data.
 
         Args:
@@ -106,8 +106,7 @@ class SKLearnPredictor(PredictorInterface):
         self,
         model_path: str,
         model_id: str,
-        config: dict[str, Any] | None = None,
-    ) -> None:
+        config: dict[str, Any] | None = None) -> None:
         """Initialize the SKLearn predictor.
 
         Args:
@@ -176,14 +175,13 @@ class SKLearnPredictor(PredictorInterface):
         # Load Scaler
         self.scaler = None # Scaler is no longer loaded or used by this predictor.
         self.logger.info(
-            "Scaler attribute is set to None. Features are expected to be pre-scaled.",
-        )
+            "Scaler attribute is set to None. Features are expected to be pre-scaled.")
         # if self.scaler_path: # Removed scaler loading logic
         # else:
         #     self.logger.info("No scaler_path provided. Proceeding without a scaler.")
         #     self.scaler = None
 
-    def predict(self, features: np.ndarray) -> np.ndarray:
+    def predict(self, features: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Generate predictions using the scikit-learn model.
         Features are expected to be pre-scaled by the FeatureEngine.
 
@@ -247,20 +245,19 @@ class SKLearnPredictor(PredictorInterface):
 
     @property
     def expected_feature_names(self) -> list[str] | None:
-        """Return the list of feature names the model expects.
+        """Return the list[Any] of feature names the model expects.
 
         Tries to get it from model.feature_names_in_ first, then from config.
         """
         if hasattr(self.model, "feature_names_in_") and self.model.feature_names_in_ is not None:
-            return list(self.model.feature_names_in_)
+            return list[Any](self.model.feature_names_in_)
         return self.config.get("model_feature_names")
 
     @classmethod
     def _load_model(
         cls,
         model_path: str,
-        model_id: str,
-    ) -> tuple[Any | None, dict[str, Any] | None]:
+        model_id: str) -> tuple[Any | None, dict[str, Any] | None]:
         """Load the model from disk.
 
         Returns:
@@ -281,16 +278,14 @@ class SKLearnPredictor(PredictorInterface):
             }
         else:
             logging.getLogger(
-                f"{cls.__name__}:{model_id}",
-            ).debug("Model loaded from %s", model_path)
+                f"{cls.__name__}:{model_id}").debug("Model loaded from %s", model_path)
             return model, None
 
     @classmethod
     def _load_scaler(
         cls,
         scaler_path: str | None,
-        model_id: str,
-    ) -> tuple[Any | None, dict[str, Any] | None]:
+        model_id: str) -> tuple[Any | None, dict[str, Any] | None]:
         """Load the scaler from disk.
 
         Returns:
@@ -315,17 +310,15 @@ class SKLearnPredictor(PredictorInterface):
             }
         else:
             logging.getLogger(
-                f"{cls.__name__}:{model_id}",
-            ).debug("Scaler loaded from %s", scaler_path)
+                f"{cls.__name__}:{model_id}").debug("Scaler loaded from %s", scaler_path)
             return scaler, None
 
     @classmethod
     def _prepare_features(
         cls,
-        feature_vector: np.ndarray,
+        feature_vector: np.ndarray[Any, Any],
         scaler: Transformer | None,
-        model_id: str,
-    ) -> tuple[np.ndarray | None, dict[str, Any] | None]:
+        model_id: str) -> tuple[np.ndarray[Any, Any] | None, dict[str, Any] | None]:
         """Prepare and scale features.
 
         Returns:
@@ -350,22 +343,19 @@ class SKLearnPredictor(PredictorInterface):
                 }
             else:
                 logging.getLogger(
-                    f"{cls.__name__}:{model_id}",
-                ).debug("Features scaled.")
+                    f"{cls.__name__}:{model_id}").debug("Features scaled.")
                 return processed_features, None
 
         logging.getLogger(
-            f"{cls.__name__}:{model_id}",
-        ).debug("No scaler used.")
+            f"{cls.__name__}:{model_id}").debug("No scaler used.")
         return features_2d, None
 
     @classmethod
     def _make_prediction(
         cls,
         model: Model,
-        processed_features: np.ndarray,
-        model_id: str,
-    ) -> tuple[float | None, float | None, dict[str, Any] | None]:
+        processed_features: np.ndarray[Any, Any],
+        model_id: str) -> tuple[float | None, float | None, dict[str, Any] | None]:
         """Make prediction using the model.
 
         Returns:
@@ -382,8 +372,7 @@ class SKLearnPredictor(PredictorInterface):
                     {
                         "error": "Model has no predict or predict_proba method.",
                         "model_id": model_id,
-                    },
-                )
+                    })
             return cls._predict_without_proba(model, processed_features, model_id)
         except Exception as e:
             return (
@@ -392,16 +381,14 @@ class SKLearnPredictor(PredictorInterface):
                 {
                     "error": f"Prediction failed: {e!s}",
                     "model_id": model_id,
-                },
-            )
+                })
 
     @classmethod
     def _predict_with_proba(
         cls,
         model: ModelWithProba,
-        processed_features: np.ndarray,
-        model_id: str,
-    ) -> tuple[float | None, float | None, dict[str, Any] | None]:
+        processed_features: np.ndarray[Any, Any],
+        model_id: str) -> tuple[float | None, float | None, dict[str, Any] | None]:
         """Make prediction for models with predict_proba method."""
         all_class_probabilities = model.predict_proba(processed_features)
         min_classes_for_binary = 2
@@ -419,21 +406,23 @@ class SKLearnPredictor(PredictorInterface):
             {
                 "error": "predict_proba returned no class probabilities.",
                 "model_id": model_id,
-            },
-        )
+            })
 
     @classmethod
     def _predict_without_proba(
         cls,
         model: ModelWithPredict,
-        processed_features: np.ndarray,
-        model_id: str,
-    ) -> tuple[float | None, float | None, dict[str, Any] | None]:
+        processed_features: np.ndarray[Any, Any],
+        model_id: str) -> tuple[float | None, float | None, dict[str, Any] | None]:
         """Make prediction for models without predict_proba method."""
         prediction_output = model.predict(processed_features)
-        if isinstance(prediction_output, np.ndarray) and prediction_output.size == 1:
-            return float(prediction_output.item()), None, None
-        if isinstance(prediction_output, float | int | np.floating | np.integer):
+        
+        # Handle numpy array output
+        if isinstance(prediction_output, np.ndarray):
+            if prediction_output.size == 1:
+                return float(prediction_output.item()), None, None
+        # Handle scalar output (some models might return scalars directly)
+        elif isinstance(prediction_output, (float, int, np.floating, np.integer)):
             return float(prediction_output), None, None
 
         return (
@@ -442,8 +431,7 @@ class SKLearnPredictor(PredictorInterface):
             {
                 "error": f"Unsupported prediction output type: {type(prediction_output)}",
                 "model_id": model_id,
-            },
-        )
+            })
 
     # Error messages as module-level constants
     _ERROR_MSG_MODEL_LOADING = "Model loading failed"
@@ -469,8 +457,7 @@ class SKLearnPredictor(PredictorInterface):
     @classmethod
     def run_inference_in_process(
         cls,
-        request: InferenceRequest,
-    ) -> dict[str, Any]:
+        request: InferenceRequest) -> dict[str, Any]:
         """Load model and scaler, preprocess, predict.
 
         Executed in a separate process.
@@ -496,71 +483,58 @@ class SKLearnPredictor(PredictorInterface):
             model, error = cls._load_model(request.model_path, request.model_id)
             if error:
                 result.update(error)
-                cls._raise_with_result(result, cls._ERROR_MSG_MODEL_LOADING)
+                result["error"] = cls._ERROR_MSG_MODEL_LOADING
+                logger.error(result["error"])
+                return result
 
-            # 2. Load Scaler - REMOVED
-            # scaler, error = cls._load_scaler(request.scaler_path, request.model_id)
-            # if error:
-            #     result.update(error)
-            #     cls._raise_with_result(result, cls._ERROR_MSG_SCALER_LOADING)
+            # 2. Log if scaler path provided (but ignored)
             if request.scaler_path:
                 logger.info("scaler_path provided in InferenceRequest but will be ignored.")
-            scaler = None # Explicitly set to None as it's not used.
 
             # 3. Prepare features - Scaling part of _prepare_features is effectively bypassed.
-            # The original _prepare_features reshaped and optionally scaled.
             # Now, features are pre-scaled, so just reshape.
             if request.feature_vector.ndim != 1:
-                error_dict = {"error": "Feature vector must be 1D for processing.", "model_id": request.model_id}
-                result.update(error_dict)
-                cls._raise_with_result(result, cls._ERROR_MSG_FEATURE_PREP)
+                result["error"] = f"{cls._ERROR_MSG_FEATURE_PREP}: Feature vector must be 1D for processing."
+                logger.error(result["error"])
+                return result
 
             processed_features = request.feature_vector.reshape(1, -1)
             logger.debug("Using pre-scaled feature vector directly (after reshape).")
 
-
             # 4. Make prediction
-            # Ensure processed_features is not None before calling _make_prediction
-            if processed_features is None:
-                cls._raise_with_result(result, "Processed features are None")
-
-            # Ensure model is of correct type
             if model is None:
-                cls._raise_with_result(result, "Model is None")
+                result["error"] = "Model is None after loading"
+                logger.error(result["error"])
+                return result
 
             prediction, confidence, error = cls._make_prediction(
                 cast("Model", model),
-                cast("np.ndarray", processed_features),
-                request.model_id,
-            )
+                processed_features,
+                request.model_id)
+            
             if error:
                 result.update(error)
-                cls._raise_with_result(result, cls._ERROR_MSG_PREDICTION)
+                result["error"] = cls._ERROR_MSG_PREDICTION
+                logger.error(result["error"])
+                return result
 
             # Update result with successful prediction
             result.update(
                 {
                     "prediction": str(prediction) if prediction is not None else "",
                     "confidence": str(confidence) if confidence is not None else "",
-                },
-            )
+                })
             logger.debug(
                 "Prediction successful: %s, Confidence: %s",
                 prediction,
-                confidence,
-            )
+                confidence)
+            return result
+            
         except FileNotFoundError as e:
             result["error"] = f"File not found: {e!s}"
-        except ValueError:
-            # Error already captured in result by _raise_with_result
-            pass
+            logger.exception(result["error"])
+            return result
         except Exception as e:
             result["error"] = f"Inference failed: {e!s}"
-        else:
-            return result
-
-        # Log the error if one occurred
-        if "error" in result:
             logger.exception(result["error"])
-
-        return result
+            return result

@@ -13,9 +13,17 @@ import warnings
 from scipy import stats
 from sklearn.preprocessing import RobustScaler
 from sklearn.impute import KNNImputer
-import talib
+
+# Optional import with graceful fallback
+try:
+    import talib
+    TALIB_AVAILABLE = True
+except ImportError:
+    TALIB_AVAILABLE = False
+    talib = None
 
 from gal_friday.logger_service import LoggerService
+from typing import Any
 
 
 class SpreadType(str, Enum):
@@ -72,7 +80,7 @@ class MarketMicrostructureData:
 class AdvancedSpreadCalculator:
     """Production-grade spread calculation engine."""
     
-    def __init__(self, logger: LoggerService):
+    def __init__(self, logger: LoggerService) -> None:
         self.logger = logger
         self._source_module = self.__class__.__name__
         
@@ -334,7 +342,7 @@ class AdvancedSpreadCalculator:
 class IntelligentImputationEngine:
     """Advanced feature imputation system for time series data."""
     
-    def __init__(self, logger: LoggerService):
+    def __init__(self, logger: LoggerService) -> None:
         self.logger = logger
         self._source_module = self.__class__.__name__
         
@@ -396,11 +404,11 @@ class IntelligentImputationEngine:
     
     def _impute_single_feature(
         self,
-        series: pd.Series,
+        series: pd.Series[Any],
         feature_name: str,
         feature_metadata: Dict[str, Any],
         strategy: ImputationStrategy
-    ) -> Tuple[Optional[pd.Series], Dict[str, Any]]:
+    ) -> Tuple[Optional[pd.Series[Any]], Dict[str, Any]]:
         """Impute a single feature using appropriate method."""
         try:
             if series.isna().sum() == 0:
@@ -447,10 +455,10 @@ class IntelligentImputationEngine:
     
     def _regime_aware_imputation(
         self,
-        series: pd.Series,
+        series: pd.Series[Any],
         feature_name: str,
         feature_metadata: Dict[str, Any]
-    ) -> pd.Series:
+    ) -> pd.Series[Any]:
         """Impute based on current market regime."""
         try:
             # Detect current market regime
@@ -487,7 +495,7 @@ class IntelligentImputationEngine:
             )
             return self._interpolation_imputation(series, 'technical')
     
-    def _detect_market_regime(self, series: pd.Series) -> str:
+    def _detect_market_regime(self, series: pd.Series[Any]) -> str:
         """Detect current market regime based on volatility."""
         try:
             # Calculate rolling volatility
@@ -510,7 +518,7 @@ class IntelligentImputationEngine:
         except Exception:
             return 'normal'
     
-    def _get_regime_specific_data(self, series: pd.Series, regime: str) -> pd.Series:
+    def _get_regime_specific_data(self, series: pd.Series[Any], regime: str) -> pd.Series[Any]:
         """Get historical data for specific market regime."""
         try:
             # Simplified regime detection over historical data
@@ -531,7 +539,7 @@ class IntelligentImputationEngine:
         except Exception:
             return series.dropna()
     
-    def _impute_volatility_feature(self, series: pd.Series, regime_data: pd.Series) -> pd.Series:
+    def _impute_volatility_feature(self, series: pd.Series[Any], regime_data: pd.Series[Any]) -> pd.Series[Any]:
         """Impute volatility-based features."""
         imputed = series.copy()
         
@@ -546,7 +554,7 @@ class IntelligentImputationEngine:
         
         return imputed
     
-    def _impute_volume_feature(self, series: pd.Series, regime_data: pd.Series) -> pd.Series:
+    def _impute_volume_feature(self, series: pd.Series[Any], regime_data: pd.Series[Any]) -> pd.Series[Any]:
         """Impute volume-based features."""
         imputed = series.copy()
         
@@ -573,10 +581,10 @@ class IntelligentImputationEngine:
     
     def _impute_technical_indicator(
         self, 
-        series: pd.Series, 
-        regime_data: pd.Series, 
+        series: pd.Series[Any], 
+        regime_data: pd.Series[Any], 
         feature_name: str
-    ) -> pd.Series:
+    ) -> pd.Series[Any]:
         """Impute technical indicators based on their characteristics."""
         imputed = series.copy()
         
@@ -602,7 +610,7 @@ class IntelligentImputationEngine:
         
         return imputed
     
-    def _impute_spread_feature(self, series: pd.Series, regime_data: pd.Series) -> pd.Series:
+    def _impute_spread_feature(self, series: pd.Series[Any], regime_data: pd.Series[Any]) -> pd.Series[Any]:
         """Impute spread-related features."""
         imputed = series.copy()
         
@@ -617,7 +625,7 @@ class IntelligentImputationEngine:
         
         return imputed
     
-    def _impute_generic_regime_aware(self, series: pd.Series, regime_data: pd.Series) -> pd.Series:
+    def _impute_generic_regime_aware(self, series: pd.Series[Any], regime_data: pd.Series[Any]) -> pd.Series[Any]:
         """Generic regime-aware imputation."""
         imputed = series.copy()
         
@@ -627,7 +635,7 @@ class IntelligentImputationEngine:
         
         return imputed
     
-    def _interpolation_imputation(self, series: pd.Series, feature_type: str) -> pd.Series:
+    def _interpolation_imputation(self, series: pd.Series[Any], feature_type: str) -> pd.Series[Any]:
         """Advanced interpolation-based imputation."""
         if feature_type == 'price':
             # Use cubic interpolation for price data
@@ -639,7 +647,7 @@ class IntelligentImputationEngine:
             # Default to linear for technical indicators
             return series.interpolate(method='linear')
     
-    def _seasonal_imputation(self, series: pd.Series, feature_name: str) -> pd.Series:
+    def _seasonal_imputation(self, series: pd.Series[Any], feature_name: str) -> pd.Series[Any]:
         """Seasonal decomposition-based imputation."""
         try:
             from statsmodels.tsa.seasonal import seasonal_decompose
@@ -672,7 +680,7 @@ class IntelligentImputationEngine:
             )
             return self._interpolation_imputation(series, 'technical')
     
-    def _knn_imputation(self, series: pd.Series) -> pd.Series:
+    def _knn_imputation(self, series: pd.Series[Any]) -> pd.Series[Any]:
         """KNN-based imputation."""
         try:
             # Reshape for sklearn
@@ -691,11 +699,11 @@ class IntelligentImputationEngine:
             )
             return self._interpolation_imputation(series, 'technical')
     
-    def _forward_fill_imputation(self, series: pd.Series) -> pd.Series:
+    def _forward_fill_imputation(self, series: pd.Series[Any]) -> pd.Series[Any]:
         """Forward fill with back fill fallback."""
         return series.fillna(method='ffill').fillna(method='bfill')
     
-    def _get_max_consecutive_na(self, series: pd.Series) -> int:
+    def _get_max_consecutive_na(self, series: pd.Series[Any]) -> int:
         """Get maximum consecutive NaN count."""
         is_na = series.isna()
         groups = (is_na != is_na.shift()).cumsum()
@@ -725,7 +733,7 @@ class IntelligentImputationEngine:
 class ComprehensiveFeatureValidator:
     """Advanced feature validation system."""
     
-    def __init__(self, logger: LoggerService):
+    def __init__(self, logger: LoggerService) -> None:
         self.logger = logger
         self._source_module = self.__class__.__name__
         
@@ -948,7 +956,7 @@ class ComprehensiveFeatureValidator:
 class AdvancedTemporalPatternEngine:
     """Sophisticated temporal pattern extraction for cryptocurrency markets."""
     
-    def __init__(self, logger: LoggerService):
+    def __init__(self, logger: LoggerService) -> None:
         self.logger = logger
         self._source_module = self.__class__.__name__
         

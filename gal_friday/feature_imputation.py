@@ -28,6 +28,7 @@ from scipy.stats import pearsonr
 
 # Gal-Friday imports
 from .logger_service import LoggerService
+from typing import Any
 
 
 # === Configuration and Data Models ===
@@ -97,12 +98,12 @@ class ImputationConfig:
 @dataclass
 class ImputationResult:
     """Result of an imputation operation."""
-    imputed_values: Union[np.ndarray, pd.Series]
+    imputed_values: Union[np.ndarray[Any, Any], pd.Series[Any]]
     method_used: ImputationMethod
     confidence_score: float
     computation_time_ms: float
     missing_count: int
-    strategy_metadata: Dict[str, Any] = field(default_factory=dict)
+    strategy_metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass
@@ -124,7 +125,7 @@ class ImputationMetrics:
 class ImputationStrategy(ABC):
     """Abstract base class for all imputation strategies."""
     
-    def __init__(self, config: ImputationConfig, logger: LoggerService):
+    def __init__(self, config: ImputationConfig, logger: LoggerService) -> None:
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -139,8 +140,8 @@ class ImputationStrategy(ABC):
     @abstractmethod
     async def impute(
         self, 
-        data: pd.Series, 
-        missing_mask: pd.Series,
+        data: pd.Series[Any], 
+        missing_mask: pd.Series[Any],
         context: Optional[Dict[str, Any]] = None
     ) -> ImputationResult:
         """Impute missing values in the data series.
@@ -160,7 +161,7 @@ class ImputationStrategy(ABC):
         """Validate strategy-specific parameters."""
         pass
         
-    def get_cache_key(self, data: pd.Series, missing_mask: pd.Series) -> str:
+    def get_cache_key(self, data: pd.Series[Any], missing_mask: pd.Series[Any]) -> str:
         """Generate cache key for imputation results."""
         data_hash = hash(tuple(data.dropna().tail(10)))
         mask_hash = hash(tuple(missing_mask.astype(int)))
@@ -198,8 +199,8 @@ class SimpleImputationStrategy(ImputationStrategy):
     
     async def impute(
         self, 
-        data: pd.Series, 
-        missing_mask: pd.Series,
+        data: pd.Series[Any], 
+        missing_mask: pd.Series[Any],
         context: Optional[Dict[str, Any]] = None
     ) -> ImputationResult:
         """Perform simple imputation using statistical methods."""
@@ -284,7 +285,7 @@ class SimpleImputationStrategy(ImputationStrategy):
             )
             raise
             
-    def _apply_fallback(self, imputed_data: pd.Series, original_data: pd.Series) -> pd.Series:
+    def _apply_fallback(self, imputed_data: pd.Series[Any], original_data: pd.Series[Any]) -> pd.Series[Any]:
         """Apply fallback method for remaining missing values."""
         if self.config.fallback_method == ImputationMethod.MEAN:
             imputed_data = imputed_data.fillna(original_data.mean())
@@ -309,8 +310,8 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
     
     async def impute(
         self, 
-        data: pd.Series, 
-        missing_mask: pd.Series,
+        data: pd.Series[Any], 
+        missing_mask: pd.Series[Any],
         context: Optional[Dict[str, Any]] = None
     ) -> ImputationResult:
         """Perform time series interpolation."""
@@ -388,8 +389,8 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
             
     def _calculate_interpolation_confidence(
         self, 
-        data: pd.Series, 
-        missing_mask: pd.Series, 
+        data: pd.Series[Any], 
+        missing_mask: pd.Series[Any], 
         method: str
     ) -> float:
         """Calculate confidence based on interpolation quality."""
@@ -405,7 +406,7 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
         
         return max(base_confidence - gap_penalty - volatility_penalty, 0.3)
         
-    def _get_max_consecutive_missing(self, missing_mask: pd.Series) -> int:
+    def _get_max_consecutive_missing(self, missing_mask: pd.Series[Any]) -> int:
         """Get maximum consecutive missing values."""
         consecutive_counts = []
         current_count = 0
@@ -434,15 +435,15 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
 class KNNImputationStrategy(ImputationStrategy):
     """K-Nearest Neighbors imputation for complex missing patterns."""
     
-    def __init__(self, config: ImputationConfig, logger: LoggerService):
+    def __init__(self, config: ImputationConfig, logger: LoggerService) -> None:
         super().__init__(config, logger)
         self._knn_imputer = None
         self._feature_scaler = StandardScaler()
         
     async def impute(
         self, 
-        data: pd.Series, 
-        missing_mask: pd.Series,
+        data: pd.Series[Any], 
+        missing_mask: pd.Series[Any],
         context: Optional[Dict[str, Any]] = None
     ) -> ImputationResult:
         """Perform KNN-based imputation."""
@@ -514,9 +515,9 @@ class KNNImputationStrategy(ImputationStrategy):
             
     def _prepare_feature_matrix(
         self, 
-        data: pd.Series, 
+        data: pd.Series[Any], 
         context: Optional[Dict[str, Any]]
-    ) -> Optional[np.ndarray]:
+    ) -> Optional[np.ndarray[Any, Any]]:
         """Prepare feature matrix for KNN imputation."""
         features = [data.values.reshape(-1, 1)]
         
@@ -548,9 +549,9 @@ class KNNImputationStrategy(ImputationStrategy):
             
     def _calculate_knn_confidence(
         self, 
-        data: pd.Series, 
-        missing_mask: pd.Series, 
-        feature_matrix: np.ndarray
+        data: pd.Series[Any], 
+        missing_mask: pd.Series[Any], 
+        feature_matrix: np.ndarray[Any, Any]
     ) -> float:
         """Calculate confidence based on KNN neighbor quality."""
         base_confidence = 0.75
@@ -578,8 +579,8 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
     
     async def impute(
         self, 
-        data: pd.Series, 
-        missing_mask: pd.Series,
+        data: pd.Series[Any], 
+        missing_mask: pd.Series[Any],
         context: Optional[Dict[str, Any]] = None
     ) -> ImputationResult:
         """Perform crypto-specific imputation."""
@@ -646,10 +647,10 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
             
     async def _vwap_weighted_imputation(
         self, 
-        data: pd.Series, 
-        missing_mask: pd.Series, 
+        data: pd.Series[Any], 
+        missing_mask: pd.Series[Any], 
         context: Optional[Dict[str, Any]]
-    ) -> pd.Series:
+    ) -> pd.Series[Any]:
         """Impute using volume-weighted average price logic."""
         imputed_data = data.copy()
         
@@ -678,10 +679,10 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
         
     async def _volatility_adjusted_imputation(
         self, 
-        data: pd.Series, 
-        missing_mask: pd.Series, 
+        data: pd.Series[Any], 
+        missing_mask: pd.Series[Any], 
         context: Optional[Dict[str, Any]]
-    ) -> pd.Series:
+    ) -> pd.Series[Any]:
         """Impute considering market volatility regime."""
         imputed_data = data.copy()
         
@@ -700,10 +701,10 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
         
     async def _market_session_aware_imputation(
         self, 
-        data: pd.Series, 
-        missing_mask: pd.Series, 
+        data: pd.Series[Any], 
+        missing_mask: pd.Series[Any], 
         context: Optional[Dict[str, Any]]
-    ) -> pd.Series:
+    ) -> pd.Series[Any]:
         """Impute considering different market sessions with advanced patterns."""
         try:
             # Import enhanced temporal pattern engine if available
@@ -806,7 +807,7 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
 class ImputationManager:
     """Central manager for imputation strategies and execution."""
     
-    def __init__(self, logger: LoggerService, config_path: Optional[str] = None):
+    def __init__(self, logger: LoggerService, config_path: Optional[str] = None) -> None:
         self.logger = logger
         self._source_module = self.__class__.__name__
         
@@ -829,7 +830,7 @@ class ImputationManager:
         )
         
         # Performance tracking
-        self._performance_metrics: Dict[str, List[ImputationMetrics]] = defaultdict(list)
+        self._performance_metrics: Dict[str, List[ImputationMetrics]] = defaultdict(list[Any])
         self._strategy_instances: Dict[str, ImputationStrategy] = {}
         
         # Load configuration
@@ -857,7 +858,7 @@ class ImputationManager:
     async def impute_feature(
         self, 
         feature_key: str, 
-        data: pd.Series, 
+        data: pd.Series[Any], 
         context: Optional[Dict[str, Any]] = None
     ) -> ImputationResult:
         """Impute missing values for a specific feature."""
@@ -962,7 +963,7 @@ class ImputationManager:
                 "total_imputations": len(metrics),
                 "avg_computation_time_ms": np.mean([m.computation_time_ms for m in metrics]),
                 "avg_confidence": np.mean([m.accuracy_score for m in metrics]),
-                "methods_used": list(set(m.method.value for m in metrics)),
+                "methods_used": list[Any](set(m.method.value for m in metrics)),
                 "last_updated": max(m.timestamp for m in metrics) if metrics else None
             }
         else:
@@ -1054,16 +1055,16 @@ class ImputationManager:
 class ImputationValidator:
     """Validates and benchmarks imputation strategies."""
     
-    def __init__(self, logger: LoggerService):
+    def __init__(self, logger: LoggerService) -> None:
         self.logger = logger
         self._source_module = self.__class__.__name__
         
     async def validate_strategy(
         self, 
         strategy: ImputationStrategy,
-        test_data: pd.Series,
-        missing_patterns: List[pd.Series],
-        ground_truth: Optional[pd.Series] = None
+        test_data: pd.Series[Any],
+        missing_patterns: List[pd.Series[Any]],
+        ground_truth: Optional[pd.Series[Any]] = None
     ) -> Dict[str, float]:
         """Validate a strategy against test data with known missing patterns."""
         results = {}
@@ -1107,7 +1108,7 @@ class ImputationValidator:
         self, 
         data_length: int, 
         pattern_types: List[str] = None
-    ) -> List[pd.Series]:
+    ) -> List[pd.Series[Any]]:
         """Generate various missing data patterns for testing."""
         if pattern_types is None:
             pattern_types = ['random', 'consecutive', 'periodic', 'burst']
@@ -1144,7 +1145,7 @@ class ImputationValidator:
     async def benchmark_strategies(
         self,
         strategies: List[ImputationStrategy],
-        test_data: pd.Series,
+        test_data: pd.Series[Any],
         num_trials: int = 10
     ) -> pd.DataFrame:
         """Benchmark multiple strategies against each other."""

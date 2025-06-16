@@ -466,36 +466,38 @@ include = ["gal_friday*"]
 exclude = ["tests*"]
 
 # Pre-commit configuration hook
-[[tool.pre-commit.repos]]
-repo = "local"
-hooks = [
-    {
-        id = "ruff-check",
-        name = "ruff-check",
-        entry = "ruff check --fix",
-        language = "system",
-        types = ["python"]
-    },
-    {
-        id = "ruff-format", 
-        name = "ruff-format",
-        entry = "ruff format",
-        language = "system",
-        types = ["python"]
-    },
-    {
-        id = "mypy",
-        name = "mypy",
-        entry = "mypy",
-        language = "system",
-        types = ["python"],
-        pass_filenames = false
-    },
-    {
-        id = "bandit",
-        name = "bandit",
-        entry = "bandit -r gal_friday/",
-        language = "system",
-        pass_filenames = false
-    }
-]
+# Pre-commit configuration is typically in .pre-commit-config.yaml
+# The following is just a reference for the hooks to use
+# [[tool.pre-commit.repos]]
+# repo = "local"
+# hooks = [
+#     {
+#         id = "ruff-check",
+#         name = "ruff-check",
+#         entry = "ruff check --fix",
+#         language = "system",
+#         types = ["python"]
+#     },
+#     {
+#         id = "ruff-format", 
+#         name = "ruff-format",
+#         entry = "ruff format",
+#         language = "system",
+#         types = ["python"]
+#     },
+#     {
+#         id = "mypy",
+#         name = "mypy",
+#         entry = "mypy",
+#         language = "system",
+#         types = ["python"],
+#         pass_filenames = false
+#     },
+#     {
+#         id = "bandit",
+#         name = "bandit",
+#         entry = "bandit -r gal_friday/",
+#         language = "system",
+#         pass_filenames = false
+#     }
+# ]

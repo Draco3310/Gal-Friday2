@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
+from typing import Any
 
 
 @dataclass
@@ -24,7 +25,7 @@ class RecoveryCheckItem:
 class HaltRecoveryManager:
     """Manages the recovery process after a HALT."""
 
-    def __init__(self, config_manager: ConfigManager, logger_service: LoggerService):
+    def __init__(self, config_manager: ConfigManager, logger_service: LoggerService) -> None:
         self.config = config_manager
         self.logger = logger_service
         self._source_module = self.__class__.__name__
@@ -36,41 +37,33 @@ class HaltRecoveryManager:
         self.checklist = [
             RecoveryCheckItem(
                 "review_halt_reason",
-                "Review and understand the HALT trigger reason",
-            ),
+                "Review and understand the HALT trigger reason"),
             RecoveryCheckItem(
                 "check_market_conditions",
-                "Verify current market conditions are acceptable",
-            ),
+                "Verify current market conditions are acceptable"),
             RecoveryCheckItem(
                 "review_positions",
-                "Review all open positions and their P&L",
-            ),
+                "Review all open positions and their P&L"),
             RecoveryCheckItem(
                 "verify_api_connectivity",
-                "Confirm API connectivity to exchange",
-            ),
+                "Confirm API connectivity to exchange"),
             RecoveryCheckItem(
                 "check_account_balance",
-                "Verify account balance matches expectations",
-            ),
+                "Verify account balance matches expectations"),
             RecoveryCheckItem(
                 "review_risk_parameters",
-                "Review and potentially adjust risk parameters",
-            ),
+                "Review and potentially adjust risk parameters"),
             RecoveryCheckItem(
                 "confirm_resume",
-                "Confirm decision to resume trading",
-            ),
+                "Confirm decision to resume trading"),
         ]
 
         self.logger.info(
             f"Initialized recovery checklist with {len(self.checklist)} items",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     def get_incomplete_items(self) -> list[RecoveryCheckItem]:
-        """Get list of incomplete checklist items."""
+        """Get list[Any] of incomplete checklist items."""
         return [item for item in self.checklist if not item.is_completed]
 
     def complete_item(self, item_id: str, completed_by: str) -> bool:
@@ -95,14 +88,12 @@ class HaltRecoveryManager:
                     context={
                         "item_description": item.description,
                         "completed_at": item.completed_at.isoformat(),
-                    },
-                )
+                    })
                 return True
 
         self.logger.warning(
             f"Recovery item '{item_id}' not found",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
         return False
 
     def is_recovery_complete(self) -> bool:
@@ -118,14 +109,13 @@ class HaltRecoveryManager:
 
         self.logger.info(
             "Recovery checklist reset",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
-    def get_checklist_status(self) -> dict:
+    def get_checklist_status(self) -> dict[str, Any]:
         """Get current status of recovery checklist.
         
         Returns:
-            dict: Status information including completed count and items
+            dict[str, Any]: Status information including completed count and items
         """
         completed_items = [item for item in self.checklist if item.is_completed]
         incomplete_items = [item for item in self.checklist if not item.is_completed]

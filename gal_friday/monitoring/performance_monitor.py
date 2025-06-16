@@ -25,6 +25,7 @@ from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import Event, EventType
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
+from typing import Any
 
 
 class MetricType(Enum):
@@ -54,7 +55,7 @@ class MetricSample:
     """Single metric sample."""
     timestamp: datetime
     value: float
-    tags: dict[str, Any] = field(default_factory=dict)
+    tags: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass
@@ -86,8 +87,7 @@ class MetricStats:
             min_value=min(samples),
             max_value=max(samples),
             p95=sorted_samples[int(count * 0.95)] if count > 0 else 0,
-            p99=sorted_samples[int(count * 0.99)] if count > 0 else 0,
-        )
+            p99=sorted_samples[int(count * 0.99)] if count > 0 else 0)
 
 
 class MetricCollector:
@@ -101,27 +101,24 @@ class MetricCollector:
         """
         self.window_size = window_size
         self.metrics: dict[MetricType, deque[MetricSample]] = defaultdict(
-            lambda: deque(maxlen=window_size),
-        )
+            lambda: deque(maxlen=window_size))
 
     def record(
         self,
         metric_type: MetricType,
         value: float,
-        tags: dict[str, Any] | None = None,
-    ) -> None:
+        tags: dict[str, Any] | None = None) -> None:
         """Record a metric sample."""
         sample = MetricSample(
             timestamp=datetime.now(UTC),
             value=value,
-            tags=tags or {},
-        )
+            tags=tags or {})
         self.metrics[metric_type].append(sample)
 
     def get_samples(self, metric_type: MetricType,
                    since: datetime | None = None) -> list[MetricSample]:
         """Get metric samples, optionally filtered by time."""
-        samples = list(self.metrics[metric_type])
+        samples = list[Any](self.metrics[metric_type])
 
         if since:
             samples = [s for s in samples if s.timestamp >= since]
@@ -145,13 +142,12 @@ class PerformanceTimer:
         self,
         collector: MetricCollector,
         metric_type: MetricType,
-        tags: dict[str, Any] | None = None,
-    ) -> None:
+        tags: dict[str, Any] | None = None) -> None:
         """Initialize the performance timer.
 
         Args:
             collector: Metric collector to record timings.
-            metric_type: Type of metric being measured.
+            metric_type: Type[Any] of metric being measured.
             tags: Optional tags to associate with the metric.
         """
         self.collector = collector
@@ -172,8 +168,7 @@ class PerformanceTimer:
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: types.TracebackType | None,
-    ) -> None:
+        exc_tb: types.TracebackType | None) -> None:
         """Stop the timer and record the duration.
 
         Args:
@@ -212,8 +207,7 @@ class SystemMonitor:
         self.collector.record(
             MetricType.MEMORY_USAGE,
             memory_percent,
-            {"rss_mb": memory_info.rss / 1024 / 1024},
-        )
+            {"rss_mb": memory_info.rss / 1024 / 1024})
 
         # Disk I/O
         try:
@@ -227,15 +221,13 @@ class SystemMonitor:
                 self.collector.record(
                     MetricType.DISK_IO,
                     read_rate + write_rate,
-                    {"read_mb_s": read_rate, "write_mb_s": write_rate},
-                )
+                    {"read_mb_s": read_rate, "write_mb_s": write_rate})
             self._last_disk_io = disk_io
         except (OSError, psutil.Error) as e:
             self.collector.record(
                 MetricType.DISK_IO,
                 0,
-                {"error": str(e), "operation": "disk_io_counters"},
-            )
+                {"error": str(e), "operation": "disk_io_counters"})
 
         # Network I/O
         try:
@@ -249,15 +241,13 @@ class SystemMonitor:
                 self.collector.record(
                     MetricType.NETWORK_IO,
                     sent_rate + recv_rate,
-                    {"sent_mb_s": sent_rate, "recv_mb_s": recv_rate},
-                )
+                    {"sent_mb_s": sent_rate, "recv_mb_s": recv_rate})
             self._last_network_io = net_io
         except (OSError, psutil.Error) as e:
             self.collector.record(
                 MetricType.NETWORK_IO,
                 0,
-                {"error": str(e), "operation": "net_io_counters"},
-            )
+                {"error": str(e), "operation": "net_io_counters"})
 
     async def measure_event_loop_lag(self) -> None:
         """Measure event loop responsiveness."""
@@ -274,8 +264,7 @@ class PerformanceMonitor:
         self,
         config: ConfigManager,
         logger: LoggerService,
-        pubsub: PubSubManager,
-    ) -> None:
+        pubsub: PubSubManager) -> None:
         """Initialize the performance monitor.
 
         Args:
@@ -289,20 +278,18 @@ class PerformanceMonitor:
         self._source_module = self.__class__.__name__
 
         self.collector = MetricCollector(
-            window_size=config.get_int("performance.metric_window_size", 10000),
-        )
+            window_size=config.get_int("performance.metric_window_size", 10000))
         self.system_monitor = SystemMonitor(self.collector)
 
         self._monitoring_interval = config.get_float("performance.monitoring_interval", 5.0)
-        self._monitoring_task: asyncio.Task | None = None
+        self._monitoring_task: asyncio.Task[Any] | None = None
 
         # Performance thresholds
         self.thresholds = {
             MetricType.CPU_USAGE: config.get_float("performance.cpu_threshold", 80.0),
             MetricType.MEMORY_USAGE: config.get_float("performance.memory_threshold", 80.0),
             MetricType.EVENT_LOOP_LAG: config.get_float(
-                "performance.event_loop_lag_threshold", 100.0,
-            ),
+                "performance.event_loop_lag_threshold", 100.0),
             MetricType.API_LATENCY: config.get_float("performance.api_latency_threshold", 1000.0),
         }
 
@@ -323,16 +310,14 @@ class PerformanceMonitor:
                             if hasattr(event, "event_type")
                             else "unknown"
                         ),
-                    },
-                )
+                    })
 
         # Subscribe to all events
         for event_type in EventType:
             self.pubsub.subscribe(event_type, track_event_processing)
 
     def timer(
-        self, metric_type: MetricType, **tags: str | int | float | bool,
-    ) -> PerformanceTimer:
+        self, metric_type: MetricType, **tags: str | int | float | bool) -> PerformanceTimer:
         """Create a performance timer context manager."""
         return PerformanceTimer(self.collector, metric_type, tags)
 
@@ -340,8 +325,7 @@ class PerformanceMonitor:
         self,
         metric_type: MetricType,
         value: float,
-        **tags: str | int | float | bool,
-    ) -> None:
+        **tags: str | int | float | bool) -> None:
         """Record a performance metric."""
         self.collector.record(metric_type, value, tags)
 
@@ -368,15 +352,13 @@ class PerformanceMonitor:
                 except Exception:
                     self.logger.exception(
                         "Error in performance monitoring",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     await asyncio.sleep(self._monitoring_interval)
 
         self._monitoring_task = asyncio.create_task(monitor_loop())
         self.logger.info(
             "Started performance monitoring",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     async def stop_monitoring(self) -> None:
         """Stop performance monitoring."""
@@ -405,8 +387,7 @@ class PerformanceMonitor:
             self.logger.warning(
                 "Performance thresholds exceeded",
                 source_module=self._source_module,
-                context={"alerts": alerts},
-            )
+                context={"alerts": alerts})
 
     def get_performance_report(self, window_minutes: int = 60) -> dict[str, Any]:
         """Generate comprehensive performance report."""

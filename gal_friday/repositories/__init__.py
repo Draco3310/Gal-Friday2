@@ -7,8 +7,7 @@ from .strategy_repositories import (
     StrategyRepository,
     PerformanceMetricsRepository,
     SelectionHistoryRepository,
-    StrategyBacktestRepository,
-)
+    StrategyBacktestRepository)
 
 __all__ = [
     "StrategyRepository",

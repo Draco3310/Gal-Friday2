@@ -14,6 +14,7 @@ from gal_friday.dal.base import BaseRepository
 from gal_friday.dal.models.experiment import Experiment
 from gal_friday.dal.models.experiment_assignment import ExperimentAssignment
 from gal_friday.dal.models.experiment_outcome import ExperimentOutcome
+from typing import Any
 
 # ExperimentConfig and ExperimentStatus would now likely be service-layer or domain models.
 
@@ -21,12 +22,11 @@ if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
 
-class ExperimentRepository(BaseRepository[Experiment]):
+class ExperimentRepository(BaseRepository):
     """Repository for Experiment data persistence using SQLAlchemy."""
 
     def __init__(
-        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService",
-    ) -> None:
+        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
         """Initialize the experiment repository.
 
         Args:
@@ -96,16 +96,14 @@ class ExperimentRepository(BaseRepository[Experiment]):
                 select(Experiment)
                 .where(
                     Experiment.status.in_(["created", "running"]),
-                    (Experiment.end_time == None) | (Experiment.end_time > datetime.now(UTC)),
-                )
+                    (Experiment.end_time == None) | (Experiment.end_time > datetime.now(UTC)))
                 .order_by(Experiment.start_time.desc())
             )
             result = await session.execute(stmt)
             return result.scalars().all()
 
     async def record_assignment(
-        self, assignment_data: dict[str, Any],
-    ) -> ExperimentAssignment | None:
+        self, assignment_data: dict[str, Any]) -> ExperimentAssignment | None:
         """Records a variant assignment. Uses INSERT ... ON CONFLICT DO NOTHING."""
         # Ensure experiment_id and event_id are UUIDs
         for key in ["experiment_id", "event_id"]:
@@ -121,20 +119,17 @@ class ExperimentRepository(BaseRepository[Experiment]):
 
         stmt = pg_insert(ExperimentAssignment).values(**assignment_data)
         stmt = stmt.on_conflict_do_nothing(
-            index_elements=[ExperimentAssignment.experiment_id, ExperimentAssignment.event_id],
-        )
+            index_elements=[ExperimentAssignment.experiment_id, ExperimentAssignment.event_id])
         async with self.session_maker() as session:
             await session.execute(stmt)
             await session.commit()
             return await session.get(
                 ExperimentAssignment,
-                (assignment_data["experiment_id"], assignment_data["event_id"]),
-            )
+                (assignment_data["experiment_id"], assignment_data["event_id"]))
 
 
     async def get_assignment(
-        self, experiment_id: uuid.UUID, event_id: uuid.UUID,
-    ) -> ExperimentAssignment | None:
+        self, experiment_id: uuid.UUID, event_id: uuid.UUID) -> ExperimentAssignment | None:
         """Get variant assignment for an event."""
         async with self.session_maker() as session:
             return await session.get(ExperimentAssignment, (experiment_id, event_id))
@@ -176,8 +171,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
         }
         stmt = stmt.on_conflict_do_update(
             index_elements=[ExperimentOutcome.outcome_id],
-            set_=update_cols,
-        ).returning(ExperimentOutcome)
+            set_=update_cols).returning(ExperimentOutcome)
 
         async with self.session_maker() as session:
             result = await session.execute(stmt)
@@ -185,8 +179,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
             return result.scalar_one()
 
     async def get_or_create_outcome(
-        self, outcome_data: dict[str, Any],
-    ) -> ExperimentOutcome:
+        self, outcome_data: dict[str, Any]) -> ExperimentOutcome:
         """Retrieve an existing outcome or create a new one.
 
         The lookup is performed first by ``outcome_id`` if provided; otherwise
@@ -220,8 +213,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
             elif outcome_data.get("experiment_id") and outcome_data.get("event_id"):
                 stmt = select(ExperimentOutcome).where(
                     ExperimentOutcome.experiment_id == outcome_data["experiment_id"],
-                    ExperimentOutcome.event_id == outcome_data["event_id"],
-                )
+                    ExperimentOutcome.event_id == outcome_data["event_id"])
                 result = await session.execute(stmt)
                 instance = result.scalar_one_or_none()
 
@@ -235,8 +227,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
             return instance
 
     async def get_experiment_performance(
-        self, experiment_id: uuid.UUID,
-    ) -> dict[str, dict[str, Any]]:
+        self, experiment_id: uuid.UUID) -> dict[str, dict[str, Any]]:
         """Get aggregated performance metrics for experiment variants."""
         stmt = (
             select(
@@ -245,15 +236,14 @@ class ExperimentRepository(BaseRepository[Experiment]):
                 func.sum(cast(ExperimentOutcome.correct_prediction, Integer)).label("correct_predictions"),
                 func.sum(cast(ExperimentOutcome.signal_generated, Integer)).label("signals_generated"),
                 func.sum(ExperimentOutcome.trade_return).label("total_return"),
-                func.avg(cast(ExperimentOutcome.correct_prediction, Numeric)).label("accuracy"),
-            )
+                func.avg(cast(ExperimentOutcome.correct_prediction, Numeric)).label("accuracy"))
             .where(ExperimentOutcome.experiment_id == experiment_id)
             .group_by(ExperimentOutcome.variant)
         )
         performance_summary: dict[str, dict[str, Any]] = {}
         async with self.session_maker() as session:
             result = await session.execute(stmt)
-            for row in result.mappings(): # Use mappings() to get dict-like rows
+            for row in result.mappings(): # Use mappings() to get dict[str, Any]-like rows
                 performance_summary[row["variant"]] = {
                     "sample_count": row["sample_count"],
                     "correct_predictions": row["correct_predictions"] or 0,
@@ -286,8 +276,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
         subquery = (
             select(
                 ExperimentAssignment.experiment_id,
-                func.count(ExperimentAssignment.event_id.distinct()).label("total_assignments"),
-            )
+                func.count(ExperimentAssignment.event_id.distinct()).label("total_assignments"))
             .group_by(ExperimentAssignment.experiment_id)
             .subquery()
         )

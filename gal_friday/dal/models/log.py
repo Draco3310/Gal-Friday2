@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func  # For server_default=func.now()
 
 from .models_base import Base
+from typing import Any
 
 
 class Log(Base):
@@ -17,8 +18,7 @@ class Log(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True) # BIGSERIAL
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
-    ) # TIMESTAMPTZ, default NOW()
+        DateTime(timezone=True), nullable=False, server_default=func.now()) # TIMESTAMPTZ, default NOW()
     logger_name: Mapped[str] = mapped_column(String(255), nullable=False)
     level_name: Mapped[str] = mapped_column(String(50), nullable=False)
     level_no: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -27,7 +27,7 @@ class Log(Base):
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     lineno: Mapped[int | None] = mapped_column(Integer, nullable=True)
     func_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    context_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True) # Stored as dict, maps to JSONB
+    context_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True) # Stored as dict[str, Any], maps to JSONB
     exception_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:

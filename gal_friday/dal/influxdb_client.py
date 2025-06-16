@@ -30,8 +30,7 @@ class TimeSeriesDB:
         self._client = InfluxDBClient(
             url=config.get("influxdb.url"),
             token=config.get("influxdb.token"),
-            org=config.get("influxdb.org"),
-        )
+            org=config.get("influxdb.org"))
 
         self.write_api = self._client.write_api(write_options=SYNCHRONOUS)
         self.query_api = self._client.query_api()
@@ -60,8 +59,7 @@ class TimeSeriesDB:
         except InfluxDBError:
             self.logger.exception(
                 "Error writing points to InfluxDB",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def write_market_data(
@@ -69,8 +67,7 @@ class TimeSeriesDB:
         trading_pair: str,
         exchange: str,
         data_type: str,  # 'ohlcv', 'tick', 'orderbook'
-        data: dict[str, Any],
-    ) -> None:
+        data: dict[str, Any]) -> None:
         """Write market data point."""
         try:
             point = Point("market_data") \
@@ -107,15 +104,13 @@ class TimeSeriesDB:
         except Exception:
             self.logger.exception(
                 "Error writing market data to InfluxDB",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def write_metrics(
         self,
         metric_name: str,
         value: float,
-        tags: dict[str, str] | None = None,
-    ) -> None:
+        tags: dict[str, str] | None = None) -> None:
         """Write system metrics."""
         try:
             point = Point("system_metrics") \
@@ -130,8 +125,7 @@ class TimeSeriesDB:
         except Exception:
             self.logger.exception(
                 "Error writing metrics to InfluxDB",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def query(self, query: str) -> list[dict[str, Any]]:
         """Query data from InfluxDB.
@@ -165,8 +159,7 @@ class TimeSeriesDB:
         except InfluxDBError:
             self.logger.exception(
                 "Error querying data from InfluxDB",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return []
 
     async def query_ohlcv(self,
@@ -206,8 +199,7 @@ class TimeSeriesDB:
         except Exception:
             self.logger.exception(
                 "Error querying OHLCV data from InfluxDB",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return []
 
     def close(self) -> None:

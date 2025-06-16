@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .models_base import Base
+from typing import Any
 
 
 class ModelVersion(Base):
@@ -22,9 +23,9 @@ class ModelVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False) # No server_default in schema
     training_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     stage: Mapped[str | None] = mapped_column(String(50), server_default="development", index=True) # Added index based on schema
-    metrics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    hyperparameters: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    feature_importance: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    hyperparameters: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    feature_importance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     artifact_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationship to ModelDeployment (one model version can have multiple deployments)
@@ -33,8 +34,7 @@ class ModelVersion(Base):
     __table_args__ = (
         UniqueConstraint("model_name", "version", name="uq_model_name_version"),
         Index("idx_models_name", "model_name"),
-        Index("idx_models_stage", "stage"),
-    )
+        Index("idx_models_stage", "stage"))
 
     def __repr__(self) -> str:
         return (

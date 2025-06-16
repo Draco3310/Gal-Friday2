@@ -39,8 +39,7 @@ class FundsManager:
         self,
         logger_service: LoggerService,
         session_maker: Any, # async_sessionmaker | None = None, for consistency, but unused
-        valuation_currency: str = "USD",
-    ) -> None:
+        valuation_currency: str = "USD") -> None:
         """Initialize the funds manager.
 
         Args:
@@ -79,27 +78,23 @@ class FundsManager:
                             "Initial capital for %s is negative (%s), setting to 0.",
                             currency,
                             amount,
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
                         amount = Decimal(0)
                     self._available_funds[currency.upper()] = amount
                 except Exception:
                     self.logger.exception(
                         "Error processing initial capital for %s. Setting to 0.",
                         currency,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     self._available_funds[currency.upper()] = Decimal(0)
             self.logger.info(
                 "Initialized funds: %s",
                 self._available_funds,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def update_funds_for_trade(
         self,
-        trade: TradeParams,
-    ) -> None:
+        trade: TradeParams) -> None:
         """Update available funds based on a trade execution.
 
         Args:
@@ -123,9 +118,7 @@ class FundsManager:
                         self.INSUFFICIENT_QUOTE_FUNDS.format(
                             quote_asset_upper,
                             trade.cost_or_proceeds,
-                            current_balance_quote,
-                        ),
-                    )
+                            current_balance_quote))
                 self._available_funds[quote_asset_upper] = (
                     current_balance_quote - trade.cost_or_proceeds
                 )
@@ -139,17 +132,14 @@ class FundsManager:
                     base_asset_upper,
                     trade.quantity,
                     self._available_funds[base_asset_upper],
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             else:  # SELL
                 if current_balance_base < trade.quantity:
                     raise InsufficientFundsError(
                         self.INSUFFICIENT_BASE_FUNDS.format(
                             base_asset_upper,
                             trade.quantity,
-                            current_balance_base,
-                        ),
-                    )
+                            current_balance_base))
                 self._available_funds[base_asset_upper] = current_balance_base - trade.quantity
                 self._available_funds[quote_asset_upper] = (
                     current_balance_quote + trade.cost_or_proceeds
@@ -163,14 +153,12 @@ class FundsManager:
                     base_asset_upper,
                     trade.quantity,
                     self._available_funds[base_asset_upper],
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
     async def handle_commission(
         self,
         commission: Decimal,
-        commission_asset: str | None,
-    ) -> None:
+        commission_asset: str | None) -> None:
         """Update funds to account for trading commission.
 
         Args:
@@ -196,8 +184,7 @@ class FundsManager:
                 commission,
                 commission_asset_upper,
                 new_balance,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def deposit(self, currency: str, amount: Decimal) -> None:
         """Record a deposit of funds.
@@ -225,8 +212,7 @@ class FundsManager:
                 amount,
                 currency_upper,
                 new_balance,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def withdraw(self, currency: str, amount: Decimal) -> None:
         """Record a withdrawal of funds.
@@ -250,8 +236,7 @@ class FundsManager:
 
             if current_balance < amount:
                 raise InsufficientFundsError(
-                    self.INSUFFICIENT_BASE_FUNDS % (currency_upper, amount, current_balance),
-                )
+                    self.INSUFFICIENT_BASE_FUNDS % (currency_upper, amount, current_balance))
 
             new_balance = current_balance - amount
             self._available_funds[currency_upper] = new_balance
@@ -261,13 +246,11 @@ class FundsManager:
                 amount,
                 currency_upper,
                 new_balance,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def reconcile_with_exchange_balances(
         self,
-        exchange_balances: dict[str, Decimal],
-    ) -> None:
+        exchange_balances: dict[str, Decimal]) -> None:
         """Reconciles internal fund balances with exchange-reported balances.
 
         Args:
@@ -276,8 +259,7 @@ class FundsManager:
         """
         self.logger.info(
             "Reconciling funds with exchange balances",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
         async with self._lock:
             # Track which currencies we've processed
@@ -298,26 +280,23 @@ class FundsManager:
                         internal_amount,
                         exchange_amount,
                         exchange_amount - internal_amount,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
 
                     # Update to match exchange
                     self._available_funds[currency_upper] = exchange_amount
 
             # Check for currencies we have internally that aren't at the exchange
-            for currency, balance in list(self._available_funds.items()):
+            for currency, balance in list[Any](self._available_funds.items()):
                 if currency not in processed_currencies and balance != Decimal(0):
                     # If we track a currency not at exchange, set to zero or remove
                     self.logger.info(
                         "Zeroing %s balance not found at exchange (was %s)",
                         currency,
                         balance,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     self._available_funds[currency] = Decimal(0)
 
         self.logger.info(
             "Reconciliation complete: %s",
             self._available_funds,
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)

@@ -5,6 +5,7 @@ from gal_friday.config_manager import ConfigManager
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.execution.websocket_client import KrakenWebSocketClient
 from gal_friday.logger_service import LoggerService
+from typing import Any
 
 
 class WebSocketMarketDataService:
@@ -37,17 +38,15 @@ class WebSocketMarketDataService:
         """Start market data service."""
         self.logger.info(
             "Starting WebSocket market data service",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
         # Connect WebSocket
         await self.ws_client.connect()
 
         # Subscribe to market data
         await self.ws_client.subscribe_market_data(
-            list(self.pairs),
-            self.channels,
-        )
+            list[Any](self.pairs),
+            self.channels)
 
     async def stop(self) -> None:
         """Stop market data service."""

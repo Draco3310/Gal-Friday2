@@ -95,7 +95,7 @@ class StrategyAction:
     urgency: float = 0.5  # 0.0 = not urgent, 1.0 = very urgent
 
     # Metadata
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass(frozen=True)
@@ -125,14 +125,14 @@ class StrategyState:
     last_updated_at: datetime = field(default_factory=datetime.utcnow)
 
     # Configuration
-    parameters: dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass
 class PerformanceMetrics:
     """Comprehensive statistical performance metrics for strategy evaluation."""
     strategy_id: str
-    returns: np.ndarray
+    returns: np.ndarray[Any, Any]
     
     # Risk-adjusted metrics
     sharpe_ratio: float
@@ -223,8 +223,8 @@ class StatisticalAnalyzer:
     
     @staticmethod
     def calculate_performance_metrics(
-        returns: pd.Series, 
-        benchmark_returns: Optional[pd.Series] = None,
+        returns: pd.Series[Any], 
+        benchmark_returns: Optional[pd.Series[Any]] = None,
         risk_free_rate: float = 0.02
     ) -> PerformanceMetrics:
         """Calculate comprehensive performance metrics for a strategy."""
@@ -353,7 +353,7 @@ class StatisticalAnalyzer:
 class ConfigurableEnsemble:
     """Advanced configurable ensemble strategy combiner."""
     
-    def __init__(self, config: EnsembleConfig):
+    def __init__(self, config: EnsembleConfig) -> None:
         self.config = config
         self.performance_history: dict[str, list[float]] = {}
         self.weights_history: dict[str, list[float]] = {}
@@ -671,7 +671,7 @@ class ConfigurableEnsemble:
 class StatisticalReweighting:
     """Advanced statistical reweighting system for strategy portfolios."""
     
-    def __init__(self, config: ReweightingConfig):
+    def __init__(self, config: ReweightingConfig) -> None:
         self.config = config
         self.performance_cache: dict[str, PerformanceMetrics] = {}
         self.weight_history: list[dict[str, float]] = []
@@ -679,12 +679,12 @@ class StatisticalReweighting:
     
     def calculate_optimal_weights(
         self,
-        strategy_performances: dict[str, pd.Series],
+        strategy_performances: dict[str, pd.Series[Any]],
         current_weights: Optional[dict[str, float]] = None
     ) -> dict[str, float]:
         """Calculate optimal strategy weights using statistical analysis."""
         if len(strategy_performances) < 2:
-            return {list(strategy_performances.keys())[0]: 1.0} if strategy_performances else {}
+            return {list[Any](strategy_performances.keys())[0]: 1.0} if strategy_performances else {}
         
         try:
             # Calculate performance metrics for each strategy
@@ -695,7 +695,7 @@ class StatisticalReweighting:
                     metrics[strategy_id].strategy_id = strategy_id
             
             if not metrics:
-                return self._equal_weights(list(strategy_performances.keys()))
+                return self._equal_weights(list[Any](strategy_performances.keys()))
             
             # Apply chosen reweighting method
             if self.config.method == ReweightingMethod.SHARPE_RATIO:
@@ -723,7 +723,7 @@ class StatisticalReweighting:
             
         except Exception as e:
             self.logger.error(f"Error in weight calculation: {e}")
-            return self._equal_weights(list(strategy_performances.keys()))
+            return self._equal_weights(list[Any](strategy_performances.keys()))
     
     def _sharpe_ratio_weighting(self, metrics: dict[str, PerformanceMetrics]) -> dict[str, float]:
         """Calculate weights based on Sharpe ratio."""
@@ -744,7 +744,7 @@ class StatisticalReweighting:
             total_adjusted_sharpe += adjusted_sharpe
         
         if total_adjusted_sharpe <= 0:
-            return self._equal_weights(list(metrics.keys()))
+            return self._equal_weights(list[Any](metrics.keys()))
         
         return {sid: score / total_adjusted_sharpe for sid, score in sharpe_scores.items()}
     
@@ -767,7 +767,7 @@ class StatisticalReweighting:
             total_adjusted_sortino += adjusted_sortino
         
         if total_adjusted_sortino <= 0:
-            return self._equal_weights(list(metrics.keys()))
+            return self._equal_weights(list[Any](metrics.keys()))
         
         return {sid: score / total_adjusted_sortino for sid, score in sortino_scores.items()}
     
@@ -786,15 +786,15 @@ class StatisticalReweighting:
                 total_inv_vol += 1.0
         
         if total_inv_vol <= 0:
-            return self._equal_weights(list(metrics.keys()))
+            return self._equal_weights(list[Any](metrics.keys()))
         
         return {sid: score / total_inv_vol for sid, score in inv_vol_scores.items()}
     
-    def _minimum_variance_weighting(self, performances: dict[str, pd.Series]) -> dict[str, float]:
+    def _minimum_variance_weighting(self, performances: dict[str, pd.Series[Any]]) -> dict[str, float]:
         """Calculate minimum variance portfolio weights."""
         try:
             # Create returns matrix
-            strategy_ids = list(performances.keys())
+            strategy_ids = list[Any](performances.keys())
             returns_matrix = pd.DataFrame({sid: performances[sid] for sid in strategy_ids})
             returns_matrix = returns_matrix.dropna()
             
@@ -820,16 +820,16 @@ class StatisticalReweighting:
             weights = np.maximum(weights, 0)
             weights = weights / weights.sum()
             
-            return dict(zip(strategy_ids, weights))
+            return dict[str, Any](zip(strategy_ids, weights))
             
         except Exception as e:
             self.logger.error(f"Error in minimum variance calculation: {e}")
-            return self._equal_weights(list(performances.keys()))
+            return self._equal_weights(list[Any](performances.keys()))
     
-    def _maximum_diversification_weighting(self, performances: dict[str, pd.Series]) -> dict[str, float]:
+    def _maximum_diversification_weighting(self, performances: dict[str, pd.Series[Any]]) -> dict[str, float]:
         """Calculate maximum diversification portfolio weights."""
         try:
-            strategy_ids = list(performances.keys())
+            strategy_ids = list[Any](performances.keys())
             returns_matrix = pd.DataFrame({sid: performances[sid] for sid in strategy_ids})
             returns_matrix = returns_matrix.dropna()
             
@@ -850,11 +850,11 @@ class StatisticalReweighting:
             vol_scaled_weights = np.maximum(vol_scaled_weights, 0)
             vol_scaled_weights = vol_scaled_weights / vol_scaled_weights.sum()
             
-            return dict(zip(strategy_ids, vol_scaled_weights))
+            return dict[str, Any](zip(strategy_ids, vol_scaled_weights))
             
         except Exception as e:
             self.logger.error(f"Error in maximum diversification calculation: {e}")
-            return self._equal_weights(list(performances.keys()))
+            return self._equal_weights(list[Any](performances.keys()))
     
     def _apply_constraints(
         self,
@@ -966,7 +966,7 @@ class StatisticalReweighting:
         }
         
         # Concentration metrics
-        weights_array = np.array(list(latest_weights.values()))
+        weights_array = np.array(list[Any](latest_weights.values()))
         attribution["concentration_index"] = np.sum(weights_array ** 2)  # Herfindahl index
         attribution["effective_strategies"] = 1.0 / attribution["concentration_index"] if attribution["concentration_index"] > 0 else 0
         
@@ -986,8 +986,7 @@ class StrategyInterface(ABC):
         self._state = StrategyState(
             strategy_id=strategy_id,
             strategy_type=strategy_type,
-            is_active=False,
-        )
+            is_active=False)
 
     @property
     def state(self) -> StrategyState:
@@ -1015,7 +1014,7 @@ class StrategyInterface(ABC):
 
     @abstractmethod
     def get_required_features(self) -> list[str]:
-        """Get list of required feature names for this strategy.
+        """Get list[Any] of required feature names for this strategy.
 
         Returns:
             List of feature names needed for analysis
@@ -1108,8 +1107,7 @@ class StrategyInterface(ABC):
             memory_usage_mb=self._state.memory_usage_mb,
             created_at=self._state.created_at,
             last_updated_at=datetime.utcnow(),
-            parameters=self._state.parameters,
-        )
+            parameters=self._state.parameters)
 
     def validate_action(self, action: StrategyAction) -> list[str]:
         """Validate if an action is allowed in current market state.
@@ -1158,12 +1156,12 @@ class StrategyInterface(ABC):
         return symbol in self.asset_specifications
 
     def get_supported_assets(self) -> list[str]:
-        """Get list of supported asset symbols.
+        """Get list[Any] of supported asset symbols.
 
         Returns:
             List of asset symbols this strategy can trade
         """
-        return list(self.asset_specifications.keys())
+        return list[Any](self.asset_specifications.keys())
 
 
 class MARLStrategyInterface(StrategyInterface):
@@ -1178,8 +1176,7 @@ class MARLStrategyInterface(StrategyInterface):
             strategy_id,
             StrategyType.MARL_MULTI_AGENT,
             asset_specifications,
-            **kwargs,
-        )
+            **kwargs)
         self.agent_configs = agent_configs
         self.agents: dict[str, Any] = {}  # Will hold actual agent instances
         self.current_episode = 0
@@ -1195,8 +1192,7 @@ class MARLStrategyInterface(StrategyInterface):
     async def get_joint_action(
         self,
         feature_vector: FeatureVector,
-        agent_observations: dict[str, np.ndarray],
-    ) -> dict[str, StrategyAction]:
+        agent_observations: dict[str, np.ndarray[Any, Any]]) -> dict[str, StrategyAction]:
         """Get joint actions from all agents.
 
         Args:
@@ -1229,8 +1225,7 @@ class MARLStrategyInterface(StrategyInterface):
     # Enhanced ensemble decision making
     async def ensemble_actions(
         self,
-        agent_actions: dict[str, StrategyAction],
-    ) -> StrategyAction:
+        agent_actions: dict[str, StrategyAction]) -> StrategyAction:
         """Combine multiple agent actions using advanced ensemble methods.
 
         Args:
@@ -1245,8 +1240,7 @@ class MARLStrategyInterface(StrategyInterface):
                 exchange_id="",
                 confidence=0.0,
                 strategy_id=self.strategy_id,
-                reasoning="No agent actions available",
-            )
+                reasoning="No agent actions available")
 
         try:
             # Update agent performance metrics if available
@@ -1349,8 +1343,7 @@ class MARLStrategyInterface(StrategyInterface):
         representative_action = max(
             (a for a in agent_actions.values() if a.action_type == winning_action),
             key=lambda x: x.confidence,
-            default=next(iter(agent_actions.values())),
-        )
+            default=next(iter(agent_actions.values())))
 
         return StrategyAction(
             action_type=winning_action,
@@ -1368,8 +1361,7 @@ class MARLStrategyInterface(StrategyInterface):
                     aid: str(action.action_type)
                     for aid, action in agent_actions.items()
                 },
-            },
-        )
+            })
 
 
 class EnsembleStrategyInterface(StrategyInterface):
@@ -1381,8 +1373,7 @@ class EnsembleStrategyInterface(StrategyInterface):
         sub_strategies: list[StrategyInterface],
         ensemble_config: Optional[EnsembleConfig] = None,
         reweighting_config: Optional[ReweightingConfig] = None,
-        **kwargs: dict[str, Any],
-    ) -> None:
+        **kwargs: dict[str, Any]) -> None:
         """Initialize ensemble strategy with advanced statistical reweighting.
 
         Args:
@@ -1397,7 +1388,7 @@ class EnsembleStrategyInterface(StrategyInterface):
         for strategy in sub_strategies:
             all_assets.update(strategy.asset_specifications)
 
-        super().__init__(strategy_id, StrategyType.ENSEMBLE, list(all_assets.values()), **kwargs)
+        super().__init__(strategy_id, StrategyType.ENSEMBLE, list[Any](all_assets.values()), **kwargs)
         self.sub_strategies = sub_strategies
         
         # Enhanced configuration systems
@@ -1410,15 +1401,14 @@ class EnsembleStrategyInterface(StrategyInterface):
         
         # Performance tracking
         self.strategy_performance_history: dict[str, list[float]] = {}
-        self.strategy_returns_series: dict[str, pd.Series] = {}
+        self.strategy_returns_series: dict[str, pd.Series[Any]] = {}
         self.strategy_weights = {s.strategy_id: 1.0 / len(sub_strategies) for s in sub_strategies}
         self.last_rebalance_time: Optional[datetime] = None
 
     @abstractmethod
     async def combine_actions(
         self,
-        sub_actions: dict[str, StrategyAction],
-    ) -> StrategyAction:
+        sub_actions: dict[str, StrategyAction]) -> StrategyAction:
         """Combine actions from sub-strategies into final action.
 
         Args:
@@ -1669,12 +1659,11 @@ class StrategyFactory(Protocol):
         self,
         strategy_type: StrategyType,
         config: dict[str, Any],
-        asset_specs: list[AssetSpecification],
-    ) -> StrategyInterface:
+        asset_specs: list[AssetSpecification]) -> StrategyInterface:
         """Create a strategy instance.
 
         Args:
-            strategy_type: Type of strategy to create
+            strategy_type: Type[Any] of strategy to create
             config: Strategy configuration
             asset_specs: Supported asset specifications
         Returns:
@@ -1685,8 +1674,7 @@ class StrategyFactory(Protocol):
 # Utility functions for strategy management
 def validate_strategy_action(
     action: StrategyAction,
-    current_portfolio: dict[str, Any],
-) -> list[str]:
+    current_portfolio: dict[str, Any]) -> list[str]:
     """Validate a strategy action against current portfolio state.
 
     Args:

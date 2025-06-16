@@ -26,8 +26,7 @@ from .core.events import (
     EventType,
     PredictionEvent,
     TradeSignalProposedEvent,
-    TradeOutcomeEvent,
-)
+    TradeOutcomeEvent)
 
 # Import FeatureRegistryClient
 from .core.feature_registry_client import FeatureRegistryClient
@@ -46,8 +45,7 @@ from .strategy_selection import (
     StrategySelectionSystem,
     StrategySelectionContext,
     StrategyEvaluationResult,
-    MarketConditionSnapshot,
-)
+    MarketConditionSnapshot)
 
 
 # === Enterprise-Grade Prediction Interpretation Framework ===
@@ -81,9 +79,9 @@ class PredictionField:
     name: str
     type: PredictionType
     interpretation_strategy: InterpretationStrategy
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: Dict[str, Any] = field(default_factory=dict[str, Any])
     required: bool = True
-    validation_rules: Dict[str, Any] = field(default_factory=dict)
+    validation_rules: Dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass
@@ -94,8 +92,8 @@ class PredictionInterpretationConfig:
     description: str
     fields: List[PredictionField]
     default_interpretation: InterpretationStrategy
-    fallback_rules: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    fallback_rules: Dict[str, Any] = field(default_factory=dict[str, Any])
+    metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 class PredictionInterpreter(ABC):
@@ -219,9 +217,9 @@ class ValidationContext:
 
     symbol: str
     strategy_id: str
-    market_conditions: Dict[str, Any] = field(default_factory=dict)
+    market_conditions: Dict[str, Any] = field(default_factory=dict[str, Any])
     timestamp: float = field(default_factory=time.time)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass
@@ -267,8 +265,7 @@ class BasicProbabilityValidator(ProbabilityValidator):
                 message=f"Field {rule.field_path} not found",
                 field_path=rule.field_path,
                 actual_value=None,
-                expected_value=rule.value,
-            )
+                expected_value=rule.value)
 
         # Apply validation operator
         is_valid = self._apply_operator(actual_value, rule.operator, rule.value)
@@ -285,8 +282,7 @@ class BasicProbabilityValidator(ProbabilityValidator):
             message=message,
             field_path=rule.field_path,
             actual_value=actual_value,
-            expected_value=rule.value,
-        )
+            expected_value=rule.value)
 
     def _get_nested_value(self, data: Dict[str, Any], path: str) -> Any:
         """Extract value from nested dictionary using dot notation."""
@@ -333,7 +329,7 @@ class BasicProbabilityValidator(ProbabilityValidator):
 class ConfigurableProbabilityValidator:
     """Enterprise-grade configurable probability validator with comprehensive monitoring."""
 
-    def __init__(self, config_path: Optional[str] = None, logger_service=None):
+    def __init__(self, config_path: Optional[str] = None, logger_service=None) -> None:
         self.logger = logger_service
 
         # Validator registry
@@ -375,8 +371,7 @@ class ConfigurableProbabilityValidator:
                     level=ValidationLevel(rule_data.get("level", "error")),
                     message=rule_data.get("message"),
                     enabled=rule_data.get("enabled", True),
-                    conditions=rule_data.get("conditions"),
-                )
+                    conditions=rule_data.get("conditions"))
                 self.validation_rules.append(rule)
 
             # Parse rule groups
@@ -407,8 +402,7 @@ class ConfigurableProbabilityValidator:
                 value=[0.0, 1.0],
                 level=ValidationLevel.ERROR,
                 message="Probability must be between 0 and 1",
-                enabled=True,
-            ),
+                enabled=True),
             ValidationRule(
                 name="confidence_minimum",
                 field_path="confidence",
@@ -416,8 +410,7 @@ class ConfigurableProbabilityValidator:
                 value=0.5,
                 level=ValidationLevel.WARNING,
                 message="Low confidence prediction detected",
-                enabled=True,
-            ),
+                enabled=True),
         ]
 
         self.validation_rules = default_rules
@@ -543,14 +536,14 @@ class ConfigurableProbabilityValidator:
             "success_rate_percent": round(success_rate, 2),
             "total_rules": len(self.validation_rules),
             "enabled_rules": len([r for r in self.validation_rules if r.enabled]),
-            "rule_groups": list(self.rule_groups.keys()),
+            "rule_groups": list[Any](self.rule_groups.keys()),
         }
 
 
 class PredictionInterpretationEngine:
     """Enterprise-grade prediction interpretation engine with configurable rules."""
 
-    def __init__(self, config_path: Optional[str] = None, logger_service=None):
+    def __init__(self, config_path: Optional[str] = None, logger_service=None) -> None:
         self.logger = logger_service
 
         # Interpreter registry
@@ -592,8 +585,7 @@ class PredictionInterpretationEngine:
                     ),
                     parameters=field_data.get("parameters", {}),
                     required=field_data.get("required", True),
-                    validation_rules=field_data.get("validation_rules", {}),
-                )
+                    validation_rules=field_data.get("validation_rules", {}))
                 fields.append(field)
 
             self.interpretation_config = PredictionInterpretationConfig(
@@ -604,8 +596,7 @@ class PredictionInterpretationEngine:
                     config_data.get("default_interpretation", "threshold_based")
                 ),
                 fallback_rules=config_data.get("fallback_rules", {}),
-                metadata=config_data.get("metadata", {}),
-            )
+                metadata=config_data.get("metadata", {}))
 
             if self.logger:
                 self.logger.info(
@@ -628,8 +619,7 @@ class PredictionInterpretationEngine:
                 interpretation_strategy=InterpretationStrategy.THRESHOLD_BASED,
                 parameters={"buy_threshold": 0.6, "sell_threshold": 0.4},
                 required=True,
-                validation_rules={"min_value": 0.0, "max_value": 1.0, "type": float},
-            )
+                validation_rules={"min_value": 0.0, "max_value": 1.0, "type": float})
         ]
 
         self.interpretation_config = PredictionInterpretationConfig(
@@ -637,8 +627,7 @@ class PredictionInterpretationEngine:
             description="Default enterprise prediction interpretation configuration",
             fields=default_fields,
             default_interpretation=InterpretationStrategy.THRESHOLD_BASED,
-            fallback_rules={"prediction_value": {"type": "default_value", "value": 0.5}},
-        )
+            fallback_rules={"prediction_value": {"type": "default_value", "value": 0.5}})
 
     async def interpret_prediction(self, prediction: Dict[str, Any]) -> Dict[str, Any]:
         """Interpret prediction according to loaded configuration with enterprise error handling."""
@@ -737,7 +726,7 @@ class StrategyArbitrator(ServiceProtocol):
 
     def __init__(
         self,
-        config: dict,
+        config: dict[str, Any],
         pubsub_manager: PubSubManager,
         logger_service: LoggerService,
         market_price_service: MarketPriceService,
@@ -750,7 +739,7 @@ class StrategyArbitrator(ServiceProtocol):
         """Initialize the StrategyArbitrator.
 
         Args:
-            config (dict): Configuration settings. Expected structure:
+            config (dict[str, Any]): Configuration settings. Expected structure:
                 strategy_arbitrator:
                   strategies:
                     - id: "mvp_threshold_v1"
@@ -819,19 +808,16 @@ class StrategyArbitrator(ServiceProtocol):
                 risk_manager=risk_manager,
                 portfolio_manager=portfolio_manager,
                 monitoring_service=monitoring_service,
-                database_manager=database_manager,
-            )
+                database_manager=database_manager)
             self.logger.info(
                 "Strategy Selection System initialized and enabled",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         else:
             self.strategy_selection_system = None
             if self._config.get("strategy_selection", {}).get("enabled", False):
                 self.logger.warning(
                     "Strategy selection enabled but dependencies not provided - using static selection",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
         self._strategies = self._config.get("strategies", [])
         if not self._strategies:
@@ -857,25 +843,20 @@ class StrategyArbitrator(ServiceProtocol):
         self._tp_pct = Decimal(str(tp_pct_conf)) if tp_pct_conf is not None else None
         self._confirmation_rules = self._primary_strategy_config.get("confirmation_rules", [])
         self._limit_offset_pct = Decimal(
-            str(self._primary_strategy_config.get("limit_offset_pct", "0.0001")),
-        )
+            str(self._primary_strategy_config.get("limit_offset_pct", "0.0001")))
         self._prediction_interpretation = self._primary_strategy_config.get(
             "prediction_interpretation",
-            "directional",
-        )
+            "directional")
         default_rr_ratio_str = self._primary_strategy_config.get(
             "stop_loss_to_take_profit_ratio",
-            "1.0",
-        )
+            "1.0")
         self._stop_loss_to_take_profit_ratio = Decimal(default_rr_ratio_str)
 
         # Price change thresholds
         self._price_change_buy_threshold_pct = Decimal(
-            str(self._primary_strategy_config.get("price_change_buy_threshold_pct", "0.01")),
-        )
+            str(self._primary_strategy_config.get("price_change_buy_threshold_pct", "0.01")))
         self._price_change_sell_threshold_pct = Decimal(
-            str(self._primary_strategy_config.get("price_change_sell_threshold_pct", "-0.01")),
-        )
+            str(self._primary_strategy_config.get("price_change_sell_threshold_pct", "-0.01")))
 
         try:
             self._validate_configuration()
@@ -883,14 +864,12 @@ class StrategyArbitrator(ServiceProtocol):
         except KeyError as key_error:
             self.logger.exception(
                 "Missing required strategy parameter.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise StrategyConfigurationError from key_error
         except (InvalidOperation, TypeError) as value_error:
             self.logger.exception(
                 "Invalid parameter format in strategy configuration.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise StrategyConfigurationError from value_error
 
     async def initialize(self, *args, **kwargs) -> None:
@@ -898,8 +877,7 @@ class StrategyArbitrator(ServiceProtocol):
         # No asynchronous setup required at this time
         self.logger.debug(
             "StrategyArbitrator initialization complete.",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     def _validate_core_parameters(self) -> None:
         """Validate core strategy parameters like entry type, thresholds, SL/TP percentages."""
@@ -907,37 +885,32 @@ class StrategyArbitrator(ServiceProtocol):
             self.logger.error(
                 "Invalid entry_type in strategy: %s. Must be 'MARKET' or 'LIMIT'.",
                 self._entry_type,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise StrategyConfigurationError
         if self._buy_threshold <= self._sell_threshold:
             self.logger.error(
                 "Buy threshold (%s) must be greater than sell threshold (%s).",
                 self._buy_threshold,
                 self._sell_threshold,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise StrategyConfigurationError
         if self._sl_pct is not None and (self._sl_pct <= 0 or self._sl_pct >= 1):
             self.logger.error(
                 "Stop-loss percentage (%s) must be between 0 and 1 (exclusive).",
                 self._sl_pct,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise StrategyConfigurationError
         if self._tp_pct is not None and (self._tp_pct <= 0 or self._tp_pct >= 1):
             self.logger.error(
                 "Take-profit percentage (%s) must be between 0 and 1 (exclusive).",
                 self._tp_pct,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise StrategyConfigurationError
         if self._limit_offset_pct < 0:
             self.logger.error(
                 "Limit offset percentage (%s) cannot be negative.",
                 self._limit_offset_pct,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise StrategyConfigurationError
 
     def _validate_prediction_interpretation_config(self) -> None:
@@ -949,16 +922,14 @@ class StrategyArbitrator(ServiceProtocol):
         if not self.prediction_interpretation_engine:
             self.logger.error(
                 "Prediction interpretation engine not initialized",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise StrategyConfigurationError("Prediction interpretation engine not initialized")
 
         # Validate interpretation configuration
         if not self.prediction_interpretation_engine.interpretation_config:
             self.logger.error(
                 "No prediction interpretation configuration loaded",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise StrategyConfigurationError("No prediction interpretation configuration loaded")
 
         # Get supported interpretation types from configuration
@@ -976,16 +947,14 @@ class StrategyArbitrator(ServiceProtocol):
                     "Supported interpretations: %s",
                     self._prediction_interpretation,
                     supported_interpretations,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             else:
                 self.logger.error(
                     "Invalid prediction_interpretation in strategy: %s. "
                     "Supported interpretations: %s",
                     self._prediction_interpretation,
                     supported_interpretations,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             raise StrategyConfigurationError(
                 f"Invalid prediction_interpretation: {self._prediction_interpretation}"
             )
@@ -1001,8 +970,7 @@ class StrategyArbitrator(ServiceProtocol):
                         self.logger.error(
                             "Missing required parameters for threshold-based interpretation: %s",
                             missing_params,
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
                         raise StrategyConfigurationError(f"Missing parameters: {missing_params}")
 
                 # Validate threshold consistency
@@ -1016,8 +984,7 @@ class StrategyArbitrator(ServiceProtocol):
                             buy_thresh,
                             sell_thresh,
                             field.name,
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
                         raise StrategyConfigurationError("Invalid threshold configuration")
 
                 break
@@ -1026,8 +993,7 @@ class StrategyArbitrator(ServiceProtocol):
             "Prediction interpretation configuration validated successfully. "
             "Using enterprise framework with interpretation: %s",
             self._prediction_interpretation,
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     def _validate_confirmation_rules_config(self) -> None:
         """Validate the structure of confirmation rules and check if feature names
@@ -1038,8 +1004,7 @@ class StrategyArbitrator(ServiceProtocol):
                 "FeatureRegistryClient not available or not loaded. "
                 "Skipping feature name validation in confirmation rules for strategy '%s'.",
                 self._strategy_id,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             # Perform only structural validation if registry is not available
             for rule in self._confirmation_rules:
                 if not all(k in rule for k in ["feature", "condition", "threshold"]):
@@ -1047,8 +1012,7 @@ class StrategyArbitrator(ServiceProtocol):
                         "Invalid confirmation rule structure for strategy '%s': %s",
                         self._strategy_id,
                         rule,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     raise StrategyConfigurationError(
                         f"Invalid confirmation rule structure for strategy {self._strategy_id}: {rule}"
                     )
@@ -1060,8 +1024,7 @@ class StrategyArbitrator(ServiceProtocol):
                     "Invalid confirmation rule structure for strategy '%s': %s",
                     self._strategy_id,
                     rule,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 raise StrategyConfigurationError(
                     f"Invalid confirmation rule structure for strategy {self._strategy_id}: {rule}"
                 )
@@ -1076,15 +1039,13 @@ class StrategyArbitrator(ServiceProtocol):
                         "ineffective or cause errors during secondary confirmation.",
                         self._strategy_id,
                         feature_name,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                 else:
                     self.logger.debug(
                         "Confirmation rule feature '%s' for strategy '%s' validated against Feature Registry.",
                         feature_name,
                         self._strategy_id,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
             # If feature_name is None or empty, the structural check above would have already caught it
             # if 'feature' was a required key with a non-empty value.
             # The current structural check `all(k in rule for k in ["feature", ...])` ensures 'feature' key exists.
@@ -1098,8 +1059,7 @@ class StrategyArbitrator(ServiceProtocol):
 
         self.logger.info(
             "Strategy configuration validated successfully.",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     async def _validate_prediction_event(self, event: PredictionEvent) -> bool:
         """Validate the incoming PredictionEvent using enterprise-grade configurable validation.
@@ -1111,15 +1071,13 @@ class StrategyArbitrator(ServiceProtocol):
             self.logger.warning(
                 "PredictionEvent %s missing prediction_value.",
                 event.event_id,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
         if not hasattr(event, "trading_pair") or not event.trading_pair:
             self.logger.warning(
                 "PredictionEvent %s missing trading_pair.",
                 event.event_id,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
         # Enterprise-grade validation using configurable rules
@@ -1132,8 +1090,7 @@ class StrategyArbitrator(ServiceProtocol):
                 metadata={
                     "event_id": str(event.event_id),
                     "prediction_interpretation": self._prediction_interpretation,
-                },
-            )
+                })
 
             # Prepare data for validation
             prediction_data = {
@@ -1166,8 +1123,7 @@ class StrategyArbitrator(ServiceProtocol):
                     event.event_id,
                     event.trading_pair,
                     "; ".join(failure_messages),
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
 
             # Log warnings for non-critical failures
@@ -1183,8 +1139,7 @@ class StrategyArbitrator(ServiceProtocol):
                     event.event_id,
                     event.trading_pair,
                     warning.message,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
             # Additional business logic validation
             if not self._validate_prediction_business_rules(event):
@@ -1197,8 +1152,7 @@ class StrategyArbitrator(ServiceProtocol):
                 "Error during enterprise validation of PredictionEvent %s: %s",
                 event.event_id,
                 str(e),
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     def _validate_prediction_business_rules(self, event: PredictionEvent) -> bool:
@@ -1213,8 +1167,7 @@ class StrategyArbitrator(ServiceProtocol):
                     "Prediction_value %s for %s appears unreasonable (outside [-10, 10]).",
                     val,
                     event.trading_pair,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
 
             return True
@@ -1223,8 +1176,7 @@ class StrategyArbitrator(ServiceProtocol):
             self.logger.warning(
                 "Prediction_value %s is not a valid numeric value.",
                 event.prediction_value,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     def _calculate_stop_loss_price_and_risk(
@@ -1232,8 +1184,7 @@ class StrategyArbitrator(ServiceProtocol):
         side: str,
         current_price: Decimal,
         # Optionally, tp_price can be provided to derive SL if sl_pct is not set
-        tp_price_for_rr_calc: Decimal | None = None,
-    ) -> tuple[Decimal | None, Decimal | None]:  # Returns (sl_price, risk_amount_per_unit)
+        tp_price_for_rr_calc: Decimal | None = None) -> tuple[Decimal | None, Decimal | None]:  # Returns (sl_price, risk_amount_per_unit)
         """Calculate stop-loss price and risk amount per unit."""
         sl_price: Decimal | None = None
         risk_amount_per_unit: Decimal | None = None
@@ -1272,8 +1223,7 @@ class StrategyArbitrator(ServiceProtocol):
         current_price: Decimal,
         # Optionally, sl_price and risk can be provided to derive TP
         sl_price_for_rr_calc: Decimal | None = None,
-        risk_amount_for_rr_calc: Decimal | None = None,
-    ) -> Decimal | None:
+        risk_amount_for_rr_calc: Decimal | None = None) -> Decimal | None:
         """Calculate take-profit price."""
         tp_price: Decimal | None = None
 
@@ -1300,16 +1250,14 @@ class StrategyArbitrator(ServiceProtocol):
         self,
         side: str,
         current_price: Decimal,
-        trading_pair: str,
-    ) -> tuple[Decimal | None, Decimal | None]:
+        trading_pair: str) -> tuple[Decimal | None, Decimal | None]:
         """Calculate SL/TP prices based on configuration and current price."""
         if current_price <= 0:
             self.logger.error(
                 "Cannot calculate SL/TP for %s: Invalid current_price %s",
                 trading_pair,
                 current_price,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None, None
 
         sl_price: Decimal | None = None
@@ -1319,15 +1267,13 @@ class StrategyArbitrator(ServiceProtocol):
         # Attempt 1: Calculate SL directly, then TP
         sl_price, risk_amount_per_unit = self._calculate_stop_loss_price_and_risk(
             side,
-            current_price,
-        )
+            current_price)
         if sl_price and risk_amount_per_unit:
             tp_price = self._calculate_take_profit_price(
                 side,
                 current_price,
                 sl_price,
-                risk_amount_per_unit,
-            )
+                risk_amount_per_unit)
 
         # Attempt 2: If SL failed but TP might be possible directly, calculate TP then derive SL
         if not (sl_price and tp_price):  # If first attempt didn't yield both
@@ -1337,8 +1283,7 @@ class StrategyArbitrator(ServiceProtocol):
                 derived_sl, derived_risk = self._calculate_stop_loss_price_and_risk(
                     side,
                     current_price,
-                    tp_price_for_rr_calc=tp_price_direct,
-                )
+                    tp_price_for_rr_calc=tp_price_direct)
                 if derived_sl and derived_risk:
                     sl_price = derived_sl
                     risk_amount_per_unit = derived_risk
@@ -1350,22 +1295,19 @@ class StrategyArbitrator(ServiceProtocol):
                 "SL params error for %s on %s. Need sl_pct or (tp_pct & RR).",
                 self._strategy_id,
                 trading_pair,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         if not tp_price:
             self.logger.error(
                 "TP params error for %s on %s. Need tp_pct or (sl_pct & RR).",
                 self._strategy_id,
                 trading_pair,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
         if not (sl_price and tp_price):
             self.logger.error(
                 "Failed to calculate both SL and TP prices for %s.",
                 trading_pair,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None, None
 
         # Validate that prices make sense
@@ -1383,8 +1325,7 @@ class StrategyArbitrator(ServiceProtocol):
                 sl_price,
                 tp_price,
                 current_price,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None, None
 
         try:
@@ -1393,16 +1334,14 @@ class StrategyArbitrator(ServiceProtocol):
             self.logger.exception(
                 "Error during final SL/TP return for %s",
                 trading_pair,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None, None
 
     async def _determine_entry_price(
         self,
         side: str,
         current_price: Decimal,
-        trading_pair: str,
-    ) -> Decimal | None:
+        trading_pair: str) -> Decimal | None:
         """Determine the proposed entry price based on order type."""
         if self._entry_type == "MARKET":
             return None  # No specific price for market orders
@@ -1412,19 +1351,18 @@ class StrategyArbitrator(ServiceProtocol):
                 spread_data = await self.market_price_service.get_bid_ask_spread(trading_pair)
                 if (
                     spread_data is None
-                    # or spread_data.get("bid") is None # spread_data is now a tuple or None
+                    # or spread_data.get("bid") is None # spread_data is now a tuple[Any, ...] or None
                     # or spread_data.get("ask") is None
                 ):
                     self.logger.warning(
                         "Cannot determine limit price for %s: "
                         "Bid/Ask unavailable. Falling back to current price.",
                         trading_pair,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return current_price  # Fallback as per whiteboard suggestion
 
                 # Removed commented-out lines for ERA001
-                best_bid, best_ask = spread_data  # Unpack tuple
+                best_bid, best_ask = spread_data  # Unpack tuple[Any, ...]
 
                 if side == "BUY":
                     # Place limit slightly below current ask or at ask
@@ -1441,8 +1379,7 @@ class StrategyArbitrator(ServiceProtocol):
                     self.logger.error(
                         "Invalid side '%s' for limit price determination.",  # G004 fix
                         side,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return None
 
                 # No rounding here, handled by downstream modules
@@ -1450,8 +1387,7 @@ class StrategyArbitrator(ServiceProtocol):
                 self.logger.exception(
                     "Error determining limit price for %s. Falling back to current price.",
                     trading_pair,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return current_price  # Fallback on error
             else:
                 return limit_price  # TRY300 fix: moved from try block
@@ -1459,11 +1395,10 @@ class StrategyArbitrator(ServiceProtocol):
             self.logger.error(
                 "Unsupported entry type for price determination: %s",  # G004 fix
                 self._entry_type,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None
 
-    _CONDITION_OPERATORS: ClassVar[dict[str, Callable]] = {
+    _CONDITION_OPERATORS: ClassVar[dict[str, Callable[..., Any]]] = {
         "gt": operator.gt,
         "lt": operator.lt,
         "eq": operator.eq,
@@ -1474,11 +1409,10 @@ class StrategyArbitrator(ServiceProtocol):
 
     def _validate_confirmation_rule(
         self,
-        rule: dict,
-        features: dict,
+        rule: dict[str, Any],
+        features: dict[str, float],
         trading_pair: str,
-        primary_side: str,
-    ) -> bool:
+        primary_side: str) -> bool:
         """Validate a single confirmation rule against the provided features.
 
         Args:
@@ -1502,8 +1436,7 @@ class StrategyArbitrator(ServiceProtocol):
                 "Skipping invalid confirmation rule (missing component): %s for %s",
                 rule,
                 trading_pair,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return True  # Skip invalid rule, effectively passing it by not blocking
 
         # Optional: Validate feature_name against registry if desired for stricter checks
@@ -1518,8 +1451,7 @@ class StrategyArbitrator(ServiceProtocol):
                 primary_side,
                 trading_pair,
                 feature_name,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
         rule_passes = False
@@ -1543,8 +1475,7 @@ class StrategyArbitrator(ServiceProtocol):
                         condition_key,  # Use renamed variable
                         threshold,
                         feature_value_decimal,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     rule_passes = False
             else:
                 self.logger.warning(
@@ -1552,8 +1483,7 @@ class StrategyArbitrator(ServiceProtocol):
                     condition_key,  # Use renamed variable
                     rule,
                     trading_pair,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 rule_passes = True  # Skip rule with unsupported condition (treat as passed)
 
         except (InvalidOperation, TypeError, KeyError):
@@ -1561,8 +1491,7 @@ class StrategyArbitrator(ServiceProtocol):
                 "Error applying confirmation rule %s for %s",
                 rule,
                 trading_pair,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             rule_passes = False  # Error in processing means rule fails
 
         return rule_passes
@@ -1570,8 +1499,7 @@ class StrategyArbitrator(ServiceProtocol):
     def _apply_secondary_confirmation(
         self,
         prediction_event: PredictionEvent,
-        primary_side: str,
-    ) -> bool:
+        primary_side: str) -> bool:
         """Check if secondary confirmation rules pass using features from the PredictionEvent.
 
         Args:
@@ -1594,15 +1522,14 @@ class StrategyArbitrator(ServiceProtocol):
             raw_features = associated_payload.get("triggering_features")
 
         if not raw_features or not isinstance(
-            raw_features, dict
-        ):  # Check if raw_features is None, empty or not a dict
+            raw_features, dict[str, Any]
+        ):  # Check if raw_features is None, empty or not a dict[str, Any]
             self.logger.warning(
                 "No valid 'triggering_features' (dict[str, float]) found in PredictionEvent %s for %s on %s.",
                 prediction_event.event_id,
                 primary_side,
                 prediction_event.trading_pair,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False  # Cannot confirm without features
 
         for rule in self._confirmation_rules:
@@ -1610,16 +1537,14 @@ class StrategyArbitrator(ServiceProtocol):
                 rule,
                 raw_features,  # Pass the dict[str, float]
                 prediction_event.trading_pair,
-                primary_side,
-            ):
+                primary_side):
                 return False  # Rule failed
 
         self.logger.debug(
             "All secondary confirmation rules passed for %s signal on %s.",
             primary_side,
             prediction_event.trading_pair,
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
         return True
 
     def _get_side_from_prob_up(self, prob_up: Decimal) -> str | None:
@@ -1651,8 +1576,7 @@ class StrategyArbitrator(ServiceProtocol):
                 trading_pair,
                 prob_down,
                 self._buy_threshold,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None
 
         return buy_signal or sell_signal
@@ -1700,16 +1624,14 @@ class StrategyArbitrator(ServiceProtocol):
                         "Unexpected signal format from interpretation engine: %s for %s",
                         signal,
                         trading_pair,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return None
             else:
                 self.logger.warning(
                     "Interpretation result missing expected field '%s' for %s",
                     self._prediction_interpretation,
                     trading_pair,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return None
 
         except Exception as e:
@@ -1717,8 +1639,7 @@ class StrategyArbitrator(ServiceProtocol):
                 "Enterprise interpretation failed for %s, falling back to legacy logic: %s",
                 trading_pair,
                 str(e),
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
             # Fallback to legacy interpretation logic for backward compatibility
             return self._legacy_calculate_signal_side(prediction_event)
@@ -1733,8 +1654,7 @@ class StrategyArbitrator(ServiceProtocol):
                 "Invalid prediction_value: '%s' for %s. Cannot determine side.",
                 prediction_event.prediction_value,
                 trading_pair,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None
 
         interpretation = self._prediction_interpretation
@@ -1751,14 +1671,12 @@ class StrategyArbitrator(ServiceProtocol):
             "Unknown prediction_interpretation '%s'. Defaulting to 'prob_up' for %s.",
             interpretation,
             trading_pair,
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
         return self._get_side_from_prob_up(prediction_val)
 
     async def _evaluate_strategy(
         self,
-        prediction_event: PredictionEvent,
-    ) -> TradeSignalProposedEvent | None:
+        prediction_event: PredictionEvent) -> TradeSignalProposedEvent | None:
         """Evaluate trading strategy based on prediction probabilities.
 
         Returns TradeSignalProposedEvent if strategy triggers, None otherwise.
@@ -1777,8 +1695,7 @@ class StrategyArbitrator(ServiceProtocol):
                     prediction_event.event_id,
                     prediction_event.prediction_value,
                     self._prediction_interpretation,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 # generated_event remains None, will be returned by the 'else' block below
             elif not self._apply_secondary_confirmation(prediction_event, side):
                 self.logger.info(
@@ -1786,8 +1703,7 @@ class StrategyArbitrator(ServiceProtocol):
                     side,
                     trading_pair,
                     prediction_event.event_id,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 # generated_event remains None
             else:
                 current_price = await self.market_price_service.get_latest_price(trading_pair)
@@ -1796,15 +1712,13 @@ class StrategyArbitrator(ServiceProtocol):
                         "Cannot generate signal for %s (PredID: %s): Failed to get current price.",
                         trading_pair,
                         prediction_event.event_id,
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     # generated_event remains None
                 else:
                     sl_price, tp_price = await self._calculate_sl_tp_prices(
                         side,
                         current_price,
-                        trading_pair,
-                    )
+                        trading_pair)
                     if sl_price is None or tp_price is None:
                         self.logger.warning(
                             "Failed to calc SL/TP for %s on %s (PredID: %s). Price: %s",
@@ -1812,16 +1726,14 @@ class StrategyArbitrator(ServiceProtocol):
                             trading_pair,
                             prediction_event.event_id,
                             current_price,
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
                         # generated_event remains None
                     else:
                         # All checks passed, proceed to create the event
                         proposed_entry = await self._determine_entry_price(
                             side,
                             current_price,
-                            trading_pair,
-                        )
+                            trading_pair)
                         signal_id = uuid.uuid4()
                         generated_event = TradeSignalProposedEvent(
                             source_module=self._source_module,
@@ -1836,8 +1748,7 @@ class StrategyArbitrator(ServiceProtocol):
                             proposed_tp_price=tp_price,
                             strategy_id=self._strategy_id,
                             proposed_entry_price=proposed_entry,
-                            triggering_prediction_event_id=prediction_event.event_id,
-                        )
+                            triggering_prediction_event_id=prediction_event.event_id)
                         self.logger.info(
                             "Signal: %s (%s) for %s from PredID %s. SL:%s TP:%s Entry:%s",
                             side,
@@ -1847,8 +1758,7 @@ class StrategyArbitrator(ServiceProtocol):
                             sl_price,
                             tp_price,
                             proposed_entry or "MARKET",
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
             # No early returns in the try block for guard clauses.
             # generated_event is either a TradeSignalProposedEvent or None.
 
@@ -1856,16 +1766,14 @@ class StrategyArbitrator(ServiceProtocol):
             InvalidOperation,
             TypeError,
             AttributeError,
-            Exception,
-        ):  # Catch generic Exception too
+            Exception):  # Catch generic Exception too
             event_id_str = getattr(prediction_event, "event_id", "UNKNOWN_EVENT_ID")
             pair_str = getattr(prediction_event, "trading_pair", "UNKNOWN_PAIR")
             self.logger.exception(
                 "Error evaluating strategy for prediction %s on %s",
                 event_id_str,
                 pair_str,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None  # Explicit return None for clarity on error in exception case
         else:
             # This block executes if the try block completed without exceptions.
@@ -1877,8 +1785,7 @@ class StrategyArbitrator(ServiceProtocol):
         if self._is_running:
             self.logger.warning(
                 "StrategyArbitrator already running.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return
         self._is_running = True
 
@@ -1895,8 +1802,7 @@ class StrategyArbitrator(ServiceProtocol):
             except Exception as e:
                 self.logger.error(
                     f"Failed to start Strategy Selection System: {e}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
         self.logger.info("StrategyArbitrator started.", source_module=self._source_module)
 
@@ -1916,21 +1822,18 @@ class StrategyArbitrator(ServiceProtocol):
             except Exception as e:
                 self.logger.error(
                     f"Error stopping Strategy Selection System: {e}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
         # Unsubscribe
         try:
             self.pubsub.unsubscribe(EventType.PREDICTION_GENERATED, self._prediction_handler)
             self.logger.info(
                 "Unsubscribed from PREDICTION_GENERATED.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except Exception:
             self.logger.exception(
                 "Error unsubscribing StrategyArbitrator",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
         self.logger.info("StrategyArbitrator stopped.", source_module=self._source_module)
 
@@ -1940,8 +1843,7 @@ class StrategyArbitrator(ServiceProtocol):
             self.logger.warning(
                 "Received non-PredictionEvent: %s",
                 type(event),
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return
 
         # Validate prediction event using enterprise validation system
@@ -1952,8 +1854,7 @@ class StrategyArbitrator(ServiceProtocol):
         if not self._is_running:
             self.logger.debug(
                 "StrategyArbitrator is not running, skipping prediction event.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return
 
         # Evaluate strategy based on the prediction event
@@ -1963,7 +1864,7 @@ class StrategyArbitrator(ServiceProtocol):
         if proposed_signal_event:
             await self._publish_trade_signal_proposed(proposed_signal_event)
 
-    async def update_strategy_configuration(self, new_strategy_config: dict) -> bool:
+    async def update_strategy_configuration(self, new_strategy_config: dict[str, Any]) -> bool:
         """Dynamically update strategy configuration during runtime.
 
         This method is called by the Strategy Selection System when transitioning
@@ -1979,8 +1880,7 @@ class StrategyArbitrator(ServiceProtocol):
         try:
             self.logger.info(
                 f"Updating strategy configuration from {self._strategy_id} to {new_strategy_config.get('id')}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
             # Store previous configuration for potential rollback
             previous_config = {
@@ -2016,25 +1916,20 @@ class StrategyArbitrator(ServiceProtocol):
             # Update other parameters
             self._confirmation_rules = new_strategy_config.get("confirmation_rules", [])
             self._limit_offset_pct = Decimal(
-                str(new_strategy_config.get("limit_offset_pct", "0.0001")),
-            )
+                str(new_strategy_config.get("limit_offset_pct", "0.0001")))
             self._prediction_interpretation = new_strategy_config.get(
                 "prediction_interpretation",
-                "directional",
-            )
+                "directional")
             default_rr_ratio_str = new_strategy_config.get(
                 "stop_loss_to_take_profit_ratio",
-                "1.0",
-            )
+                "1.0")
             self._stop_loss_to_take_profit_ratio = Decimal(default_rr_ratio_str)
 
             # Update price change thresholds
             self._price_change_buy_threshold_pct = Decimal(
-                str(new_strategy_config.get("price_change_buy_threshold_pct", "0.01")),
-            )
+                str(new_strategy_config.get("price_change_buy_threshold_pct", "0.01")))
             self._price_change_sell_threshold_pct = Decimal(
-                str(new_strategy_config.get("price_change_sell_threshold_pct", "-0.01")),
-            )
+                str(new_strategy_config.get("price_change_sell_threshold_pct", "-0.01")))
 
             # Validate new configuration
             try:
@@ -2042,15 +1937,13 @@ class StrategyArbitrator(ServiceProtocol):
 
                 self.logger.info(
                     f"Successfully updated to strategy {self._strategy_id}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
                 # Log key parameter changes
                 self.logger.info(
                     f"New parameters - Buy: {self._buy_threshold}, Sell: {self._sell_threshold}, "
                     f"SL: {self._sl_pct}, TP: {self._tp_pct}, Entry: {self._entry_type}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
                 return True
 
@@ -2058,8 +1951,7 @@ class StrategyArbitrator(ServiceProtocol):
                 # Rollback on validation failure
                 self.logger.error(
                     f"Strategy update validation failed: {validation_error}. Rolling back.",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
                 # Restore previous configuration
                 self._strategy_id = previous_config["strategy_id"]
@@ -2112,8 +2004,7 @@ class StrategyArbitrator(ServiceProtocol):
         signal_id: str,
         outcome: str,
         pnl: Optional[Decimal] = None,
-        exit_reason: Optional[str] = None,
-    ) -> None:
+        exit_reason: Optional[str] = None) -> None:
         """Report trade outcome back to strategy selection system for learning.
 
         This allows the strategy selection system to track real-world performance
@@ -2135,8 +2026,7 @@ class StrategyArbitrator(ServiceProtocol):
                 strategy_id=self._strategy_id,
                 outcome=outcome,
                 pnl=pnl,
-                exit_reason=exit_reason,
-            )
+                exit_reason=exit_reason)
 
             await self.pubsub.publish(outcome_event)
 
@@ -2147,14 +2037,12 @@ class StrategyArbitrator(ServiceProtocol):
                     "outcome": outcome,
                     "exit_reason": exit_reason or "unknown",
                 },
-                fields={"pnl": float(pnl) if pnl is not None else 0.0},
-            )
+                fields={"pnl": float(pnl) if pnl is not None else 0.0})
 
             self.logger.info(
                 f"Reported trade outcome for strategy {self._strategy_id}: "
                 f"signal={signal_id}, outcome={outcome}, pnl={pnl}, exit={exit_reason}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except Exception as e:
             self.logger.error(
                 f"Error reporting trade outcome: {e}", source_module=self._source_module
@@ -2168,17 +2056,15 @@ class StrategyArbitrator(ServiceProtocol):
                 "Published TradeSignalProposedEvent: %s for %s",
                 event.signal_id,
                 event.trading_pair,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except Exception:
             self.logger.exception(
                 "Failed to publish TradeSignalProposedEvent %s for %s",
                 event.signal_id,
                 event.trading_pair,
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
-    def _select_best_strategy(self, strategies: list[dict]) -> dict:
+    def _select_best_strategy(self, strategies: list[dict[str, Any]]) -> dict[str, Any]:
         """Select the best strategy from available strategies using intelligent multi-criteria analysis.
 
         This method leverages the enterprise-grade StrategySelectionSystem when available,
@@ -2217,16 +2103,14 @@ class StrategyArbitrator(ServiceProtocol):
                     # Find the strategy configuration for the selected ID
                     selected_config = next(
                         (s for s in strategies if s.get("id") == evaluation_result.strategy_id),
-                        None,
-                    )
+                        None)
 
                     if selected_config:
                         self.logger.info(
                             f"Intelligent strategy selection chose: {evaluation_result.strategy_id} "
                             f"(score: {evaluation_result.composite_score:.3f}, "
                             f"confidence: {evaluation_result.confidence_level:.2f})",
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
 
                         # Log selection reasons
                         for reason in evaluation_result.reasons[:3]:  # Top 3 reasons
@@ -2240,8 +2124,7 @@ class StrategyArbitrator(ServiceProtocol):
                 self.logger.error(
                     f"Error in intelligent strategy selection: {e}. "
                     f"Falling back to static selection.",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
         # Fallback: Static selection based on configuration priority
         # This could be enhanced with simple heuristics even without the full system
@@ -2251,8 +2134,7 @@ class StrategyArbitrator(ServiceProtocol):
         if preferred:
             self.logger.info(
                 f"Selected preferred strategy: {preferred.get('id')}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return preferred
 
         # Check for strategy with best static configuration
@@ -2287,8 +2169,7 @@ class StrategyArbitrator(ServiceProtocol):
         self.logger.info(
             f"Static strategy selection chose: {best_strategy.get('id')} "
             f"(static score: {best_score})",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
         return best_strategy
 

@@ -28,8 +28,7 @@ class InvalidAPISecretError(KrakenAPIError):
 
 
 def generate_kraken_signature(
-    uri_path: str, data: dict[str, Any], nonce: int, api_secret: str,
-) -> str:
+    uri_path: str, data: dict[str, Any], nonce: int, api_secret: str) -> str:
     """Generate the API-Sign header required by Kraken private endpoints.
 
     This function creates the HMAC-SHA512 signature that Kraken requires for
@@ -75,8 +74,7 @@ def generate_kraken_signature(
 
 
 def prepare_kraken_request_data(
-    data: dict[str, Any], nonce: int | None = None,
-) -> dict[str, Any]:
+    data: dict[str, Any], nonce: int | None = None) -> dict[str, Any]:
     """Prepare request data for Kraken API by adding nonce if not present.
 
     Args:

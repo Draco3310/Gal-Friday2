@@ -4,7 +4,7 @@ import os
 import sys
 from logging.config import fileConfig
 
-from alembic import context  # type: ignore[import-not-found]
+from alembic import context  # type: ignore
 from sqlalchemy.engine import Connection
 
 # Ensure the application's root directory is in the Python path
@@ -13,11 +13,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 # Imports for Alembic hook type hints
 from typing import Any, Literal, cast
 
-from alembic.autogenerate.api import (  # type: ignore[import-not-found]
+from alembic.autogenerate.api import (  # type: ignore
     AutogenContext,
-    CompareTypeContext,
-)
-from alembic.runtime.migration import MigrationContext  # type: ignore[import-not-found]
+    CompareTypeContext)
+from alembic.runtime.migration import MigrationContext  # type: ignore
 from sqlalchemy import Column as SAColumn  # Alias to avoid clash
 from sqlalchemy.sql.schema import SchemaItem
 
@@ -40,25 +39,21 @@ logger = logging.getLogger(__name__)
 
 # Typed dummy functions for Alembic hooks
 def process_revision_directives(
-    context: MigrationContext, revision: str | tuple[str, ...], directives: list[Any],
-) -> None:
+    context: MigrationContext, revision: str | tuple[str, ...], directives: list[Any]) -> None:
     logger.debug(f"Processing revision {revision} with directives: {directives}")
 
 def render_item(
-    type_: str, obj: Any, autogen_context: AutogenContext,
-) -> str | Literal[False] | None:
+    type_: str, obj: Any, autogen_context: AutogenContext) -> str | Literal[False] | None:
     logger.debug(f"Rendering item type {type_} for object {obj}")
     return None
 
 def include_object(
-    object: SchemaItem, name: str | None, type_: str, reflected: bool, compare_to: Any | None,
-) -> bool:
+    object: SchemaItem, name: str | None, type_: str, reflected: bool, compare_to: Any | None) -> bool:
     logger.debug(f"Checking include_object for {type_} {name}")
     return True
 
 def include_name(
-    name: str | None, type_: str, parent_names: dict[str, Any] | None,
-) -> bool:
+    name: str | None, type_: str, parent_names: dict[str, Any] | None) -> bool:
     logger.debug(f"Checking include_name for {type_} {name}")
     return True
 
@@ -71,8 +66,7 @@ def include_symbol(
     schema_name: str | None,
     symbol_type: str,
     is_reflected: bool,
-    symbol_name: str,
-) -> bool:
+    symbol_name: str) -> bool:
     logger.debug(f"Checking include_symbol for {symbol_type} {symbol_name} in table {schema_name}.{table_name}")
     return True
 
@@ -81,8 +75,7 @@ def compare_type(
     inspected_column: dict[str, Any],
     metadata_column: SAColumn,
     inspected_type: Any,
-    metadata_type: Any,
-) -> bool | None:
+    metadata_type: Any) -> bool | None:
     logger.debug(f"Comparing type for column {metadata_column.name}: DB {inspected_type} vs Meta {metadata_type}")
     return None
 

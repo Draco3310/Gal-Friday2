@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Type
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -71,7 +71,7 @@ class ReconciliationResult:
     manual_resolution_required: int
     summary: dict[str, Any]
     errors: list[str]
-    strategy_metrics: dict[str, Any] = field(default_factory=dict)
+    strategy_metrics: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage and reporting."""
@@ -142,23 +142,23 @@ class ReconciliationReport:
 
     # Position reconciliation
     positions_checked: int = 0
-    position_discrepancies: list[PositionDiscrepancy] = field(default_factory=list)
+    position_discrepancies: list[PositionDiscrepancy] = field(default_factory=list[Any])
 
     # Balance reconciliation
     balances_checked: int = 0
-    balance_discrepancies: list[dict[str, Any]] = field(default_factory=list)
+    balance_discrepancies: list[dict[str, Any]] = field(default_factory=list[Any])
 
     # Order reconciliation
     orders_checked: int = 0
-    untracked_orders: list[str] = field(default_factory=list)
+    untracked_orders: list[str] = field(default_factory=list[Any])
 
     # Adjustments
-    auto_corrections: list[dict[str, Any]] = field(default_factory=list)
-    manual_review_required: list[dict[str, Any]] = field(default_factory=list)
+    auto_corrections: list[dict[str, Any]] = field(default_factory=list[Any])
+    manual_review_required: list[dict[str, Any]] = field(default_factory=list[Any])
 
     # Metrics
     duration_seconds: float | None = None
-    error_messages: list[str] = field(default_factory=list)
+    error_messages: list[str] = field(default_factory=list[Any])
 
     @property
     def total_discrepancies(self) -> int:
@@ -553,8 +553,7 @@ class RealTimeReconciliationStrategy(BaseReconciliationStrategy):
                     "trading_pair": discrepancy.trading_pair,
                     "discrepancy_type": discrepancy.discrepancy_type.value,
                     "immediate_action_required": True,
-                },
-            )
+                })
             await self.service.alerting.send_alert(alert)
 
     def _create_error_result(self, reconciliation_id: str, start_time: datetime, 
@@ -578,7 +577,7 @@ class RealTimeReconciliationStrategy(BaseReconciliationStrategy):
 class ReconciliationStrategyFactory:
     """Factory for creating reconciliation strategies based on configuration."""
     
-    _strategies = {
+    _strategies: Dict[ReconciliationType, Type[BaseReconciliationStrategy]] = {
         ReconciliationType.FULL: FullReconciliationStrategy,
         ReconciliationType.INCREMENTAL: IncrementalReconciliationStrategy,
         ReconciliationType.REAL_TIME: RealTimeReconciliationStrategy,
@@ -603,7 +602,7 @@ class ReconciliationStrategyFactory:
         """
         strategy_class = cls._strategies.get(config.reconciliation_type)
         if not strategy_class:
-            available_types = list(cls._strategies.keys())
+            available_types = list[Any](cls._strategies.keys())
             raise ValueError(
                 f"Unsupported reconciliation type: {config.reconciliation_type}. "
                 f"Available types: {[t.value for t in available_types]}"
@@ -613,8 +612,8 @@ class ReconciliationStrategyFactory:
     
     @classmethod
     def get_supported_types(cls) -> list[ReconciliationType]:
-        """Get list of supported reconciliation types."""
-        return list(cls._strategies.keys())
+        """Get list[Any] of supported reconciliation types."""
+        return list[Any](cls._strategies.keys())
     
     @classmethod
     def is_supported(cls, reconciliation_type: ReconciliationType) -> bool:
@@ -671,17 +670,14 @@ class ReconciliationService:
         # Configuration
         self.reconciliation_interval = self.config.get_int(
             "reconciliation.interval_minutes",
-            60,
-        )
+            60)
         self.auto_correct_threshold = Decimal(
-            str(self.config.get_float("reconciliation.auto_correct_threshold", 0.01)),
-        )
+            str(self.config.get_float("reconciliation.auto_correct_threshold", 0.01)))
         self.critical_threshold = Decimal(
-            str(self.config.get_float("reconciliation.critical_threshold", 0.10)),
-        )
+            str(self.config.get_float("reconciliation.critical_threshold", 0.10)))
 
         # State
-        self._reconciliation_task: asyncio.Task | None = None
+        self._reconciliation_task: asyncio.Task[Any] | None = None
         self._last_reconciliation: datetime | None = None
         self._consecutive_failures = 0
         self._current_reconciliation_type: ReconciliationType | None = None
@@ -851,8 +847,7 @@ class ReconciliationService:
         """Start reconciliation service."""
         self.logger.info(
             "Starting reconciliation service",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
         # Run initial reconciliation using configurable strategy
         await self.perform_configurable_reconciliation()
@@ -879,14 +874,12 @@ class ReconciliationService:
             except Exception:
                 self.logger.exception(
                     "Error in periodic reconciliation",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 self._consecutive_failures += 1
 
                 if self._consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
                     await self._send_critical_alert(
-                        "Reconciliation service failing repeatedly",
-                    )
+                        "Reconciliation service failing repeatedly")
 
     async def run_reconciliation(self, reconciliation_type: ReconciliationType | None = None) -> ReconciliationReport:
         """
@@ -928,8 +921,7 @@ class ReconciliationService:
 
             self.logger.exception(
                 "Legacy reconciliation interface failed",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             
             await self._send_critical_alert(f"Reconciliation failed: {e!s}")
             return failed_report
@@ -993,8 +985,7 @@ class ReconciliationService:
                         trading_pair=pair,
                         discrepancy_type=DiscrepancyType.POSITION_MISSING_EXCHANGE,
                         internal_value=internal_pos.quantity, # Access model attribute
-                        severity="critical",
-                    )
+                        severity="critical")
                     report.position_discrepancies.append(discrepancy)
                     report.manual_review_required.append({
                         "type": "position", "pair": pair,
@@ -1009,8 +1000,7 @@ class ReconciliationService:
                         trading_pair=pair,
                         discrepancy_type=DiscrepancyType.POSITION_MISSING_INTERNAL,
                         exchange_value=exchange_qty,
-                        severity="high",
-                    )
+                        severity="high")
                     report.position_discrepancies.append(discrepancy)
 
                     if self._can_auto_correct(exchange_qty): # Check if the exchange quantity itself is small enough
@@ -1033,8 +1023,7 @@ class ReconciliationService:
                         discrepancy = PositionDiscrepancy(
                             trading_pair=pair, discrepancy_type=DiscrepancyType.QUANTITY_MISMATCH,
                             internal_value=internal_qty, exchange_value=exchange_qty,
-                            difference=qty_diff, severity=severity,
-                        )
+                            difference=qty_diff, severity=severity)
                         report.position_discrepancies.append(discrepancy)
 
                         if self._can_auto_correct(qty_diff):
@@ -1072,16 +1061,14 @@ class ReconciliationService:
                         "exchange": str(exchange_balance),
                         "difference": str(balance_diff),
                         "severity": self._determine_balance_severity(
-                            balance_diff, currency,
-                        ),
+                            balance_diff, currency),
                     }
                     report.balance_discrepancies.append(discrepancy)
 
                     # Auto-correct small differences
                     if self._can_auto_correct_balance(balance_diff, currency):
                         await self._adjust_balance(
-                            currency, internal_balance, exchange_balance, report,
-                        )
+                            currency, internal_balance, exchange_balance, report)
                     else:
                         report.manual_review_required.append({
                             "type": "balance",
@@ -1184,8 +1171,7 @@ class ReconciliationService:
         """Apply automatic corrections for small discrepancies."""
         self.logger.info(
             f"Applying {len(report.auto_corrections)} auto-corrections",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
         for correction in report.auto_corrections:
             try:
@@ -1193,30 +1179,26 @@ class ReconciliationService:
                     await self.portfolio_manager.adjust_position(  # type: ignore[attr-defined]
                         correction["pair"],
                         correction["new_quantity"],
-                        reason="Reconciliation auto-correction",
-                    )
+                        reason="Reconciliation auto-correction")
                 elif correction["type"] == "balance":
                     await self.portfolio_manager.adjust_balance(  # type: ignore[attr-defined]
                         correction["currency"],
                         correction["new_balance"],
-                        reason="Reconciliation auto-correction",
-                    )
+                        reason="Reconciliation auto-correction")
 
                 # Recording of adjustments will be handled by _save_reconciliation_event_and_adjustments
             except Exception as e:
                 self.logger.error(
                     f"Failed to apply auto-correction: {e}",
                     source_module=self._source_module,
-                    context={"correction": correction},
-                )
+                    context={"correction": correction})
                 report.error_messages.append(
-                    f"Auto-correction failed: {correction['type']} - {e!s}",
-                )
+                    f"Auto-correction failed: {correction['type']} - {e!s}")
 
-    async def _add_missing_db_position(self, pair: str, exchange_pos_data: dict, report: ReconciliationReport) -> None:
+    async def _add_missing_db_position(self, pair: str, exchange_pos_data: dict[str, Any], report: ReconciliationReport) -> None:
         """Marks for auto-correction: Add position that exists on exchange but not internally.
         Actual DB write happens via portfolio_manager or directly if this service owns position creation logic.
-        For now, this method prepares the 'correction' dict for the report.
+        For now, this method prepares the 'correction' dict[str, Any] for the report.
         """
         # This method now just prepares the correction for the report.
         # The actual DB creation should be handled by PortfolioManager or a dedicated method
@@ -1239,8 +1221,7 @@ class ReconciliationService:
 
 
     async def _adjust_db_position_quantity(
-        self, internal_pos_model: PositionModel, exchange_qty: Decimal, report: ReconciliationReport,
-    ) -> None:
+        self, internal_pos_model: PositionModel, exchange_qty: Decimal, report: ReconciliationReport) -> None:
         """Marks for auto-correction: Adjust internal position quantity to match exchange."""
         # This method now just prepares the correction for the report.
         # Actual DB update via portfolio_manager.adjust_position_quantity(...)
@@ -1256,8 +1237,7 @@ class ReconciliationService:
         self.logger.info(f"Marked position {internal_pos_model.trading_pair} for quantity adjustment.", source_module=self._source_module)
 
     async def _adjust_balance( # This method's DB interaction is via PortfolioManager
-        self, currency: str, internal_balance: Decimal, exchange_balance: Decimal, report: ReconciliationReport,
-    ) -> None:
+        self, currency: str, internal_balance: Decimal, exchange_balance: Decimal, report: ReconciliationReport) -> None:
         """Marks for auto-correction: Adjust internal balance to match exchange."""
         # This method now just prepares the correction for the report.
         # Actual DB update via portfolio_manager.adjust_balance(...)
@@ -1344,8 +1324,7 @@ class ReconciliationService:
                 "type": "reconciliation",
                 "discrepancies": report.total_discrepancies,
                 "manual_review": report.requires_manual_review,
-            },
-        )
+            })
 
         await self.alerting.send_alert(alert)
 
@@ -1373,8 +1352,7 @@ class ReconciliationService:
             message=message,
             severity=AlertSeverity.CRITICAL,
             source=self._source_module,
-            tags={"type": "reconciliation_error"},
-        )
+            tags={"type": "reconciliation_error"})
 
         await self.alerting.send_alert(alert)
 
@@ -1391,7 +1369,7 @@ class ReconciliationService:
             recent_events = await self.reconciliation_repository.get_recent_reconciliation_events(days=1, status=None)
             latest_event_model = recent_events[0] if recent_events else None
             if latest_event_model:
-                # Convert model to dict for status, or use a Pydantic model constructed from it
+                # Convert model to dict[str, Any] for status, or use a Pydantic model constructed from it
                 last_report_data = latest_event_model.report # The JSONB field
             else:
                 last_report_data = None
@@ -1417,7 +1395,7 @@ class ReconciliationService:
         }
 
     async def get_supported_reconciliation_types(self) -> list[str]:
-        """Get list of supported reconciliation types.
+        """Get list[Any] of supported reconciliation types.
         
         Returns:
             list[str]: List of supported reconciliation type names
@@ -1496,6 +1474,5 @@ class ReconciliationService:
                 "reconciliation_id": result.reconciliation_id,
                 "discrepancies": result.discrepancies_found,
                 "status": result.status,
-            },
-        )
+            })
         await self.alerting.send_alert(alert)

@@ -33,8 +33,7 @@ class ConfigManager:
     def __init__(
         self,
         config_path: str = "config/config.yaml",
-        logger_service: logging.Logger | None = None,
-    ) -> None:
+        logger_service: logging.Logger | None = None) -> None:
         """Initialize the ConfigManager and load configuration.
 
         Args:
@@ -43,15 +42,14 @@ class ConfigManager:
         """
         self._config_path_str = config_path
         self._config_file_path = Path(self._config_path_str).resolve()
-        self._config: dict | None = None
+        self._config: dict[str, Any] | None = None
         self.validation_errors: list[str] = []
 
         # Ensure logger is always initialized
         self._logger: logging.Logger = logger_service or logging.getLogger(__name__)
         self._logger.info(
             "Initializing ConfigManager with path: %s",
-            self._config_file_path,
-        )
+            self._config_file_path)
 
         self.load_config()
         self.validation_errors = self.validate_configuration()
@@ -62,52 +60,45 @@ class ConfigManager:
         """Load or reload the configuration from the specified YAML file."""
         self._logger.info(
             "Attempting to load configuration from: %s",
-            self._config_file_path,
-        )
+            self._config_file_path)
         try:
             if not self._config_file_path.exists():
                 self._logger.error(
                     "Configuration file not found at: %s",
-                    self._config_file_path,
-                )
-                self._config = {}  # Set to empty dict if file not found
+                    self._config_file_path)
+                self._config = {}  # Set to empty dict[str, Any] if file not found
                 return
 
             with self._config_file_path.open("r") as f:
                 self._config = yaml.safe_load(f)
             self._logger.info(
                 "Successfully loaded configuration from %s",
-                self._config_file_path,
-            )
+                self._config_file_path)
         except yaml.YAMLError as e:
             self._logger.exception(
                 "Error parsing YAML configuration file: %s",
                 self._config_file_path,
-                exc_info=e,
-            )
+                exc_info=e)
             self._config = {}
         except OSError as e:
             self._logger.exception(
                 "Error reading configuration file: %s",
                 self._config_file_path,
-                exc_info=e,
-            )
+                exc_info=e)
             self._config = {}
         except Exception as e:
             self._logger.exception(
                 "Error loading configuration from %s",
                 self._config_file_path,
-                exc_info=e,
-            )
+                exc_info=e)
             self._config = {}
 
         if not isinstance(self._config, dict):
             self._logger.error(
                 "Configuration file %s did not load as a dictionary. "
-                "Loaded type: %s. Setting config to empty dict.",
+                "Loaded type: %s. Setting config to empty dict[str, Any].",
                 self._config_file_path,
-                type(self._config),
-            )
+                type(self._config))
             self._config = {}
 
     def get(self, key: str, default: Any | None = None) -> Any:  # noqa: ANN401
@@ -127,8 +118,7 @@ class ConfigManager:
         """
         if self._config is None:
             self._logger.warning(
-                "Configuration accessed before it was loaded or after a loading error.",
-            )
+                "Configuration accessed before it was loaded or after a loading error.")
             return default
 
         try:
@@ -139,15 +129,13 @@ class ConfigManager:
             self._logger.debug(
                 "Key '%s' not found in configuration. Returning default: %s",
                 key,
-                default,
-            )
+                default)
             return default
         except Exception as e:
             self._logger.exception(
                 "Unexpected error retrieving key '%s' from configuration.",
                 key,
-                exc_info=e,
-            )
+                exc_info=e)
             return default
 
     def get_int(self, key: str, default: int = 0) -> int:
@@ -162,8 +150,7 @@ class ConfigManager:
                 key,
                 value,
                 default,
-                e,
-            )
+                e)
             return default
 
     def get_float(self, key: str, default: float = 0.0) -> float:
@@ -178,22 +165,21 @@ class ConfigManager:
                 key,
                 value,
                 default,
-                e,
-            )
+                e)
             return default
 
     def get_decimal(self, key: str, default: Decimal = Decimal("0.0")) -> Decimal:
         """Retrieve a config value and attempt to cast it to a Decimal."""
         # Ensure default is Decimal if provided otherwise
-        if not isinstance(default, Decimal):
-            try:
-                default = Decimal(str(default))
-            except (ValueError, TypeError): # BLE001
-                self._logger.warning(
-                    "Invalid default value '%s' for get_decimal, using 0.0",
-                    default,
-                )
-                default = Decimal("0.0")
+        # Type[Any] annotation ensures default is Decimal
+        # try:
+        # default = Decimal(str(default))
+        # except (ValueError, TypeError): # BLE001
+        # self._logger.warning(
+        # "Invalid default value '%s' for get_decimal, using 0.0",
+        # default,
+        # )
+        # default = Decimal("0.0")
 
         value = self.get(key, default)
         try:
@@ -206,8 +192,7 @@ class ConfigManager:
                 key,
                 value,
                 default,
-                e,
-            )
+                e)
             return default
 
     def get_bool(self, key: str, *, default: bool = False) -> bool: # FBT001, FBT002
@@ -226,12 +211,11 @@ class ConfigManager:
                 key,
                 value,
                 default,
-                e,
-            )
+                e)
             return default
 
     def get_list(self, key: str, default: list[Any] | None = None) -> list[Any]:
-        """Retrieve a config value and ensure it's a list."""
+        """Retrieve a config value and ensure it's a list[Any]."""
         if default is None:
             default = []
         value = self.get(key, default)
@@ -239,7 +223,7 @@ class ConfigManager:
             return value
         return default
 
-    def get_dict(self, key: str, default: dict | None = None) -> dict:
+    def get_dict(self, key: str, default: dict[str, Any] | None = None) -> dict[str, Any]:
         """Retrieve a config value and ensure it's a dictionary."""
         if default is None:
             default = {}
@@ -249,7 +233,7 @@ class ConfigManager:
         return default
 
     def validate_configuration(self) -> list[str]:
-        """Validate the loaded configuration and return a list of errors."""
+        """Validate the loaded configuration and return a list[Any] of errors."""
         errors = []
         if self._config is None or not isinstance(self._config, dict):
             errors.append("Configuration could not be loaded or is not a valid dictionary")
@@ -263,8 +247,6 @@ class ConfigManager:
 
     def _is_valid_trading_pair(self, pair: str) -> bool:
         """Check if a trading pair string is in valid format (e.g., 'XRP/USD')."""
-        if not isinstance(pair, str):
-            return False
         parts = pair.split("/")
         return (
             len(parts) == self._EXPECTED_TRADING_PAIR_COMPONENTS
@@ -281,7 +263,7 @@ class ConfigManager:
         # Validate trading pairs
         pairs = trading_config.get("pairs", [])
         if not isinstance(pairs, list) or len(pairs) == 0:
-            errors.append("'trading.pairs' must be a non-empty list")
+            errors.append("'trading.pairs' must be a non-empty list[Any]")
         else:
             invalid_pair_errors = [
                 f"Invalid trading pair format: '{pair}' (expected format: 'BASE/QUOTE')"
@@ -339,7 +321,7 @@ class ConfigManager:
             else:
                 # Check for required API fields (keys may be in environment variables)
                 required_api_fields = ["api_key", "api_secret"]
-                # PERF401: Use list comprehension
+                # PERF401: Use list[Any] comprehension
                 missing_fields = [ # E501 will be fixed by reformatting comprehension
                     field
                     for field in required_api_fields
@@ -349,11 +331,10 @@ class ConfigManager:
                 if missing_fields:
                     errors.append(
                         f"Missing {exchange} API configuration. "
-                        f"Required fields not found in config or environment: {missing_fields}",
-                    )
+                        f"Required fields not found in config or environment: {missing_fields}")
 
     def get_trading_pairs(self) -> list[str]:
-        """Get the list of configured trading pairs."""
+        """Get the list[Any] of configured trading pairs."""
         return self.get_list("trading.pairs", [])
 
     def get_risk_parameters(self) -> dict[str, Any]:
@@ -404,8 +385,7 @@ class ConfigManager:
                 self._config = backup_config
                 self.validation_errors = backup_errors
                 self._logger.error(
-                    "Configuration reload failed validation. Restored previous configuration.",
-                )
+                    "Configuration reload failed validation. Restored previous configuration.")
                 return new_validation_errors
         except Exception as e:
             # Restore backup on any error

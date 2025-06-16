@@ -2,7 +2,7 @@ import pandas as pd
 from collections import defaultdict
 from typing import Dict
 
-_recent_features: Dict[str, pd.DataFrame] = defaultdict(pd.DataFrame)
+_recent_features: Dict = defaultdict(pd.DataFrame)
 
 
 async def fetch_latest_features(trading_pair: str, limit: int = 200) -> pd.DataFrame | None:

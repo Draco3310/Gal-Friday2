@@ -36,5 +36,5 @@ class PortfolioSnapshot(Base):
             "daily_drawdown_pct": self.daily_drawdown_pct,
             "weekly_drawdown_pct": self.weekly_drawdown_pct,
             "total_drawdown_pct": self.total_drawdown_pct,
-            "positions": self.positions, # Assuming positions is already a dict or JSON-serializable
+            "positions": self.positions, # Assuming positions is already a dict[str, Any] or JSON-serializable
         }

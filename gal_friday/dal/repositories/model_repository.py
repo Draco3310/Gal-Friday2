@@ -31,8 +31,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
 
     def __init__(
         self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService",
-        stage_config: dict[str, Any] | None = None,
-    ) -> None:
+        stage_config: dict[str, Any] | None = None) -> None:
         """Initialize the model repository.
 
         Args:
@@ -67,8 +66,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
         return await self.get_by_id(model_id)
 
     async def get_model_versions_by_name(
-        self, model_name: str, version: str | None = None,
-    ) -> Sequence[ModelVersion]:
+        self, model_name: str, version: str | None = None) -> Sequence[ModelVersion]:
         """Get model versions by name, optionally filtered by version."""
         filters = {"model_name": model_name}
         if version:
@@ -78,8 +76,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
     async def get_latest_model_version_by_name(self, model_name: str) -> ModelVersion | None:
         """Get the latest model version for a given model name."""
         versions = await self.find_all(
-            filters={"model_name": model_name}, order_by="created_at DESC", limit=1,
-        )
+            filters={"model_name": model_name}, order_by="created_at DESC", limit=1)
         return versions[0] if versions else None
 
     async def get_model_versions_by_stage(
@@ -88,12 +85,10 @@ class ModelRepository(BaseRepository[ModelVersion]):
         """Get model versions by name and stage."""
         return await self.find_all(
             filters={"model_name": model_name, "stage": stage},
-            order_by="created_at DESC",
-        )
+            order_by="created_at DESC")
 
     async def list_all_model_versions(
-        self, model_name: str | None = None, stage: str | None = None,
-    ) -> Sequence[ModelVersion]:
+        self, model_name: str | None = None, stage: str | None = None) -> Sequence[ModelVersion]:
         """List model versions with optional filters for name and stage."""
         filters = {}
         if model_name:
@@ -105,8 +100,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
 
     async def update_model_version_stage(
         self, model_id: uuid.UUID, new_stage: str, deployed_by: str | None = None,
-        approval_id: str | None = None, metadata: dict[str, Any] | None = None,
-    ) -> ModelVersion | None:
+        approval_id: str | None = None, metadata: dict[str, Any] | None = None) -> ModelVersion | None:
         """
         Update model version's stage with enterprise-grade validation and audit trail.
         
@@ -201,8 +195,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
                             "promoted_to_stage": target_stage.value,
                             "approval_id": approval_id,
                             "transition_metadata": validation_metadata
-                        },
-                    )
+                        })
                     
                     self.logger.info(
                         f"Model {model_id} promoted to production stage and deployment record created",
@@ -252,8 +245,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
             raise
 
     async def _create_deployment_record(
-        self, model_version: ModelVersion, deployed_by: str, deployment_config: dict | None = None,
-    ) -> ModelDeployment:
+        self, model_version: ModelVersion, deployed_by: str, deployment_config: dict[str, Any] | None = None) -> ModelDeployment:
         """Internal helper to create a deployment record and deactivate old ones for the same model name."""
         async with self.session_maker() as session:
             # Deactivate previous active deployments for this model_name
@@ -263,8 +255,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
                 sqlalchemy_update(ModelDeployment)
                 .where(
                     ModelDeployment.model_id.in_(
-                        select(ModelVersion.model_id).where(ModelVersion.model_name == model_version.model_name),
-                    ),
+                        select(ModelVersion.model_id).where(ModelVersion.model_name == model_version.model_name)),
                     ModelDeployment.is_active == True,
                     ModelDeployment.model_id != model_version.model_id, # Don't deactivate if re-deploying same version
                 )
@@ -278,16 +269,14 @@ class ModelRepository(BaseRepository[ModelVersion]):
                 deployed_at=datetime.now(UTC),
                 deployed_by=deployed_by,
                 deployment_config=deployment_config or {},
-                is_active=True,
-            )
+                is_active=True)
             session.add(new_deployment)
             await session.commit()
             await session.refresh(new_deployment)
             self.logger.info(
                 f"Created new deployment record {new_deployment.deployment_id} "
                 f"for model_id {model_version.model_id}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return new_deployment
 
     async def get_active_deployment(self, model_name: str) -> ModelDeployment | None:
@@ -344,7 +333,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
             stage: ModelStage enum value
             
         Returns:
-            Sequence of model versions in the specified stage
+            Sequence[Any] of model versions in the specified stage
         """
         return await self.find_all(
             filters={"stage": stage.value},
@@ -356,7 +345,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
         Get all models currently in production stage.
         
         Returns:
-            Sequence of production model versions
+            Sequence[Any] of production model versions
         """
         return await self.get_models_by_stage(ModelStage.PRODUCTION)
 
@@ -405,7 +394,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
         self, 
         model_id: uuid.UUID | None = None,
         limit: int = 50
-    ) -> list:
+    ) -> list[Any]:
         """
         Get stage transition history with audit trail.
         

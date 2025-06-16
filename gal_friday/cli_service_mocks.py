@@ -90,7 +90,7 @@ class Table:
     def add_row(self, *cells: str, **kwargs: Any) -> None:
         """Add a row to the table."""
         with self._lock:
-            self.rows.append(list(cells))
+            self.rows.append(list[Any](cells))
             rich_print(f"ROW: {cells}")
 
     def get_data(self) -> dict[str, Any]:
@@ -273,22 +273,22 @@ class PortfolioManager:
     def simulate_trade_result(self, profit_loss: Decimal, symbol: str = "BTC/USD") -> None:
         """Simulate a trade result for testing."""
         with self._lock:
-            self._current_state["unrealized_pnl"] = (
-                self._current_state.get("unrealized_pnl", Decimal("0"))
-                + profit_loss
-            )
-            self._current_state["total_trades"] = (
-                self._current_state.get("total_trades", 0) + 1
-            )
+            current_pnl_raw = self._current_state.get("unrealized_pnl", Decimal("0"))
+            current_pnl = current_pnl_raw if isinstance(current_pnl_raw, Decimal) else Decimal(str(current_pnl_raw))
+            self._current_state["unrealized_pnl"] = current_pnl + profit_loss
+            
+            current_total_raw = self._current_state.get("total_trades", 0)
+            current_total = current_total_raw if isinstance(current_total_raw, int) else int(str(current_total_raw))
+            self._current_state["total_trades"] = current_total + 1
             
             if profit_loss > 0:
-                self._current_state["winning_trades"] = (
-                    self._current_state.get("winning_trades", 0) + 1
-                )
+                current_winning_raw = self._current_state.get("winning_trades", 0)
+                current_winning = current_winning_raw if isinstance(current_winning_raw, int) else int(str(current_winning_raw))
+                self._current_state["winning_trades"] = current_winning + 1
             else:
-                self._current_state["losing_trades"] = (
-                    self._current_state.get("losing_trades", 0) + 1
-                )
+                current_losing_raw = self._current_state.get("losing_trades", 0)
+                current_losing = current_losing_raw if isinstance(current_losing_raw, int) else int(str(current_losing_raw))
+                self._current_state["losing_trades"] = current_losing + 1
 
 
 class LoggerService:
@@ -325,7 +325,7 @@ class LoggerService:
         message: str, 
         *args: Any,
         source_module: str | None = None,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
         exc_info: BaseException | None = None
     ) -> None:
         """Internal logging method."""
@@ -368,8 +368,7 @@ class LoggerService:
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict | None = None,
-    ) -> None:
+        context: dict[str, Any] | None = None) -> None:
         """Log info message."""
         self._log("INFO", message, *args, source_module=source_module, context=context)
 
@@ -378,8 +377,7 @@ class LoggerService:
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict | None = None,
-    ) -> None:
+        context: dict[str, Any] | None = None) -> None:
         """Log warning message."""
         self._log("WARNING", message, *args, source_module=source_module, context=context)
 
@@ -388,9 +386,8 @@ class LoggerService:
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict | None = None,
-        exc_info: BaseException | None = None,
-    ) -> None:
+        context: dict[str, Any] | None = None,
+        exc_info: BaseException | None = None) -> None:
         """Log error message."""
         self._log("ERROR", message, *args, source_module=source_module, context=context, exc_info=exc_info)
 
@@ -399,8 +396,7 @@ class LoggerService:
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict | None = None,
-    ) -> None:
+        context: dict[str, Any] | None = None) -> None:
         """Log error message with exception info."""
         import sys
         exc_info = sys.exc_info()[1]
@@ -411,8 +407,7 @@ class LoggerService:
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict | None = None,
-    ) -> None:
+        context: dict[str, Any] | None = None) -> None:
         """Log debug message."""
         self._log("DEBUG", message, *args, source_module=source_module, context=context)
 
@@ -421,9 +416,8 @@ class LoggerService:
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict | None = None,
-        exc_info: BaseException | None = None,
-    ) -> None:
+        context: dict[str, Any] | None = None,
+        exc_info: BaseException | None = None) -> None:
         """Log critical message."""
         self._log("CRITICAL", message, *args, source_module=source_module, context=context, exc_info=exc_info)
 
@@ -542,7 +536,7 @@ class PubSubManager:
 
     def __init__(self) -> None:
         """Initialize pub/sub manager mock."""
-        self._subscribers: dict[str, list[Callable]] = {}
+        self._subscribers: dict[str, list[Callable[..., Any]]] = {}
         self._published_events: list[dict[str, Any]] = []
         self._lock = threading.Lock()
 
@@ -573,8 +567,7 @@ class PubSubManager:
     def subscribe(
         self,
         event_type: str,
-        handler: Callable[[Any], Coroutine[Any, Any, None]],
-    ) -> None:
+        handler: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
         """Subscribe to an event type."""
         with self._lock:
             if event_type not in self._subscribers:
@@ -584,8 +577,7 @@ class PubSubManager:
     def unsubscribe(
         self,
         event_type: str,
-        handler: Callable[[Any], Coroutine[Any, Any, None]],
-    ) -> None:
+        handler: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
         """Unsubscribe from an event type."""
         with self._lock:
             if event_type in self._subscribers:
@@ -606,7 +598,7 @@ class PubSubManager:
         with self._lock:
             self._published_events.clear()
 
-    def get_subscribers(self, event_type: str) -> list[Callable]:
+    def get_subscribers(self, event_type: str) -> list[Callable[..., Any]]:
         """Get subscribers for an event type."""
         with self._lock:
             return self._subscribers.get(event_type, []).copy()
@@ -631,8 +623,8 @@ class HaltRecoveryManager:
                 "total_items": total_items,
                 "completed_items": completed_items,
                 "pending_items": total_items - completed_items,
-                "recovery_items": list(self._recovery_items.values()),
-                "completed_items": list(self._completed_items.values())
+                "recovery_items": list[Any](self._recovery_items.values()),
+                "completed_items": list[Any](self._completed_items.values())
             }
 
     def complete_item(self, item_id: str, completed_by: str) -> bool:

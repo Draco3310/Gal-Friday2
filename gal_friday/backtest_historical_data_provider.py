@@ -21,8 +21,7 @@ class BacktestHistoricalDataProvider:
         _symbol: str,
         _start_time: datetime,
         _end_time: datetime,
-        _interval: str = "1d",
-    ) -> pd.DataFrame | None:
+        _interval: str = "1d") -> pd.DataFrame | None:
         """Get historical data for the given symbol and time range.
 
         Args:

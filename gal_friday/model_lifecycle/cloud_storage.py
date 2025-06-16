@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-import aiofiles  # type: ignore[import-untyped]
+import aiofiles  # type: ignore
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
@@ -56,14 +56,13 @@ class GCSBackend(CloudStorageBackend):
     def _init_client(self) -> None:
         """Initialize GCS client."""
         try:
-            from google.cloud import storage  # type: ignore[import-not-found]
+            from google.cloud import storage  # type: ignore
             self.client = storage.Client(project=self.project_id)
             self.bucket = self.client.bucket(self.bucket_name)
 
             self.logger.info(
                 f"Initialized GCS backend for bucket: {self.bucket_name}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except ImportError:
             raise ImportError("google-cloud-storage not installed")
         except Exception as e:
@@ -78,8 +77,7 @@ class GCSBackend(CloudStorageBackend):
         except Exception:
             self.logger.exception(
                 f"Failed to upload to GCS: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def _upload_file(self, local_path: Path, remote_path: str) -> bool:
@@ -101,8 +99,7 @@ class GCSBackend(CloudStorageBackend):
                 None,
                 blob.upload_from_string,
                 content,
-                "application/octet-stream",
-            )
+                "application/octet-stream")
 
             # Set metadata
             blob.metadata = {
@@ -118,8 +115,7 @@ class GCSBackend(CloudStorageBackend):
             if remote_checksum != local_checksum:
                 self.logger.error(
                     f"Checksum mismatch after upload: {remote_path}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
 
             self.logger.info(
@@ -128,15 +124,13 @@ class GCSBackend(CloudStorageBackend):
                 context={
                     "size_bytes": local_path.stat().st_size,
                     "checksum": local_checksum,
-                },
-            )
+                })
             return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to upload file to GCS: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def _upload_directory(self, local_path: Path, remote_path: str) -> bool:
@@ -159,22 +153,19 @@ class GCSBackend(CloudStorageBackend):
             if failed_count > 0:
                 self.logger.error(
                     f"Failed to upload {failed_count}/{len(results)} files",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
 
             self.logger.info(
                 f"Successfully uploaded directory to GCS: {remote_path}",
                 source_module=self._source_module,
-                context={"file_count": len(results)},
-            )
+                context={"file_count": len(results)})
             return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to upload directory to GCS: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def download(self, remote_path: str, local_path: Path) -> bool:
@@ -184,15 +175,13 @@ class GCSBackend(CloudStorageBackend):
             loop = asyncio.get_event_loop()
             blobs = await loop.run_in_executor(
                 None,
-                list,
-                self.bucket.list_blobs(prefix=remote_path),
-            )
+                list[Any],
+                self.bucket.list_blobs(prefix=remote_path))
 
             if not blobs:
                 self.logger.error(
                     f"No files found in GCS: {remote_path}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
 
             # Download all blobs
@@ -215,8 +204,7 @@ class GCSBackend(CloudStorageBackend):
             if failed_count > 0:
                 self.logger.error(
                     f"Failed to download {failed_count}/{len(results)} files",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
 
             return True
@@ -224,8 +212,7 @@ class GCSBackend(CloudStorageBackend):
         except Exception:
             self.logger.exception(
                 f"Failed to download from GCS: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def _download_file(self, blob: Any, local_path: Path) -> bool:
@@ -248,8 +235,7 @@ class GCSBackend(CloudStorageBackend):
                 if local_checksum != blob.metadata["checksum"]:
                     self.logger.error(
                         f"Checksum mismatch after download: {local_path}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return False
 
             return True
@@ -257,8 +243,7 @@ class GCSBackend(CloudStorageBackend):
         except Exception:
             self.logger.exception(
                 f"Failed to download file from GCS: {blob.name}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def delete(self, remote_path: str) -> bool:
@@ -269,24 +254,21 @@ class GCSBackend(CloudStorageBackend):
             # Delete all blobs with prefix
             blobs = await loop.run_in_executor(
                 None,
-                list,
-                self.bucket.list_blobs(prefix=remote_path),
-            )
+                list[Any],
+                self.bucket.list_blobs(prefix=remote_path))
 
             for blob in blobs:
                 await loop.run_in_executor(None, blob.delete)
 
             self.logger.info(
                 f"Deleted {len(blobs)} files from GCS: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to delete from GCS: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def exists(self, remote_path: str) -> bool:
@@ -328,13 +310,12 @@ class S3Backend(CloudStorageBackend):
     def _init_client(self) -> None:
         """Initialize S3 client."""
         try:
-            import aioboto3  # type: ignore[import-not-found, import-untyped]
+            import aioboto3  # type: ignore
             self.session = aioboto3.Session()
 
             self.logger.info(
                 f"Initialized S3 backend for bucket: {self.bucket_name}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         except ImportError:
             raise ImportError("aioboto3 not installed")
 
@@ -348,8 +329,7 @@ class S3Backend(CloudStorageBackend):
         except Exception:
             self.logger.exception(
                 f"Failed to upload to S3: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def _upload_file_s3(self, s3: Any, local_path: Path, remote_path: str) -> bool:
@@ -369,8 +349,7 @@ class S3Backend(CloudStorageBackend):
                 Metadata={
                     "checksum": local_checksum,
                     "original_path": str(local_path),
-                },
-            )
+                })
 
             # Verify upload
             response = await s3.head_object(Bucket=self.bucket_name, Key=remote_path)
@@ -379,8 +358,7 @@ class S3Backend(CloudStorageBackend):
             if remote_checksum != local_checksum:
                 self.logger.error(
                     f"Checksum mismatch after upload: {remote_path}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
 
             self.logger.info(
@@ -389,15 +367,13 @@ class S3Backend(CloudStorageBackend):
                 context={
                     "size_bytes": local_path.stat().st_size,
                     "checksum": local_checksum,
-                },
-            )
+                })
             return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to upload file to S3: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def _upload_directory_s3(self, s3: Any, local_path: Path, remote_path: str) -> bool:
@@ -420,22 +396,19 @@ class S3Backend(CloudStorageBackend):
             if failed_count > 0:
                 self.logger.error(
                     f"Failed to upload {failed_count}/{len(results)} files",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
 
             self.logger.info(
                 f"Successfully uploaded directory to S3: {remote_path}",
                 source_module=self._source_module,
-                context={"file_count": len(results)},
-            )
+                context={"file_count": len(results)})
             return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to upload directory to S3: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def download(self, remote_path: str, local_path: Path) -> bool:
@@ -462,8 +435,7 @@ class S3Backend(CloudStorageBackend):
                 if not download_tasks:
                     self.logger.error(
                         f"No files found in S3: {remote_path}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return False
 
                 results = await asyncio.gather(*download_tasks, return_exceptions=True)
@@ -473,8 +445,7 @@ class S3Backend(CloudStorageBackend):
                 if failed_count > 0:
                     self.logger.error(
                         f"Failed to download {failed_count}/{len(results)} files",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return False
 
                 return True
@@ -482,8 +453,7 @@ class S3Backend(CloudStorageBackend):
         except Exception:
             self.logger.exception(
                 f"Failed to download from S3: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def _download_file_s3(self, s3: Any, key: str, local_path: Path) -> bool:
@@ -507,8 +477,7 @@ class S3Backend(CloudStorageBackend):
                 if local_checksum != metadata["checksum"]:
                     self.logger.error(
                         f"Checksum mismatch after download: {local_path}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return False
 
             return True
@@ -516,8 +485,7 @@ class S3Backend(CloudStorageBackend):
         except Exception:
             self.logger.exception(
                 f"Failed to download file from S3: {key}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def delete(self, remote_path: str) -> bool:
@@ -539,20 +507,17 @@ class S3Backend(CloudStorageBackend):
                         batch = objects_to_delete[i:i+1000]
                         await s3.delete_objects(
                             Bucket=self.bucket_name,
-                            Delete={"Objects": batch},
-                        )
+                            Delete={"Objects": batch})
 
                 self.logger.info(
                     f"Deleted {len(objects_to_delete)} files from S3: {remote_path}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to delete from S3: {remote_path}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
     async def exists(self, remote_path: str) -> bool:

@@ -13,6 +13,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
+from typing import Any
 
 if TYPE_CHECKING:
     from gal_friday.portfolio_manager import PortfolioManager
@@ -35,7 +36,7 @@ class DashboardWidget:
     widget_type: WidgetType
     title: str
     position: Dict[str, int]  # x, y, width, height
-    config: Dict[str, Any] = field(default_factory=dict)
+    config: Dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 class DashboardService:
@@ -45,8 +46,7 @@ class DashboardService:
         self,
         config: ConfigManager,
         logger: LoggerService,
-        portfolio_manager: "PortfolioManager",
-    ) -> None:
+        portfolio_manager: "PortfolioManager") -> None:
         """Initialize the DashboardService.
 
         Args:
@@ -134,8 +134,7 @@ class DashboardService:
             self.logger.error(
                 f"Failed to get portfolio metrics: {e}",
                 source_module="DashboardService",
-                exc_info=True,
-            )
+                exc_info=True)
             # Return safe defaults on error
             return {
                 "total_pnl": 0.0,
@@ -202,7 +201,7 @@ class DashboardService:
 class RealTimeDashboard:
     """Enterprise-grade real-time trading dashboard"""
     
-    def __init__(self, dashboard_service: DashboardService, config: Dict[str, Any]):
+    def __init__(self, dashboard_service: DashboardService, config: Dict[str, Any]) -> None:
         self.dashboard_service = dashboard_service
         self.config = config
         self.logger = dashboard_service.logger
@@ -217,7 +216,7 @@ class RealTimeDashboard:
         self.current_data: Dict[str, Any] = {}
         
         # Data update tasks
-        self.update_tasks: List[asyncio.Task] = []
+        self.update_tasks: List[asyncio.Task[Any]] = []
         self._running = False
         
         self._setup_routes()

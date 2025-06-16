@@ -903,7 +903,7 @@ class TestSignalLifecycle:
 
 **1. Coverage Configuration:**
 ```toml
-# pyproject.toml additions
+# pyproject.toml.old additions
 [tool.coverage.run]
 source = ["gal_friday"]
 omit = [

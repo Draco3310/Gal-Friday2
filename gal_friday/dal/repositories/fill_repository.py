@@ -11,17 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gal_friday.dal.base import BaseRepository
 from gal_friday.models.fill import Fill
+from typing import Any
 
 if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
 
-class FillRepository(BaseRepository[Fill]):
+class FillRepository(BaseRepository):
     """Repository for fill data persistence using SQLAlchemy."""
 
     def __init__(
-        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService",
-    ) -> None:
+        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
         """Initialize the fill repository.
 
         Args:
@@ -36,8 +36,7 @@ class FillRepository(BaseRepository[Fill]):
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         limit: int = 1000,
-        offset: int = 0,
-    ) -> Sequence[Fill]:
+        offset: int = 0) -> Sequence[Fill]:
         """Get fills for a specific trading pair with optional date filtering.
 
         Args:
@@ -48,7 +47,7 @@ class FillRepository(BaseRepository[Fill]):
             offset: Number of results to skip for pagination
 
         Returns:
-            Sequence of Fill objects matching the criteria
+            Sequence[Any] of Fill objects matching the criteria
         """
         try:
             async with self.session_maker() as session:
@@ -74,15 +73,13 @@ class FillRepository(BaseRepository[Fill]):
                 self.logger.debug(
                     f"Retrieved {len(fills)} fills for {trading_pair} "
                     f"(limit: {limit}, offset: {offset})",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return fills
 
         except Exception as e:
             self.logger.exception(
                 f"Error retrieving fills for {trading_pair}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
 
     async def get_fills_by_strategy(
@@ -91,8 +88,7 @@ class FillRepository(BaseRepository[Fill]):
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         limit: int = 1000,
-        offset: int = 0,
-    ) -> Sequence[Fill]:
+        offset: int = 0) -> Sequence[Fill]:
         """Get fills for a specific strategy.
 
         Note: This requires joining with Order and potentially TradeSignal tables
@@ -106,7 +102,7 @@ class FillRepository(BaseRepository[Fill]):
             offset: Number of results to skip for pagination
 
         Returns:
-            Sequence of Fill objects for the strategy
+            Sequence[Any] of Fill objects for the strategy
         """
         try:
             # Import here to avoid circular imports
@@ -142,23 +138,20 @@ class FillRepository(BaseRepository[Fill]):
                 self.logger.debug(
                     f"Retrieved {len(fills)} fills for strategy {strategy_id} "
                     f"(limit: {limit}, offset: {offset})",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return fills
 
         except Exception as e:
             self.logger.exception(
                 f"Error retrieving fills for strategy {strategy_id}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
 
     async def get_recent_fills(
         self,
         hours: int = 24,
         limit: int = 1000,
-        offset: int = 0,
-    ) -> Sequence[Fill]:
+        offset: int = 0) -> Sequence[Fill]:
         """Get recent fills within the specified time window.
 
         Args:
@@ -167,7 +160,7 @@ class FillRepository(BaseRepository[Fill]):
             offset: Number of results to skip for pagination
 
         Returns:
-            Sequence of recent Fill objects
+            Sequence[Any] of recent Fill objects
         """
         cutoff = datetime.now(UTC) - timedelta(hours=hours)
         
@@ -190,23 +183,20 @@ class FillRepository(BaseRepository[Fill]):
                 self.logger.debug(
                     f"Retrieved {len(fills)} recent fills from last {hours} hours "
                     f"(limit: {limit}, offset: {offset})",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return fills
 
         except Exception as e:
             self.logger.exception(
                 f"Error retrieving recent fills: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
 
     async def get_fills_count_by_trading_pair(
         self,
         trading_pair: str,
         start_date: datetime | None = None,
-        end_date: datetime | None = None,
-    ) -> int:
+        end_date: datetime | None = None) -> int:
         """Get count of fills for pagination purposes.
 
         Args:
@@ -234,15 +224,13 @@ class FillRepository(BaseRepository[Fill]):
                 
                 self.logger.debug(
                     f"Found {count} total fills for {trading_pair}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return count
 
         except Exception as e:
             self.logger.exception(
                 f"Error counting fills for {trading_pair}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
 
     async def get_fills_by_order_id(self, order_pk: int) -> Sequence[Fill]:
@@ -252,7 +240,7 @@ class FillRepository(BaseRepository[Fill]):
             order_pk: Order primary key to filter by
 
         Returns:
-            Sequence of Fill objects for the order
+            Sequence[Any] of Fill objects for the order
         """
         try:
             async with self.session_maker() as session:
@@ -267,13 +255,11 @@ class FillRepository(BaseRepository[Fill]):
                 
                 self.logger.debug(
                     f"Retrieved {len(fills)} fills for order {order_pk}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return fills
 
         except Exception as e:
             self.logger.exception(
                 f"Error retrieving fills for order {order_pk}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise 

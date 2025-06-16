@@ -9,8 +9,7 @@ from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
-    create_async_engine,
-)
+    create_async_engine)
 
 from gal_friday.config_manager import ConfigManager
 
@@ -45,8 +44,7 @@ class DatabaseConnectionPool:
                     if not db_url:
                         self.logger.error(
                             "Database connection string is not configured.",
-                            source_module=self._source_module,
-                        )
+                            source_module=self._source_module)
                         raise ValueError("Database connection string is missing.")
 
                     # Note: Pool size and other asyncpg-specific pool params are
@@ -65,20 +63,16 @@ class DatabaseConnectionPool:
                         max_overflow=max_overflow,
                         pool_recycle=pool_recycle_seconds,
                         pool_timeout=pool_timeout_seconds,
-                        echo=echo_sql,
-                    )
+                        echo=echo_sql)
                     self._session_maker = async_sessionmaker(
-                        self._engine, expire_on_commit=False, class_=AsyncSession,
-                    )
+                        self._engine, expire_on_commit=False, class_=AsyncSession)
                     self.logger.info(
                         "SQLAlchemy AsyncEngine initialized",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                 except Exception:
                     self.logger.exception(
                         "Failed to initialize SQLAlchemy AsyncEngine",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     raise
 
     async def close(self) -> None:
@@ -90,8 +84,7 @@ class DatabaseConnectionPool:
                 self._session_maker = None
                 self.logger.info(
                     "SQLAlchemy AsyncEngine disposed",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
     def is_initialized(self) -> bool:
         """Check if the engine is initialized."""
@@ -110,11 +103,9 @@ class DatabaseConnectionPool:
         if not self._session_maker:
             self.logger.error(
                 "Session maker not initialized. Call initialize() first.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise RuntimeError(
-                "Session maker is not initialized. Call initialize() first.",
-            )
+                "Session maker is not initialized. Call initialize() first.")
 
         session = self._session_maker()
         try:

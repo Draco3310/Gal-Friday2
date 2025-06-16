@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, TYPE_CHECKING
 
 import joblib
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class ImputationModelRegistry:
@@ -53,7 +56,10 @@ def build_ml_features(ohlcv_history: "pd.DataFrame") -> "pd.DataFrame":
     df["return_5"] = df["close"].pct_change(5)
     df["volatility_5"] = df["close"].rolling(5).std()
     df["volume_sma_5"] = df.get("volume", pd.Series()).rolling(5).mean()
-    df["volume_ratio_5"] = df.get("volume") / df["volume_sma_5"]
+    volume_series = df.get("volume")
+    if volume_series is not None:
+        df["volume_ratio_5"] = volume_series / df["volume_sma_5"]
+    else:
+        df["volume_ratio_5"] = pd.Series(dtype=float)
 
     return df.dropna().reset_index(drop=True)
-

@@ -13,7 +13,7 @@ from gal_friday.dal.models import RiskMetrics
 from gal_friday.dal.repositories.base import BaseRepository
 
 
-class RiskMetricsRepository(BaseRepository[RiskMetrics]):
+class RiskMetricsRepository(BaseRepository):
     """Repository for managing risk metrics data."""
 
     def __init__(self, session: AsyncSession) -> None:

@@ -7,8 +7,7 @@ from sqlalchemy import (  # DateTime removed as TIMESTAMPTZ is used
     BigInteger,
     Integer,
     String,
-    Text,
-)
+    Text)
 from sqlalchemy.orm import Mapped, mapped_column  # For Mapped type hints
 from sqlalchemy.types import JSON  # Generic JSON type
 
@@ -30,7 +29,7 @@ class Log(Base):
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True) # Added Mapped for consistency
     lineno: Mapped[int | None] = mapped_column(Integer, nullable=True)
     func_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    context_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True) # Assuming JSON maps to dict
+    context_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True) # Assuming JSON maps to dict[str, Any]
     exception_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str: # Added -> str
@@ -61,5 +60,4 @@ class Log(Base):
             timestamp=self.timestamp if self.timestamp is not None else datetime.datetime.utcnow(),
             level=self.level_name.upper(),
             message=self.message,
-            context=event_context,
-        )
+            context=event_context)

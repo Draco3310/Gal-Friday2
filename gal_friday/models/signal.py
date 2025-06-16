@@ -11,6 +11,7 @@ from sqlalchemy.sql import func
 from gal_friday.core.events import TradeSignalProposedEvent
 
 from .base import Base
+from typing import Any
 
 if TYPE_CHECKING:
     from .order import Order  # For relationship hint
@@ -86,5 +87,4 @@ class Signal(Base):
             proposed_tp_price=self.proposed_tp_price, # Ensure Decimal
             strategy_id=self.strategy_id,
             triggering_prediction_event_id=self.prediction_event_id, # Ensure uuid.UUID | None
-            triggering_prediction={"value": self.prediction_value} if self.prediction_value is not None else None,
-        )
+            triggering_prediction={"value": self.prediction_value} if self.prediction_value is not None else None)

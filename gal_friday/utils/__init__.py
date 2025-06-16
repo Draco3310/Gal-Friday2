@@ -10,8 +10,7 @@ from .kraken_api import (
     InvalidAPISecretError,
     KrakenAPIError,
     generate_kraken_signature,
-    prepare_kraken_request_data,
-)
+    prepare_kraken_request_data)
 
 T = TypeVar("T")
 
@@ -27,7 +26,7 @@ class ExceptionHandlerConfig(Generic[T]):
     source_module: str | None = None
     re_raise: bool = False
     # Initialize specific_exceptions with proper default
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Initialize specific_exceptions with default if not provided."""
         if self.specific_exceptions is None:
             self.specific_exceptions = (Exception,)
@@ -35,8 +34,7 @@ class ExceptionHandlerConfig(Generic[T]):
 
 def handle_exceptions(
     logger: logging.Logger,
-    config: ExceptionHandlerConfig[T],
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    config: ExceptionHandlerConfig[T]) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Handle exceptions in a standardized way.
 
     Args:
@@ -83,8 +81,7 @@ def handle_exceptions(
 
 def handle_exceptions_async(
     logger: logging.Logger,
-    config: ExceptionHandlerConfig[T],
-) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
+    config: ExceptionHandlerConfig[T]) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
     """Handle exceptions in a standardized way for async functions.
 
     Args:
@@ -107,8 +104,7 @@ def handle_exceptions_async(
         effective_exceptions = (Exception,)
 
     def decorator(
-        func: Callable[..., Coroutine[Any, Any, T]],
-    ) -> Callable[..., Coroutine[Any, Any, T]]:
+        func: Callable[..., Coroutine[Any, Any, T]]) -> Callable[..., Coroutine[Any, Any, T]]:
         async def wrapper(*args: object, **kwargs: object) -> T:
             try:
                 return await func(*args, **kwargs)

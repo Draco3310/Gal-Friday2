@@ -14,6 +14,7 @@ from typing import Dict, List, Any, Optional, AsyncGenerator
 from ..core.events import EventType, Event
 from ..core.pubsub import PubSubManager
 from ..logger_service import LoggerService
+from typing import Any
 
 
 @dataclass
@@ -24,7 +25,7 @@ class LiveOrderData:
     side: str
     order_type: str
     quantity: Decimal
-    price: Optional[Decimal]
+    price: Optional
     status: str
     filled_quantity: Decimal
     remaining_quantity: Decimal

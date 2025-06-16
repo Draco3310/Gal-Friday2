@@ -27,11 +27,11 @@ import numpy as np
 from .providers import (
     APIDataProvider,
     DatabaseDataProvider,
-    LocalFileDataProvider,
-)
+    LocalFileDataProvider)
 
 # Import the base class
 from .market_price_service import MarketPriceService
+from typing import Any
 
 # Import enhanced components
 try:
@@ -81,14 +81,13 @@ else:
 
 # Attempt to import pandas_ta for ATR calculation
 try:
-    import pandas_ta as ta
+    import pandas_ta as ta  
 except ImportError:
     ta = None
     log_temp = logging.getLogger(__name__)
     log_temp.warning(
         "pandas_ta library not found. ATR calculation for "
-        "volatility-adjusted spread will be disabled.",
-    )
+        "volatility-adjusted spread will be disabled.")
 
 _SOURCE_MODULE = "SimulatedMarketPriceService"
 
@@ -128,7 +127,7 @@ class HistoricalDataPoint:
     low: float
     close: float
     volume: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 class HistoricalDataProvider(ABC):
@@ -162,7 +161,7 @@ class CacheLayer(ABC):
 class MemoryCache(CacheLayer):
     """In-memory cache implementation with LRU eviction"""
 
-    def __init__(self, max_size: int = 1000):
+    def __init__(self, max_size: int = 1000) -> None:
         self.max_size = max_size
         self.cache: Dict[str, tuple[List[HistoricalDataPoint], float]] = {}
         self.access_order: Dict[str, float] = {}
@@ -188,7 +187,7 @@ class MemoryCache(CacheLayer):
 class DiskCache(CacheLayer):
     """Disk-based cache implementation"""
 
-    def __init__(self, cache_path: str = "./cache"):
+    def __init__(self, cache_path: str = "./cache") -> None:
         self.cache_path = cache_path
         # In a real implementation, this would use file-based storage
         self._disk_cache: Dict[str, List[HistoricalDataPoint]] = {}
@@ -208,7 +207,7 @@ class DataLoadingError(Exception):
 class HistoricalDataLoader:
     """Enterprise-grade historical data loading and caching system"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any]) -> None:
         self.config = config
         self.logger = logging.getLogger(__name__)
 
@@ -405,7 +404,7 @@ class DataGap:
 @dataclass
 class InterpolationResult:
     """Result of price interpolation"""
-    interpolated_data: List[dict]
+    interpolated_data: List[dict[str, Any]]
     quality_score: float
     method_used: InterpolationMethod
     gaps_filled: List[DataGap]
@@ -420,7 +419,7 @@ class InterpolationError(Exception):
 class PriceInterpolator:
     """Enterprise-grade price interpolation and missing data handling"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any]) -> None:
         self.config = config
         self.logger = logging.getLogger(__name__)
 
@@ -433,7 +432,7 @@ class PriceInterpolator:
             InterpolationMethod.BACKWARD_FILL: self._backward_fill
         }
 
-    async def interpolate_missing_data(self, data: List[dict], symbol: str,
+    async def interpolate_missing_data(self, data: List[dict[str, Any]], symbol: str,
                                      frequency: str) -> InterpolationResult:
         """
         Interpolate missing data points using intelligent algorithms
@@ -475,7 +474,7 @@ class PriceInterpolator:
             # Perform interpolation
             interpolated_df = await self._perform_interpolation(df, gaps, method)
 
-            # Convert back to list of dictionaries
+            # Convert back to list[Any] of dictionaries
             interpolated_data = interpolated_df.to_dict('records')
 
             # Calculate quality score
@@ -688,7 +687,7 @@ class PriceInterpolator:
 
         return interpolated_points
 
-    def _interpolate_volume(self, before_point: pd.Series, after_point: pd.Series, factor: float) -> float:
+    def _interpolate_volume(self, before_point: pd.Series[Any], after_point: pd.Series[Any], factor: float) -> float:
         """Interpolate volume with some randomness"""
         base_volume = before_point['volume'] + factor * (after_point['volume'] - before_point['volume'])
 
@@ -702,16 +701,14 @@ class PriceInterpolator:
         before_idx: int,
         after_idx: int,
         timestamps: List[datetime],
-        gap: DataGap,
-    ) -> List[Dict[str, Any]]:
+        gap: DataGap) -> List[Dict[str, Any]]:
         """Perform cubic spline interpolation with fallback to linear."""
 
         try:
             from scipy.interpolate import CubicSpline
         except Exception:
             self.logger.warning(
-                "SciPy not available, falling back to linear interpolation",
-            )
+                "SciPy not available, falling back to linear interpolation")
             return await self._linear_interpolation(df, before_idx, after_idx, timestamps, gap)
 
         window_start = max(0, before_idx - 2)
@@ -722,8 +719,7 @@ class PriceInterpolator:
 
         if len(window) < 4:
             self.logger.warning(
-                "Not enough data for spline interpolation, falling back to linear",
-            )
+                "Not enough data for spline interpolation, falling back to linear")
             return await self._linear_interpolation(df, before_idx, after_idx, timestamps, gap)
 
         numeric_index = window.index.astype("int64") // 10**9
@@ -774,7 +770,7 @@ class PriceInterpolator:
         base_points = await self._spline_interpolation(df, before_idx, after_idx, timestamps, gap)
 
         try:
-            import pandas_ta as ta
+            import pandas_ta as ta  
         except Exception:  # pragma: no cover - dependency missing
             self.logger.warning(
                 "pandas_ta not available, skipping volatility adjustment"
@@ -797,8 +793,7 @@ class PriceInterpolator:
             high=window["high"],
             low=window["low"],
             close=window["close"],
-            length=length,
-        )
+            length=length)
         if atr_series.isna().all():
             return base_points
 
@@ -919,7 +914,7 @@ class SimulationError(Exception):
 class RealTimeSimulationEngine:
     """Enterprise-grade real-time price simulation engine"""
 
-    def __init__(self, config: Dict[str, Any], data_loader: "HistoricalDataLoader"):
+    def __init__(self, config: Dict[str, Any], data_loader: "HistoricalDataLoader") -> None:
         self.config = config
         self._data_loader = data_loader
         self.logger = logging.getLogger(__name__)
@@ -934,13 +929,13 @@ class RealTimeSimulationEngine:
         self.event_buffer = deque(maxlen=config.get('buffer_size', 10000))
 
         # Event handlers
-        self.event_handlers: Dict[str, List[Callable]] = {}
+        self.event_handlers: Dict[str, List[Callable[..., Any]]] = {}
 
         # Speed multiplier calculation
         self.speed_multiplier = self._calculate_speed_multiplier()
 
         # Simulation task
-        self.simulation_task: Optional[asyncio.Task] = None
+        self.simulation_task: Optional[asyncio.Task[Any]] = None
 
     async def start_simulation(self) -> None:
         """
@@ -1114,15 +1109,14 @@ class RealTimeSimulationEngine:
 
         self.logger.info(f"Loaded {len(self.event_queue)} simulation events")
 
-    async def _load_historical_data(self, symbol: str) -> List[dict]:
+    async def _load_historical_data(self, symbol: str) -> List[dict[str, Any]]:
         """Load historical data for a symbol"""
         try:
             request = DataRequest(
                 symbol=symbol,
                 start_date=self.config["start_time"],
                 end_date=self.config["end_time"],
-                frequency=self.config.get("frequency", "1h"),
-            )
+                frequency=self.config.get("frequency", "1h"))
 
             points = await self._data_loader.load_historical_data(request)
             return [dataclasses.asdict(p) for p in points]
@@ -1143,7 +1137,7 @@ class RealTimeSimulationEngine:
 
         return speed_map.get(self.config.get('speed', SimulationSpeed.REAL_TIME), 1.0)
 
-    def register_event_handler(self, event_type: str, handler: Callable) -> None:
+    def register_event_handler(self, event_type: str, handler: Callable[..., Any]) -> None:
         """Register event handler for specific event type"""
         if event_type not in self.event_handlers:
             self.event_handlers[event_type] = []
@@ -1175,8 +1169,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         self,
         historical_data: dict[str, pd.DataFrame],
         config_manager: ConfigManager | None = None,
-        logger: logging.Logger | None = None,
-    ) -> None:
+        logger: logging.Logger | None = None) -> None:
         """Initialize the service with historical market data.
 
         Args:
@@ -1273,14 +1266,13 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             'speed': SimulationSpeed.REAL_TIME,
             'buffer_size': 10000,
             'time_step_seconds': 1.0,
-            'symbols': list(historical_data.keys()) if historical_data else [],
+            'symbols': list[Any](historical_data.keys()) if historical_data else [],
             'start_time': datetime.now(UTC),
             'end_time': datetime.now(UTC) + timedelta(days=1)
         }
         self._simulation_engine = RealTimeSimulationEngine(
             simulation_config,
-            self._data_loader,
-        )
+            self._data_loader)
         # Register price update handler for simulation engine
         self._simulation_engine.register_event_handler('price_update', self._handle_price_update_event)
 
@@ -1291,8 +1283,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
         self.logger.info(
             "SimulatedMarketPriceService initialized with enterprise-grade enhancements.",
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
 
     def _validate_historical_data(self, historical_data: dict[str, pd.DataFrame]) -> None:
         """Validate the format and content of historical data."""
@@ -1302,8 +1293,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     "Historical data for %s does not have a DatetimeIndex. "
                     "This may cause issues with time-based lookups.",
                     pair,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 # Attempt to convert index to DatetimeIndex if possible
                 try:
                     df.index = pd.to_datetime(df.index, utc=True)
@@ -1311,15 +1301,13 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     self.logger.info(
                         "Successfully converted index to DatetimeIndex for %s",
                         pair,
-                        extra={"source_module": self._source_module},
-                    )
+                        extra={"source_module": self._source_module})
                 except Exception as e:
                     self.logger.error(
                         "Failed to convert index to DatetimeIndex for %s: %s",
                         pair,
                         str(e),
-                        extra={"source_module": self._source_module},
-                    )
+                        extra={"source_module": self._source_module})
 
             required_cols = {self._price_column}
             if self._volatility_enabled and ta is not None:  # Check ta availability too
@@ -1332,9 +1320,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     "Available columns: %s",
                     pair,
                     missing_cols,
-                    list(df.columns),
-                    extra={"source_module": self._source_module},
-                )
+                    list[Any](df.columns),
+                    extra={"source_module": self._source_module})
                 # Disable features that require missing columns
                 if self._price_column in missing_cols:
                     self.logger.error(
@@ -1342,14 +1329,12 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                         "This pair may not function properly.",
                         self._price_column,
                         pair,
-                        extra={"source_module": self._source_module},
-                    )
+                        extra={"source_module": self._source_module})
                 if any(col in missing_cols for col in [self._atr_high_col, self._atr_low_col, self._atr_close_col]):
                     self.logger.warning(
                         "Disabling volatility features for %s due to missing HLC columns",
                         pair,
-                        extra={"source_module": self._source_module},
-                    )
+                        extra={"source_module": self._source_module})
 
     def _apply_config_values_from_manager(self) -> None:
         """Apply configuration values from the ConfigManager."""
@@ -1364,47 +1349,39 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         spread_config = sim_config.get("spread", {})
         self._default_spread_pct = self.config.get_decimal(
             "simulation.spread.default_pct",
-            Decimal("0.1"),
-        )
+            Decimal("0.1"))
         self._pair_specific_spread_config = spread_config.get("pairs", {})
         self._volatility_multiplier = self.config.get_decimal(
             "simulation.spread.volatility_multiplier",
-            Decimal("1.5"),
-        )
+            Decimal("1.5"))
 
         vol_config = spread_config.get("volatility", {})
         self._volatility_enabled = vol_config.get(
             "enabled",
-            ta is not None,
-        )  # Default true only if ta available
+            ta is not None)  # Default true only if ta available
         self._volatility_lookback_period = vol_config.get("lookback_period", 14)
         self._min_volatility_data_points = vol_config.get(
             "min_data_points",
-            self._volatility_lookback_period + 5,
-        )
+            self._volatility_lookback_period + 5)
         self._atr_high_col = vol_config.get("atr_high_col", "high")
         self._atr_low_col = vol_config.get("atr_low_col", "low")
         self._atr_close_col = vol_config.get("atr_close_col", "close")
         self._max_volatility_adjustment_factor = self.config.get_decimal(
             "simulation.spread.volatility.max_adjustment_factor",
-            Decimal("2.0"),
-        )
+            Decimal("2.0"))
 
         depth_config = sim_config.get("depth", {})
         self._depth_simulation_enabled = depth_config.get("enabled", True)
         self._depth_num_levels = depth_config.get("num_levels", 5)
         self._depth_price_step_pct = self.config.get_decimal(
             "simulation.depth.price_step_pct",
-            Decimal("0.001"),
-        )
+            Decimal("0.001"))
         self._depth_base_volume = self.config.get_decimal(
             "simulation.depth.base_volume",
-            Decimal("10.0"),
-        )
+            Decimal("10.0"))
         self._depth_volume_decay_factor = self.config.get_decimal(
             "simulation.depth.volume_decay_factor",
-            Decimal("0.8"),
-        )
+            Decimal("0.8"))
         self._depth_price_precision = self.config.get_int("simulation.depth.price_precision", 8)
         self._depth_volume_precision = self.config.get_int("simulation.depth.volume_precision", 4)
 
@@ -1415,36 +1392,31 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             "Loaded simulation config via ConfigManager: price_column='%s', default_spread_pct=%s",
             self._price_column,
             self._default_spread_pct,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         self.logger.info(
             "Volatility params: enabled=%s, lookback=%s, multiplier=%s, max_factor=%s",
             self._volatility_enabled,
             self._volatility_lookback_period,
             self._volatility_multiplier,
             self._max_volatility_adjustment_factor,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         self.logger.info(
             "Loaded depth params via ConfigManager: enabled=%s, levels=%s, price_step_pct=%s",
             self._depth_simulation_enabled,
             self._depth_num_levels,
             self._depth_price_step_pct,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         self.logger.info(
             "Intermediary currency for conversion: '%s'",
             self._intermediary_conversion_currency,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
 
     def _apply_default_config_values(self) -> None:
         """Apply default simulation configuration values."""
         self.logger.warning(
             "ConfigManager not provided. Using default simulation "
             "parameters for SimulatedMarketPriceService.",
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         self._price_column = "close"
         self._default_spread_pct = Decimal("0.1")
         self._pair_specific_spread_config = {}
@@ -1471,8 +1443,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             "Using default simulation config: price_column='%s', default_spread_pct=%s",
             self._price_column,
             self._default_spread_pct,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         self.logger.info(
             "Using default volatility params: enabled=%s, "
             "lookback=%s, "
@@ -1482,20 +1453,17 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self._volatility_lookback_period,
             self._volatility_multiplier,
             self._max_volatility_adjustment_factor,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         self.logger.info(
             "Using default depth params: enabled=%s, levels=%s, price_step_pct=%s",
             self._depth_simulation_enabled,
             self._depth_num_levels,
             self._depth_price_step_pct,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         self.logger.info(
             "Using default intermediary currency for conversion: '%s'",
             self._intermediary_conversion_currency,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
 
     def _load_simulation_config(self) -> None:
         """Load simulation-specific configurations.
@@ -1510,8 +1478,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     def _get_atr_dataframe_slice(
         self,
         trading_pair: str,
-        pair_data_full: pd.DataFrame,
-    ) -> pd.DataFrame | None:
+        pair_data_full: pd.DataFrame) -> pd.DataFrame | None:
         """Get the relevant slice of data for ATR calculation."""
         if not isinstance(self._current_timestamp, datetime):
             self.logger.error(
@@ -1519,8 +1486,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "at %s before slicing for ATR.",
                 trading_pair,
                 self._current_timestamp,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None  # Should be unreachable
 
         try:
@@ -1530,8 +1496,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "Error converting _current_timestamp to pd.Timestamp for %s at %s",
                 trading_pair,
                 self._current_timestamp,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         df_slice = pair_data_full.loc[:timestamp_for_slice]
@@ -1543,16 +1508,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 self._min_volatility_data_points,
                 trading_pair,
                 self._current_timestamp,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
         return df_slice
 
     def _calculate_atr_from_slice(
         self,
         df_slice: pd.DataFrame,
-        trading_pair: str,
-    ) -> Decimal | None:
+        trading_pair: str) -> Decimal | None:
         """Calculate ATR from a given data slice."""
         required_atr_cols = {self._atr_high_col, self._atr_low_col, self._atr_close_col}
         missing_cols = required_atr_cols - set(df_slice.columns)
@@ -1561,8 +1524,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "Missing columns %s required for ATR calculation for %s.",
                 missing_cols,
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         try:
@@ -1578,16 +1540,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 self.logger.warning(
                     "NaN values found in HLC columns after coercion for %s, cannot calculate ATR.",
                     trading_pair,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 return None
 
             atr_series = ta.atr(
                 high=high_series,
                 low=low_series,
                 close=close_series,
-                length=self._volatility_lookback_period,
-            )
+                length=self._volatility_lookback_period)
 
             if (
                 atr_series is None
@@ -1599,16 +1559,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     "ATR calculation returned None or NaN for %s at %s.",
                     trading_pair,
                     self._current_timestamp,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 return None
             return Decimal(str(atr_series.iloc[-1]))
         except Exception:
             self.logger.exception(
                 "Error during ATR calculation for %s",
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
     def _get_raw_atr_for_pair(self, trading_pair: str) -> Decimal | None:
@@ -1618,22 +1576,19 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         if not self._volatility_enabled or ta is None:
             self.logger.debug(
                 "Volatility adjustment or pandas_ta is disabled, cannot calculate raw ATR.",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
         elif self._current_timestamp is None:
             self.logger.warning(
                 "Cannot calculate raw ATR for %s: current_timestamp is not set.",
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
         else:
             pair_data_full = self.historical_data.get(trading_pair)
             if pair_data_full is None or pair_data_full.empty:
                 self.logger.debug(
                     "No historical data for %s to calculate raw ATR.",
                     trading_pair,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
             elif not isinstance(pair_data_full.index, pd.DatetimeIndex):
                 self.logger.warning(
                     "Cannot calculate raw ATR for %s at %s: DataFrame index is type %s, "
@@ -1641,15 +1596,13 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     trading_pair,
                     self._current_timestamp,
                     type(pair_data_full.index).__name__,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
             else:
                 if not pair_data_full.index.is_monotonic_increasing:
                     self.logger.debug(
                         "Data for %s is not sorted by index. Sorting now for ATR calculation.",
                         trading_pair,
-                        extra={"source_module": self._source_module},
-                    )
+                        extra={"source_module": self._source_module})
                     pair_data_full = pair_data_full.sort_index()
                     self.historical_data[trading_pair] = pair_data_full
 
@@ -1667,8 +1620,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                             "Final value: %s",
                             trading_pair,
                             raw_atr_calculated,  # Log the value for clarity
-                            extra={"source_module": self._source_module},
-                        )
+                            extra={"source_module": self._source_module})
                 # If df_slice is None, logging is done in _get_atr_dataframe_slice
 
         if atr_to_return is not None:
@@ -1676,8 +1628,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "Successfully calculated raw ATR for %s: %s",
                 trading_pair,
                 atr_to_return,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
 
         return atr_to_return
 
@@ -1697,8 +1648,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "Raw ATR was %s.",
                 trading_pair,
                 raw_atr,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         normalized_atr = raw_atr / current_close_price
@@ -1708,8 +1658,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             normalized_atr,
             raw_atr,
             current_close_price,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         return normalized_atr
 
     def update_time(self, timestamp: datetime) -> None:
@@ -1717,16 +1666,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         self.logger.debug(
             "Updating simulated time to: %s",
             timestamp,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         self._current_timestamp = timestamp
 
     def _get_price_from_dataframe_asof(
         self,
         df: pd.DataFrame,
         trading_pair: str,  # Needed for updating self.historical_data if sorted
-        timestamp_to_lookup: datetime,
-    ) -> Decimal | None:
+        timestamp_to_lookup: datetime) -> Decimal | None:
         """Extract price from a DataFrame using asof, handling column checks and sorting."""
         price_col = self._price_column
         if price_col not in df.columns:
@@ -1734,16 +1681,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "Configured price column '%s' not found in data for %s.",
                 price_col,
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         if not df.index.is_monotonic_increasing:
             self.logger.debug(
                 "Data for %s is not sorted by index. Sorting now for price lookup.",
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             df = df.sort_index()
             self.historical_data[trading_pair] = df  # Update the stored DataFrame
 
@@ -1757,8 +1702,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 trading_pair,
                 price_col,
                 timestamp_to_lookup,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         return Decimal(str(price_at_timestamp))
@@ -1770,8 +1714,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         if current_ts is None:
             self.logger.error(
                 "Cannot get latest price: Simulation time not set.",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         # Handle self-referential pairs like "USD/USD"
@@ -1787,8 +1730,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self.logger.warning(
                 "No historical data found for trading pair: %s",
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         # At this point, data exists; attempt to process it using the helper
@@ -1801,8 +1743,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 trading_pair,
                 current_ts,
                 self._price_column,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
     # --- Interface Alignment Methods (as per MarketPriceService ABC) ---
@@ -1811,22 +1752,19 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         """Initialize the simulated service (no-op for simulation)."""
         self.logger.info(
             "SimulatedMarketPriceService started.",
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         # No external connections needed for simulation
 
     async def stop(self) -> None:
         """Stop the simulated service (no-op for simulation)."""
         self.logger.info(
             "SimulatedMarketPriceService stopped.",
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         # No external connections
 
     async def get_latest_price(
         self,
-        trading_pair: str,
-    ) -> Decimal | None:  # Changed return type
+        trading_pair: str) -> Decimal | None:  # Changed return type
         """Get the latest known price at the current simulation time.
 
         Returns the price as a Decimal or None.
@@ -1835,11 +1773,10 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     async def get_bid_ask_spread(
         self,
-        trading_pair: str,
-    ) -> tuple[Decimal, Decimal] | None:  # Changed return type
+        trading_pair: str) -> tuple[Decimal, Decimal] | None:  # Changed return type
         """Get the simulated bid and ask prices at the current simulation time.
 
-        Returns a tuple (bid, ask) or None.
+        Returns a tuple[Any, ...] (bid, ask) or None.
         """
         close_price = self._get_latest_price_at_current_time(trading_pair)
         if close_price is None:
@@ -1865,8 +1802,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                             "Spread adjustment factor for %s capped at %s.",
                             trading_pair,
                             self._max_volatility_adjustment_factor,
-                            extra={"source_module": self._source_module},
-                        )
+                            extra={"source_module": self._source_module})
 
                     final_spread_pct = base_spread_pct * spread_adjustment_factor
                     self.logger.debug(
@@ -1877,23 +1813,20 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                         base_spread_pct,
                         normalized_atr,
                         spread_adjustment_factor,
-                        extra={"source_module": self._source_module},
-                    )
+                        extra={"source_module": self._source_module})
                 else:
                     self.logger.debug(
                         "Could not calculate normalized ATR or it was non-positive for %s. "
                         "Using base spread.",
                         trading_pair,
-                        extra={"source_module": self._source_module},
-                    )
+                        extra={"source_module": self._source_module})
 
             if final_spread_pct < Decimal(0):
                 self.logger.warning(
                     "Final spread_pct (%s) is negative for %s after adjustments. Clamping to 0.",
                     final_spread_pct,
                     trading_pair,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 final_spread_pct = Decimal(0)
 
             # Call the helper method for the final bid/ask calculation and comparison
@@ -1903,8 +1836,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self.logger.exception(
                 "Error calculating simulated spread for %s",
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
     async def get_price_timestamp(self, trading_pair: str) -> datetime | None:
@@ -1949,9 +1881,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         self,
         close_price: Decimal,
         final_spread_pct: Decimal,
-        trading_pair: str,
-    ) -> tuple[Decimal, Decimal] | None:
-        """Calculate bid/ask tuple from close price and final spread percentage."""
+        trading_pair: str) -> tuple[Decimal, Decimal] | None:
+        """Calculate bid/ask tuple[Any, ...] from close price and final spread percentage."""
         half_spread_amount = close_price * (final_spread_pct / Decimal(200))
         bid = close_price - half_spread_amount
         ask = close_price + half_spread_amount
@@ -1964,8 +1895,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 ask,
                 trading_pair,
                 final_spread_pct,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
         if bid == ask:
             self.logger.debug(
@@ -1973,8 +1903,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 trading_pair,
                 close_price,
                 final_spread_pct,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return (bid, ask)
         # bid < ask
         return (bid, ask)
@@ -1985,8 +1914,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         current_ask_for_level: Decimal,
         current_volume_for_level: Decimal,
         level_index: int,
-        context: BookLevelConstructionContext,
-    ) -> tuple[list[str] | None, list[str] | None, bool]:  # (bid_entry, ask_entry, stop_gen)
+        context: BookLevelConstructionContext) -> tuple[list[str] | None, list[str] | None, bool]:  # (bid_entry, ask_entry, stop_gen)
         """Create bid/ask entries for a single order book level and check for termination."""
         bid_entry: list[str] | None = None
         ask_entry: list[str] | None = None
@@ -2015,8 +1943,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     current_bid_for_level,
                     current_ask_for_level,
                     context.trading_pair,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 stop_generation = True
                 return bid_entry, ask_entry, stop_generation
 
@@ -2027,8 +1954,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     level_index + 1,
                     current_bid_for_level,
                     context.trading_pair,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 # Bid entry remains None, but asks can continue if valid
             else:
                 bid_entry = [
@@ -2047,8 +1973,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
     async def get_order_book_snapshot(
         self,
-        trading_pair: str,
-    ) -> dict[str, list[list[str]]] | None:
+        trading_pair: str) -> dict[str, list[list[str]]] | None:
         """Generate a simulated order book snapshot with market depth.
 
         Args:
@@ -2058,14 +1983,13 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         Returns:
         -------
             A dictionary with 'bids' and 'asks' lists, or None if depth cannot be generated.
-            Each inner list is [price_str, volume_str].
+            Each inner list[Any] is [price_str, volume_str].
         """
         if not self._depth_simulation_enabled:
             self.logger.debug(
                 "Market depth simulation is disabled. Skipping for %s.",
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         bbo = await self.get_bid_ask_spread(trading_pair)
@@ -2073,8 +1997,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self.logger.warning(
                 "Could not retrieve BBO for %s. Cannot generate order book.",
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         best_bid_price_bbo = bbo[0]  # Store initial BBO for reference
@@ -2086,8 +2009,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 trading_pair,
                 best_bid_price_bbo,
                 best_ask_price_bbo,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         if best_bid_price_bbo > best_ask_price_bbo:
@@ -2096,8 +2018,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 best_bid_price_bbo,
                 best_ask_price_bbo,
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         bids_levels: list[list[str]] = []
@@ -2118,8 +2039,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             best_ask_price_bbo=best_ask_price_bbo,
             price_format_str=price_format_str,
             volume_format_str=volume_format_str,
-            trading_pair=trading_pair,
-        )
+            trading_pair=trading_pair)
 
         for i in range(self._depth_num_levels):
             quantized_bid = current_level_bid_price.quantize(quantizer_price, rounding=ROUND_DOWN)
@@ -2132,8 +2052,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     "Stopping depth generation.",
                     i + 1,
                     trading_pair,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 break
 
             bid_entry, ask_entry, stop_generation = self._create_book_level_entries(
@@ -2141,8 +2060,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 quantized_ask,
                 quantized_volume,
                 i,
-                construction_context,
-            )
+                construction_context)
 
             if bid_entry:
                 bids_levels.append(bid_entry)
@@ -2169,8 +2087,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "Generated an empty order book for %s (e.g. BBO was zero spread and "
                 "only one level requested, or other edge case).",
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
 
         return {"bids": bids_levels, "asks": asks_levels}
 
@@ -2179,8 +2096,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     async def _get_direct_or_reverse_price(
         self,
         from_currency: str,
-        to_currency: str,
-    ) -> tuple[Decimal, bool] | None:  # Returns (price, is_direct_rate)
+        to_currency: str) -> tuple[Decimal, bool] | None:  # Returns (price, is_direct_rate)
         """Get direct or reverse conversion rate."""
         # Direct conversion: from_currency/to_currency
         pair1 = f"{from_currency}/{to_currency}"
@@ -2200,14 +2116,12 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         from_amount: Decimal,
         from_currency: str,
         to_currency: str,
-        intermediary: str,
-    ) -> Decimal | None:
+        intermediary: str) -> Decimal | None:
         """Get cross-conversion via an intermediary currency."""
         # Path: from_currency -> intermediary -> to_currency
         from_to_intermediary_rate_info = await self._get_direct_or_reverse_price(
             from_currency,
-            intermediary,
-        )
+            intermediary)
 
         if from_to_intermediary_rate_info:
             rate1, is_direct1 = from_to_intermediary_rate_info
@@ -2215,8 +2129,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
             intermediary_to_target_rate_info = await self._get_direct_or_reverse_price(
                 intermediary,
-                to_currency,
-            )
+                to_currency)
             if intermediary_to_target_rate_info:
                 rate2, is_direct2 = intermediary_to_target_rate_info
                 if is_direct2:
@@ -2228,23 +2141,20 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         self,
         from_amount: Decimal,
         from_currency: str,
-        to_currency: str,
-    ) -> Decimal | None:
+        to_currency: str) -> Decimal | None:
         """Convert an amount from one currency to another using available market data."""
         # 1. Ensure from_amount is Decimal
         if not isinstance(from_amount, Decimal):
             self.logger.warning(
                 "convert_amount received non-Decimal from_amount: %s. Attempting conversion.",
                 type(from_amount),
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             try:
                 from_amount = Decimal(str(from_amount))
             except Exception:
                 self.logger.exception(
                     "Could not convert from_amount to Decimal in convert_amount.",
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 return None  # Early exit if input is not convertible
 
         # 2. Handle same currency
@@ -2254,8 +2164,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         # 3. Try direct or reverse conversion
         direct_or_reverse_info = await self._get_direct_or_reverse_price(
             from_currency,
-            to_currency,
-        )
+            to_currency)
         if direct_or_reverse_info:
             rate, is_direct = direct_or_reverse_info
             try:
@@ -2267,8 +2176,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     to_currency,  # Argument for second %s
                     to_currency,  # Argument for third %s
                     from_currency,  # Argument for fourth %s
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 # Fall through to try cross-conversion or fail if ZeroDivisionError occurs
 
         # 4. Try cross-conversion
@@ -2282,8 +2190,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     from_amount,
                     from_currency,
                     to_currency,
-                    intermediary_currency,
-                )
+                    intermediary_currency)
                 if converted_amount is not None:
                     return converted_amount  # Successful cross-conversion
             except ZeroDivisionError:
@@ -2292,8 +2199,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     intermediary_currency,
                     from_currency,
                     to_currency,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 # Fall through to final failure if ZeroDivisionError occurs here
 
         # 5. Log failure if no path found or previous attempts failed through to here
@@ -2303,8 +2209,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             from_currency,
             to_currency,
             intermediary_currency,
-            extra={"source_module": self._source_module},
-        )
+            extra={"source_module": self._source_module})
         return None
 
     async def get_historical_ohlcv(
@@ -2312,8 +2217,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         trading_pair: str,
         timeframe: str,  # - Required for API compatibility
         since: datetime,
-        limit: int | None = None,
-    ) -> list[dict[str, Any]] | None:
+        limit: int | None = None) -> list[dict[str, Any]] | None:
         """Fetch historical OHLCV data for a trading pair from the stored historical data.
 
         Args:
@@ -2324,7 +2228,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
         Returns:
         -------
-            A list of dictionaries, where each dictionary represents an OHLCV candle:
+            A list[Any] of dictionaries, where each dictionary represents an OHLCV candle:
             {'timestamp': datetime_obj, 'open': Decimal, 'high': Decimal,
              'low': Decimal, 'close': Decimal, 'volume': Decimal},
             or None if data is unavailable or an error occurs. Timestamps are UTC.
@@ -2334,8 +2238,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self.logger.warning(
                 "No historical data available for trading pair %s",
                 trading_pair,
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
         df = self.historical_data[trading_pair]
@@ -2352,7 +2255,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         if df.empty:
             return None
 
-        # Convert DataFrame to list of dictionaries
+        # Convert DataFrame to list[Any] of dictionaries
         result = []
         for timestamp, row in df.iterrows():
             candle = {
@@ -2370,8 +2273,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
     async def get_volatility(
         self,
         trading_pair: str,
-        lookback_hours: int = 24,
-    ) -> float | None:
+        lookback_hours: int = 24) -> float | None:
         """Calculate the price volatility for a trading pair.
 
         For the simulated service, this returns the normalized ATR if available,
@@ -2388,8 +2290,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     trading_pair,
                     volatility_pct,
                     lookback_hours,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 return volatility_pct
         except Exception as e:
             self.logger.error(
@@ -2397,16 +2298,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 trading_pair,
                 str(e),
                 extra={"source_module": self._source_module},
-                exc_info=True,
-            )
+                exc_info=True)
 
         # Fallback: calculate simple standard deviation of returns
         try:
             if self._current_timestamp is None:
                 self.logger.warning(
                     "Cannot calculate volatility: current timestamp not set",
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 return None
 
             pair_data = self.historical_data.get(trading_pair)
@@ -2414,8 +2313,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 self.logger.warning(
                     "No historical data available for %s to calculate volatility",
                     trading_pair,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 return None
 
             # Get data for lookback period
@@ -2426,8 +2324,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 self.logger.warning(
                     "Insufficient data points for volatility calculation for %s",
                     trading_pair,
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
                 return None
 
             # Calculate returns
@@ -2450,8 +2347,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 trading_pair,
                 str(e),
                 extra={"source_module": self._source_module},
-                exc_info=True,
-            )
+                exc_info=True)
             return None
 
 
@@ -2497,36 +2393,32 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
             self.logger.info(
                 f"Loading advanced historical data for {symbol} from {start_date} to {end_date}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
 
             data_points = await self._data_loader.load_historical_data(request)
 
             if data_points:
                 self.logger.info(
                     f"Successfully loaded {len(data_points)} data points for {symbol}",
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
 
             return data_points
 
         except DataLoadingError as e:
             self.logger.error(
                 f"Failed to load historical data for {symbol}: {e}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
         except Exception as e:
             self.logger.error(
                 f"Unexpected error loading historical data for {symbol}: {e}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
     async def interpolate_missing_prices(
         self,
         trading_pair: str,
-        data: Optional[List[dict]] = None,
+        data: Optional[List[dict[str, Any]]] = None,
         frequency: str = "1h",
         method: Optional[InterpolationMethod] = None
     ) -> Optional[InterpolationResult]:
@@ -2552,11 +2444,10 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 if pair_data is None:
                     self.logger.warning(
                         f"No historical data available for {trading_pair} to interpolate",
-                        extra={"source_module": self._source_module},
-                    )
+                        extra={"source_module": self._source_module})
                     return None
 
-                # Convert DataFrame to list of dictionaries
+                # Convert DataFrame to list[Any] of dictionaries
                 data = pair_data.reset_index().to_dict('records')
                 # Ensure timestamp column is properly named
                 if 'index' in data[0] and 'timestamp' not in data[0]:
@@ -2565,8 +2456,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
             self.logger.info(
                 f"Starting price interpolation for {trading_pair} with {len(data)} data points",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
 
             result = await self._price_interpolator.interpolate_missing_data(
                 data, trading_pair, frequency
@@ -2577,8 +2467,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     f"Interpolation completed for {trading_pair}: "
                     f"filled {len(result.gaps_filled)} gaps, "
                     f"quality score: {result.quality_score:.2f}",
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
 
                 # Update historical data with interpolated results if applicable
                 if trading_pair in self.historical_data:
@@ -2591,14 +2480,12 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         except InterpolationError as e:
             self.logger.error(
                 f"Failed to interpolate prices for {trading_pair}: {e}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
         except Exception as e:
             self.logger.error(
                 f"Unexpected error during price interpolation for {trading_pair}: {e}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
     async def start_real_time_simulation(
@@ -2638,28 +2525,24 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self.logger.info(
                 f"Starting real-time simulation: speed={speed.value}, "
                 f"symbols={len(symbols) if symbols else 'all'}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
 
             await self._simulation_engine.start_simulation()
 
             self.logger.info(
                 "Real-time simulation started successfully",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return True
 
         except SimulationError as e:
             self.logger.error(
                 f"Failed to start simulation: {e}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return False
         except Exception as e:
             self.logger.error(
                 f"Unexpected error starting simulation: {e}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return False
 
     async def stop_real_time_simulation(self) -> bool:
@@ -2674,15 +2557,13 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
             self.logger.info(
                 "Real-time simulation stopped successfully",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return True
 
         except Exception as e:
             self.logger.error(
                 f"Error stopping simulation: {e}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return False
 
     async def set_simulation_speed(self, speed: SimulationSpeed) -> bool:
@@ -2700,15 +2581,13 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
             self.logger.info(
                 f"Simulation speed changed to {speed.value}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return True
 
         except Exception as e:
             self.logger.error(
                 f"Error changing simulation speed: {e}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return False
 
     def get_simulation_state(self) -> SimulationState:
@@ -2749,14 +2628,12 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
                 self.logger.debug(
                     f"Processed price update event for {symbol} at {event.timestamp}",
-                    extra={"source_module": self._source_module},
-                )
+                    extra={"source_module": self._source_module})
 
         except Exception as e:
             self.logger.error(
                 f"Error handling price update event: {e}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
 
     async def validate_data_quality(
         self,
@@ -2812,8 +2689,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self.logger.info(
                 f"Data quality validation for {trading_pair}: "
                 f"score={quality_score:.2f}, issues={len(issues)}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
 
             return {
                 'quality_score': quality_score,
@@ -2830,8 +2706,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         except Exception as e:
             self.logger.error(
                 f"Error validating data quality for {trading_pair}: {e}",
-                extra={"source_module": self._source_module},
-            )
+                extra={"source_module": self._source_module})
             return None
 
 # === END ENTERPRISE-GRADE METHODS ===

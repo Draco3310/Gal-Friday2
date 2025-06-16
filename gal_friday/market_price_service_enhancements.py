@@ -31,6 +31,7 @@ import networkx as nx
 
 from gal_friday.logger_service import LoggerService
 from gal_friday.config_manager import ConfigManager
+from typing import Any
 
 
 class MarketRegime(str, Enum):
@@ -111,7 +112,7 @@ class MarketParameters:
     market_open_hour: int = 0  # 24/7 for crypto
     market_close_hour: int = 24
     weekend_volatility_multiplier: float = 0.7
-    holiday_dates: List[datetime] = field(default_factory=list)
+    holiday_dates: List[datetime] = field(default_factory=list[Any])
 
 
 @dataclass
@@ -129,8 +130,8 @@ class MarketEvent:
     # Event metadata
     description: str
     severity: float = 1.0  # 0-1 scale
-    affected_symbols: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    affected_symbols: List[str] = field(default_factory=list[Any])
+    metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass
@@ -152,7 +153,7 @@ class PricePoint:
     market_regime: MarketRegime
     
     # Event tracking
-    related_events: List[str] = field(default_factory=list)
+    related_events: List[str] = field(default_factory=list[Any])
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -174,7 +175,7 @@ class PricePoint:
 class EnterpriseConfigurationManager:
     """Advanced configuration management system."""
     
-    def __init__(self, config_manager: ConfigManager, logger: LoggerService):
+    def __init__(self, config_manager: ConfigManager, logger: LoggerService) -> None:
         self.config_manager = config_manager
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -188,7 +189,7 @@ class EnterpriseConfigurationManager:
         self._validation_schemas = self._initialize_schemas()
         
         # Configuration change listeners
-        self._change_listeners: Dict[str, List[Callable]] = defaultdict(list)
+        self._change_listeners: Dict[str, List[Callable[..., Any]]] = defaultdict(list[Any])
         
         # Default configurations
         self._default_configs = self._initialize_defaults()
@@ -397,7 +398,7 @@ class EnterpriseConfigurationManager:
             )
             return False
     
-    def register_change_listener(self, config_path: str, callback: Callable) -> None:
+    def register_change_listener(self, config_path: str, callback: Callable[..., Any]) -> None:
         """Register a callback for configuration changes."""
         self._change_listeners[config_path].append(callback)
     
@@ -476,7 +477,7 @@ class EnterpriseConfigurationManager:
 class AdvancedPriceGenerator:
     """Sophisticated price generation engine with multiple models."""
     
-    def __init__(self, config_manager: EnterpriseConfigurationManager, logger: LoggerService):
+    def __init__(self, config_manager: EnterpriseConfigurationManager, logger: LoggerService) -> None:
         self.config_manager = config_manager
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -734,7 +735,7 @@ class AdvancedPriceGenerator:
         # Check for regime transition
         if self._rng.random() < market_params.regime_transition_prob * dt:
             # Transition to new regime
-            possible_regimes = list(MarketRegime)
+            possible_regimes = list[Any](MarketRegime)
             possible_regimes.remove(self._current_regime)
             self._current_regime = self._rng.choice(possible_regimes)
             
@@ -1113,7 +1114,7 @@ class RealisticHistoricalDataGenerator:
         while current_date < end_date:
             # Probability of event per day
             if np.random.random() < 0.05:  # 5% chance per day
-                event_type = np.random.choice(list(MarketEventType))
+                event_type = np.random.choice(list[Any](MarketEventType))
                 
                 # Event characteristics based on type
                 if event_type == MarketEventType.NEWS_ANNOUNCEMENT:

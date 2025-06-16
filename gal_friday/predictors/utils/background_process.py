@@ -6,7 +6,8 @@ from concurrent.futures import Future, ProcessPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import Enum
 from types import TracebackType
-from typing import Generic, Optional, TypeVar, cast
+from typing import Generic, Optional, TypeVar, cast, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +16,9 @@ T = TypeVar("T")
 # Exception messages
 MSG_PROCESS_CANCELLED = "Process %s was cancelled."
 MSG_PROCESS_FAILED_NO_SPECIFIC_EXCEPTION = "Process %s failed without specific future exception."
-MSG_TASK_SUBMISSION_FAILED = "Task '%s' submission failed."
+MSG_TASK_SUBMISSION_FAILED = "Task[Any] '%s' submission failed."
 MSG_TIMEOUT_WAITING = "Timeout waiting for result from %s"
-MSG_FUTURE_TYPE_ERROR = "future must be a Future instance"
+MSG_FUTURE_TYPE_ERROR = "future must be a Future[Any] instance"
 
 
 class ProcessStatus(Enum):
@@ -45,24 +46,24 @@ class BackgroundProcessAlreadyStartedError(BackgroundProcessError):
 class BackgroundProcess(Generic[T]):
     """Represents a task submitted to a ProcessPoolExecutor.
 
-    This class wraps a concurrent.futures.Future object and provides
+    This class wraps a concurrent.futures.Future[Any] object and provides
     status tracking and result retrieval.
     """
 
-    def __init__(self, future: Future, target_name: str = "Unnamed Process") -> None:
+    def __init__(self, future: Future[Any], target_name: str = "Unnamed Process") -> None:
         """Initialize a BackgroundProcess instance.
 
         Args:
-            future: A concurrent.futures.Future object representing the background task.
+            future: A concurrent.futures.Future[Any] object representing the background task.
             target_name: A human-readable name for the background process. Defaults to
                 "Unnamed Process".
 
         Raises:
-            TypeError: If the provided future is not a Future instance.
+            TypeError: If the provided future is not a Future[Any] instance.
         """
         if not isinstance(future, Future):
             raise TypeError(MSG_FUTURE_TYPE_ERROR)
-        self._future: Future = future
+        self._future: Future[Any] = future
         self._target_name: str = target_name
         self._status: ProcessStatus = ProcessStatus.PENDING
         self._update_initial_status()
@@ -160,14 +161,12 @@ class BackgroundProcess(Generic[T]):
             if exc:
                 logger.exception(
                     "Process %s raised an exception (async)",
-                    self._target_name,
-                )
+                    self._target_name)
                 raise exc
             # This part is reached if status is FAILED but future had no exception
             # (e.g. pre-run fail)
             raise BackgroundProcessError(
-                MSG_PROCESS_FAILED_NO_SPECIFIC_EXCEPTION % self._target_name,
-            )
+                MSG_PROCESS_FAILED_NO_SPECIFIC_EXCEPTION % self._target_name)
 
         return cast("T", self._future.result())
 
@@ -190,8 +189,7 @@ class BackgroundProcess(Generic[T]):
             logger.warning(
                 "Failed to cancel process %s (may be running/completed/cancelled). Status: %s",
                 self._target_name,
-                self.status.value,
-            )
+                self.status.value)
         return was_cancelled
 
     def __repr__(self) -> str:
@@ -234,12 +232,10 @@ class BackgroundProcessManager:
                 )
 
                 BackgroundProcessManager._executor = ProcessPoolExecutor(
-                    max_workers=resolved_max_workers,
-                )
+                    max_workers=resolved_max_workers)
                 logger.info(
                     "ProcessPoolExecutor initialized with max_workers=%s",
-                    resolved_max_workers or "default",
-                )
+                    resolved_max_workers or "default")
             else:
                 logger.info("ProcessPoolExecutor already initialized.")
             self._initialized = True
@@ -252,15 +248,13 @@ class BackgroundProcessManager:
         elif cls._executor is None:
             logger.warning(
                 "BackgroundProcessManager instance exists but executor is None. "
-                "Reinitializing executor.",
-            )
+                "Reinitializing executor.")
             # Use max_workers if provided, else the class-stored initial value
             resolved_max_workers = (
                 max_workers if max_workers is not None else cls._max_workers_at_init
             )
             BackgroundProcessManager._executor = ProcessPoolExecutor(
-                max_workers=resolved_max_workers,
-            )
+                max_workers=resolved_max_workers)
             if cls._max_workers_at_init is None and resolved_max_workers is not None:
                 cls._max_workers_at_init = resolved_max_workers
         elif max_workers is not None and cls._max_workers_at_init is None:
@@ -273,10 +267,9 @@ class BackgroundProcessManager:
 
     def submit(
         self,
-        func: Callable[..., T],
+        func: Callable[..., Any],
         *args: object,
-        **kwargs: object,
-    ) -> BackgroundProcess[T]:
+        **kwargs: object) -> BackgroundProcess[T]:
         """Submit a function to be executed in the background process pool.
 
         Args:
@@ -306,8 +299,7 @@ class BackgroundProcessManager:
         except Exception as e:
             logger.exception("Failed to submit task '%s' to process pool.", target_name)
             raise BackgroundProcessError(
-                MSG_TASK_SUBMISSION_FAILED % target_name,
-            ) from e
+                MSG_TASK_SUBMISSION_FAILED % target_name) from e
 
     def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
         """Shutdown the ProcessPoolExecutor.
@@ -321,8 +313,7 @@ class BackgroundProcessManager:
             logger.info(
                 "Shutting down ProcessPoolExecutor (wait=%s, cancel_futures=%s)...",
                 wait,
-                cancel_futures,
-            )
+                cancel_futures)
             if hasattr(self._executor, "shutdown"):  # Python 3.9+ for cancel_futures
                 self._executor.shutdown(wait=wait, cancel_futures=cancel_futures)
             else:  # Older Python versions
@@ -339,15 +330,13 @@ class BackgroundProcessManager:
             # Use class-stored _max_workers_at_init or None if not set
             resolved_max_workers = BackgroundProcessManager._max_workers_at_init
             BackgroundProcessManager._executor = ProcessPoolExecutor(
-                max_workers=resolved_max_workers,
-            )
+                max_workers=resolved_max_workers)
         return self
 
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
+        exc_tb: TracebackType | None) -> None:
         """Exit the runtime context, shutting down the pool."""
         self.shutdown(wait=True)

@@ -67,8 +67,7 @@ class WebSocketConnectionManager:
     def register_connection(self, connection_id: str) -> None:
         """Register a new connection for monitoring."""
         self.connections[connection_id] = ConnectionMetrics(
-            connection_time=datetime.now(UTC),
-        )
+            connection_time=datetime.now(UTC))
         self.recovery_attempts[connection_id] = 0
 
     def record_message(self, connection_id: str, direction: str = "received") -> None:
@@ -144,13 +143,11 @@ class WebSocketConnectionManager:
                                     "messages": metrics.messages_received,
                                     "errors": metrics.errors,
                                 },
-                            },
-                        )
+                            })
 
                 await asyncio.sleep(self.health_check_interval)
 
             except Exception:
                 self.logger.exception(
                     "Error monitoring connections",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)

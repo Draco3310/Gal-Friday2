@@ -123,14 +123,12 @@ class LivenessChecker(HealthChecker):
                 name=self.name,
                 status=HealthStatus.HEALTHY,
                 message="Process is responsive",
-                duration_ms=duration,
-            )
+                duration_ms=duration)
         except Exception as e:
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.UNHEALTHY,
-                message=f"Liveness check failed: {e!s}",
-            )
+                message=f"Liveness check failed: {e!s}")
 
 
 class MemoryChecker(HealthChecker):
@@ -164,28 +162,24 @@ class MemoryChecker(HealthChecker):
                     name=self.name,
                     status=HealthStatus.UNHEALTHY,
                     message=f"Critical memory usage: {usage_percent:.1f}%",
-                    details=details,
-                )
+                    details=details)
             if usage_percent >= self.warning_threshold:
                 return HealthCheckResult(
                     name=self.name,
                     status=HealthStatus.DEGRADED,
                     message=f"High memory usage: {usage_percent:.1f}%",
-                    details=details,
-                )
+                    details=details)
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.HEALTHY,
                 message=f"Memory usage normal: {usage_percent:.1f}%",
-                details=details,
-            )
+                details=details)
 
         except Exception as e:
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.UNHEALTHY,
-                message=f"Failed to check memory: {e!s}",
-            )
+                message=f"Failed to check memory: {e!s}")
 
 
 class CPUChecker(HealthChecker):
@@ -207,8 +201,7 @@ class CPUChecker(HealthChecker):
         try:
             # Get CPU usage over 1 second interval
             cpu_percent = await asyncio.get_event_loop().run_in_executor(
-                None, psutil.cpu_percent, 1,
-            )
+                None, psutil.cpu_percent, 1)
 
             details = {
                 "usage_percent": cpu_percent,
@@ -220,28 +213,24 @@ class CPUChecker(HealthChecker):
                     name=self.name,
                     status=HealthStatus.UNHEALTHY,
                     message=f"Critical CPU usage: {cpu_percent:.1f}%",
-                    details=details,
-                )
+                    details=details)
             if cpu_percent >= self.warning_threshold:
                 return HealthCheckResult(
                     name=self.name,
                     status=HealthStatus.DEGRADED,
                     message=f"High CPU usage: {cpu_percent:.1f}%",
-                    details=details,
-                )
+                    details=details)
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.HEALTHY,
                 message=f"CPU usage normal: {cpu_percent:.1f}%",
-                details=details,
-            )
+                details=details)
 
         except Exception as e:
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.UNHEALTHY,
-                message=f"Failed to check CPU: {e!s}",
-            )
+                message=f"Failed to check CPU: {e!s}")
 
 
 class DatabaseChecker(HealthChecker):
@@ -266,8 +255,7 @@ class DatabaseChecker(HealthChecker):
             # Connect to database
             conn = await asyncio.wait_for(
                 asyncpg.connect(self.connection_string),
-                timeout=self.timeout,
-            )
+                timeout=self.timeout)
 
             try:
                 # Run simple query
@@ -280,8 +268,7 @@ class DatabaseChecker(HealthChecker):
                     status=HealthStatus.HEALTHY,
                     message="Database connection successful",
                     details={"query_result": result},
-                    duration_ms=duration,
-                )
+                    duration_ms=duration)
 
             finally:
                 await conn.close()
@@ -290,14 +277,12 @@ class DatabaseChecker(HealthChecker):
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.UNHEALTHY,
-                message=f"Database connection timeout ({self.timeout}s)",
-            )
+                message=f"Database connection timeout ({self.timeout}s)")
         except Exception as e:
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.UNHEALTHY,
-                message=f"Database connection failed: {e!s}",
-            )
+                message=f"Database connection failed: {e!s}")
 
 
 class ExchangeAPIChecker(HealthChecker):
@@ -338,26 +323,22 @@ class ExchangeAPIChecker(HealthChecker):
                                 "status_code": response.status,
                                 "server_time": data.get("result", {}).get("unixtime"),
                             },
-                            duration_ms=duration,
-                        )
+                            duration_ms=duration)
                     return HealthCheckResult(
                         name=self.name,
                         status=HealthStatus.UNHEALTHY,
-                        message=f"Exchange API returned status {response.status}",
-                    )
+                        message=f"Exchange API returned status {response.status}")
 
         except TimeoutError:
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.UNHEALTHY,
-                message=f"Exchange API timeout ({self.timeout}s)",
-            )
+                message=f"Exchange API timeout ({self.timeout}s)")
         except Exception as e:
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.UNHEALTHY,
-                message=f"Exchange API check failed: {e!s}",
-            )
+                message=f"Exchange API check failed: {e!s}")
 
 
 class RedisChecker(HealthChecker):
@@ -379,19 +360,17 @@ class RedisChecker(HealthChecker):
         try:
             # Try to import aioredis, but make it optional
             try:
-                import aioredis  # type: ignore[import-not-found]
+                import aioredis  # type: ignore
             except ImportError:
                 return HealthCheckResult(
                     name=self.name,
                     status=HealthStatus.DEGRADED,
-                    message="Redis check skipped: aioredis not installed",
-                )
+                    message="Redis check skipped: aioredis not installed")
 
             # Use the correct aioredis API for newer versions
             redis = aioredis.from_url(
                 self.redis_url,
-                socket_timeout=self.timeout,
-            )
+                socket_timeout=self.timeout)
 
             try:
                 # Ping Redis
@@ -401,13 +380,11 @@ class RedisChecker(HealthChecker):
                     return HealthCheckResult(
                         name=self.name,
                         status=HealthStatus.HEALTHY,
-                        message="Redis connection successful",
-                    )
+                        message="Redis connection successful")
                 return HealthCheckResult(
                     name=self.name,
                     status=HealthStatus.UNHEALTHY,
-                    message="Redis ping failed",
-                )
+                    message="Redis ping failed")
 
             finally:
                 await redis.close()
@@ -416,8 +393,7 @@ class RedisChecker(HealthChecker):
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.DEGRADED,
-                message=f"Redis connection failed: {e!s}",
-            )
+                message=f"Redis connection failed: {e!s}")
 
 
 class ComponentChecker(HealthChecker):
@@ -426,9 +402,8 @@ class ComponentChecker(HealthChecker):
     def __init__(
         self,
         name: str,
-        check_func: Callable[[], Coroutine[Any, Any, bool]],
-        critical: bool = True,
-    ) -> None:
+        check_func: Callable[..., Coroutine[Any, Any, bool]],
+        critical: bool = True) -> None:
         """Initialize the component checker.
 
         Args:
@@ -448,20 +423,17 @@ class ComponentChecker(HealthChecker):
                 return HealthCheckResult(
                     name=self.name,
                     status=HealthStatus.HEALTHY,
-                    message=f"{self.name} is healthy",
-                )
+                    message=f"{self.name} is healthy")
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.UNHEALTHY,
-                message=f"{self.name} is unhealthy",
-            )
+                message=f"{self.name} is unhealthy")
 
         except Exception as e:
             return HealthCheckResult(
                 name=self.name,
                 status=HealthStatus.UNHEALTHY,
-                message=f"{self.name} check failed: {e!s}",
-            )
+                message=f"{self.name} check failed: {e!s}")
 
 
 class HealthCheckService:
@@ -481,7 +453,7 @@ class HealthCheckService:
         self.checkers: list[HealthChecker] = []
         self._last_check_result: SystemHealth | None = None
         self._check_interval = config.get_int("health.check_interval_seconds", 30)
-        self._periodic_check_task: asyncio.Task | None = None
+        self._periodic_check_task: asyncio.Task[Any] | None = None
 
         self._initialize_checkers()
 
@@ -494,14 +466,12 @@ class HealthCheckService:
         if self.config.get("health.check_memory", True):
             self.checkers.append(MemoryChecker(
                 warning_threshold=self.config.get_float("health.memory_warning_threshold", 80.0),
-                critical_threshold=self.config.get_float("health.memory_critical_threshold", 90.0),
-            ))
+                critical_threshold=self.config.get_float("health.memory_critical_threshold", 90.0)))
 
         if self.config.get("health.check_cpu", True):
             self.checkers.append(CPUChecker(
                 warning_threshold=self.config.get_float("health.cpu_warning_threshold", 80.0),
-                critical_threshold=self.config.get_float("health.cpu_critical_threshold", 95.0),
-            ))
+                critical_threshold=self.config.get_float("health.cpu_critical_threshold", 95.0)))
 
         # Database check
         db_connection = self.config.get("database.connection_string")
@@ -520,8 +490,7 @@ class HealthCheckService:
 
         self.logger.info(
             f"Initialized {len(self.checkers)} health checkers",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     def add_component_check(self, name: str, check_func: Callable[[], Coroutine[Any, Any, bool]],
                            critical: bool = True) -> None:
@@ -552,8 +521,7 @@ class HealthCheckService:
                 valid_results.append(HealthCheckResult(
                     name=self.checkers[i].name,
                     status=HealthStatus.UNHEALTHY,
-                    message=f"Check failed: {result!s}",
-                ))
+                    message=f"Check failed: {result!s}"))
                 if self.checkers[i].critical:
                     overall_status = HealthStatus.UNHEALTHY
             elif isinstance(result, HealthCheckResult):
@@ -569,8 +537,7 @@ class HealthCheckService:
         system_health = SystemHealth(
             status=overall_status,
             checks=valid_results,
-            timestamp=datetime.now(UTC),
-        )
+            timestamp=datetime.now(UTC))
 
         self._last_check_result = system_health
 
@@ -582,8 +549,7 @@ class HealthCheckService:
                 context={"failed_checks": [
                     c.name for c in valid_results
                     if c.status == HealthStatus.UNHEALTHY
-                ]},
-            )
+                ]})
 
         return system_health
 
@@ -632,15 +598,13 @@ class HealthCheckService:
                 except Exception:
                     self.logger.exception(
                         "Error in periodic health check",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     await asyncio.sleep(self._check_interval)
 
         self._periodic_check_task = asyncio.create_task(run_checks())
         self.logger.info(
             f"Started periodic health checks every {self._check_interval}s",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     async def stop_periodic_checks(self) -> None:
         """Stop periodic health checks."""

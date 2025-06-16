@@ -42,10 +42,10 @@ from .exceptions import (
     PubSubManagerInstantiationFailedExit,
     PubSubManagerStartFailedExit,
     RiskManagerInstantiationFailedExit,
-    UnsupportedModeError,
-)
+    UnsupportedModeError)
 
 from .services.service_orchestrator import ServiceOrchestrator
+from typing import Any
 
 # Version information
 __version__ = "0.1.0"  # Add version tracking
@@ -118,20 +118,20 @@ class ModeConfiguration(BaseModel):
     )
 
     mode_capabilities: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict, description="Capabilities required for each mode"
+        default_factory=dict[str, Any], description="Capabilities required for each mode"
     )
 
     incompatible_combinations: List[List[OperationalMode]] = Field(
-        default_factory=list, description="Mode combinations that are not allowed"
+        default_factory=list[Any], description="Mode combinations that are not allowed"
     )
 
     environment_restrictions: Dict[str, List[OperationalMode]] = Field(
-        default_factory=dict, description="Mode restrictions per environment (dev, staging, prod)"
+        default_factory=dict[str, Any], description="Mode restrictions per environment (dev, staging, prod)"
     )
 
     @field_validator("supported_modes")
     @classmethod
-    def validate_supported_modes(cls, v):
+    def validate_supported_modes(cls, v: list[str]) -> list[str]:
         """Validate that supported modes are valid and non-empty."""
         if not v:
             raise ValueError("At least one operational mode must be supported")
@@ -146,19 +146,19 @@ class ModeConfiguration(BaseModel):
 
     @field_validator("default_mode")
     @classmethod
-    def validate_default_mode(cls, v, info):
+    def validate_default_mode(cls, v: str, info: Any) -> str:
         """Validate that default mode is in supported modes."""
         if info.data and "supported_modes" in info.data:
             supported_modes = info.data["supported_modes"]
             if v not in supported_modes:
-                raise ValueError("Default mode must be in supported modes list")
+                raise ValueError("Default mode must be in supported modes list[Any]")
         return v
 
 
 class OperationalModeManager:
     """Enterprise-grade operational mode management system."""
 
-    def __init__(self, config_manager: ConfigManagerType):
+    def __init__(self, config_manager: ConfigManagerType) -> None:
         """Initialize the mode manager with configuration."""
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
@@ -176,8 +176,7 @@ class OperationalModeManager:
                 requires_prediction_service=True,
                 supports_real_money=True,
                 resource_intensity="high",
-                description="Full live trading with real money",
-            ),
+                description="Full live trading with real money"),
             OperationalMode.PAPER_TRADING: ModeCapabilities(
                 requires_market_data=True,
                 requires_execution_handler=True,
@@ -186,8 +185,7 @@ class OperationalModeManager:
                 requires_prediction_service=True,
                 supports_real_money=False,
                 resource_intensity="medium",
-                description="Simulated trading with fake money",
-            ),
+                description="Simulated trading with fake money"),
             OperationalMode.BACKTESTING: ModeCapabilities(
                 requires_market_data=True,
                 requires_execution_handler=False,
@@ -196,8 +194,7 @@ class OperationalModeManager:
                 requires_prediction_service=True,
                 supports_real_money=False,
                 resource_intensity="high",
-                description="Historical strategy testing",
-            ),
+                description="Historical strategy testing"),
             OperationalMode.DATA_COLLECTION: ModeCapabilities(
                 requires_market_data=True,
                 requires_execution_handler=False,
@@ -206,8 +203,7 @@ class OperationalModeManager:
                 requires_prediction_service=False,
                 supports_real_money=False,
                 resource_intensity="low",
-                description="Market data collection only",
-            ),
+                description="Market data collection only"),
             OperationalMode.MONITORING_ONLY: ModeCapabilities(
                 requires_market_data=True,
                 requires_execution_handler=False,
@@ -216,8 +212,7 @@ class OperationalModeManager:
                 requires_prediction_service=False,
                 supports_real_money=False,
                 resource_intensity="low",
-                description="Monitor positions without trading",
-            ),
+                description="Monitor positions without trading"),
             OperationalMode.MODEL_TRAINING: ModeCapabilities(
                 requires_market_data=True,
                 requires_execution_handler=False,
@@ -226,8 +221,7 @@ class OperationalModeManager:
                 requires_prediction_service=True,
                 supports_real_money=False,
                 resource_intensity="high",
-                description="Train predictive models",
-            ),
+                description="Train predictive models"),
             OperationalMode.RESEARCH: ModeCapabilities(
                 requires_market_data=True,
                 requires_execution_handler=False,
@@ -236,8 +230,7 @@ class OperationalModeManager:
                 requires_prediction_service=False,
                 supports_real_money=False,
                 resource_intensity="medium",
-                description="Research and analysis mode",
-            ),
+                description="Research and analysis mode"),
         }
 
     def get_supported_modes(self) -> List[OperationalMode]:
@@ -375,10 +368,10 @@ class OperationalModeManager:
         self, mode: OperationalMode, environment: EnvironmentType
     ) -> ModeValidationResult:
         """Validate that the selected mode is compatible with current environment."""
-        validation_checks = {}
-        warnings = []
-        errors = []
-        missing_requirements = []
+        validation_checks: dict[str, Any] = {}
+        warnings: list[str] = []
+        errors: list[str] = []
+        missing_requirements: list[str] = []
 
         # Get mode capabilities
         capabilities = self.default_capabilities.get(mode)
@@ -391,8 +384,7 @@ class OperationalModeManager:
                 validation_checks=validation_checks,
                 warnings=warnings,
                 errors=errors,
-                missing_requirements=missing_requirements,
-            )
+                missing_requirements=missing_requirements)
 
         # Validate environment-specific restrictions
         if environment == EnvironmentType.PRODUCTION and not capabilities.supports_real_money:
@@ -414,8 +406,7 @@ class OperationalModeManager:
             validation_checks=validation_checks,
             warnings=warnings,
             errors=errors,
-            missing_requirements=missing_requirements,
-        )
+            missing_requirements=missing_requirements)
 
     def validate_mode_request(self, requested_modes: List[str]) -> List[OperationalMode]:
         """Validate requested modes against configuration and compatibility rules."""
@@ -511,8 +502,7 @@ class OperationalModeManager:
             # Return safe default configuration
             return ModeConfiguration(
                 supported_modes=[OperationalMode.PAPER_TRADING, OperationalMode.DATA_COLLECTION],
-                default_mode=OperationalMode.PAPER_TRADING,
-            )
+                default_mode=OperationalMode.PAPER_TRADING)
 
     def _is_production_environment(self) -> bool:
         """Check if running in production environment."""
@@ -538,7 +528,7 @@ class OperationalModeManager:
         """Check if running in development environment."""
         development_indicators = [
             os.getenv("IS_DEVELOPMENT", "").lower() == "true",
-            os.path.exists("pyproject.toml"),  # Development workspace indicator
+            os.path.exists("pyproject.toml.old"),  # Development workspace indicator
             ".git" in os.listdir(".") if os.path.exists(".") else False,
             os.getenv("DEPLOYMENT_ENV", "").lower() == "development",
         ]
@@ -549,18 +539,17 @@ class OperationalModeManager:
 class LoggingSetup:
     """Enterprise-grade logging configuration and initialization."""
 
-    def __init__(self, config: ConfigManagerType):
+    def __init__(self, config: ConfigManagerType) -> None:
         """Initialize logging setup with configuration."""
         self.config = config
-        self.logger = None
+        self.logger: logging.Logger | None = None
 
     def setup_logging(
         self,
         log_level: Optional[str] = None,
         log_file: Optional[str] = None,
         enable_json: bool = False,
-        enable_console: bool = True,
-    ) -> logging.Logger:
+        enable_console: bool = True) -> logging.Logger:
         """Setup comprehensive logging system with multiple handlers and formatters."""
         # Determine log level
         if log_level:
@@ -609,15 +598,13 @@ class LoggingSetup:
         # Detailed formatter
         formatters["detailed"] = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(lineno)d - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+            datefmt="%Y-%m-%d %H:%M:%S")
 
         # JSON formatter (simplified implementation)
         if enable_json:
             formatters["json"] = logging.Formatter(
                 '{"timestamp": "%(asctime)s", "name": "%(name)s", "level": "%(levelname)s", "message": "%(message)s"}',
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
+                datefmt="%Y-%m-%d %H:%M:%S")
 
         return formatters
 
@@ -625,10 +612,9 @@ class LoggingSetup:
         self,
         log_file: Optional[str],
         enable_console: bool,
-        formatters: Dict[str, logging.Formatter],
-    ) -> List[logging.Handler]:
+        formatters: Dict[str, logging.Formatter]) -> List[logging.Handler]:
         """Create logging handlers."""
-        handlers = []
+        handlers: list[logging.Handler] = []
 
         # Console handler
         if enable_console:
@@ -644,8 +630,7 @@ class LoggingSetup:
             file_handler = logging.handlers.RotatingFileHandler(
                 log_file,
                 maxBytes=10 * 1024 * 1024,  # 10MB
-                backupCount=5,
-            )
+                backupCount=5)
             file_handler.setFormatter(formatters["detailed"])
             handlers.append(file_handler)
 
@@ -655,8 +640,7 @@ class LoggingSetup:
             error_handler = logging.handlers.RotatingFileHandler(
                 error_log_file,
                 maxBytes=10 * 1024 * 1024,  # 10MB
-                backupCount=3,
-            )
+                backupCount=3)
             error_handler.setLevel(logging.ERROR)
             error_handler.setFormatter(formatters["detailed"])
             handlers.append(error_handler)
@@ -675,9 +659,9 @@ class LoggingSetup:
 class EnhancedCLIParser:
     """Command line interface parser with comprehensive options."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the CLI parser."""
-        self.parser = None
+        self.parser: argparse.ArgumentParser | None = None
         self._setup_parser()
 
     def _setup_parser(self) -> None:
@@ -691,8 +675,7 @@ Examples:
   %(prog)s --mode paper_trading --log-level DEBUG
   %(prog)s --mode backtesting --log-file logs/backtest.log
   %(prog)s --validate-config --config config/staging.yaml
-            """,
-        )
+            """)
 
         # Operational mode arguments
         mode_group = self.parser.add_argument_group("Operational Mode")
@@ -701,8 +684,7 @@ Examples:
             "-m",
             choices=[mode.value for mode in OperationalMode],
             default=OperationalMode.PAPER_TRADING.value,
-            help="Operational mode (default: paper_trading)",
-        )
+            help="Operational mode (default: paper_trading)")
 
         # Configuration arguments
         config_group = self.parser.add_argument_group("Configuration")
@@ -711,8 +693,7 @@ Examples:
             "-c",
             type=str,
             default="config/default.yaml",
-            help="Path to configuration file (default: config/default.yaml)",
-        )
+            help="Path to configuration file (default: config/default.yaml)")
         config_group.add_argument(
             "--validate-config", action="store_true", help="Validate configuration and exit"
         )
@@ -723,8 +704,7 @@ Examples:
             "--log-level",
             "-l",
             choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-            help="Set logging level",
-        )
+            help="Set logging level")
         log_group.add_argument("--log-file", type=str, help="Path to log file")
         log_group.add_argument(
             "--enable-json-logs", action="store_true", help="Enable JSON structured logging"
@@ -738,8 +718,7 @@ Examples:
         env_group.add_argument(
             "--environment",
             choices=[env.value for env in EnvironmentType],
-            help="Deployment environment",
-        )
+            help="Deployment environment")
 
         # Application control
         control_group = self.parser.add_argument_group("Application Control")
@@ -753,11 +732,12 @@ Examples:
             "--version",
             "-V",
             action="version",
-            version=f"Gal Friday Trading System v{__version__}",
-        )
+            version=f"Gal Friday Trading System v{__version__}")
 
-    def parse_args(self, args=None) -> argparse.Namespace:
+    def parse_args(self, args: list[str] | None = None) -> argparse.Namespace:
         """Parse command line arguments with validation."""
+        if self.parser is None:
+            raise RuntimeError("Parser not initialized")
         parsed_args = self.parser.parse_args(args)
 
         # Validate arguments
@@ -770,6 +750,8 @@ Examples:
         # Validate config file exists if specified
         if parsed_args.config and not os.path.exists(parsed_args.config):
             if not parsed_args.validate_config:  # Don't fail if just validating
+                if self.parser is None:
+                    raise RuntimeError("Parser not initialized")
                 self.parser.error(f"Configuration file not found: {parsed_args.config}")
 
         # Validate log file directory exists or can be created
@@ -778,12 +760,13 @@ Examples:
             try:
                 log_dir.mkdir(parents=True, exist_ok=True)
             except (OSError, PermissionError) as e:
+                if self.parser is None:
+                    raise RuntimeError("Parser not initialized")
                 self.parser.error(f"Cannot create log directory {log_dir}: {e}")
 
 
 def initialize_application_components(
-    config_manager: ConfigManagerType,
-) -> tuple[logging.Logger, argparse.Namespace, OperationalModeManager]:
+    config_manager: ConfigManagerType) -> tuple[logging.Logger, argparse.Namespace, OperationalModeManager]:
     """Initialize application with enhanced logging, CLI setup, and mode management."""
     # Setup command line interface
     cli_parser = EnhancedCLIParser()
@@ -795,8 +778,7 @@ def initialize_application_components(
         log_level=args.log_level,
         log_file=args.log_file,
         enable_json=args.enable_json_logs,
-        enable_console=not args.disable_console_logs,
-    )
+        enable_console=not args.disable_console_logs)
 
     # Create operational mode manager
     mode_manager = OperationalModeManager(config_manager)
@@ -819,7 +801,7 @@ def initialize_application_components(
     return logger, args, mode_manager
 
 
-# --- Conditional Imports for Type Checking --- #
+# --- Conditional Imports for Type[Any] Checking --- #
 if TYPE_CHECKING:
     # ERA001: Removed commented-out import.
     # Define a proper protocol/interface for execution handlers
@@ -853,8 +835,7 @@ if TYPE_CHECKING:
             config_manager: "ConfigManagerType",
             pubsub_manager: "PubSubManagerType",
             logger_service: "LoggerServiceType",
-            **kwargs: object,
-        ) -> None:
+            **kwargs: object) -> None:
             """Initialize an execution handler.
 
             Args:
@@ -1031,8 +1012,7 @@ except ImportError as e:
 
 try:
     from .simulated_market_price_service import (  # Restored runtime import
-        SimulatedMarketPriceService,
-    )
+        SimulatedMarketPriceService)
 except ImportError:
     startup_logger.error("Failed to import SimulatedMarketPriceService")
     SimulatedMarketPriceService = None  # type: ignore # Restored fallback
@@ -1080,8 +1060,7 @@ global_state = GlobalState()
 # Use string literal for the type hint
 def setup_logging(
     config: Optional["ConfigManagerType"],
-    log_level_override: str | None = None,
-) -> None:
+    log_level_override: str | None = None) -> None:
     """Configure logging based on the application configuration."""
     # Runtime check still needed
     if config is None or ConfigManager is None:
@@ -1110,15 +1089,13 @@ def setup_logging(
     if console_config.get("enabled", True):
         console_format = console_config.get(
             "format",
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        )
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         console_handler = logging.StreamHandler(sys.stdout)
         # Handler level defaults to root logger level
         console_handler.setLevel(log_level)
         console_formatter = logging.Formatter(
             console_format,
-            datefmt=log_config.get("date_format"),
-        )
+            datefmt=log_config.get("date_format"))
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)
         log.info("Console logging enabled.")
@@ -1144,32 +1121,28 @@ def setup_logging(
                # JSON logging uses jsonlogger.JsonFormatter when enabled
                 file_format = json_file_config.get(
                     "format",
-                    "%(asctime)s %(name)s %(levelname)s %(message)s",
-                )
+                    "%(asctime)s %(name)s %(levelname)s %(message)s")
 
                 file_handler = logging.handlers.RotatingFileHandler(
                     log_filename,
                     maxBytes=max_bytes,
-                    backupCount=backup_count,
-                )
+                    backupCount=backup_count)
                 file_handler.setLevel(log_level)
 
                 use_json = json_file_config.get("use_json", True)
                 if use_json:
-                    formatter = jsonlogger.JsonFormatter(file_format)
+                    formatter: logging.Formatter = jsonlogger.JsonFormatter(file_format)
                 else:
                     formatter = logging.Formatter(
                         file_format,
-                        datefmt=log_config.get("date_format"),
-                    )
+                        datefmt=log_config.get("date_format"))
 
                 file_handler.setFormatter(formatter)
                 root_logger.addHandler(file_handler)
                 log.info(
                     "File logging enabled: %s (JSON=%s)",
                     log_filename,
-                    use_json,
-                )
+                    use_json)
         else:
             log.warning("File logging enabled in config but no filename specified.")
 
@@ -1199,7 +1172,7 @@ class GalFridayApp:
         self.pubsub: PubSubManagerType | None = None
         self.executor: concurrent.futures.ProcessPoolExecutor | None = None
         self.services: list[ServiceProtocol] = []
-        self.running_tasks: list[asyncio.Task] = []  # UP006: List -> list
+        self.running_tasks: list[asyncio.Task[Any]] = []  # UP006: List -> list[Any]
         self.args: argparse.Namespace | None = None
 
         # Enterprise-grade components
@@ -1240,21 +1213,18 @@ class GalFridayApp:
             self._config_manager_instance = ConfigManager(
                 config_path=config_path,
                 logger_service=logging.getLogger(
-                    "gal_friday.config_manager",
-                ),  # Give it its own logger instance
+                    "gal_friday.config_manager"),  # Give it its own logger instance
             )
             self.config = self._config_manager_instance  # Main access point for config
             log.info("Configuration loaded successfully from: %s", config_path)
             if not self.config.is_valid():
                 log.error(
-                    "Initial configuration is invalid. Review errors logged by ConfigManager.",
-                )
+                    "Initial configuration is invalid. Review errors logged by ConfigManager.")
                 # Depending on desired strictness, could raise ConfigurationLoadingFailedExit here.
         except Exception as e:
             log.exception(
                 "FATAL: Failed to load configuration from %s",
-                config_path,
-            )
+                config_path)
             raise ConfigurationLoadingFailedExit from e
 
     def _setup_executor(self) -> None:  # Add return type
@@ -1287,8 +1257,7 @@ class GalFridayApp:
         """Update ConfigManager with PubSubManager instance if available."""
         if self._config_manager_instance and hasattr(
             self._config_manager_instance,
-            "set_pubsub_manager",
-        ):
+            "set_pubsub_manager"):
             self._config_manager_instance.set_pubsub_manager(self.pubsub)
         if hasattr(self, "_logger"):
             self._logger.info("Updated ConfigManager with PubSubManager instance.")
@@ -1299,8 +1268,7 @@ class GalFridayApp:
             self._ensure_class_available(
                 PubSubManager,
                 "PubSubManager",
-                "PubSubManager instantiation",
-            )
+                "PubSubManager instantiation")
 
             # Should use self._config_manager_instance for initial state
             if self.config is None:
@@ -1316,8 +1284,7 @@ class GalFridayApp:
 
             self.pubsub = PubSubManager(
                 logger=logging.getLogger("gal_friday.pubsub"),
-                config_manager=self.config,
-            )
+                config_manager=self.config)
             log.info("PubSubManager instantiated successfully.")
 
             # Now that pubsub is available, if config_manager was already
@@ -1348,7 +1315,8 @@ class GalFridayApp:
             self.feature_registry_client = FeatureRegistryClient()
             log.debug("FeatureRegistryClient instantiated.")
         else:
-            log.warning(
+            # mypy doesn't understand runtime import patterns
+            log.warning(  # type: ignore[unreachable]
                 "FeatureRegistryClient not available, StrategyArbitrator will operate without feature validation."
             )
             self.feature_registry_client = None
@@ -1358,8 +1326,7 @@ class GalFridayApp:
             pubsub_manager=self.pubsub,
             logger_service=self.logger_service,
             market_price_service=self.market_price_service,
-            feature_registry_client=self.feature_registry_client,
-        )
+            feature_registry_client=self.feature_registry_client)
         log.debug("StrategyArbitrator instantiated.")
         return self.strategy_arbitrator
 
@@ -1370,13 +1337,11 @@ class GalFridayApp:
             if self.monitoring_service is None:
                 raise DependencyMissingError(
                     component="CLIService",
-                    dependency="MonitoringService instance",
-                )
+                    dependency="MonitoringService instance")
             if self.portfolio_manager is None:
                 raise DependencyMissingError(
                     component="CLIService",
-                    dependency="PortfolioManager instance",
-                )
+                    dependency="PortfolioManager instance")
 
             if self.logger_service is None:
                 raise LoggerServiceError
@@ -1385,12 +1350,12 @@ class GalFridayApp:
                 monitoring_service=self.monitoring_service,
                 logger_service=self.logger_service,
                 main_app_controller=self,
-                portfolio_manager=self.portfolio_manager,
-            )
+                portfolio_manager=self.portfolio_manager)
             log.debug("CLIService instantiated.")
             return self.cli_service
         else:
-            self.cli_service = None
+            # mypy doesn't understand runtime import patterns
+            self.cli_service = None  # type: ignore[unreachable]
             log.info("CLIService not available or not configured.")
             return None
 
@@ -1398,58 +1363,49 @@ class GalFridayApp:
         self,
         class_obj: type | None,
         class_name_str: str,
-        required_by_component: str = "GalFridayApp",
-    ) -> None:
+        required_by_component: str = "GalFridayApp") -> None:
         """Ensure a class is available (not None), raises DependencyMissingError if not."""
         if class_obj is None:
             raise DependencyMissingError(
                 component=required_by_component,
-                dependency=f"{class_name_str} class not available or import failed",
-            )
+                dependency=f"{class_name_str} class not available or import failed")
 
     def _ensure_strategy_arbitrator_prerequisites(self) -> None:
         """Ensure all prerequisites for StrategyArbitrator are met before instantiation."""
         if self.market_price_service is None:
             raise DependencyMissingError(
                 component="StrategyArbitrator",
-                dependency="MarketPriceService instance",
-            )
+                dependency="MarketPriceService instance")
         if StrategyArbitrator is None:  # This is the class itself from the import block
             raise DependencyMissingError(
                 component="StrategyArbitrator",
-                dependency="StrategyArbitrator class (import failed or not available)",
-            )
+                dependency="StrategyArbitrator class (import failed or not available)")
 
     def _ensure_risk_manager_prerequisites(self) -> None:
         """Ensure all prerequisites for RiskManager are met before instantiation."""
         if self.market_price_service is None:
             raise DependencyMissingError(
                 component="RiskManager",
-                dependency="MarketPriceService instance",
-            )
+                dependency="MarketPriceService instance")
         if self.portfolio_manager is None:
             raise DependencyMissingError(
                 component="RiskManager",
-                dependency="PortfolioManager instance",
-            )
+                dependency="PortfolioManager instance")
         if RiskManager is None:  # This is the class itself from the import block
             raise DependencyMissingError(
                 component="RiskManager",
-                dependency="RiskManager class (import failed or not available)",
-            )
+                dependency="RiskManager class (import failed or not available)")
 
     def _ensure_portfolio_manager_prerequisites(self) -> None:
         """Ensure all prerequisites for PortfolioManager are met before instantiation."""
         if self.market_price_service is None:
             raise DependencyMissingError(
                 component="PortfolioManager",
-                dependency="MarketPriceService instance",
-            )
+                dependency="MarketPriceService instance")
         if PortfolioManager is None:  # This is the class itself
             raise DependencyMissingError(
                 component="PortfolioManager",
-                dependency="PortfolioManager class (import failed or not available)",
-            )
+                dependency="PortfolioManager class (import failed or not available)")
 
     def _handle_risk_manager_none_after_init(self) -> None:
         """Handle the case where RiskManager is None after a successful init call."""
@@ -1469,19 +1425,16 @@ class GalFridayApp:
         """Raise DependencyMissingError if config is not loaded for PubSub init."""
         raise DependencyMissingError(
             component="PubSubManager instantiation",
-            dependency="Configuration (self.config) not loaded",
-        )
+            dependency="Configuration (self.config) not loaded")
 
     def _raise_dependency_not_instantiated(
         self,
         component_name: str,
-        dependency_name: str,
-    ) -> None:
+        dependency_name: str) -> None:
         """Raise DependencyMissingError for a non-instantiated dependency."""
         raise DependencyMissingError(
             component=component_name,
-            dependency=f"{dependency_name} not instantiated or available",
-        )
+            dependency=f"{dependency_name} not instantiated or available")
 
     def _raise_logger_service_instantiation_failed(self) -> None:
         """Raise LoggerServiceInstantiationFailedExit."""
@@ -1491,8 +1444,7 @@ class GalFridayApp:
         """Raise DependencyMissingError for unavailable KrakenMarketPriceService in live mode."""
         raise DependencyMissingError(
             component="MarketPriceService (live mode)",
-            dependency="KrakenMarketPriceService class",
-        )
+            dependency="KrakenMarketPriceService class")
 
     def _raise_market_price_service_unsupported_mode(self, mode: str) -> None:
         """Raise MarketPriceServiceUnsupportedModeError."""
@@ -1506,8 +1458,7 @@ class GalFridayApp:
 
         raise MarketPriceServiceUnsupportedModeError(
             mode=mode,
-            supported_modes=supported_modes,
-        )
+            supported_modes=supported_modes)
 
     def _raise_market_price_service_critical_failure(self) -> None:
         """Raise MarketPriceServiceCriticalFailureExit."""
@@ -1539,8 +1490,7 @@ class GalFridayApp:
             max_orders_per_second=200,
             supports_websocket=True,
             supports_private_ws=True,
-            typical_latency_ms=50.0,
-        )
+            typical_latency_ms=50.0)
 
     def _instantiate_execution_handler(self, run_mode: str) -> _ExecutionHandlerType:
         """Instantiate the correct ExecutionHandler based on the run mode.
@@ -1572,42 +1522,36 @@ class GalFridayApp:
         if self.monitoring_service is None or MonitoringService is None:  # Added check
             raise DependencyMissingError(
                 component="ExecutionHandler",
-                dependency="MonitoringService",
-            )
+                dependency="MonitoringService")
 
         # Use enterprise operational mode system
         if run_mode == "live" or run_mode == "live_trading":
             if KrakenExecutionHandler is None:
                 raise DependencyMissingError(
                     component="Live mode ExecutionHandler",
-                    dependency="KrakenExecutionHandler class",
-                )
+                    dependency="KrakenExecutionHandler class")
             self.execution_handler = KrakenExecutionHandler(
                 exchange_spec=self._create_kraken_exchange_spec(),  # Create ExchangeSpec
                 config_manager=self.config,
                 pubsub_manager=self.pubsub,
                 logger_service=self.logger_service,
-                monitoring_service=self.monitoring_service,
-            )
+                monitoring_service=self.monitoring_service)
             log.debug("KrakenExecutionHandler instantiated.")
 
         elif run_mode == "paper" or run_mode == "paper_trading":
             if SimulatedExecutionHandler is None:
                 raise DependencyMissingError(
                     component="Paper mode ExecutionHandler",
-                    dependency="SimulatedExecutionHandler class",
-                )
+                    dependency="SimulatedExecutionHandler class")
             if self.historical_data_service is None or HistoricalDataService is None:
                 raise DependencyMissingError(
                     component="SimulatedExecutionHandler",
-                    dependency="HistoricalDataService",
-                )
+                    dependency="HistoricalDataService")
             self.execution_handler = SimulatedExecutionHandler(
                 config_manager=self.config,
                 pubsub_manager=self.pubsub,
                 data_service=self.historical_data_service,  # type: ignore[arg-type]
-                logger_service=self.logger_service,
-            )
+                logger_service=self.logger_service)
             log.debug("SimulatedExecutionHandler instantiated for paper mode.")
 
         else:
@@ -1624,12 +1568,11 @@ class GalFridayApp:
             # UnsupportedMode) was raised earlier.
             log.critical(
                 "Execution handler is unexpectedly None after instantiation attempt for mode: %s.",
-                run_mode,
-            )
+                run_mode)
             raise ExecutionHandlerInstantiationFailedExit(mode=run_mode)
 
-        # Append the successfully instantiated handler to the services list
-        self.services.append(self.execution_handler)
+        # Append the successfully instantiated handler to the services list[Any]
+        self.services.append(self.execution_handler)  # type: ignore[arg-type]
         # We know execution_handler is not None at this point due to earlier checks
         if self.execution_handler is None:
             raise RuntimeError("Execution handler should not be None at this point")
@@ -1650,8 +1593,7 @@ class GalFridayApp:
                 log_level=args.log_level,
                 log_file=args.log_file,
                 enable_json=args.enable_json_logs,
-                enable_console=not args.disable_console_logs,
-            )
+                enable_console=not args.disable_console_logs)
             log.info("Enterprise logging configured successfully.")
         except Exception:
             log.exception("ERROR: Failed to configure enterprise logging")
@@ -1715,13 +1657,17 @@ class GalFridayApp:
 
         # --- 7. LoggerService Full Instantiation (with DB capabilities) ---
         if LoggerService is None:
-            self._raise_logger_service_instantiation_failed()
+            # mypy doesn't understand runtime import patterns
+            self._raise_logger_service_instantiation_failed()  # type: ignore[unreachable]
 
         try:
             # Now instantiate the full LoggerService, passing the session_maker
+            # Type check: pubsub must be non-None for LoggerService
+            if self.pubsub is None:
+                raise PubSubManagerInstantiationFailedExit()
             self.logger_service = LoggerService(
-                config_manager=self.config,  # type: ignore
-                pubsub_manager=self.pubsub,  # type: ignore
+                config_manager=self.config,
+                pubsub_manager=self.pubsub,
                 db_session_maker=self.session_maker,  # Pass the session_maker
             )
             self.services.append(self.logger_service)  # Add to services for start/stop
@@ -1748,7 +1694,8 @@ class GalFridayApp:
                 log.exception("Failed to run database migrations.")
                 raise  # Re-raise as this is critical for app consistency
         else:
-            log.critical("MigrationManager or LoggerService missing, cannot run migrations.")
+            # mypy doesn't understand runtime import patterns
+            log.critical("MigrationManager or LoggerService missing, cannot run migrations.")  # type: ignore[unreachable]
             raise DependencyMissingError("Application", "MigrationManager or LoggerService")
 
         # --- 9. Other Service Instantiation (Order Matters!) ---
@@ -1799,8 +1746,7 @@ class GalFridayApp:
                 except Exception as e:
                     log.exception(
                         "Error creating start task for %s",
-                        service_name,
-                    )
+                        service_name)
                     start_exceptions.append(f"{service_name}: {e}")  # Store exception for later
             else:
                 log.warning("Service %s does not have a start() method.", service_name)
@@ -1818,7 +1764,7 @@ class GalFridayApp:
 
         log.info("Waiting for %s service start tasks to complete...", len(self.running_tasks))
         results = await asyncio.gather(*self.running_tasks, return_exceptions=True)
-        return list(results)  # Ensure we return a list
+        return list[Any](results)  # Ensure we return a list[Any]
 
     def _handle_service_startup_results(
         self,
@@ -1839,8 +1785,7 @@ class GalFridayApp:
                 log.error(
                     "Service task %s failed during startup: %s",
                     task_name,
-                    result,
-                )
+                    result)
                 failed_services.append(task_name)
             else:
                 log.info("Service task %s completed startup successfully.", task_name)
@@ -1848,8 +1793,7 @@ class GalFridayApp:
         if failed_services:
             log.critical(
                 "Critical services failed to start: %s. Initiating shutdown.",
-                ", ".join(failed_services),
-            )
+                ", ".join(failed_services))
             shutdown_event.set()
         elif not results and self.services:  # No results but services were expected
             log.warning("No service startup results received, though services exist.")
@@ -1866,8 +1810,7 @@ class GalFridayApp:
         # Start ConfigManager file watching if enabled and available
         if self._config_manager_instance and hasattr(
             self._config_manager_instance,
-            "start_watching",
-        ):
+            "start_watching"):
             log.info("Starting configuration file watcher...")
             self._config_manager_instance.start_watching()
 
@@ -1942,19 +1885,17 @@ class GalFridayApp:
             task_name = task.get_name() if hasattr(task, "get_name") else f"Task-{i}"
             if isinstance(result, asyncio.CancelledError):
                 cancelled_count += 1
-                log.debug("Task %s cancelled successfully.", task_name)
+                log.debug("Task[Any] %s cancelled successfully.", task_name)
             elif isinstance(result, Exception):
                 error_count += 1
                 log.error(
                     "Error during cancellation/completion of task %s: %s",
                     task_name,
-                    result,
-                )
+                    result)
         log.info(
             "Service task cancellation complete. Cancelled: %s, Errors: %s",
             cancelled_count,
-            error_count,
-        )
+            error_count)
         self.running_tasks.clear()
 
     async def _shutdown_process_executor(self) -> None:
@@ -1966,8 +1907,7 @@ class GalFridayApp:
                 # Ensure shutdown is non-blocking in the main async flow
                 await loop.run_in_executor(
                     None,
-                    functools.partial(self.executor.shutdown, wait=True, cancel_futures=True),
-                )
+                    functools.partial(self.executor.shutdown, wait=True, cancel_futures=True))
                 log.info("ProcessPoolExecutor shut down successfully.")
             except Exception:
                 log.exception("Error shutting down ProcessPoolExecutor")
@@ -1981,8 +1921,7 @@ class GalFridayApp:
         # Stop ConfigManager file watching first
         if self._config_manager_instance and hasattr(
             self._config_manager_instance,
-            "stop_watching",
-        ):
+            "stop_watching"):
             log.info("Stopping configuration file watcher...")
             self._config_manager_instance.stop_watching()
 

@@ -12,17 +12,17 @@ from sqlalchemy.orm import selectinload
 
 from gal_friday.dal.base import BaseRepository
 from gal_friday.dal.models.order import Order
+from typing import Any
 
 if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
 
-class OrderRepository(BaseRepository[Order]):
+class OrderRepository(BaseRepository):
     """Repository for order data persistence using SQLAlchemy."""
 
     def __init__(
-        self, session_maker: async_sessionmaker, logger: "LoggerService",
-    ) -> None:
+        self, session_maker: async_sessionmaker, logger: "LoggerService") -> None:
         """Initialize the order repository.
 
         Args:
@@ -36,23 +36,20 @@ class OrderRepository(BaseRepository[Order]):
         # Assuming "ACTIVE" is a valid status string.
         # BaseRepository's find_all handles Sequence[T] return.
         return await self.find_all(
-            filters={"status": "ACTIVE"}, order_by="created_at DESC",
-        )
+            filters={"status": "ACTIVE"}, order_by="created_at DESC")
 
     async def get_orders_by_signal(self, signal_id: str) -> Sequence[Order]:
         """Get all orders for a signal."""
         # Assuming signal_id in Order model is a string or compatible type.
         return await self.find_all(
-            filters={"signal_id": signal_id}, order_by="created_at ASC",
-        )
+            filters={"signal_id": signal_id}, order_by="created_at ASC")
 
     async def update_order_status(
         self,
         order_id: str, # Assuming order_id is the primary key (e.g. UUID as string)
         status: str,
         filled_quantity: Decimal | None = None,
-        average_fill_price: Decimal | None = None,
-    ) -> Order | None:
+        average_fill_price: Decimal | None = None) -> Order | None:
         """Update order execution status. Returns the updated order or None if not found."""
         updates: dict[str, Any] = {"status": status}
 
@@ -79,33 +76,28 @@ class OrderRepository(BaseRepository[Order]):
                 orders = result.scalars().all()
                 self.logger.debug(
                     f"Retrieved {len(orders)} recent orders from last {hours} hours.",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return orders
         except Exception as e:
             self.logger.exception(
                 f"Error retrieving recent orders: {e}",
-                source_module=self._source_module,
-            )
-            raise # Or return empty list: return []
+                source_module=self._source_module)
+            raise # Or return empty list[Any]: return []
 
     async def find_by_exchange_id(self, exchange_order_id: str) -> Order | None:
         """Find order by exchange order ID."""
         # find_all returns a Sequence[Order]
         orders = await self.find_all(
-            filters={"exchange_order_id": exchange_order_id}, limit=1,
-        )
+            filters={"exchange_order_id": exchange_order_id}, limit=1)
         if orders:
             self.logger.debug(
                 f"Found order with exchange_order_id {exchange_order_id}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return orders[0]
 
         self.logger.debug(
             f"No order found with exchange_order_id {exchange_order_id}",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
         return None
 
     # NEW: Position-Order relationship methods
@@ -117,7 +109,7 @@ class OrderRepository(BaseRepository[Order]):
             position_id: The UUID of the position (as string or UUID)
             
         Returns:
-            Sequence of orders linked to the position, ordered by creation time
+            Sequence[Any] of orders linked to the position, ordered by creation time
         """
         try:
             position_id_str = str(position_id)
@@ -128,22 +120,20 @@ class OrderRepository(BaseRepository[Order]):
             
             self.logger.debug(
                 f"Found {len(orders)} orders linked to position {position_id_str}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return orders
             
         except Exception as e:
             self.logger.exception(
                 f"Error retrieving orders for position {position_id}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return []
 
     async def get_orders_with_position(self) -> Sequence[Order]:
         """Get all orders that are linked to positions with relationship data loaded.
         
         Returns:
-            Sequence of orders with position relationship loaded
+            Sequence[Any] of orders with position relationship loaded
         """
         try:
             async with self.session_maker() as session:
@@ -158,15 +148,13 @@ class OrderRepository(BaseRepository[Order]):
                 
                 self.logger.debug(
                     f"Retrieved {len(orders)} orders with position relationships",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return orders
                 
         except Exception as e:
             self.logger.exception(
                 f"Error retrieving orders with positions: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return []
 
     async def get_unlinked_filled_orders(self, hours: int = 24) -> Sequence[Order]:
@@ -179,7 +167,7 @@ class OrderRepository(BaseRepository[Order]):
             hours: Number of hours to look back for recent orders
             
         Returns:
-            Sequence of filled orders without position links
+            Sequence[Any] of filled orders without position links
         """
         cutoff = datetime.now(UTC) - timedelta(hours=hours)
         try:
@@ -198,15 +186,13 @@ class OrderRepository(BaseRepository[Order]):
                 
                 self.logger.debug(
                     f"Found {len(orders)} unlinked filled orders from last {hours} hours",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return orders
                 
         except Exception as e:
             self.logger.exception(
                 f"Error retrieving unlinked filled orders: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return []
 
     async def link_order_to_position(self, order_id: str | UUID, position_id: str | UUID) -> Order | None:
@@ -231,21 +217,18 @@ class OrderRepository(BaseRepository[Order]):
             if updated_order:
                 self.logger.info(
                     f"Successfully linked order {order_id_str} to position {position_id_str}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             else:
                 self.logger.warning(
                     f"Order {order_id_str} not found for position linking",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 
             return updated_order
             
         except Exception as e:
             self.logger.error(
                 f"Failed to link order {order_id} to position {position_id}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None
 
     async def unlink_order_from_position(self, order_id: str | UUID) -> Order | None:
@@ -268,19 +251,16 @@ class OrderRepository(BaseRepository[Order]):
             if updated_order:
                 self.logger.info(
                     f"Successfully unlinked order {order_id_str} from position",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             else:
                 self.logger.warning(
                     f"Order {order_id_str} not found for position unlinking",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 
             return updated_order
             
         except Exception as e:
             self.logger.error(
                 f"Failed to unlink order {order_id} from position: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None

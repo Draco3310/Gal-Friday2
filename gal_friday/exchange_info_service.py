@@ -39,7 +39,7 @@ class ExchangeInfoService(abc.ABC):
 
     @abc.abstractmethod
     def get_trading_pairs(self) -> list[str]:
-        """Get list of all available trading pairs on the exchange.
+        """Get list[Any] of all available trading pairs on the exchange.
 
         Returns:
         -------

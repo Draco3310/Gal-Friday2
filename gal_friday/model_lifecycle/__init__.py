@@ -5,8 +5,7 @@ from .experiment_manager import (
     AllocationStrategy,
     ExperimentManager,
     ExperimentStatus,
-    VariantPerformance,
-)
+    VariantPerformance)
 from .registry import ModelArtifact, ModelMetadata
 from .registry import Registry as ModelRegistry
 from .retraining_pipeline import (
@@ -15,8 +14,7 @@ from .retraining_pipeline import (
     DriftType,
     RetrainingJob,
     RetrainingPipeline,
-    RetrainingTrigger,
-)
+    RetrainingTrigger)
 
 __all__ = [
     "AllocationStrategy",

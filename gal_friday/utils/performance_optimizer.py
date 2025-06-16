@@ -74,13 +74,13 @@ class CacheConfig:
     typed_keys: bool = True
     thread_safe: bool = True
     eviction_policy: str = "lru"
-    key_serializer: Optional[Callable[[Any], str]] = None
+    key_serializer: Optional[Callable[..., str]] = None
 
 
 class CacheKeyGenerator(Generic[K]):
     """Type-safe cache key generator."""
     
-    def __init__(self, config: CacheConfig):
+    def __init__(self, config: CacheConfig) -> None:
         self.config = config
         
     def generate_key(
@@ -121,7 +121,7 @@ class CacheKeyGenerator(Generic[K]):
 class TypeSafeCache(Generic[K, V]):
     """Type-safe cache implementation with comprehensive features."""
     
-    def __init__(self, config: CacheConfig):
+    def __init__(self, config: CacheConfig) -> None:
         self.config = config
         self._cache: Dict[K, CacheEntry[V]] = OrderedDict()
         self._lock = threading.RLock() if config.thread_safe else None
@@ -285,8 +285,7 @@ class ConnectionPool:
         logger_service: LoggerService, # Added logger_service
         max_connections: int = 10,
         min_connections: int = 2,
-        health_check_interval: int = 30,
-    ) -> None:
+        health_check_interval: int = 30) -> None:
         """Initialize the connection pool.
 
         Args:
@@ -404,8 +403,7 @@ class ConnectionPool:
                 break
             except Exception as e:
                 self.logger.warning(
-                    f"Health check error: {e}",
-                )
+                    f"Health check error: {e}")
 
     async def _is_healthy(self, conn: object) -> bool:
         """Check if connection is healthy.
@@ -429,8 +427,7 @@ class ConnectionPool:
             except Exception as e:
                 self.logger.debug(
                     f"Connection ping failed: {e}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
         else:
             # Unknown connection type - log warning once
@@ -439,8 +436,7 @@ class ConnectionPool:
                     "Unable to determine health check method for connection type: %s. "
                     "Consider implementing a specific health check.",
                     type(conn).__name__,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 self._health_check_warned = True
             return True  # Assume healthy if we can't check
 
@@ -466,13 +462,11 @@ class ConnectionPool:
                 self.logger.warning(
                     "Unable to close connection of type: %s",
                     type(conn).__name__,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
         except Exception as e:
             self.logger.warning(
                 f"Error closing connection: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     def get_stats(self) -> dict[str, Any]:
         """Get pool statistics."""
@@ -500,8 +494,7 @@ class QueryOptimizer:
         self.query_stats: dict[str, dict[str, Any]] = {}
 
     async def analyze_query(
-        self, query: str, params: tuple[Any, ...] | None = None,
-    ) -> dict[str, Any]:
+        self, query: str, params: tuple[Any, ...] | None = None) -> dict[str, Any]:
         """Analyze query performance and provide optimization suggestions."""
         start_time = time.time()
         
@@ -607,8 +600,7 @@ class QueryOptimizer:
             self.logger.warning(
                 f"Slow query analysis: {execution_time:.2f}s",
                 source_module=self._source_module,
-                context={"query": query_key, "suggestions": suggestions},
-            )
+                context={"query": query_key, "suggestions": suggestions})
 
         return analysis
 
@@ -697,8 +689,7 @@ class QueryOptimizer:
         sorted_queries = sorted(
             self.query_stats.items(),
             key=lambda x: x[1]["avg_time"],
-            reverse=True,
-        )
+            reverse=True)
 
         return [
             {
@@ -751,8 +742,7 @@ class MemoryOptimizer:
         if usage["rss_mb"] > self.gc_threshold_mb:
             self.logger.info(
                 f"Memory usage high ({usage['rss_mb']:.1f}MB), running garbage collection",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
             # Force garbage collection
             gc.collect()
@@ -763,8 +753,7 @@ class MemoryOptimizer:
 
             self.logger.info(
                 f"Garbage collection freed {freed_mb:.1f}MB",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
             self._last_gc_time = time.time()
 
@@ -813,8 +802,7 @@ class PerformanceOptimizer:
         """Start performance optimizer."""
         self.logger.info(
             "Starting performance optimizer",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
         # Start monitoring
         self._monitor_task = asyncio.create_task(self._monitor_performance())
@@ -853,8 +841,7 @@ class PerformanceOptimizer:
                     context={
                         "memory": memory_usage,
                         "caches": cache_stats,
-                    },
-                )
+                    })
 
                 # Check for issues
                 if memory_usage["rss_mb"] > self.memory_optimizer.memory_limit_mb:
@@ -862,16 +849,14 @@ class PerformanceOptimizer:
                         "Memory limit exceeded: "
                         f"{memory_usage['rss_mb']:.1f}MB > "
                         f"{self.memory_optimizer.memory_limit_mb}MB",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
 
             except asyncio.CancelledError:
                 break
             except Exception:
                 self.logger.exception(
                     "Error in performance monitoring",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
     def get_performance_report(self) -> dict[str, Any]:
         """Get comprehensive performance report."""
@@ -896,7 +881,7 @@ class PerformanceOptimizer:
 class TypedCacheDecorator(Generic[P, T]):
     """Type-safe caching decorator that preserves function signatures."""
     
-    def __init__(self, config: Optional[CacheConfig] = None):
+    def __init__(self, config: Optional[CacheConfig] = None) -> None:
         self.config = config or CacheConfig()
         self.cache: TypeSafeCache[str, T] = TypeSafeCache(self.config)
         self.key_generator: CacheKeyGenerator[str] = CacheKeyGenerator(self.config)
@@ -930,7 +915,7 @@ class TypedCacheDecorator(Generic[P, T]):
 class AsyncTypedCacheDecorator(Generic[AsyncP, AsyncT]):
     """Type-safe async caching decorator."""
     
-    def __init__(self, config: Optional[CacheConfig] = None):
+    def __init__(self, config: Optional[CacheConfig] = None) -> None:
         self.config = config or CacheConfig()
         self.cache: TypeSafeCache[str, AsyncT] = TypeSafeCache(self.config)
         self.key_generator: CacheKeyGenerator[str] = CacheKeyGenerator(self.config)
@@ -961,7 +946,7 @@ class AsyncTypedCacheDecorator(Generic[AsyncP, AsyncT]):
 class TypedRateLimitDecorator(Generic[P, T]):
     """Type-safe rate limiting decorator."""
     
-    def __init__(self, calls: int = 10, period: int = 60):
+    def __init__(self, calls: int = 10, period: int = 60) -> None:
         self.calls = calls
         self.period = period
         self.call_times: list[float] = []
@@ -995,7 +980,7 @@ class TypedRateLimitDecorator(Generic[P, T]):
 class AsyncTypedRateLimitDecorator(Generic[AsyncP, AsyncT]):
     """Type-safe async rate limiting decorator."""
     
-    def __init__(self, calls: int = 10, period: int = 60):
+    def __init__(self, calls: int = 10, period: int = 60) -> None:
         self.calls = calls
         self.period = period
         self.call_times: list[float] = []
@@ -1029,7 +1014,7 @@ class AsyncTypedRateLimitDecorator(Generic[AsyncP, AsyncT]):
 class TypedTimingDecorator(Generic[P, T]):
     """Type-safe timing decorator with logging."""
     
-    def __init__(self, name: Optional[str] = None, logger: Optional[LoggerService] = None):
+    def __init__(self, name: Optional[str] = None, logger: Optional[LoggerService] = None) -> None:
         self.name = name
         self.logger = logger
     
@@ -1049,8 +1034,7 @@ class TypedTimingDecorator(Generic[P, T]):
                 if self.logger:
                     self.logger.debug(
                         f"{function_name} completed in {execution_time:.3f}s",
-                        source_module="TypedTimingDecorator",
-                    )
+                        source_module="TypedTimingDecorator")
                 
                 return result
                 
@@ -1061,8 +1045,7 @@ class TypedTimingDecorator(Generic[P, T]):
                 if self.logger:
                     self.logger.error(
                         f"{function_name} failed after {execution_time:.3f}s: {e!s}",
-                        source_module="TypedTimingDecorator",
-                    )
+                        source_module="TypedTimingDecorator")
                 
                 raise
         
@@ -1072,7 +1055,7 @@ class TypedTimingDecorator(Generic[P, T]):
 class AsyncTypedTimingDecorator(Generic[AsyncP, AsyncT]):
     """Type-safe async timing decorator with logging."""
     
-    def __init__(self, name: Optional[str] = None, logger: Optional[LoggerService] = None):
+    def __init__(self, name: Optional[str] = None, logger: Optional[LoggerService] = None) -> None:
         self.name = name
         self.logger = logger
     
@@ -1092,8 +1075,7 @@ class AsyncTypedTimingDecorator(Generic[AsyncP, AsyncT]):
                 if self.logger:
                     self.logger.debug(
                         f"{function_name} completed in {execution_time:.3f}s",
-                        source_module="AsyncTypedTimingDecorator",
-                    )
+                        source_module="AsyncTypedTimingDecorator")
                 
                 return result
                 
@@ -1104,8 +1086,7 @@ class AsyncTypedTimingDecorator(Generic[AsyncP, AsyncT]):
                 if self.logger:
                     self.logger.error(
                         f"{function_name} failed after {execution_time:.3f}s: {e!s}",
-                        source_module="AsyncTypedTimingDecorator",
-                    )
+                        source_module="AsyncTypedTimingDecorator")
                 
                 raise
         
@@ -1218,8 +1199,7 @@ def cached(cache_name: str = "default", ttl: int = 300) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         @functools.wraps(func)
         async def wrapper(
-            self: "PerformanceOptimizer", *args: object, **kwargs: object,
-        ) -> object:
+            self: "PerformanceOptimizer", *args: object, **kwargs: object) -> object:
             # Generate cache key
             cache_key = f"{func.__name__}:{args!s}:{kwargs!s}"
 
@@ -1248,7 +1228,7 @@ def cached(cache_name: str = "default", ttl: int = 300) -> Callable[[F], F]:
 class MethodCacheDescriptor(Generic[T]):
     """Type-safe method caching descriptor for class methods."""
     
-    def __init__(self, config: Optional[CacheConfig] = None):
+    def __init__(self, config: Optional[CacheConfig] = None) -> None:
         self.config = config or CacheConfig()
         self.caches: weakref.WeakKeyDictionary[Any, TypeSafeCache[str, T]] = weakref.WeakKeyDictionary()
         self.key_generator = CacheKeyGenerator[str](self.config)
@@ -1316,7 +1296,7 @@ def cached_method(config: Optional[CacheConfig] = None) -> MethodCacheDescriptor
 class CacheRegistry:
     """Registry for managing multiple caches with different configurations."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._caches: Dict[str, TypeSafeCache[Any, Any]] = {}
         self._configs: Dict[str, CacheConfig] = {}
     
@@ -1362,7 +1342,7 @@ def clear_all_global_caches() -> None:
 class CachePerformanceMonitor:
     """Monitor cache performance and provide optimization suggestions."""
     
-    def __init__(self, logger: LoggerService):
+    def __init__(self, logger: LoggerService) -> None:
         self.logger = logger
         self._source_module = self.__class__.__name__
     
@@ -1416,8 +1396,7 @@ class DatabaseConnectionPool(ConnectionPool):
         max_connections: int = 10,
         min_connections: int = 2,
         health_check_interval: int = 30,
-        health_check_query: str = "SELECT 1",
-    ) -> None:
+        health_check_query: str = "SELECT 1") -> None:
         """Initialize database connection pool with health check query.
         
         Args:

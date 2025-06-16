@@ -17,6 +17,7 @@ import re
 
 from gal_friday.logger_service import LoggerService
 from gal_friday.config_manager import ConfigManager
+from typing import Any
 
 
 class MarketSession(str, Enum):
@@ -55,7 +56,7 @@ class MarketHours:
     trading_days: List[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])  # Mon-Fri
     
     # Holiday calendar
-    holidays: List[str] = field(default_factory=list)  # ["2024-12-25", "2024-01-01"]
+    holidays: List[str] = field(default_factory=list[Any])  # ["2024-12-25", "2024-01-01"]
 
 
 @dataclass
@@ -118,7 +119,7 @@ class MarketDataProvider(ABC):
 class KrakenMarketDataProvider(MarketDataProvider):
     """Kraken-specific market data provider."""
     
-    def __init__(self, config: ConfigManager, logger: LoggerService):
+    def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -278,7 +279,7 @@ class KrakenMarketDataProvider(MarketDataProvider):
 class ExchangeCalendarManager:
     """Manages exchange trading calendars and market hours."""
     
-    def __init__(self, config: ConfigManager, logger: LoggerService):
+    def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -393,7 +394,7 @@ class ExchangeCalendarManager:
 class EnhancedMarketDataService:
     """Production-grade market data service replacing MinimalMarketDataService."""
     
-    def __init__(self, config: ConfigManager, logger: LoggerService):
+    def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -533,7 +534,7 @@ class EnhancedMarketDataService:
                 "provider_connected": provider_connected,
                 "connection_failures": self._connection_failures,
                 "recent_successful_fetch": recent_success,
-                "cached_symbols": list(self._last_successful_fetch.keys()),
+                "cached_symbols": list[Any](self._last_successful_fetch.keys()),
                 "last_fetch_times": {
                     symbol: fetch_time.isoformat() 
                     for symbol, fetch_time in self._last_successful_fetch.items()
@@ -619,7 +620,7 @@ class ErrorInstance:
     category: ErrorCategory
     severity: ErrorSeverity
     timestamp: float
-    context: Dict[str, Any] = field(default_factory=dict)
+    context: Dict[str, Any] = field(default_factory=dict[str, Any])
     retry_count: int = 0
     resolved: bool = False
 
@@ -627,7 +628,7 @@ class ErrorInstance:
 class KrakenErrorClassifier:
     """Intelligent error classification system for Kraken exchange."""
     
-    def __init__(self, logger: LoggerService):
+    def __init__(self, logger: LoggerService) -> None:
         self.logger = logger
         self._source_module = self.__class__.__name__
         
@@ -906,7 +907,7 @@ class KrakenErrorClassifier:
                 "recent_errors_1h": len(recent_errors),
                 "category_breakdown": category_counts,
                 "severity_breakdown": severity_counts,
-                "circuit_breakers_active": list(self._circuit_breakers.keys()),
+                "circuit_breakers_active": list[Any](self._circuit_breakers.keys()),
                 "error_rate_per_hour": len(recent_errors),
                 "most_common_errors": self._get_most_common_errors(recent_errors)
             }
@@ -956,7 +957,7 @@ class BatchExecutionResult:
     
     @classmethod
     def from_results(cls, results: List[Dict[str, Any]], execution_time: float) -> 'BatchExecutionResult':
-        """Create result from list of order results."""
+        """Create result from list[Any] of order results."""
         successful = [r for r in results if r.get("success", False)]
         failed = [r for r in results if not r.get("success", False)]
         partial = [r for r in results if r.get("partial_fill", False)]
@@ -974,7 +975,7 @@ class BatchExecutionResult:
 class OptimizedBatchProcessor:
     """Production-grade batch order processing system."""
     
-    def __init__(self, adapter, logger: LoggerService, config: ConfigManager):
+    def __init__(self, adapter, logger: LoggerService, config: ConfigManager) -> None:
         self.adapter = adapter
         self.logger = logger
         self.config = config

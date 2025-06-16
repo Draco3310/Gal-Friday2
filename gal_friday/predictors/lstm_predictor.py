@@ -38,7 +38,7 @@ class PredictionError(LSTMPredictorError):
 class PredictorModel(Protocol):
     """Protocol defining the interface for prediction models."""
 
-    def predict(self, x: np.ndarray, verbose: int = 0) -> np.ndarray:
+    def predict(self, x: np.ndarray[Any, Any], verbose: int = 0) -> np.ndarray[Any, Any]:
         """Make predictions on input data.
 
         Args:
@@ -58,7 +58,7 @@ import torch  # Add import for torch.Tensor
 class TorchModel(Protocol):
     """Protocol for PyTorch model inference."""
 
-    def __call__(self, x: torch.Tensor) -> torch.Tensor: # Changed np.ndarray to torch.Tensor
+    def __call__(self, x: torch.Tensor) -> torch.Tensor: # Changed np.ndarray[Any, Any] to torch.Tensor
         """Forward pass for PyTorch model.
 
         Args:
@@ -69,7 +69,7 @@ class TorchModel(Protocol):
         ...
 
 
-# Type alias for model assets
+# Type[Any] alias for model assets
 ModelAsset: TypeAlias = PredictorModel | TorchModel
 
 
@@ -81,8 +81,7 @@ class LSTMPredictor(PredictorInterface):
         error_class: type[E],
         message: str,
         log_level: str = "error",
-        **kwargs: object,
-    ) -> NoReturn:
+        **kwargs: object) -> NoReturn:
         """Log and raise an error with the specified class and message.
 
         Args:
@@ -109,8 +108,7 @@ class LSTMPredictor(PredictorInterface):
         self,
         model_path: str,
         model_id: str,
-        config: dict[str, Any] | None = None,
-    ) -> None:
+        config: dict[str, Any] | None = None) -> None:
         """Initialize the LSTMPredictor.
 
         Args:
@@ -121,15 +119,14 @@ class LSTMPredictor(PredictorInterface):
                     'model_feature_names': List[str] (features per timestep).
                     'sequence_length': int (number of timesteps).
                     'scaler_path' is no longer used as features are expected pre-scaled.
-                    If PyTorch: 'model_class_module', 'model_class_name', 'model_init_args' (dict).
+                    If PyTorch: 'model_class_module', 'model_class_name', 'model_init_args' (dict[str, Any]).
         """
         super().__init__(model_path, model_id, config)
         self.framework = self.config.get("framework", "tensorflow").lower()
         self.logger.info(
             "LSTMPredictor initialized for model %s using %s framework.",
             self.model_id,
-            self.framework,
-        )
+            self.framework)
 
     def _load_tensorflow_model(self) -> None:
         """Load a TensorFlow model from the specified path."""
@@ -138,8 +135,7 @@ class LSTMPredictor(PredictorInterface):
         self.model = tf.keras.models.load_model(self.model_path)
         self.logger.info(
             "TensorFlow/Keras LSTM model loaded successfully from %s",
-            self.model_path,
-        )
+            self.model_path)
 
     def _load_pytorch_model_instance(self) -> None:
         """Load a PyTorch model instance from the specified path and config."""
@@ -169,15 +165,13 @@ class LSTMPredictor(PredictorInterface):
             self.logger.info(
                 "PyTorch LSTM model (%s) loaded and state_dict applied from %s",
                 model_class_name_str,
-                self.model_path,
-            )
+                self.model_path)
         except Exception:
             self.logger.exception(
                 "Failed to import PyTorch model class %s.%s for model %s",
                 model_class_module_str,
                 model_class_name_str,
-                self.model_id,
-            )
+                self.model_id)
             self._raise_error(ImportError, "Failed to import PyTorch model class")
 
     def _load_scaler_asset(self) -> None:
@@ -185,8 +179,7 @@ class LSTMPredictor(PredictorInterface):
         if not self.scaler_path:
             self.logger.info(
                 "No scaler_path provided for LSTM model %s. Proceeding without a scaler.",
-                self.model_id,
-            )
+                self.model_id)
             self.scaler = None
             return
 
@@ -203,8 +196,7 @@ class LSTMPredictor(PredictorInterface):
         except Exception:
             self.logger.exception(
                 "Failed to load scaler from %s",
-                self.scaler_path,
-            )
+                self.scaler_path)
             raise
 
     def _validate_model_file(self) -> None:
@@ -226,8 +218,7 @@ class LSTMPredictor(PredictorInterface):
         self.logger.info(
             "Loading assets for LSTM model: %s using framework: %s",
             self.model_id,
-            self.framework,
-        )
+            self.framework)
 
         try:
             self._validate_model_file()
@@ -239,28 +230,24 @@ class LSTMPredictor(PredictorInterface):
             else:
                 self._raise_error(
                     UnsupportedFrameworkError,
-                    f"Unsupported LSTM framework: {self.framework}",
-                )
+                    f"Unsupported LSTM framework: {self.framework}")
 
             self._load_scaler_asset()
 
         except ImportError as e:
             self.logger.exception(
                 "Import error for %s. Is it installed/correctly specified?",
-                self.framework,
-            )
+                self.framework)
             self._raise_error(
                 ImportError,
-                f"Required ML framework ({self.framework}) or model class not found: {e!s}",
-            )
+                f"Required ML framework ({self.framework}) or model class not found: {e!s}")
         except Exception as e:
             self.logger.exception("Failed to load LSTM model from %s", self.model_path)
             self._raise_error(
                 Exception,
-                f"Failed to load LSTM model from {self.model_path}: {e!s}",
-            )
+                f"Failed to load LSTM model from {self.model_path}: {e!s}")
 
-    def predict(self, features: np.ndarray) -> np.ndarray:  # type: ignore[return]
+    def predict(self, features: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:  # type: ignore[return]
         """Generate predictions using the loaded LSTM model (instance method).
 
         This method now assumes `features` is the 2D sequence (timesteps, features_per_step).
@@ -312,16 +299,14 @@ class LSTMPredictor(PredictorInterface):
                 torch_input = torch.from_numpy(model_input).float().to(device)
                 raw_predictions = self.model(torch_input)
 
-            # Explicitly type the output to help mypy understand it's an ndarray
-            model_output: np.ndarray = raw_predictions.cpu().numpy().flatten().astype(np.float32)
-            if model_output.shape != (1,):
+            # Explicitly type the output to help mypy understand it's an ndarray[Any, Any]
+            model_output: np.ndarray[Any, Any] = raw_predictions.cpu().numpy().flatten().astype(np.float32)
+            if model_output.shape != (1):
                 self.logger.error(
                     f"Model output shape {model_output.shape} is not compatible with "
-                    f"expected dimensions for model {self.model_id}",
-                )
+                    f"expected dimensions for model {self.model_id}")
                 raise InvalidDimensionsError(
-                    "Model output dimensions do not match expected format",
-                )
+                    "Model output dimensions do not match expected format")
             return model_output
         except Exception as e:
             if isinstance(e, InvalidDimensionsError | UnsupportedFrameworkError):
@@ -331,7 +316,7 @@ class LSTMPredictor(PredictorInterface):
 
     @property
     def expected_feature_names(self) -> list[str] | None:
-        """Return the list of feature names (per timestep) the model expects from config."""
+        """Return the list[Any] of feature names (per timestep) the model expects from config."""
         return self.config.get("model_feature_names")
 
     @classmethod
@@ -339,8 +324,7 @@ class LSTMPredictor(PredictorInterface):
         cls,
         model_path: str,
         model_id: str,
-        logger: logging.Logger,
-    ) -> tuple[Any, str] | dict[str, str]:
+        logger: logging.Logger) -> tuple[Any, str] | dict[str, str]:
         """Load a TensorFlow model from the given path."""
         import tensorflow as tf
 
@@ -360,8 +344,7 @@ class LSTMPredictor(PredictorInterface):
         model_path: str,
         model_id: str,
         predictor_config: dict[str, Any],
-        logger: logging.Logger,
-    ) -> tuple[Any, str] | dict[str, str]:
+        logger: logging.Logger) -> tuple[Any, str] | dict[str, str]:
         """Load a PyTorch model from the given path."""
         import importlib
 
@@ -389,8 +372,7 @@ class LSTMPredictor(PredictorInterface):
                 "PyTorch Model %s (%s) loaded from %s",
                 model_id,
                 model_class_name,
-                model_path,
-            )
+                model_path)
         except Exception as e_load:
             error_msg = f"Failed to load PyTorch model {model_path}: {e_load!s}"
             logger.exception("Error loading PyTorch model: %s", error_msg)
@@ -402,8 +384,7 @@ class LSTMPredictor(PredictorInterface):
         cls,
         scaler_path: str,
         model_id: str,
-        logger: logging.Logger,
-    ) -> tuple[Any, str] | dict[str, str]:
+        logger: logging.Logger) -> tuple[Any, str] | dict[str, str]:
         """Load a scaler from the given path."""
         if not Path(scaler_path).exists():
             error_msg = f"Scaler file not found: {scaler_path}"
@@ -423,11 +404,10 @@ class LSTMPredictor(PredictorInterface):
     @classmethod
     def _process_features(
         cls,
-        feature_sequence: np.ndarray, # Expected to be pre-scaled
+        feature_sequence: np.ndarray[Any, Any], # Expected to be pre-scaled
         scaler_asset: object | joblib.scaler.StandardScaler | None, # Kept for compatibility, but should be None
         model_id: str,
-        logger: logging.Logger,
-    ) -> tuple[np.ndarray, str] | dict[str, str]:
+        logger: logging.Logger) -> tuple[np.ndarray[Any, Any], str] | dict[str, str]:
         """Process the input features (reshaping only, scaling is removed)."""
         if feature_sequence.ndim != cls.EXPECTED_INPUT_DIMENSIONS:
             error_msg = (
@@ -443,23 +423,20 @@ class LSTMPredictor(PredictorInterface):
             logger.warning(
                 "scaler_asset provided to _process_features for model %s, "
                 "but it will be ignored as features are expected pre-scaled.",
-                model_id,
-            )
+                model_id)
 
         logger.debug(
             "Using pre-scaled feature sequence (shape: %s) directly.",
-            processed_sequence.shape,
-        )
+            processed_sequence.shape)
         return processed_sequence, ""
 
     @classmethod
     def _make_prediction(
         cls,
         model_asset: ModelAsset,
-        model_input: np.ndarray,
+        model_input: np.ndarray[Any, Any],
         model_framework: str,
-        predictor_config: dict[str, Any],
-    ) -> tuple[float, float | None]:
+        predictor_config: dict[str, Any]) -> tuple[float, float | None]:
         """Make prediction using the loaded model."""
         is_binary_sigmoid = predictor_config.get("binary_sigmoid_output", False)
 
@@ -510,9 +487,8 @@ class LSTMPredictor(PredictorInterface):
         model_id: str,
         model_path: str,
         scaler_path: str | None, # Kept for interface compatibility, but not used for scaling.
-        feature_sequence: np.ndarray, # Expected to be pre-scaled.
-        predictor_specific_config: dict[str, Any],
-    ) -> dict[str, Any]:
+        feature_sequence: np.ndarray[Any, Any], # Expected to be pre-scaled.
+        predictor_specific_config: dict[str, Any]) -> dict[str, Any]:
         """Load LSTM model, (optionally log scaler_path), use pre-scaled features, and predict.
 
         Executed in a separate process. Expects `feature_sequence` to be pre-scaled and 2D.
@@ -521,8 +497,7 @@ class LSTMPredictor(PredictorInterface):
         logger.debug(
             "Starting LSTM inference for model %s in separate process. Input seq shape: %s",
             model_id,
-            feature_sequence.shape if feature_sequence is not None else "None",
-        )
+            feature_sequence.shape if feature_sequence is not None else "None")
 
         try:
             # --- Load model based on framework ---
@@ -535,8 +510,7 @@ class LSTMPredictor(PredictorInterface):
                     model_path,
                     model_id,
                     predictor_specific_config,
-                    logger,
-                )
+                    logger)
             else:
                 error_msg = f"Unsupported model framework: {model_framework}"
                 logger.error(error_msg)
@@ -551,8 +525,7 @@ class LSTMPredictor(PredictorInterface):
                 logger.info(
                     "scaler_path '%s' provided for model %s but will be ignored "
                     "as features are expected pre-scaled by FeatureEngine.",
-                    scaler_path, model_id,
-                )
+                    scaler_path, model_id)
             # scaler_asset remains None as it's not loaded for transformation purposes.
 
             # --- Process features (reshape only, features are pre-scaled) ---
@@ -561,8 +534,7 @@ class LSTMPredictor(PredictorInterface):
                 feature_sequence,
                 None, # Pass None for scaler_asset
                 model_id,
-                logger,
-            )
+                logger)
             if isinstance(result, dict): # Error dictionary returned
                 return result
             processed_sequence = result[0] # processed_sequence, "" was returned
@@ -571,8 +543,7 @@ class LSTMPredictor(PredictorInterface):
             model_input = processed_sequence.reshape(
                 1,
                 processed_sequence.shape[0],
-                processed_sequence.shape[1],
-            )
+                processed_sequence.shape[1])
             logger.debug("LSTM model input shape: %s", model_input.shape)
 
             # --- Make prediction ---
@@ -580,8 +551,7 @@ class LSTMPredictor(PredictorInterface):
                 model_asset=model_asset,
                 model_input=processed_sequence,
                 model_framework=model_framework,
-                predictor_config=predictor_specific_config,
-            )
+                predictor_config=predictor_specific_config)
         except Exception as e:
             error_msg = f"LSTM Inference failed: {e!s}"
             logger.exception("Error during inference: %s", error_msg)
@@ -591,8 +561,7 @@ class LSTMPredictor(PredictorInterface):
                 "LSTM Prediction for %s successful: %s, Confidence: %s",
                 model_id,
                 final_value,
-                confidence,
-            )
+                confidence)
             return {
                 "prediction": final_value,
                 "confidence": confidence,

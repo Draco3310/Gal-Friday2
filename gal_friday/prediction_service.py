@@ -24,8 +24,7 @@ from gal_friday.core.events import (
     EventType,
     FeatureEvent,
     PredictionConfigUpdatedEvent,
-    PredictionEvent,
-)
+    PredictionEvent)
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.interfaces.predictor_interface import PredictorInterface  # Added
 from gal_friday.logger_service import LoggerService
@@ -33,8 +32,7 @@ from gal_friday.ml_prediction_pipeline import (
     MLPredictionPipeline,
     ModelTrainingConfig,
     ModelType,
-    PredictionRequest as MLPredictionRequest,
-)
+    PredictionRequest as MLPredictionRequest)
 
 # Forward reference for ConfigurationManager
 if TYPE_CHECKING:
@@ -69,7 +67,7 @@ class PredictorImportError(PredictionServiceError):
 class ModelConfigError(PredictionServiceError):
     """Raised when there's an error in model configuration."""
 
-    def __init__(self, message: str, context: dict | None = None) -> None:
+    def __init__(self, message: str, context: dict[str, Any] | None = None) -> None:
         """Initialize the ModelConfigError with an error message and optional context.
 
         Args:
@@ -121,8 +119,8 @@ class PredictionService:
 
         Args:
         ----
-            config (dict): Overall application configuration.
-                           Expected to contain a 'prediction_service' key with a 'models' list.
+            config (dict[str, Any]): Overall application configuration.
+                           Expected to contain a 'prediction_service' key with a 'models' list[Any].
             pubsub_manager (PubSubManager): For subscribing/publishing events.
             process_pool_executor (ProcessPoolExecutor): Executor for running inference.
             logger_service (LoggerService): The shared logger instance.
@@ -140,10 +138,10 @@ class PredictionService:
         # Enhanced shutdown handling
         self._shutting_down = asyncio.Event()
         self._shutdown_timeout = self._service_config.get("shutdown_timeout_seconds", 30.0)
-        self._in_flight_tasks: dict[str, asyncio.Task] = {}  # task_id -> Task
+        self._in_flight_tasks: dict[str, asyncio.Task[Any]] = {}  # task_id -> Task[Any]
 
         self._feature_event_handler: Callable[
-            [FeatureEvent], Coroutine[Any, Any, None],
+            [FeatureEvent], Coroutine[Any, Any, None]
         ] = self._handle_feature_event
         # Added handler for config updates
         self._config_update_handler: Callable[
@@ -154,7 +152,7 @@ class PredictionService:
         # Model configurations and initialized predictors/runners
         self._model_configs: list[dict[str, Any]] = self._service_config.get("models", [])
         self._predictors: dict[str, PredictorInterface] = {}
-        self._predictor_runners: dict[str, Callable] = {}
+        self._predictor_runners: dict[str, Callable[..., Any]] = {}
         self._lstm_feature_buffers: dict[str, deque] = {}  # Added for LSTM sequence buffering
 
         # Initialize ML pipeline for training and advanced predictions
@@ -165,8 +163,7 @@ class PredictionService:
 
         if not self._model_configs:
             self.logger.warning(
-                "PredictionService: No models configured under 'prediction_service.models'.",
-            )
+                "PredictionService: No models configured under 'prediction_service.models'.")
             # Depending on strictness, could raise ValueError here
 
         self._initialize_predictors()
@@ -174,12 +171,12 @@ class PredictionService:
         # Track tasks submitted to the executor
         self._active_inference_tasks: set[InferenceTaskType] = set()
 
-    def _get_predictor_map(self) -> dict:
+    def _get_predictor_map(self) -> dict[str, Any]:
         """Import and return a mapping of predictor types to their classes and runners.
 
         Returns:
         -------
-            dict: Mapping of predictor types to (predictor_class, runner_method) tuples.
+            dict[str, Any]: Mapping[Any, Any] of predictor types to (predictor_class, runner_method) tuples.
 
         Raises:
         ------
@@ -194,8 +191,7 @@ class PredictionService:
                 "CRITICAL: Failed to import predictor classes: %s. "
                 "PredictionService cannot function.",
                 str(e),
-                exc_info=True,
-            )
+                exc_info=True)
             raise PredictorImportError(PredictorImportError.message) from e
         else:
             return {
@@ -206,8 +202,7 @@ class PredictionService:
 
     def _validate_model_config(
         self,
-        model_conf: dict,
-    ) -> tuple[str, str, str, type[PredictorInterface], Callable[..., Any], dict[str, Any], bool]:
+        model_conf: dict[str, Any]) -> tuple[str, str, str, type[PredictorInterface], Callable[..., Any], dict[str, Any], bool]:
         """Validate model configuration and extract necessary fields."""
         model_id: str = str(model_conf.get("model_id", ""))
         predictor_type: str = str(model_conf.get("predictor_type", ""))
@@ -224,8 +219,7 @@ class PredictionService:
             self.logger.error(
                 error_msg,
                 source_module=self._source_module,
-                context=context,
-            )
+                context=context)
             raise ModelConfigError(error_msg, context=context)
 
         predictor_map = self._get_predictor_map()
@@ -234,14 +228,13 @@ class PredictionService:
             log_msg = f"Unsupported predictor type: {predictor_type}"
             error_context = {
                 "predictor_type": predictor_type,
-                "supported_types": list(predictor_map.keys()),
+                "supported_types": list[Any](predictor_map.keys()),
             }
             error_msg = f"{ModelConfigError.unsupported_predictor}: {log_msg}"
             self.logger.error(
                 error_msg,
                 source_module=self._source_module,
-                context=error_context,
-            )
+                context=error_context)
             raise ModelConfigError(error_msg, context=context)
 
         predictor_class, runner_method = predictor_info
@@ -252,8 +245,7 @@ class PredictionService:
             predictor_class,
             runner_method,
             model_conf,
-            is_critical,
-        )
+            is_critical)
 
     def _initialize_lstm_buffer(self, model_id: str, model_conf: dict[str, Any]) -> None:
         """Initialize LSTM feature buffer if needed."""
@@ -262,8 +254,7 @@ class PredictionService:
             self.logger.warning(
                 "Invalid sequence_length for LSTM model %(model_id)s. Defaulting to 1.",
                 source_module=self._source_module,
-                context={"model_id": model_id, "sequence_length": sequence_length},
-            )
+                context={"model_id": model_id, "sequence_length": sequence_length})
             sequence_length = 1  # Treat as non-sequential if invalid
 
         if sequence_length > 1:  # Only create buffer if sequence_length > 1
@@ -272,8 +263,7 @@ class PredictionService:
                 "Initialized feature buffer for LSTM model %(model_id)s with sequence "
                 "length %(seq_length)s.",
                 source_module=self._source_module,
-                context={"model_id": model_id, "seq_length": sequence_length},
-            )
+                context={"model_id": model_id, "seq_length": sequence_length})
 
     def _initialize_predictors(self) -> None:
         """Initialize predictor instances, runners, and LSTM buffers from configuration."""
@@ -297,8 +287,7 @@ class PredictionService:
                 predictor_class,
                 runner_method,
                 model_conf,
-                is_critical,
-            ) = validation_result
+                is_critical) = validation_result
 
             try:
                 predictor_config = self._PredictorConfig(
@@ -308,8 +297,7 @@ class PredictionService:
                     predictor_class=predictor_class,
                     runner_method=runner_method,
                     model_conf=model_conf,
-                    is_critical=is_critical,
-                )
+                    is_critical=is_critical)
                 self._initialize_single_predictor(predictor_config)
                 if is_critical:
                     loaded_critical_models += 1
@@ -321,15 +309,13 @@ class PredictionService:
                         "(Critical: %(is_critical)s)",
                         source_module=self._source_module,
                         context={"model_id": model_id, "is_critical": is_critical},
-                        exc_info=True,
-                    )
+                        exc_info=True)
                     raise PredictorInitError(PredictorInitError.message) from e
                 self.logger.exception(
                     "Failed to initialize predictor for model_id %(model_id)s "
                     "(Critical: %(is_critical)s)",
                     source_module=self._source_module,
-                    context={"model_id": model_id, "is_critical": is_critical},
-                )
+                    context={"model_id": model_id, "is_critical": is_critical})
 
         self._validate_critical_models_loaded(loaded_critical_models, total_critical_models)
         self.logger.info(
@@ -338,8 +324,7 @@ class PredictionService:
             context={
                 "predictors_loaded": len(self._predictors),
                 "predictor_count": len(self._predictors),
-            },
-        )
+            })
 
     @dataclass
     class _PredictorConfig:
@@ -349,14 +334,13 @@ class PredictionService:
         model_path: str
         predictor_type: str
         predictor_class: type[PredictorInterface]
-        runner_method: Callable
-        model_conf: dict
+        runner_method: Callable[..., Any]
+        model_conf: dict[str, Any]
         is_critical: bool
 
     def _initialize_single_predictor(
         self,
-        config: _PredictorConfig,
-    ) -> None:
+        config: _PredictorConfig) -> None:
         """Initialize a single predictor instance.
 
         Args:
@@ -366,8 +350,7 @@ class PredictionService:
         predictor_instance = config.predictor_class(
             model_path=config.model_path,
             model_id=config.model_id,
-            config=config.model_conf,
-        )
+            config=config.model_conf)
         self._predictors[config.model_id] = predictor_instance
         self._predictor_runners[config.model_id] = config.runner_method
 
@@ -386,14 +369,12 @@ class PredictionService:
                 "model_path": config.model_path,
                 "is_critical": config.is_critical,
                 "scaler_path": config.model_conf.get("scaler_path", "None"),
-            },
-        )
+            })
 
     def _validate_critical_models_loaded(
         self,
         loaded_critical_models: int,
-        total_critical_models: int,
-    ) -> None:
+        total_critical_models: int) -> None:
         """Validate that all critical models were loaded successfully."""
         if total_critical_models > 0 and loaded_critical_models < total_critical_models:
             # Calculate how many models failed to load, but don't need to store in variable
@@ -407,8 +388,7 @@ class PredictionService:
                     "loaded": loaded_critical_models,
                     "total": total_critical_models,
                     "error": "Critical model initialization failed",
-                },
-            )
+                })
             raise CriticalModelError(CriticalModelError.load_failed)
 
     async def start(self) -> None:
@@ -419,8 +399,7 @@ class PredictionService:
         if self._is_running:
             self.logger.warning(
                 "PredictionService already running.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return
 
         # Critical model check: _initialize_predictors raises RuntimeError if critical models fail
@@ -436,8 +415,7 @@ class PredictionService:
             self.logger.critical(
                 "PredictionService cannot start: Critical models failed initialization. "
                 "Check logs.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise CriticalModelError(CriticalModelError.init_failed)
         if not self._predictors:
             self.logger.info("PredictionService starting with no valid predictors initialized.")
@@ -456,31 +434,26 @@ class PredictionService:
                 # Check if configuration_manager is available because it's optional in __init__
                 self.pubsub.subscribe(
                     EventType.PREDICTION_CONFIG_UPDATED,
-                    self._config_update_handler,
-                )
+                    self._config_update_handler)
                 self.logger.info(
                     "Subscribed to %(event_type)s for dynamic model reloading.",
                     source_module=self._source_module,
-                    context={"event_type": EventType.PREDICTION_CONFIG_UPDATED.name},
-                )
+                    context={"event_type": EventType.PREDICTION_CONFIG_UPDATED.name})
             elif self.configuration_manager is None:
                 self.logger.info(
                     "ConfigurationManager not provided; dynamic model reloading via events "
                     "will be disabled.",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
 
         except Exception:
             self.logger.exception(
                 "Error during pubsub subscription in start()",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             self._is_running = False  # Don't consider service started if subscriptions fail
             raise  # Re-raise to signal failure to start properly
 
         loaded_count = len(
-            [p for p in self._predictors.values() if getattr(p, "is_critical", False)],
-        )
+            [p for p in self._predictors.values() if getattr(p, "is_critical", False)])
         total_critical = sum(
             1 for p in self._predictors.values() if getattr(p, "is_critical", False)
         )
@@ -491,8 +464,7 @@ class PredictionService:
                 "models_loaded": len(self._predictors),
                 "loaded_count": loaded_count,
                 "total_critical": total_critical,
-            },
-        )
+            })
         for model_id, predictor in self._predictors.items():
             predictor_type = type(predictor).__name__
             expected_features = predictor.expected_feature_names
@@ -504,22 +476,19 @@ class PredictionService:
             self.logger.info(
                 "Initialized predictor for model_id: %(model_id)s, type: %(predictor_type)s",
                 source_module=self._source_module,
-                context=context,
-            )
+                context=context)
 
     async def stop(self) -> None:
         """Stop event processing and cancel pending inferences with graceful shutdown."""
         if not self._is_running:
             self.logger.info(
                 "PredictionService already stopped or not started.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return
 
         self.logger.info(
             "Initiating graceful shutdown of PredictionService...",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
         # Set shutdown flag to prevent new tasks
         self._shutting_down.set()
@@ -531,14 +500,12 @@ class PredictionService:
             self.logger.info(
                 "Unsubscribed from %(event_type)s.",
                 source_module=self._source_module,
-                context={"event_type": EventType.FEATURES_CALCULATED.name},
-            )
+                context={"event_type": EventType.FEATURES_CALCULATED.name})
         except Exception:
             self.logger.exception(
                 "Error unsubscribing from %(event_type)s",
                 source_module=self._source_module,
-                context={"event_type": EventType.FEATURES_CALCULATED.name},
-            )
+                context={"event_type": EventType.FEATURES_CALCULATED.name})
 
         # Unsubscribe from PREDICTION_CONFIG_UPDATED
         if (
@@ -548,53 +515,46 @@ class PredictionService:
             try:
                 self.pubsub.unsubscribe(
                     EventType.PREDICTION_CONFIG_UPDATED,
-                    self._config_update_handler,
-                )
+                    self._config_update_handler)
                 self.logger.info(
                     "Unsubscribed from %(event_type)s.",
                     source_module=self._source_module,
-                    context={"event_type": EventType.PREDICTION_CONFIG_UPDATED.name},
-                )
+                    context={"event_type": EventType.PREDICTION_CONFIG_UPDATED.name})
             except Exception:
                 self.logger.exception(
                     "Error unsubscribing from %(event_type)s",
                     source_module=self._source_module,
-                    context={"event_type": EventType.PREDICTION_CONFIG_UPDATED.name},
-                )
+                    context={"event_type": EventType.PREDICTION_CONFIG_UPDATED.name})
 
         # Handle in-flight tasks gracefully
         await self._graceful_shutdown_tasks()
 
         self.logger.info(
             "PredictionService stopped.",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     async def _graceful_shutdown_tasks(self) -> None:
         """Gracefully shutdown in-flight prediction tasks."""
         # Get all active tasks
-        all_tasks = list(self._active_inference_tasks) + list(self._in_flight_tasks.values())
+        all_tasks = list[Any](self._active_inference_tasks) + list[Any](self._in_flight_tasks.values())
 
         if not all_tasks:
             self.logger.info(
                 "No in-flight prediction tasks to wait for.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return
 
         self.logger.info(
             "Waiting for %(task_count)s in-flight prediction tasks to complete...",
             source_module=self._source_module,
-            context={"task_count": len(all_tasks)},
-        )
+            context={"task_count": len(all_tasks)})
 
         # Wait for tasks to complete with timeout
         try:
             done, pending = await asyncio.wait(
                 all_tasks,
                 timeout=self._shutdown_timeout,
-                return_when=asyncio.ALL_COMPLETED,
-            )
+                return_when=asyncio.ALL_COMPLETED)
 
             # Handle completed tasks
             for task in done:
@@ -603,22 +563,19 @@ class PredictionService:
                 except asyncio.CancelledError:
                     self.logger.debug(
                         "Prediction task was cancelled during shutdown",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                 except Exception as e:
                     self.logger.error(
                         "Prediction task failed during shutdown: %(error)s",
                         source_module=self._source_module,
-                        context={"error": str(e)},
-                    )
+                        context={"error": str(e)})
 
             # Cancel any remaining tasks
             if pending:
                 self.logger.warning(
                     "Cancelling %(pending_count)s prediction tasks that didn't complete in time",
                     source_module=self._source_module,
-                    context={"pending_count": len(pending)},
-                )
+                    context={"pending_count": len(pending)})
                 for task in pending:
                     task.cancel()
 
@@ -628,8 +585,7 @@ class PredictionService:
         except Exception:
             self.logger.exception(
                 "Error during graceful shutdown of prediction tasks",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
         # Clear tracking sets
         self._active_inference_tasks.clear()
@@ -637,15 +593,13 @@ class PredictionService:
 
         self.logger.info(
             "Prediction task shutdown complete",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
 
     def _apply_confidence_floor(
         self,
         predictions: list[dict[str, Any]],
         confidence_floor: float,
-        target: str | None = None,
-    ) -> list[dict[str, Any]]:
+        target: str | None = None) -> list[dict[str, Any]]:
         """Apply confidence floor filtering to predictions.
         
         Args:
@@ -654,7 +608,7 @@ class PredictionService:
             target: Optional target name for logging context
             
         Returns:
-            Filtered list of predictions that meet the confidence floor
+            Filtered list[Any] of predictions that meet the confidence floor
         """
         if confidence_floor <= 0.0:
             return predictions  # No filtering needed
@@ -674,8 +628,7 @@ class PredictionService:
                     context={
                         "model_id": model_id,
                         "target_context": target_context,
-                    },
-                )
+                    })
                 passed_predictions.append(prediction)
                 continue
 
@@ -690,8 +643,7 @@ class PredictionService:
                         "target_context": target_context,
                         "confidence": model_confidence,
                         "floor": confidence_floor,
-                    },
-                )
+                    })
 
         return passed_predictions
 
@@ -739,24 +691,21 @@ class PredictionService:
             self.logger.warning(
                 log_msg,
                 source_module=self._source_module,
-                context={"event_type": event_type},
-            )
+                context={"event_type": event_type})
             return
 
         if self._process_pool_executor is None:
             self.logger.error(
                 "ProcessPoolExecutor not available. Cannot run predictions.",
                 source_module=self._source_module,
-                context={"executor_status": "unavailable"},
-            )
+                context={"executor_status": "unavailable"})
             return
 
         if not self._is_running:
             self.logger.warning(
                 "PredictionService is not running. Ignoring feature event.",
                 source_module=self._source_module,
-                context={"service_status": "not_running"},
-            )
+                context={"service_status": "not_running"})
             return
 
         # Update LSTM buffers first
@@ -773,8 +722,7 @@ class PredictionService:
                 self.logger.warning(
                     log_msg,
                     source_module=self._source_module,
-                    context={"model_id": model_id},
-                )
+                    context={"model_id": model_id})
                 continue
 
             # Prepare the 1D feature vector for this specific LSTM model
@@ -792,8 +740,7 @@ class PredictionService:
                         "model_id": model_id,
                         "buffer_size": len(buffer),
                         "maxlen": buffer.maxlen,
-                    },
-                )
+                    })
             else:
                 log_msg = (
                     f"Could not prepare feature vector for LSTM {model_id} "
@@ -805,8 +752,7 @@ class PredictionService:
                     context={
                         "model_id": model_id,
                         "event_id": event.event_id,
-                    },
-                )
+                    })
 
         # Now check which models are ready for prediction and trigger pipeline
         await self._trigger_predictions_if_ready(event)
@@ -823,26 +769,23 @@ class PredictionService:
         for model_id, predictor_instance in self._predictors.items():
             model_config = next(
                 (mc for mc in self._model_configs if mc.get("model_id") == model_id),
-                None,
-            )
+                None)
             if not model_config:
                 continue
 
             predictor_type = model_config.get("predictor_type")
-            feature_input_for_model: np.ndarray | None = None
+            feature_input_for_model: np.ndarray[Any, Any] | None = None
 
             if predictor_type == "lstm" and model_id in self._lstm_feature_buffers:
                 buffer = self._lstm_feature_buffers[model_id]
                 if len(buffer) == buffer.maxlen:  # Buffer is full, ready for sequence prediction
                     feature_input_for_model = np.array(
-                        list(buffer),
-                    )  # Shape: (sequence_length, n_features_per_timestep)
+                        list[Any](buffer))  # Shape: (sequence_length, n_features_per_timestep)
                     log_msg = f"LSTM model {model_id} buffer full. Preparing sequence."
                     self.logger.debug(
                         log_msg,
                         source_module=self._source_module,
-                        context={"model_id": model_id},
-                    )
+                        context={"model_id": model_id})
                 else:
                     log_msg = (
                         f"LSTM model {model_id} buffer not full ({len(buffer)}/{buffer.maxlen}). "
@@ -855,8 +798,7 @@ class PredictionService:
                             "model_id": model_id,
                             "current_size": len(buffer),
                             "max_size": buffer.maxlen,
-                        },
-                    )
+                        })
                     continue  # Not ready yet
             else:  # Non-LSTM model or LSTM with sequence_length=1 (handled by _prepare_features)
                 expected_features = predictor_instance.expected_feature_names
@@ -865,13 +807,11 @@ class PredictionService:
                     self.logger.warning(
                         log_msg,
                         source_module=self._source_module,
-                        context={"model_id": model_id},
-                    )
+                        context={"model_id": model_id})
                     continue
                 feature_input_for_model = self._prepare_features_for_model(
                     event.features,
-                    expected_features,
-                )
+                    expected_features)
 
             if feature_input_for_model is not None:
                 ready_models_info.append(
@@ -880,8 +820,7 @@ class PredictionService:
                         "model_config": model_config,  # Pass full config for the runner
                         "feature_input": feature_input_for_model,
                         "runner_func": self._predictor_runners[model_id],
-                    },
-                )
+                    })
             # Log if feature prep failed for a non-LSTM that should have run
             elif not (predictor_type == "lstm" and model_id in self._lstm_feature_buffers):
                 log_msg = (
@@ -894,8 +833,7 @@ class PredictionService:
                     context={
                         "model_id": model_id,
                         "event_id": event.event_id,
-                    },
-                )
+                    })
 
         if ready_models_info:
             log_msg = (
@@ -908,12 +846,10 @@ class PredictionService:
                 context={
                     "models_count": len(ready_models_info),
                     "event_id": event.event_id,
-                },
-            )
+                })
             # Store task reference to prevent it from being garbage collected
             task = asyncio.create_task(
-                self._run_multi_model_prediction_pipeline(event, ready_models_info),
-            )
+                self._run_multi_model_prediction_pipeline(event, ready_models_info))
             # Add a callback to log any exceptions that might occur in the task
             task.add_done_callback(
                 lambda t: t.exception() or True,  # Logs the exception if one occurred
@@ -923,14 +859,12 @@ class PredictionService:
             self.logger.debug(
                 log_msg,
                 source_module=self._source_module,
-                context={"event_id": event.event_id},
-            )
+                context={"event_id": event.event_id})
 
     async def _run_multi_model_prediction_pipeline(
         self,
         event: FeatureEvent,
-        ready_models_data: list[dict[str, Any]],
-    ) -> None:
+        ready_models_data: list[dict[str, Any]]) -> None:
         """Orchestrate inference for models that are ready and publish prediction events.
 
         Applies ensembling strategy if configured.
@@ -949,8 +883,7 @@ class PredictionService:
         successful_predictions = self._process_inference_results(
             event,
             inference_results["model_ids"],
-            inference_results["results"],
-        )
+            inference_results["results"])
 
         # Apply ensembling if needed and publish results
         await self._apply_ensembling_and_publish(event, successful_predictions)
@@ -958,11 +891,10 @@ class PredictionService:
     async def _submit_inference_tasks(
         self,
         event: FeatureEvent,
-        ready_models_data: list[dict[str, Any]],
-    ) -> dict[str, Any] | None:
+        ready_models_data: list[dict[str, Any]]) -> dict[str, Any] | None:
         """Submit inference tasks for all ready models."""
         loop = asyncio.get_running_loop()
-        inference_futures_dict: dict[str, asyncio.Future] = {}
+        inference_futures_dict: dict[str, asyncio.Future[Any]] = {}
 
         for model_data in ready_models_data:
             model_id = model_data["model_id"]
@@ -978,10 +910,9 @@ class PredictionService:
                 context={
                     "model_id": model_id,
                     "event_id": str(event.event_id),
-                },
-            )
+                })
 
-            future: asyncio.Future = loop.run_in_executor(
+            future: asyncio.Future[Any] = loop.run_in_executor(
                 self._process_pool_executor,
                 runner_func,
                 model_id,
@@ -989,8 +920,7 @@ class PredictionService:
                 model_config.get("scaler_path"),
                 feature_input,
                 expected_features,
-                model_config,
-            )
+                model_config)
             self._active_inference_tasks.add(future)
             future.add_done_callback(lambda f: self._active_inference_tasks.discard(f))
             inference_futures_dict[model_id] = future
@@ -1000,11 +930,10 @@ class PredictionService:
             self.logger.info(
                 log_msg,
                 source_module=self._source_module,
-                context={"event_id": str(event.event_id)},
-            )
+                context={"event_id": str(event.event_id)})
             return None
 
-        futures_to_await = list(inference_futures_dict.values())
+        futures_to_await = list[Any](inference_futures_dict.values())
         log_msg = f"Awaiting {len(futures_to_await)} inference results for event {event.event_id}."
         self.logger.debug(
             log_msg,
@@ -1012,8 +941,7 @@ class PredictionService:
             context={
                 "event_id": str(event.event_id),
                 "num_futures": len(futures_to_await),
-            },
-        )
+            })
 
         results = await asyncio.gather(*futures_to_await, return_exceptions=True)
         log_msg = (
@@ -1025,11 +953,10 @@ class PredictionService:
             context={
                 "event_id": str(event.event_id),
                 "result_count": len(results),
-            },
-        )
+            })
 
         return {
-            "model_ids": list(inference_futures_dict.keys()),
+            "model_ids": list[Any](inference_futures_dict.keys()),
             "results": results,
         }
 
@@ -1037,8 +964,7 @@ class PredictionService:
         self,
         event: FeatureEvent,
         model_ids: list[str],
-        results: list[Any],
-    ) -> list[dict[str, Any]]:
+        results: list[Any]) -> list[dict[str, Any]]:
         """Process inference results and return successful predictions."""
         successful_predictions: list[dict[str, Any]] = []
 
@@ -1054,8 +980,7 @@ class PredictionService:
                     log_msg,
                     source_module=self._source_module,
                     context={"model_id": model_id},
-                    exc_info=result_or_exc,
-                )
+                    exc_info=result_or_exc)
                 continue
 
             result: dict[str, Any] = result_or_exc
@@ -1071,8 +996,7 @@ class PredictionService:
                         "expected_model_id": model_id,
                         "actual_model_id": result.get("model_id"),
                         "event_id": str(event.event_id),
-                    },
-                )
+                    })
 
             if "error" in result:
                 log_msg = (
@@ -1086,13 +1010,11 @@ class PredictionService:
                         "model_id": model_id,
                         "event_id": str(event.event_id),
                         "error": str(result["error"]),
-                    },
-                )
+                    })
             elif "prediction" in result:
                 model_config = next(
                     (mc for mc in self._model_configs if mc.get("model_id") == model_id),
-                    None,
-                )
+                    None)
                 if model_config:
                     successful_predictions.append(
                         {
@@ -1100,12 +1022,10 @@ class PredictionService:
                             "prediction_value": result["prediction"],
                             "prediction_target": model_config.get(
                                 "prediction_target",
-                                "unknown_target",
-                            ),
+                                "unknown_target"),
                             "confidence": result.get("confidence"),
                             "config": model_config,
-                        },
-                    )
+                        })
                 else:
                     log_msg = (
                         f"Could not find config for successfully predicted model_id {model_id}. "
@@ -1114,8 +1034,7 @@ class PredictionService:
                     self.logger.error(
                         log_msg,
                         source_module=self._source_module,
-                        context={"model_id": model_id},
-                    )
+                        context={"model_id": model_id})
             else:
                 log_msg = (
                     f"Invalid inference result format for model {model_id} "
@@ -1128,16 +1047,14 @@ class PredictionService:
                         "model_id": model_id,
                         "event_id": str(event.event_id),
                         "result": str(result),
-                    },
-                )
+                    })
 
         return successful_predictions
 
     async def _apply_ensembling_and_publish(
         self,
         event: FeatureEvent,
-        successful_predictions: list[dict[str, Any]],
-    ) -> None:
+        successful_predictions: list[dict[str, Any]]) -> None:
         """Apply ensembling strategy and publish final predictions."""
         ensemble_strategy = self._service_config.get("ensemble_strategy", "none").lower()
         ensemble_weights = self._service_config.get("ensemble_weights", {})
@@ -1157,8 +1074,7 @@ class PredictionService:
             global_confidence_floor = self._get_confidence_floor_for_target("global")
             final_predictions_to_publish = self._apply_confidence_floor(
                 successful_predictions,
-                global_confidence_floor,
-            )
+                global_confidence_floor)
         else:
             # Apply ensembling for each target group
             for target, preds_for_target in predictions_by_target.items():
@@ -1170,15 +1086,13 @@ class PredictionService:
                 filtered_preds = self._apply_confidence_floor(
                     preds_for_target,
                     target_confidence_floor,
-                    target,
-                )
+                    target)
 
                 if not filtered_preds:
                     self.logger.info(
                         "No predictions for target %(target)s met confidence floor for ensembling. No ensemble prediction will be generated.",
                         source_module=self._source_module,
-                        context={"target": target},
-                    )
+                        context={"target": target})
                     continue
 
                 target_cleaned = target.replace("_", "")[:15]
@@ -1189,16 +1103,14 @@ class PredictionService:
                         filtered_preds,
                         target,
                         ensemble_id,
-                        final_predictions_to_publish,
-                    )
+                        final_predictions_to_publish)
                 elif ensemble_strategy == "weighted_average":
                     self._apply_weighted_average_ensembling(
                         filtered_preds,
                         target,
                         ensemble_id,
                         ensemble_weights,
-                        final_predictions_to_publish,
-                    )
+                        final_predictions_to_publish)
                 # Add other ensembling strategies here as needed
 
         # Publish all final predictions
@@ -1224,8 +1136,7 @@ class PredictionService:
                         "source_feature_event_id": str(event.event_id),
                         "ensemble_strategy_used": ensemble_strategy,
                     },
-                },
-            )
+                })
             # Await the async _publish_prediction method
             await self._publish_prediction(prediction_event)
 
@@ -1234,8 +1145,7 @@ class PredictionService:
         predictions: list[dict[str, Any]],
         target: str,
         ensemble_id: str,
-        output: list[dict[str, Any]],
-    ) -> None:
+        output: list[dict[str, Any]]) -> None:
         """Apply average ensembling to predictions."""
         if not predictions:
             return
@@ -1257,8 +1167,7 @@ class PredictionService:
                 "prediction_target": target,
                 "confidence": avg_confidence,
                 "config": {"model_id": ensemble_id, "prediction_target": target},
-            },
-        )
+            })
 
     def _apply_weighted_average_ensembling(
         self,
@@ -1266,8 +1175,7 @@ class PredictionService:
         target: str,
         ensemble_id: str,
         weights: dict[str, float],
-        output: list[dict[str, Any]],
-    ) -> None:
+        output: list[dict[str, Any]]) -> None:
         """Apply weighted average ensembling to predictions.
 
         Args:
@@ -1291,8 +1199,7 @@ class PredictionService:
             self.logger.warning(
                 log_msg,
                 source_module=self._source_module,
-                context=context,
-            )
+                context=context)
             return
 
         weighted_sum = 0.0
@@ -1322,20 +1229,18 @@ class PredictionService:
                     "prediction_target": target,
                     "confidence": avg_confidence,
                     "config": {"model_id": ensemble_id, "prediction_target": target},
-                },
-            )
+                })
 
     def _prepare_features_for_model(
         self,
         event_features: dict[str, float],
-        expected_model_features: list[str],
-    ) -> np.ndarray | None:
+        expected_model_features: list[str]) -> np.ndarray[Any, Any] | None:
         """Converts a feature dictionary from a `FeatureEvent` into a 1D numpy array.
 
         The input `event_features` is expected to be a dictionary mapping feature names
         to their float values, as produced by `PublishedFeaturesV1.model_dump()` in the
         `FeatureEngine`. This method aligns these features with the
-        `expected_model_features` list provided by a specific predictor.
+        `expected_model_features` list[Any] provided by a specific predictor.
 
         Features are already scaled by `FeatureEngine`; this method focuses on ordering
         and handling any missing features (which should be rare if configurations
@@ -1345,11 +1250,11 @@ class PredictionService:
             event_features: A dictionary where keys are feature names (strings) and
                             values are their corresponding float values. This comes from
                             the `features` payload of a `FeatureEvent`.
-            expected_model_features: A list of strings defining the order of feature
+            expected_model_features: A list[Any] of strings defining the order of feature
                                      names that the target model expects.
 
         Returns:
-            A 1D `np.ndarray` of float32 type containing the feature values in the
+            A 1D `np.ndarray[Any, Any]` of float32 type containing the feature values in the
             order specified by `expected_model_features`. Missing or NaN values are
             replaced with imputed defaults using `_impute_feature_value`. Returns
             `None` if no features could be processed or if all processed features
@@ -1357,8 +1262,8 @@ class PredictionService:
         """
         ordered_feature_values: list[float] = []
         missing_features_log: list[str] = []
-        # Type errors are less likely now as Pydantic handles validation in FeatureEngine
-        # but keeping the log list in case of unexpected issues or if event_features bypasses Pydantic.
+        # Type[Any] errors are less likely now as Pydantic handles validation in FeatureEngine
+        # but keeping the log list[Any] in case of unexpected issues or if event_features bypasses Pydantic.
         type_errors_log: list[str] = []
 
         for feature_name in expected_model_features:
@@ -1372,8 +1277,7 @@ class PredictionService:
                 self.logger.debug(
                     "Imputed missing feature '%s' with value %.4f",
                     feature_name,
-                    imputed_value,
-                )
+                    imputed_value)
                 continue
 
             # Check for NaN explicitly, as Pydantic allows NaN for float if not otherwise restricted
@@ -1383,8 +1287,7 @@ class PredictionService:
                 self.logger.debug(
                     "Feature '%s' had NaN value. Imputed with %.4f",
                     feature_name,
-                    imputed_value,
-                )
+                    imputed_value)
                 ordered_feature_values.append(imputed_value)
                 continue
 
@@ -1410,14 +1313,13 @@ class PredictionService:
                 "type_errors": type_errors_log,
                 "expected_features": expected_model_features,
             }
-            log_msg = "Type conversion errors: {}".format(", ".join(type_errors_log))
+            log_msg = "Type[Any] conversion errors: {}".format(", ".join(type_errors_log))
             self.logger.warning(log_msg, source_module=self._source_module, context=context)
 
         if not ordered_feature_values:  # Should not happen if expected_model_features is not empty
             self.logger.error(
                 "No feature values were processed. This is unexpected.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return None
 
         feature_array = np.array(ordered_feature_values, dtype=np.float32)
@@ -1427,8 +1329,7 @@ class PredictionService:
             self.logger.error(
                 "All features resulted in NaN for model. Cannot make prediction.",
                 source_module=self._source_module,
-                context={"expected_features": expected_model_features},
-            )
+                context={"expected_features": expected_model_features})
             return None
 
         return feature_array  # Returns a 1D array
@@ -1478,8 +1379,7 @@ class PredictionService:
     # --- Dynamic Model Reloading ---
     async def _handle_prediction_config_updated_event(
         self,
-        event: PredictionConfigUpdatedEvent,
-    ) -> None:
+        event: PredictionConfigUpdatedEvent) -> None:
         """Handle prediction service configuration update event.
 
         Re-initializes predictors based on the new configuration from the event payload.
@@ -1488,8 +1388,7 @@ class PredictionService:
             self.logger.warning(
                 "Received incorrect event type for config update: %s. "
                 "Expected PredictionConfigUpdatedEvent.",
-                type(event),
-            )
+                type(event))
             return
 
         # Get new config from well-typed event
@@ -1497,14 +1396,12 @@ class PredictionService:
         if not isinstance(new_service_config, dict):
             self.logger.error(
                 "Invalid payload in PredictionConfigUpdatedEvent: "
-                "new_prediction_service_config is not a dict. Type: %s",
-                type(new_service_config),
-            )
+                "new_prediction_service_config is not a dict[str, Any]. Type: %s",
+                type(new_service_config))
             return
 
         self.logger.info(
-            "Prediction_service configuration update event received. Re-initializing predictors.",
-        )
+            "Prediction_service configuration update event received. Re-initializing predictors.")
 
         # Store the new service-specific config part
         self._service_config = new_service_config
@@ -1513,8 +1410,7 @@ class PredictionService:
         if not self._model_configs:
             self.logger.warning(
                 "No models found in new configuration during re-initialization. "
-                "Service may become inactive if all models are removed.",
-            )
+                "Service may become inactive if all models are removed.")
 
         # Enhanced handling of in-flight tasks during reconfiguration
         await self._handle_reconfiguration_with_in_flight_tasks()
@@ -1525,15 +1421,13 @@ class PredictionService:
             self._initialize_predictors()
             self.logger.info(
                 "Predictors re-initialized successfully based on new configuration.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             # Log new state
             log_msg = f"PredictionService reconfigured. {len(self._predictors)} models now active."
             self.logger.info(
                 log_msg,
                 source_module=self._source_module,
-                context={"active_models": len(self._predictors)},
-            )
+                context={"active_models": len(self._predictors)})
             for model_id, predictor in self._predictors.items():
                 log_msg = f"Active Model ID: {model_id}, Type: {type(predictor).__name__}"
                 self.logger.info(
@@ -1543,8 +1437,7 @@ class PredictionService:
                         "model_id": model_id,
                         "predictor_type": type(predictor).__name__,
                         "expected_features": predictor.expected_feature_names,
-                    },
-                )
+                    })
         except RuntimeError as e_crit:
             error_msg_template = (
                 "CRITICAL: Failed to re-initialize predictors with new config due to: {}. "
@@ -1554,8 +1447,7 @@ class PredictionService:
             self.logger.critical(
                 log_msg,
                 source_module=self._source_module,
-                context={"error": str(e_crit)},
-            )
+                context={"error": str(e_crit)})
             # If this happens, the service is likely in a bad state regarding its predictors.
             # Depending on overall application design, might need to signal a broader system issue.
         except Exception as e:
@@ -1564,12 +1456,11 @@ class PredictionService:
                 log_msg,
                 source_module=self._source_module,
                 context={"error": str(e)},
-                exc_info=True,
-            )
+                exc_info=True)
 
     async def _handle_reconfiguration_with_in_flight_tasks(self) -> None:
         """Handle in-flight tasks during reconfiguration more gracefully."""
-        current_tasks = list(self._active_inference_tasks) + list(self._in_flight_tasks.values())
+        current_tasks = list[Any](self._active_inference_tasks) + list[Any](self._in_flight_tasks.values())
 
         if not current_tasks:
             return
@@ -1577,8 +1468,7 @@ class PredictionService:
         self.logger.info(
             "Waiting for %(task_count)s in-flight tasks to complete before reconfiguration...",
             source_module=self._source_module,
-            context={"task_count": len(current_tasks)},
-        )
+            context={"task_count": len(current_tasks)})
 
         # Give current tasks a shorter timeout during reconfiguration
         reconfig_timeout = min(self._shutdown_timeout, 10.0)  # Max 10 seconds
@@ -1587,15 +1477,13 @@ class PredictionService:
             done, pending = await asyncio.wait(
                 current_tasks,
                 timeout=reconfig_timeout,
-                return_when=asyncio.ALL_COMPLETED,
-            )
+                return_when=asyncio.ALL_COMPLETED)
 
             if pending:
                 self.logger.warning(
                     "Cancelling %(pending_count)s tasks that didn't complete before reconfiguration",
                     source_module=self._source_module,
-                    context={"pending_count": len(pending)},
-                )
+                    context={"pending_count": len(pending)})
                 for task in pending:
                     task.cancel()
 
@@ -1605,8 +1493,7 @@ class PredictionService:
         except Exception:
             self.logger.exception(
                 "Error handling in-flight tasks during reconfiguration",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     async def _create_prediction_task(self, task_coro: Any, task_name: str = "") -> str:
         """Create a new prediction task with proper tracking.
@@ -1616,7 +1503,7 @@ class PredictionService:
             task_name: Optional name for the task
             
         Returns:
-            Task ID for tracking
+            Task[Any] ID for tracking
             
         Raises:
             RuntimeError: If service is shutting down
@@ -1648,7 +1535,7 @@ class PredictionService:
         Args:
             symbol: Trading symbol to train the model for
             training_data: DataFrame with OHLCV market data
-            model_type: Type of ML model to train
+            model_type: Type[Any] of ML model to train
             hyperparameters: Optional hyperparameters for the model
             
         Returns:

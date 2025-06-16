@@ -17,16 +17,13 @@ class Order(Base):
     __tablename__ = "orders"
 
     id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
-    )
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
     # Assuming trade_signals table will have a TradeSignal model and 'id' as primary key
     signal_id: Mapped[UUID] = mapped_column(
-        ForeignKey("trade_signals.id"), nullable=False, index=True,
-    )
+        ForeignKey("trade_signals.id"), nullable=False, index=True)
     # Foreign key to positions table - nullable since orders may not immediately affect positions
     position_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("positions.id"), nullable=True, index=True,
-    )
+        ForeignKey("positions.id"), nullable=True, index=True)
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)
     exchange: Mapped[str] = mapped_column(String(50), nullable=False)
     side: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -36,18 +33,14 @@ class Order(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     exchange_order_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     filled_quantity: Mapped[Decimal | None] = mapped_column(
-        Numeric(20, 8), server_default="0",
-    )
+        Numeric(20, 8), server_default="0")
     average_fill_price: Mapped[Decimal | None] = mapped_column(
-        Numeric(20, 8), nullable=True,
-    )
+        Numeric(20, 8), nullable=True)
     commission: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.current_timestamp(), index=True,
-    )
+        DateTime, nullable=False, server_default=func.current_timestamp(), index=True)
     updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True, onupdate=func.current_timestamp(),
-    )
+        DateTime, nullable=True, onupdate=func.current_timestamp())
 
     # Relationship to TradeSignal (assuming TradeSignal model will be defined)
     signal = relationship("TradeSignal", back_populates="orders")
@@ -59,8 +52,7 @@ class Order(Base):
         Index("idx_orders_signal_id", "signal_id"),
         Index("idx_orders_position_id", "position_id"),
         Index("idx_orders_status", "status"),
-        Index("idx_orders_created_at", "created_at"),
-    )
+        Index("idx_orders_created_at", "created_at"))
 
     def __repr__(self) -> str:
         return (

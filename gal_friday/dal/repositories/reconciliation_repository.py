@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from gal_friday.dal.base import BaseRepository
 from gal_friday.dal.models.position_adjustment import PositionAdjustment
 from gal_friday.dal.models.reconciliation_event import ReconciliationEvent
+from typing import Any
 
 # ReconciliationReport and ReconciliationStatus would now likely be service-layer or domain models, not directly handled by repo.
 
@@ -26,7 +27,7 @@ class ReconciliationValidationError(Exception):
     """Custom exception for reconciliation data validation errors."""
     
     def __init__(self, message: str, field_path: str | None = None, 
-                 validation_errors: dict[str, Any] | None = None):
+                 validation_errors: dict[str, Any] | None = None) -> None:
         """Initialize reconciliation validation error.
         
         Args:
@@ -83,7 +84,7 @@ class ReconciliationEventSchema(BaseModel):
         description="When the reconciliation event occurred"
     )
     reconciliation_type: ReconciliationType = Field(
-        description="Type of reconciliation being performed"
+        description="Type[Any] of reconciliation being performed"
     )
     status: ReconciliationStatus = Field(
         description="Current status of the reconciliation"
@@ -183,7 +184,7 @@ class PositionAdjustmentSchema(BaseModel):
         description="Trading pair symbol (e.g., BTC/USD)"
     )
     adjustment_type: AdjustmentType = Field(
-        description="Type of position adjustment"
+        description="Type[Any] of position adjustment"
     )
     reason: str = Field(
         min_length=10,
@@ -226,7 +227,7 @@ class PositionAdjustmentSchema(BaseModel):
         description="Additional notes about the adjustment"
     )
     metadata: Dict[str, Any] = Field(
-        default_factory=dict,
+        default_factory=dict[str, Any],
         description="Additional metadata for the adjustment"
     )
     
@@ -269,8 +270,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
     """Repository for ReconciliationEvent data persistence using SQLAlchemy."""
 
     def __init__(
-        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService",
-    ) -> None:
+        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
         """Initialize the reconciliation repository.
 
         Args:
@@ -373,7 +373,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
         
         Args:
             operation: Operation performed (create, update, delete)
-            entity_type: Type of entity (reconciliation_event, position_adjustment)
+            entity_type: Type[Any] of entity (reconciliation_event, position_adjustment)
             entity_id: ID of the entity
             details: Additional details about the operation
         """
@@ -393,8 +393,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
         )
 
     async def save_reconciliation_event(
-        self, event_data: dict[str, Any],
-    ) -> ReconciliationEvent:
+        self, event_data: dict[str, Any]) -> ReconciliationEvent:
         """Saves a reconciliation event with comprehensive validation.
         
         Args:
@@ -411,7 +410,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
         validated_data = self._validate_reconciliation_data(event_data)
         
         try:
-            # Convert Pydantic model to dict for database creation
+            # Convert Pydantic model to dict[str, Any] for database creation
             db_data = validated_data.model_dump(exclude_none=True)
             
             # Create the reconciliation event
@@ -444,14 +443,12 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             raise ValueError(f"Database operation failed: {str(e)}") from e
 
     async def get_reconciliation_event(
-        self, reconciliation_id: uuid.UUID,
-    ) -> ReconciliationEvent | None:
+        self, reconciliation_id: uuid.UUID) -> ReconciliationEvent | None:
         """Get a specific reconciliation event by its ID."""
         return await self.get_by_id(reconciliation_id)
 
     async def get_recent_reconciliation_events(
-        self, days: int = 7, status: str | None = None,
-    ) -> Sequence[ReconciliationEvent]:
+        self, days: int = 7, status: str | None = None) -> Sequence[ReconciliationEvent]:
         """Get reconciliation events from the last N days, optionally filtered by status."""
         cutoff_date = datetime.now(UTC) - timedelta(days=days)
 
@@ -475,8 +472,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             return events
 
     async def save_position_adjustment(
-        self, adjustment_data: dict[str, Any],
-    ) -> PositionAdjustment:
+        self, adjustment_data: dict[str, Any]) -> PositionAdjustment:
         """Saves a position adjustment with comprehensive validation and audit trail.
         
         Args:
@@ -500,7 +496,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             )
         
         try:
-            # Convert Pydantic model to dict for database creation
+            # Convert Pydantic model to dict[str, Any] for database creation
             db_data = validated_data.model_dump(exclude_none=True)
             
             # Create PositionAdjustment instance
@@ -539,8 +535,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             raise ValueError(f"Database operation failed: {str(e)}") from e
 
     async def get_adjustments_for_event(
-        self, reconciliation_id: uuid.UUID,
-    ) -> Sequence[PositionAdjustment]:
+        self, reconciliation_id: uuid.UUID) -> Sequence[PositionAdjustment]:
         """Get all position adjustments for a specific reconciliation event."""
         async with self.session_maker() as session:
             stmt = (
@@ -554,8 +549,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             return adjustments
 
     async def get_adjustment_history(
-        self, trading_pair: str | None = None, days: int = 30,
-    ) -> Sequence[PositionAdjustment]:
+        self, trading_pair: str | None = None, days: int = 30) -> Sequence[PositionAdjustment]:
         """Get history of position adjustments, optionally filtered by trading_pair."""
         cutoff_date = datetime.now(UTC) - timedelta(days=days)
         

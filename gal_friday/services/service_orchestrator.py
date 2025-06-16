@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class ServiceProtocol(Protocol):
     """Protocol for services managed by :class:`ServiceOrchestrator`."""
 
-    async def initialize(self, *args, **kwargs) -> None:
+    async def initialize(self, *args: Any, **kwargs: Any) -> None:
         """Initialize the service with required dependencies."""
 
     async def start(self) -> None:
@@ -17,10 +17,10 @@ class ServiceProtocol(Protocol):
 class ServiceOrchestrator:
     """Manage initialization and startup for a collection of services."""
 
-    def __init__(self, services: Sequence[ServiceProtocol]):
-        self.services = list(services)
+    def __init__(self, services: Sequence[ServiceProtocol]) -> None:
+        self.services = list[Any](services)
 
-    async def initialize_all(self, *args, **kwargs) -> None:
+    async def initialize_all(self, *args: Any, **kwargs: Any) -> None:
         """Initialize all managed services in order."""
         for service in self.services:
             await service.initialize(*args, **kwargs)

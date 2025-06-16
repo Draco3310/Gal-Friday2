@@ -52,17 +52,17 @@ class ValidationError:
     expected_value: Optional[Any] = None
     remediation: Optional[str] = None
     documentation_url: Optional[str] = None
-    examples: List[Dict[str, Any]] = field(default_factory=list)
-    related_errors: List[str] = field(default_factory=list)
+    examples: List[Dict[str, Any]] = field(default_factory=list[Any])
+    related_errors: List[str] = field(default_factory=list[Any])
 
 
 @dataclass
 class ValidationResult:
     """Result of configuration validation."""
     is_valid: bool = False
-    errors: List[ValidationError] = field(default_factory=list)
-    warnings: List[ValidationError] = field(default_factory=list)
-    suggestions: List[ValidationError] = field(default_factory=list)
+    errors: List[ValidationError] = field(default_factory=list[Any])
+    warnings: List[ValidationError] = field(default_factory=list[Any])
+    suggestions: List[ValidationError] = field(default_factory=list[Any])
     validation_time: float = 0.0
     config_version: Optional[str] = None
     validator_version: str = "1.0.0"
@@ -107,7 +107,7 @@ class ConfigValidationError(ValueError):
 class ConfigurationGuidance:
     """Provides guidance for configuration validation errors."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.error_guidance = self._initialize_error_guidance()
         self.field_documentation = self._initialize_field_documentation()
     
@@ -240,7 +240,7 @@ class ConfigValidator:
         self.guidance = ConfigurationGuidance()
         
         # Validation statistics
-        self.validation_stats = {
+        self.validation_stats: Dict[str, Any] = {
             'total_validations': 0,
             'successful_validations': 0,
             'failed_validations': 0,
@@ -347,24 +347,20 @@ class ConfigValidator:
 
                 if final_key not in current:
                     self.warnings.append(
-                        f"URL not configured for '{key_path}', will use default: {default_url}",
-                    )
+                        f"URL not configured for '{key_path}', will use default: {default_url}")
                 else:
                     configured_url = current[final_key]
                     if not isinstance(configured_url, str):
                         self.errors.append(
-                            f"URL configuration '{key_path}' must be a string",
-                        )
+                            f"URL configuration '{key_path}' must be a string")
                     elif not self._is_valid_url(configured_url):
                         self.errors.append(
-                            f"Invalid URL format for '{key_path}': {configured_url}",
-                        )
+                            f"Invalid URL format for '{key_path}': {configured_url}")
 
             except KeyError:
                 self.warnings.append(
                     f"Section missing for URL configuration '{key_path}', "
-                    f"will use default: {default_url}",
-                )
+                    f"will use default: {default_url}")
 
     def _validate_sensitive_values(self) -> None:
         """Validate that sensitive values are properly handled."""
@@ -384,16 +380,14 @@ class ConfigValidator:
                         # REPLACED: Enhanced formal validation replaces placeholder warning
                         self.warnings.append(
                             f"[CV204] Placeholder credentials detected for '{key_path}'. "
-                            f"Replace with environment variable reference like ${{{key_path.upper().replace('.', '_')}}}",
-                        )
+                            f"Replace with environment variable reference like ${{{key_path.upper().replace('.', '_')}}}")
                     elif isinstance(value, str) and not value.startswith("${"):
                         # Check if it looks like a real secret vs environment variable reference
                         env_var = f"{key_path.upper().replace('.', '_')}"
                         if env_var not in os.environ:
                             self.warnings.append(
                                 f"[CV203] Sensitive value '{key_path}' appears to be hardcoded. "
-                                f"Move to environment variable ${env_var}",
-                            )
+                                f"Move to environment variable ${env_var}")
 
             except KeyError:
                 # Sensitive value not configured - this might be OK for some deployments
@@ -426,12 +420,10 @@ class ConfigValidator:
                         value = Decimal(str(limits[key]))
                         if value < 0:
                             self.errors.append(
-                                f"Risk parameter '{key}' cannot be negative: {value}",
-                            )
+                                f"Risk parameter '{key}' cannot be negative: {value}")
                         elif value > max_risk_percent:
                             self.warnings.append(
-                                f"Risk parameter '{key}' is very high: {value}%",
-                            )
+                                f"Risk parameter '{key}' is very high: {value}%")
                     except (ValueError, TypeError):
                         self.errors.append(f"Risk parameter '{key}' must be a valid number")
 
@@ -455,20 +447,18 @@ class ConfigValidator:
         if "pairs" in trading_config:
             pairs = trading_config["pairs"]
             if not isinstance(pairs, list):
-                self.errors.append("Trading pairs must be a list")
+                self.errors.append("Trading pairs must be a list[Any]")
             elif len(pairs) == 0:
                 self.errors.append("At least one trading pair must be configured")
             else:
                 for pair in pairs:
                     if not isinstance(pair, str):
                         self.errors.append(
-                            f"Trading pair must be a string: {pair}",
-                        )
+                            f"Trading pair must be a string: {pair}")
                     elif "/" not in pair:
                         self.errors.append(
                             f"Invalid trading pair format: {pair} "
-                            "(expected format: BASE/QUOTE)",
-                        )
+                            "(expected format: BASE/QUOTE)")
 
     def _validate_logging_configuration(self) -> None:
         """Validate logging configuration."""
@@ -492,8 +482,7 @@ class ConfigValidator:
                 if "YOUR_DB_PASSWORD" in conn_str:
                     self.warnings.append(
                         "Database connection string contains placeholder password. "
-                        "Update with actual credentials or use environment variables.",
-                    )
+                        "Update with actual credentials or use environment variables.")
 
     def _validate_prediction_service_config(self) -> None:
         """Validate prediction service configuration."""
@@ -508,14 +497,13 @@ class ConfigValidator:
             strategy = pred_config["ensemble_strategy"]
             if strategy not in valid_strategies:
                 self.errors.append(
-                    f"Invalid ensemble strategy: {strategy}. Must be one of {valid_strategies}",
-                )
+                    f"Invalid ensemble strategy: {strategy}. Must be one of {valid_strategies}")
 
         # Validate model configurations
         if "models" in pred_config:
             models = pred_config["models"]
             if not isinstance(models, list):
-                self.errors.append("Prediction service models must be a list")
+                self.errors.append("Prediction service models must be a list[Any]")
             else:
                 for i, model in enumerate(models):
                     self._validate_model_config(model, i)
@@ -535,21 +523,18 @@ class ConfigValidator:
             if pred_type not in valid_types:
                 self.errors.append(
                     f"Model {index}: Invalid predictor type '{pred_type}'. "
-                    f"Must be one of {valid_types}",
-                )
+                    f"Must be one of {valid_types}")
 
         # Validate LSTM-specific config
         if model.get("predictor_type") == "lstm":
             if "framework" not in model:
                 self.errors.append(
                     f"Model {index}: LSTM models must specify 'framework' "
-                    "(tensorflow or pytorch)",
-                )
+                    "(tensorflow or pytorch)")
             elif model["framework"] not in {"tensorflow", "pytorch"}:
                 self.errors.append(
                     f"Model {index}: Invalid LSTM framework '{model['framework']}'. "
-                    "Must be 'tensorflow' or 'pytorch'",
-                )
+                    "Must be 'tensorflow' or 'pytorch'")
 
             if "sequence_length" not in model:
                 self.errors.append(f"Model {index}: LSTM models must specify 'sequence_length'")
@@ -769,7 +754,7 @@ class ConfigValidator:
                     category=ValidationCategory.SCHEMA,
                     field_path="trading.pairs",
                     current_value=type(pairs).__name__,
-                    expected_value="list"
+                    expected_value="list[Any]"
                 )
                 result.errors.append(error)
             elif len(pairs) == 0:
@@ -778,7 +763,7 @@ class ConfigValidator:
                     severity=ValidationSeverity.ERROR,
                     category=ValidationCategory.SCHEMA,
                     field_path="trading.pairs",
-                    current_value="empty list",
+                    current_value="empty list[Any]",
                     expected_value="at least one trading pair"
                 )
                 result.errors.append(error)
@@ -932,7 +917,7 @@ class ConfigValidator:
     def _generate_json_report(self, result: ValidationResult) -> str:
         """Generate JSON format validation report."""
         
-        def error_to_dict(error: ValidationError) -> dict:
+        def error_to_dict(error: ValidationError) -> dict[str, Any]:
             return {
                 "code": error.code,
                 "severity": error.severity,

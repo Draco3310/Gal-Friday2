@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import numpy as np
 import pandas as pd
-import pandas_ta as ta  # For comparing results
+import pandas_ta as ta  # type: ignore[import-untyped]  # For comparing results
 import pytest
 
 from gal_friday.feature_engine import FeatureEngine

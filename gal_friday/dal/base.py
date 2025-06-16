@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 
 from sqlalchemy import asc, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from typing import Any
 
 if TYPE_CHECKING:
     from gal_friday.dal.models import Base  # Move import to TYPE_CHECKING block
@@ -62,14 +63,12 @@ class BaseRepository(Generic[T]):
                 await session.refresh(instance) # Refresh to get server-side defaults like ID, created_at
                 self.logger.debug(
                     f"Created new {self.model_class.__name__} with ID {getattr(instance, 'id', None)}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return cast("T", instance)
         except Exception as e: # Catch generic Exception for logging, re-raise specific if needed
             self.logger.exception(
                 f"Error creating in {self.model_class.__name__}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
 
     async def get_by_id(self, entity_id: Any) -> T | None:
@@ -90,19 +89,16 @@ class BaseRepository(Generic[T]):
                 if instance:
                     self.logger.debug(
                         f"Retrieved {self.model_class.__name__} with ID {entity_id}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                 else:
                     self.logger.debug(
                         f"{self.model_class.__name__} with ID {entity_id} not found",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                 return instance
         except Exception as e:
             self.logger.exception(
                 f"Error getting {self.model_class.__name__} by ID {entity_id}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
 
     async def update(self, entity_id: Any, updates: dict[str, Any]) -> T | None:
@@ -121,8 +117,7 @@ class BaseRepository(Generic[T]):
         if not updates:
             self.logger.warning(
                 f"Update called for {self.model_class.__name__} ID {entity_id} with no updates.",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return await self.get_by_id(entity_id) # Return current state if no updates
 
         try:
@@ -135,8 +130,7 @@ class BaseRepository(Generic[T]):
                         else:
                             self.logger.warning(
                                 f"Attempted to update non-existent attribute '{key}' on {self.model_class.__name__}",
-                                source_module=self._source_module,
-                            )
+                                source_module=self._source_module)
                     if hasattr(entity, "updated_at"):
                         entity.updated_at = datetime.now(UTC) # type: ignore
 
@@ -144,19 +138,16 @@ class BaseRepository(Generic[T]):
                     await session.refresh(entity)
                     self.logger.info(
                         f"Updated {self.model_class.__name__} with ID {entity_id}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return entity
                 self.logger.warning(
                     f"Attempted to update non-existent {self.model_class.__name__} with ID {entity_id}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return None
         except Exception as e:
             self.logger.exception(
                 f"Error updating {self.model_class.__name__} with ID {entity_id}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
 
     async def find_all(
@@ -192,8 +183,7 @@ class BaseRepository(Generic[T]):
                         else:
                             self.logger.warning(
                                 f"Filter key '{column_name}' not found on model {self.model_class.__name__}",
-                                source_module=self._source_module,
-                            )
+                                source_module=self._source_module)
                 if order_by:
                     parts = order_by.strip().split()
                     col_name = parts[0]
@@ -215,20 +205,17 @@ class BaseRepository(Generic[T]):
                 entities = result.scalars().all()
                 self.logger.debug(
                     f"Found {len(entities)} {self.model_class.__name__}(s) with given criteria",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return entities
         except ValueError as ve: # Catch specific ValueError for logging
             self.logger.error(
                 f"Invalid order_by clause for {self.model_class.__name__}: {ve}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
         except Exception as e:
             self.logger.exception(
                 f"Error finding all {self.model_class.__name__}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
 
     async def delete(self, entity_id: Any) -> bool:
@@ -251,19 +238,16 @@ class BaseRepository(Generic[T]):
                     await session.commit()
                     self.logger.info(
                         f"Deleted {self.model_class.__name__} with ID {entity_id}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                     return True
                 self.logger.warning(
                     f"Attempted to delete non-existent {self.model_class.__name__} with ID {entity_id}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return False
         except Exception as e:
             self.logger.exception(
                 f"Error deleting {self.model_class.__name__} with ID {entity_id}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
 
     # execute_transaction method is removed as SQLAlchemy sessions handle transactions.

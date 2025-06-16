@@ -9,8 +9,7 @@ import aiohttp
 from ..simulated_market_price_service import (
     DataRequest,
     HistoricalDataPoint,
-    HistoricalDataProvider,
-)
+    HistoricalDataProvider)
 from ..utils.kraken_api import generate_kraken_signature, prepare_kraken_request_data
 
 
@@ -22,7 +21,7 @@ class APIError(Exception):
 class RateLimiter:
     """Token bucket rate limiter implementation."""
     
-    def __init__(self, rate: float = 1.0, burst: int = 5):
+    def __init__(self, rate: float = 1.0, burst: int = 5) -> None:
         self.rate = rate  # tokens per second
         self.burst = burst  # maximum burst size
         self.tokens = float(burst)
@@ -48,7 +47,7 @@ class RateLimiter:
 class CircuitBreaker:
     """Circuit breaker pattern implementation."""
     
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60.0):
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60.0) -> None:
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.failure_count = 0

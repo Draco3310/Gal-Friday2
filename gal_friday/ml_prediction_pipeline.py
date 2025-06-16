@@ -77,7 +77,7 @@ class ModelTrainingConfig:
     training_window_days: int = 30
     validation_split: float = 0.2
     cv_folds: int = 5
-    hyperparameters: Dict[str, Any] = field(default_factory=dict)
+    hyperparameters: Dict[str, Any] = field(default_factory=dict[str, Any])
     performance_threshold: float = 0.0
     retrain_interval_hours: int = 24
 
@@ -120,7 +120,7 @@ class ModelValidationError(MLPipelineError):
 class FeatureEngineer:
     """Advanced feature engineering for financial time series data."""
     
-    def __init__(self, config: Dict[str, Any], logger: LoggerService):
+    def __init__(self, config: Dict[str, Any], logger: LoggerService) -> None:
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -297,7 +297,7 @@ class FeatureEngineer:
         
         return df
     
-    def _calculate_rsi(self, prices: pd.Series, window: int = 14) -> pd.Series:
+    def _calculate_rsi(self, prices: pd.Series[Any], window: int = 14) -> pd.Series[Any]:
         """Calculate Relative Strength Index."""
         delta = prices.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
@@ -308,9 +308,9 @@ class FeatureEngineer:
         
         return rsi
     
-    def _calculate_macd(self, prices: pd.Series, 
+    def _calculate_macd(self, prices: pd.Series[Any], 
                        fast: int = 12, slow: int = 26, signal: int = 9
-                       ) -> Tuple[pd.Series, pd.Series]:
+                       ) -> Tuple[pd.Series[Any], pd.Series[Any]]:
         """Calculate MACD indicator."""
         ema_fast = prices.ewm(span=fast).mean()
         ema_slow = prices.ewm(span=slow).mean()
@@ -338,7 +338,7 @@ class FeatureEngineer:
 class ModelTrainer:
     """Model training and validation component."""
     
-    def __init__(self, config: Dict[str, Any], logger: LoggerService):
+    def __init__(self, config: Dict[str, Any], logger: LoggerService) -> None:
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -407,7 +407,7 @@ class ModelTrainer:
                 "model": model,
                 "scaler": scaler,
                 "metrics": metrics,
-                "feature_names": list(X.columns),
+                "feature_names": list[Any](X.columns),
                 "cv_scores": cv_scores,
                 "training_config": training_config,
                 "model_version": f"{symbol}_{training_config.model_type.value}_{int(start_time.timestamp())}"
@@ -437,7 +437,7 @@ class ModelTrainer:
     def _prepare_training_data(self, 
                               data: pd.DataFrame, 
                               config: ModelTrainingConfig
-                              ) -> Tuple[pd.DataFrame, pd.Series]:
+                              ) -> Tuple[pd.DataFrame, pd.Series[Any]]:
         """Prepare features and target for training."""
         # Select feature columns
         if config.feature_columns:
@@ -482,8 +482,8 @@ class ModelTrainer:
         else:
             raise ModelTrainingError(f"Unsupported model type: {model_type}")
     
-    def _perform_cross_validation(self, model: Any, X: np.ndarray, y: np.ndarray, 
-                                 cv_folds: int) -> np.ndarray:
+    def _perform_cross_validation(self, model: Any, X: np.ndarray[Any, Any], y: np.ndarray[Any, Any], 
+                                 cv_folds: int) -> np.ndarray[Any, Any]:
         """Perform time series cross-validation."""
         tscv = TimeSeriesSplit(n_splits=cv_folds)
         cv_scores = cross_val_score(model, X, y, cv=tscv, scoring='r2')
@@ -504,7 +504,7 @@ class ModelTrainer:
                                      model: Any,
                                      scaler: StandardScaler,
                                      X: pd.DataFrame,
-                                     y: pd.Series,
+                                     y: pd.Series[Any],
                                      symbol: str,
                                      start_time: datetime) -> ModelPerformanceMetrics:
         """Calculate comprehensive performance metrics."""
@@ -534,7 +534,7 @@ class ModelTrainer:
 class MLPredictionPipeline:
     """Enterprise-grade ML pipeline for price prediction."""
     
-    def __init__(self, config: Dict[str, Any], logger: LoggerService):
+    def __init__(self, config: Dict[str, Any], logger: LoggerService) -> None:
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -751,7 +751,7 @@ class MLPredictionPipeline:
     
     def _prepare_prediction_features(self, 
                                    features: Dict[str, float], 
-                                   expected_features: List[str]) -> np.ndarray:
+                                   expected_features: List[str]) -> np.ndarray[Any, Any]:
         """Prepare feature vector for prediction."""
         feature_vector = []
         missing_features = []
@@ -774,7 +774,7 @@ class MLPredictionPipeline:
     
     def _estimate_prediction_uncertainty(self, 
                                        model: Any, 
-                                       features: np.ndarray,
+                                       features: np.ndarray[Any, Any],
                                        confidence_level: float) -> float:
         """Estimate prediction uncertainty."""
         if hasattr(model, 'estimators_'):
@@ -825,7 +825,7 @@ class MLPredictionPipeline:
         return {
             "models_deployed": len(self.models),
             "prediction_stats": self.prediction_stats.copy(),
-            "model_symbols": list(self.models.keys()),
+            "model_symbols": list[Any](self.models.keys()),
             "storage_path": str(self.model_storage_path),
             "feature_engineering_config": self.config.get('feature_engineering', {}),
             "last_training": self.prediction_stats.get('last_training_time'),

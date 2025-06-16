@@ -17,8 +17,7 @@ class TradeSignal(Base):
     __tablename__ = "trade_signals"
 
     id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
-    )
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)
     strategy_id: Mapped[str] = mapped_column(String(50), nullable=False)
     side: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -37,8 +36,7 @@ class TradeSignal(Base):
 
     __table_args__ = (
         Index("idx_signals_status", "status"),
-        Index("idx_signals_created_at", "created_at"),
-    )
+        Index("idx_signals_created_at", "created_at"))
 
     def __repr__(self) -> str:
         return (

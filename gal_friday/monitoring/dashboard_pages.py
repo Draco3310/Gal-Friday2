@@ -64,8 +64,7 @@ class EnhancedDashboardPages:
         experiment_manager: ExperimentManager,
         retraining_pipeline: RetrainingPipeline,
         reconciliation_service: ReconciliationService,
-        ws_connection_manager: WebSocketConnectionManager,
-    ) -> None:
+        ws_connection_manager: WebSocketConnectionManager) -> None:
         """Initialize the EnhancedDashboardPages with required services.
 
         Args:
@@ -691,8 +690,7 @@ def get_dashboard_pages(
     experiment_manager: ExperimentManager,
     retraining_pipeline: RetrainingPipeline,
     reconciliation_service: ReconciliationService,
-    ws_connection_manager: WebSocketConnectionManager,
-) -> EnhancedDashboardPages:
+    ws_connection_manager: WebSocketConnectionManager) -> EnhancedDashboardPages:
     """Get or create dashboard pages instance.
 
     Args:
@@ -713,6 +711,5 @@ def get_dashboard_pages(
             experiment_manager=experiment_manager,
             retraining_pipeline=retraining_pipeline,
             reconciliation_service=reconciliation_service,
-            ws_connection_manager=ws_connection_manager,
-        )
+            ws_connection_manager=ws_connection_manager)
     return dashboard_pages

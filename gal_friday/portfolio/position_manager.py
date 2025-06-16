@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime  # Added timezone
 from decimal import Decimal
-from typing import TypedDict, Unpack
+from typing import TypedDict, Unpack, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,6 +16,7 @@ from ..dal.repositories.position_repository import PositionRepository
 from ..dal.repositories.order_repository import OrderRepository
 from ..exceptions import DataValidationError
 from ..logger_service import LoggerService
+from typing import Any
 
 
 class PositionCreationError(Exception):
@@ -97,7 +98,7 @@ class PositionManager:
     # `get_position` will also fetch from DB.
 
     async def get_open_positions(self) -> Sequence[PositionModel]:
-        """Return a list of open positions (is_active=True) from the database."""
+        """Return a list[Any] of open positions (is_active=True) from the database."""
         self.logger.debug("Fetching all active positions.", source_module=self._source_module)
         return await self.position_repository.get_active_positions()
         # If PositionInfo DTO is still desired:
@@ -116,10 +117,10 @@ class PositionManager:
     async def initialize_positions(
         self,
         # initial_positions: dict[str, dict[str, Any]], # This would now be pre-loading DB
-        # split_symbol_func: Callable[[str], tuple[str, str]], # Asset splitting can be internal or from config
+        # split_symbol_func: Callable[..., tuple[str, str]], # Asset splitting can be internal or from config
     ) -> None:
         """Initializes positions by loading them from the database.
-        The concept of initializing from a config dict is replaced by ensuring
+        The concept of initializing from a config dict[str, Any] is replaced by ensuring
         positions are correctly populated in the DB, possibly by a seeding process
         or by prior application state. This method could verify DB connection
         or log current position count.
@@ -132,8 +133,7 @@ class PositionManager:
         self.logger.info(
             "PositionManager initialized. Found %d active positions in database.",
             len(active_positions),
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
         # If we were to sync from a config (e.g. for initial setup in a non-prod env):
         # async with self._lock:
         #     for pair, pos_data in initial_positions_from_config.items():
@@ -170,7 +170,7 @@ class PositionManager:
 
     @dataclass # This TypedDict defines the types for **kwargs, so it must allow broader types
     class _UpdatePositionKwargs(TypedDict, total=False):
-        """Type definition for update_position_for_trade kwargs."""
+        """Type[Any] definition for update_position_for_trade kwargs."""
 
         trading_pair: str
         side: str
@@ -186,8 +186,7 @@ class PositionManager:
 
     async def update_position_for_trade( # Keep public interface
         self,
-        **kwargs: Unpack[_UpdatePositionKwargs],
-    ) -> tuple[Decimal, PositionModel | None]: # Returns SQLAlchemy PositionModel
+        **kwargs: Unpack[_UpdatePositionKwargs]) -> tuple[Decimal, PositionModel | None]: # Returns SQLAlchemy PositionModel
         """Update position based on a new trade.
 
         Args:
@@ -196,7 +195,7 @@ class PositionManager:
 
         Returns:
         -------
-            A tuple containing:
+            A tuple[Any, ...] containing:
                 - realized_pnl_trade: The realized PnL from this specific trade.
                 - position: The updated PositionModel instance, or None if an error occurred.
         """
@@ -228,8 +227,7 @@ class PositionManager:
                 fee=Decimal(str(fee_arg)) if not isinstance(fee_arg, Decimal) else fee_arg,
                 fee_currency=kwargs.get("fee_currency"),
                 commission=Decimal(str(commission_arg)) if not isinstance(commission_arg, Decimal) else commission_arg,
-                commission_asset=kwargs.get("commission_asset"),
-            )
+                commission_asset=kwargs.get("commission_asset"))
         except (TypeError, ValueError, KeyError) as e:
             self.logger.error(f"Invalid parameters for update_position_for_trade: {e}", source_module=self._source_module, context=kwargs)
             return Decimal(0), None
@@ -247,7 +245,7 @@ class PositionManager:
 
         Returns:
         -------
-            A tuple containing:
+            A tuple[Any, ...] containing:
                 - realized_pnl_trade: The realized PnL from this specific trade.
                 - position_model: The updated PositionModel instance from DB, or None if an error.
         """
@@ -257,15 +255,13 @@ class PositionManager:
                 params.trading_pair,
                 params.side,
                 params.quantity,
-                params.price,
-            )
+                params.price)
 
         except DataValidationError as e:
             self.logger.error(
                 f"Trade validation failed for {params.trading_pair}: {e}",
                 source_module=self._source_module,
-                context=params.__dict__,
-            )
+                context=params.__dict__)
             return Decimal(0), None
 
         async with self._lock: # Lock to ensure atomic read-modify-write for a given trading_pair
@@ -291,8 +287,7 @@ class PositionManager:
                     self.logger.warning(
                         f"Selling {params.quantity} of {params.trading_pair}, but current position is {current_quantity}. "
                         "Position will go negative or this represents a short sale opening/extension.",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
 
                 # Realized PnL = (sell_price - avg_entry_price) * sell_quantity
                 realized_pnl_trade = (params.price - avg_entry_price) * params.quantity
@@ -328,8 +323,7 @@ class PositionManager:
                     "New Pos Qty: %s, New AEP: %s, Trade PnL: %s, Linked Order: %s",
                     params.trading_pair, params.side, params.quantity, params.price,
                     updated_pos.quantity, updated_pos.entry_price, realized_pnl_trade, params.order_id,
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 return realized_pnl_trade, updated_pos
             except Exception as e:
                 self.logger.exception(f"Error updating position in DB for {params.trading_pair}: {e}", source_module=self._source_module)
@@ -352,19 +346,16 @@ class PositionManager:
             if updated_order:
                 self.logger.debug(
                     f"Successfully linked order {order_id} to position {position_id}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
             else:
                 self.logger.warning(
                     f"Order {order_id} not found for position linking - may be external order",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
         except Exception as e:
             # Don't fail position update if order linking fails
             self.logger.error(
                 f"Failed to link order {order_id} to position {position_id}: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
 
     # Error messages for trade validation (can remain the same)
     _INVALID_TRADE_SIDE_MSG = "Invalid trade side"
@@ -479,7 +470,7 @@ class PositionManager:
                 self.commission = Decimal(str(self.commission))
 
     class _TradeRecordKwargs(TypedDict, total=False):
-        """Type definition for _create_trade_record kwargs."""
+        """Type[Any] definition for _create_trade_record kwargs."""
 
         timestamp: datetime
         trade_id: str
@@ -510,8 +501,7 @@ class PositionManager:
 
     def _create_trade_record_from_params(
         self,
-        params: _TradeRecordParams,
-    ) -> TradeInfo:
+        params: _TradeRecordParams) -> TradeInfo:
         """Create a TradeInfo object from TradeRecordParams.
 
         Args:
@@ -544,5 +534,4 @@ class PositionManager:
             fee=fee,
             fee_currency=params.fee_currency,
             commission=commission,
-            commission_asset=params.commission_asset,
-        )
+            commission_asset=params.commission_asset)

@@ -45,17 +45,17 @@ class FeatureSpec:
     lookback_periods: int
 
     # Feature parameters
-    parameters: dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict[str, Any])
 
     # Asset type applicability
-    applicable_asset_types: set[AssetType] = field(default_factory=lambda: set(AssetType))
+    applicable_asset_types: set[AssetType] = field(default_factory=lambda: set[Any](AssetType))
 
     # Dependencies
     required_data_types: set[str] = field(default_factory=set)  # e.g., {"ohlcv", "l2", "trades"}
     depends_on_features: set[str] = field(default_factory=set)
 
     # ML model requirements
-    output_shape: tuple | None = None
+    output_shape: tuple[Any, ...] | None = None
     normalization_method: str | None = None  # "z_score", "min_max", "robust"
 
     # Metadata
@@ -72,30 +72,30 @@ class FeatureVector:
     asset_type: AssetType
 
     # Feature data organized by category
-    technical_features: dict[str, float] = field(default_factory=dict)
-    orderbook_features: dict[str, float] = field(default_factory=dict)
-    microstructure_features: dict[str, float] = field(default_factory=dict)
-    sentiment_features: dict[str, float] = field(default_factory=dict)
-    macro_features: dict[str, float] = field(default_factory=dict)
-    cross_asset_features: dict[str, float] = field(default_factory=dict)
+    technical_features: dict[str, float] = field(default_factory=dict[str, Any])
+    orderbook_features: dict[str, float] = field(default_factory=dict[str, Any])
+    microstructure_features: dict[str, float] = field(default_factory=dict[str, Any])
+    sentiment_features: dict[str, float] = field(default_factory=dict[str, Any])
+    macro_features: dict[str, float] = field(default_factory=dict[str, Any])
+    cross_asset_features: dict[str, float] = field(default_factory=dict[str, Any])
 
-    # Sequence features for LSTM/Transformer models
-    sequence_features: np.ndarray | None = None
+    # Sequence[Any] features for LSTM/Transformer models
+    sequence_features: np.ndarray[Any, Any] | None = None
     sequence_length: int = 0
 
     # Feature metadata
-    feature_names: list[str] = field(default_factory=list)
+    feature_names: list[str] = field(default_factory=list[Any])
     feature_importance: dict[str, float] | None = None
 
     # Quality indicators
     completeness_score: float = 1.0  # Fraction of expected features present
     latency_ms: float | None = None
 
-    def to_array(self, feature_names: list[str] | None = None) -> np.ndarray:
+    def to_array(self, feature_names: list[str] | None = None) -> np.ndarray[Any, Any]:
         """Convert features to numpy array for ML models.
 
         Args:
-            feature_names: Ordered list of feature names to include
+            feature_names: Ordered list[Any] of feature names to include
 
         Returns:
             Feature array in specified order
@@ -139,8 +139,7 @@ class FeatureEngineInterface(ABC):
     def __init__(
         self,
         asset_specifications: list[AssetSpecification],
-        **kwargs: dict[str, Any],
-    ) -> None:
+        **kwargs: dict[str, Any]) -> None:
         """Initialize with supported assets and configuration."""
         self.asset_specifications = {spec.symbol: spec for spec in asset_specifications}
         self.feature_specs: dict[str, FeatureSpec] = {}
@@ -208,9 +207,8 @@ class FeatureEngineInterface(ABC):
     async def calculate_sentiment_features(
         self,
         symbol: str,
-        news_data: list[dict] | None = None,
-        social_data: list[dict] | None = None,
-    ) -> dict[str, float]:
+        news_data: list[dict[str, Any]] | None = None,
+        social_data: list[dict[str, Any]] | None = None) -> dict[str, float]:
         """Calculate sentiment features from news and social data.
 
         Args:
@@ -246,7 +244,7 @@ class FeatureEngineInterface(ABC):
 
     @abstractmethod
     async def get_sequence_features(self, symbol: str, sequence_length: int,
-                                  feature_names: list[str]) -> np.ndarray:
+                                  feature_names: list[str]) -> np.ndarray[Any, Any]:
         """Get time sequence of features for LSTM/Transformer models.
 
         Args:
@@ -263,8 +261,7 @@ class FeatureEngineInterface(ABC):
         self,
         symbol: str,
         timestamp: datetime | None = None,
-        categories: set[FeatureCategory] | None = None,
-    ) -> FeatureVector:
+        categories: set[FeatureCategory] | None = None) -> FeatureVector:
         """Generate complete feature vector for a symbol.
 
         Args:
@@ -282,13 +279,12 @@ class FeatureEngineInterface(ABC):
         self,
         symbol: str,
         data_type: str,
-        data: dict[str, Any],
-    ) -> None:
+        data: dict[str, Any]) -> None:
         """Update internal market data for feature calculation.
 
         Args:
             symbol: Trading symbol
-            data_type: Type of data ("ohlcv", "l2", "trades", "news", etc.)
+            data_type: Type[Any] of data ("ohlcv", "l2", "trades", "news", etc.)
             data: Market data update
         """
 
@@ -297,7 +293,7 @@ class FeatureEngineInterface(ABC):
         """Get feature importance scores for a model type.
 
         Args:
-            model_type: Type of model ("xgboost", "lstm", "marl", etc.)
+            model_type: Type[Any] of model ("xgboost", "lstm", "marl", etc.)
 
         Returns:
             Dictionary mapping feature names to importance scores
@@ -367,8 +363,7 @@ class FeatureEngineFactory(Protocol):
     def create_engine(
         self,
         asset_types: set[AssetType],
-        **kwargs: dict[str, Any],
-    ) -> FeatureEngineInterface:
+        **kwargs: dict[str, Any]) -> FeatureEngineInterface:
         """Create a feature engine for specified asset types.
 
         Args:
@@ -393,8 +388,7 @@ def get_default_crypto_features() -> list[FeatureSpec]:
             parameters={"period": 14},
             applicable_asset_types={AssetType.CRYPTO},
             required_data_types={"ohlcv"},
-            description="14-period Relative Strength Index",
-        ),
+            description="14-period Relative Strength Index"),
         FeatureSpec(
             name="macd",
             category=FeatureCategory.TECHNICAL,
@@ -403,8 +397,7 @@ def get_default_crypto_features() -> list[FeatureSpec]:
             parameters={"fast": 12, "slow": 26, "signal": 9},
             applicable_asset_types={AssetType.CRYPTO},
             required_data_types={"ohlcv"},
-            description="MACD oscillator",
-        ),
+            description="MACD oscillator"),
         # Order book features
         FeatureSpec(
             name="bid_ask_spread_bps",
@@ -413,8 +406,7 @@ def get_default_crypto_features() -> list[FeatureSpec]:
             lookback_periods=1,
             applicable_asset_types={AssetType.CRYPTO},
             required_data_types={"l2"},
-            description="Bid-ask spread in basis points",
-        ),
+            description="Bid-ask spread in basis points"),
         FeatureSpec(
             name="order_book_imbalance",
             category=FeatureCategory.ORDERBOOK,
@@ -423,8 +415,7 @@ def get_default_crypto_features() -> list[FeatureSpec]:
             parameters={"depth_levels": 10},
             applicable_asset_types={AssetType.CRYPTO},
             required_data_types={"l2"},
-            description="Order book imbalance ratio",
-        ),
+            description="Order book imbalance ratio"),
         # Microstructure features
         FeatureSpec(
             name="effective_spread",
@@ -433,8 +424,7 @@ def get_default_crypto_features() -> list[FeatureSpec]:
             lookback_periods=10,
             applicable_asset_types={AssetType.CRYPTO},
             required_data_types={"trades", "l2"},
-            description="Effective spread based on trade prices",
-        ),
+            description="Effective spread based on trade prices"),
         # Volatility features
         FeatureSpec(
             name="realized_volatility_5m",
@@ -443,6 +433,5 @@ def get_default_crypto_features() -> list[FeatureSpec]:
             lookback_periods=12,  # 1 hour
             applicable_asset_types={AssetType.CRYPTO},
             required_data_types={"ohlcv"},
-            description="5-minute realized volatility",
-        ),
+            description="5-minute realized volatility"),
     ]

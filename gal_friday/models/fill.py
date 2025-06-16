@@ -8,8 +8,7 @@ from typing import (
     Optional,
     Any,
     cast,
-    ClassVar,
-)
+    ClassVar)
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -25,7 +24,7 @@ if TYPE_CHECKING:
 class ExecutionEventBuilder:
     """Enterprise-grade builder for creating execution report events from fill data."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
     
     def create_execution_event(self, fill: 'Fill') -> ExecutionReportEvent:
@@ -160,10 +159,10 @@ class ExecutionEventBuilder:
     def _get_quantity_ordered(self, fill: 'Fill') -> Decimal:
         """Get the original ordered quantity."""
         if fill.order and hasattr(fill.order, 'quantity_ordered'):
-            return fill.order.quantity_ordered
+            return cast(Decimal, fill.order.quantity_ordered)
         
         # If no order context, use the fill quantity as a fallback
-        return fill.quantity_filled
+        return cast(Decimal, fill.quantity_filled)
     
     def _get_signal_id(self, fill: 'Fill') -> Optional[uuid.UUID]:
         """Extract signal ID from related order."""
@@ -191,7 +190,7 @@ class ExecutionEventBuilder:
             hasattr(fill.order, 'limit_price') and 
             fill.order.limit_price and
             self._get_order_type(fill) in ["LIMIT", "STOP_LIMIT"]):
-            return fill.order.limit_price
+            return cast(Optional[Decimal], fill.order.limit_price)
         
         return None
     
@@ -201,7 +200,7 @@ class ExecutionEventBuilder:
             hasattr(fill.order, 'stop_price') and 
             fill.order.stop_price and
             "STOP" in self._get_order_type(fill)):
-            return fill.order.stop_price
+            return cast(Optional[Decimal], fill.order.stop_price)
         
         return None
     
@@ -225,7 +224,7 @@ class ExecutionEventBuilder:
 class ExecutionEventPublisher:
     """Publisher for execution report events with monitoring and error handling."""
     
-    def __init__(self, event_bus=None):
+    def __init__(self, event_bus=None) -> None:
         self.event_bus = event_bus
         self.logger = logging.getLogger(__name__)
         
@@ -308,8 +307,7 @@ class Fill(Base):
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint("exchange", "fill_id", name="uq_exchange_fill_id"),
-    )
+        UniqueConstraint("exchange", "fill_id", name="uq_exchange_fill_id"))
 
     # Class-level builders (can be dependency-injected in production)
     _event_builder: ClassVar[Optional[ExecutionEventBuilder]] = None
@@ -383,7 +381,7 @@ class Fill(Base):
         Get a summary of this fill's execution details for monitoring and reporting.
         
         Returns:
-            dict: Summary of execution details
+            dict[str, Any]: Summary of execution details
         """
         return {
             'fill_id': self.fill_id,

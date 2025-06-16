@@ -16,8 +16,7 @@ from ..dal.repositories.history_repository import HistoryRepository
 from ..simulated_market_price_service import (
     DataRequest,
     HistoricalDataPoint,
-    HistoricalDataProvider,
-)
+    HistoricalDataProvider)
 
 
 class DatabaseDataProvider(HistoricalDataProvider):
@@ -437,7 +436,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
         """Aggregate orders into OHLCV format."""
         # Group orders by time bucket
         bucket_size = self._parse_frequency_to_timedelta(request.frequency)
-        buckets = defaultdict(list)
+        buckets = defaultdict(list[Any])
         
         for order in orders:
             bucket_time = self._round_to_bucket(order.created_at, bucket_size)

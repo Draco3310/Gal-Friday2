@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache, wraps
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -48,7 +48,7 @@ class IndicatorType(Enum):
 class IndicatorConfig:
     """Configuration for technical indicators."""
     indicator_type: IndicatorType
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: Dict[str, Any] = field(default_factory=dict[str, Any])
     cache_enabled: bool = True
     validation_enabled: bool = True
     fallback_value: Optional[float] = None
@@ -58,8 +58,8 @@ class IndicatorConfig:
 class IndicatorResult:
     """Result container for technical indicator calculations."""
     indicator_type: IndicatorType
-    values: Union[np.ndarray, Tuple[np.ndarray, ...]]
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    values: Union[np.ndarray[Any, Any], Tuple[np.ndarray[Any, Any], ...]]
+    metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
     calculation_time_ms: float = 0.0
     cache_hit: bool = False
     backend_used: str = "unknown"
@@ -77,7 +77,7 @@ class TechnicalAnalysisBackend(ABC):
     def calculate(
         self,
         indicator_config: IndicatorConfig,
-        data: Dict[str, np.ndarray]
+        data: Dict[str, np.ndarray[Any, Any]]
     ) -> IndicatorResult:
         """Calculate technical indicator."""
         pass
@@ -91,7 +91,7 @@ class TechnicalAnalysisBackend(ABC):
 class TALibBackend(TechnicalAnalysisBackend):
     """Production TA-Lib backend implementation."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         if not TALIB_AVAILABLE:
             raise ImportError("TA-Lib not installed. Install with: conda install -c conda-forge ta-lib")
         self.logger = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ class TALibBackend(TechnicalAnalysisBackend):
     def calculate(
         self,
         indicator_config: IndicatorConfig,
-        data: Dict[str, np.ndarray]
+        data: Dict[str, np.ndarray[Any, Any]]
     ) -> IndicatorResult:
         """Calculate indicator using TA-Lib."""
         start_time = time.perf_counter()
@@ -131,7 +131,7 @@ class TALibBackend(TechnicalAnalysisBackend):
             
             return IndicatorResult(
                 indicator_type=indicator_config.indicator_type,
-                values=values,
+                values=np.array(values) if not isinstance(values, np.ndarray) else values,
                 metadata={
                     "data_length": len(data.get("close", [])),
                     "parameters": indicator_config.parameters
@@ -147,104 +147,124 @@ class TALibBackend(TechnicalAnalysisBackend):
             )
             raise
     
-    def _calculate_atr(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_atr(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate ATR using TA-Lib."""
+        if talib is None:
+            raise RuntimeError("TA-Lib not available")
         timeperiod = params.get("timeperiod", 14)
-        return talib.ATR(
+        return cast(np.ndarray[Any, Any], talib.ATR(
             data["high"].astype(np.float64),
             data["low"].astype(np.float64),
             data["close"].astype(np.float64),
             timeperiod=timeperiod
-        )
+        ))
     
-    def _calculate_rsi(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_rsi(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate RSI using TA-Lib."""
+        if talib is None:
+            raise RuntimeError("TA-Lib not available")
         timeperiod = params.get("timeperiod", 14)
-        return talib.RSI(data["close"].astype(np.float64), timeperiod=timeperiod)
+        return cast(np.ndarray[Any, Any], talib.RSI(data["close"].astype(np.float64), timeperiod=timeperiod))
     
-    def _calculate_macd(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _calculate_macd(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using TA-Lib."""
+        if talib is None:
+            raise RuntimeError("TA-Lib not available")
         fastperiod = params.get("fastperiod", 12)
         slowperiod = params.get("slowperiod", 26)
         signalperiod = params.get("signalperiod", 9)
         
-        return talib.MACD(
+        return cast(Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]], talib.MACD(
             data["close"].astype(np.float64),
             fastperiod=fastperiod,
             slowperiod=slowperiod,
             signalperiod=signalperiod
-        )
+        ))
     
-    def _calculate_bbands(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _calculate_bbands(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using TA-Lib."""
+        if talib is None:
+            raise RuntimeError("TA-Lib not available")
         timeperiod = params.get("timeperiod", 20)
         nbdevup = params.get("nbdevup", 2.0)
         nbdevdn = params.get("nbdevdn", 2.0)
         matype = params.get("matype", 0)
         
-        return talib.BBANDS(
+        return cast(Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]], talib.BBANDS(
             data["close"].astype(np.float64),
             timeperiod=timeperiod,
             nbdevup=nbdevup,
             nbdevdn=nbdevdn,
             matype=matype
-        )
+        ))
     
-    def _calculate_sma(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_sma(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate SMA using TA-Lib."""
+        if talib is None:
+            raise RuntimeError("TA-Lib not available")
         timeperiod = params.get("timeperiod", 20)
-        return talib.SMA(data["close"].astype(np.float64), timeperiod=timeperiod)
+        return cast(np.ndarray[Any, Any], talib.SMA(data["close"].astype(np.float64), timeperiod=timeperiod))
     
-    def _calculate_ema(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_ema(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate EMA using TA-Lib."""
+        if talib is None:
+            raise RuntimeError("TA-Lib not available")
         timeperiod = params.get("timeperiod", 20)
-        return talib.EMA(data["close"].astype(np.float64), timeperiod=timeperiod)
+        return cast(np.ndarray[Any, Any], talib.EMA(data["close"].astype(np.float64), timeperiod=timeperiod))
     
-    def _calculate_stoch(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
+    def _calculate_stoch(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Stochastic using TA-Lib."""
         fastk_period = params.get("fastk_period", 14)
         slowk_period = params.get("slowk_period", 3)
         slowd_period = params.get("slowd_period", 3)
         
-        return talib.STOCH(
+        if talib is None:
+            raise RuntimeError("TA-Lib not available")
+        return cast(Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]], talib.STOCH(
             data["high"].astype(np.float64),
             data["low"].astype(np.float64),
             data["close"].astype(np.float64),
             fastk_period=fastk_period,
             slowk_period=slowk_period,
             slowd_period=slowd_period
-        )
+        ))
     
-    def _calculate_williams_r(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_williams_r(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate Williams %R using TA-Lib."""
         timeperiod = params.get("timeperiod", 14)
-        return talib.WILLR(
+        if talib is None:
+            raise RuntimeError("TA-Lib not available")
+        return cast(np.ndarray[Any, Any], talib.WILLR(
             data["high"].astype(np.float64),
             data["low"].astype(np.float64),
             data["close"].astype(np.float64),
             timeperiod=timeperiod
-        )
+        ))
     
-    def _calculate_cci(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_cci(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate CCI using TA-Lib."""
         timeperiod = params.get("timeperiod", 14)
-        return talib.CCI(
+        if talib is None:
+            raise RuntimeError("TA-Lib not available")
+        return cast(np.ndarray[Any, Any], talib.CCI(
             data["high"].astype(np.float64),
             data["low"].astype(np.float64),
             data["close"].astype(np.float64),
             timeperiod=timeperiod
-        )
+        ))
     
-    def _calculate_mfi(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_mfi(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate MFI using TA-Lib."""
         timeperiod = params.get("timeperiod", 14)
-        return talib.MFI(
+        if talib is None:
+            raise RuntimeError("TA-Lib not available")
+        return cast(np.ndarray[Any, Any], talib.MFI(
             data["high"].astype(np.float64),
             data["low"].astype(np.float64),
             data["close"].astype(np.float64),
             data["volume"].astype(np.float64),
             timeperiod=timeperiod
-        )
+        ))
     
     def get_backend_name(self) -> str:
         """Get backend name."""
@@ -254,7 +274,7 @@ class TALibBackend(TechnicalAnalysisBackend):
 class PandasTABackend(TechnicalAnalysisBackend):
     """Pandas-TA backend implementation."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         if not PANDAS_TA_AVAILABLE:
             raise ImportError("pandas-ta not installed. Install with: pip install pandas-ta")
         self.logger = logging.getLogger(__name__)
@@ -277,7 +297,7 @@ class PandasTABackend(TechnicalAnalysisBackend):
     def calculate(
         self,
         indicator_config: IndicatorConfig,
-        data: Dict[str, np.ndarray]
+        data: Dict[str, np.ndarray[Any, Any]]
     ) -> IndicatorResult:
         """Calculate indicator using pandas-ta."""
         start_time = time.perf_counter()
@@ -293,7 +313,7 @@ class PandasTABackend(TechnicalAnalysisBackend):
             
             return IndicatorResult(
                 indicator_type=indicator_config.indicator_type,
-                values=values,
+                values=np.array(values) if not isinstance(values, np.ndarray) else values,
                 metadata={
                     "data_length": len(df),
                     "parameters": indicator_config.parameters
@@ -309,20 +329,26 @@ class PandasTABackend(TechnicalAnalysisBackend):
             )
             raise
     
-    def _calculate_atr(self, df: pd.DataFrame, params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_atr(self, df: pd.DataFrame, params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate ATR using pandas-ta."""
+        if ta is None:
+            raise RuntimeError("pandas-ta not available")
         length = params.get("timeperiod", 14)
         result = ta.atr(df["high"], df["low"], df["close"], length=length)
-        return result.values
+        return cast(np.ndarray[Any, Any], result.values)
     
-    def _calculate_rsi(self, df: pd.DataFrame, params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_rsi(self, df: pd.DataFrame, params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate RSI using pandas-ta."""
+        if ta is None:
+            raise RuntimeError("pandas-ta not available")
         length = params.get("timeperiod", 14)
         result = ta.rsi(df["close"], length=length)
-        return result.values
+        return cast(np.ndarray[Any, Any], result.values)
     
-    def _calculate_macd(self, df: pd.DataFrame, params: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _calculate_macd(self, df: pd.DataFrame, params: Dict[str, Any]) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using pandas-ta."""
+        if ta is None:
+            raise RuntimeError("pandas-ta not available")
         fast = params.get("fastperiod", 12)
         slow = params.get("slowperiod", 26)
         signal = params.get("signalperiod", 9)
@@ -332,10 +358,16 @@ class PandasTABackend(TechnicalAnalysisBackend):
         signal_col = f"MACDs_{fast}_{slow}_{signal}"
         hist_col = f"MACDh_{fast}_{slow}_{signal}"
         
-        return result[macd_col].values, result[signal_col].values, result[hist_col].values
+        return (
+            cast(np.ndarray[Any, Any], result[macd_col].values),
+            cast(np.ndarray[Any, Any], result[signal_col].values),
+            cast(np.ndarray[Any, Any], result[hist_col].values)
+        )
     
-    def _calculate_bbands(self, df: pd.DataFrame, params: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _calculate_bbands(self, df: pd.DataFrame, params: Dict[str, Any]) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using pandas-ta."""
+        if ta is None:
+            raise RuntimeError("pandas-ta not available")
         length = params.get("timeperiod", 20)
         std = params.get("nbdevup", 2.0)
         
@@ -344,24 +376,34 @@ class PandasTABackend(TechnicalAnalysisBackend):
         middle_col = f"BBM_{length}_{std}"
         lower_col = f"BBL_{length}_{std}"
         
-        return result[upper_col].values, result[middle_col].values, result[lower_col].values
+        return (
+            cast(np.ndarray[Any, Any], result[upper_col].values),
+            cast(np.ndarray[Any, Any], result[middle_col].values),
+            cast(np.ndarray[Any, Any], result[lower_col].values)
+        )
     
-    def _calculate_sma(self, df: pd.DataFrame, params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_sma(self, df: pd.DataFrame, params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate SMA using pandas-ta."""
+        if ta is None:
+            raise RuntimeError("pandas-ta not available")
         length = params.get("timeperiod", 20)
         result = ta.sma(df["close"], length=length)
-        return result.values
+        return cast(np.ndarray[Any, Any], result.values)
     
-    def _calculate_ema(self, df: pd.DataFrame, params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_ema(self, df: pd.DataFrame, params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate EMA using pandas-ta."""
+        if ta is None:
+            raise RuntimeError("pandas-ta not available")
         length = params.get("timeperiod", 20)
         result = ta.ema(df["close"], length=length)
-        return result.values
+        return cast(np.ndarray[Any, Any], result.values)
     
-    def _calculate_vwap(self, df: pd.DataFrame, params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_vwap(self, df: pd.DataFrame, params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate VWAP using pandas-ta."""
+        if ta is None:
+            raise RuntimeError("pandas-ta not available")
         result = ta.vwap(df["high"], df["low"], df["close"], df["volume"])
-        return result.values
+        return cast(np.ndarray[Any, Any], result.values)
     
     def get_backend_name(self) -> str:
         """Get backend name."""
@@ -371,7 +413,7 @@ class PandasTABackend(TechnicalAnalysisBackend):
 class CustomBackend(TechnicalAnalysisBackend):
     """Custom implementation backend with NumPy calculations."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
         self._source_module = self.__class__.__name__
         
@@ -390,7 +432,7 @@ class CustomBackend(TechnicalAnalysisBackend):
     def calculate(
         self,
         indicator_config: IndicatorConfig,
-        data: Dict[str, np.ndarray]
+        data: Dict[str, np.ndarray[Any, Any]]
     ) -> IndicatorResult:
         """Calculate indicator using custom NumPy implementation."""
         start_time = time.perf_counter()
@@ -419,7 +461,7 @@ class CustomBackend(TechnicalAnalysisBackend):
             )
             raise
     
-    def _calculate_atr(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_atr(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate ATR using custom NumPy implementation."""
         high = data["high"]
         low = data["low"]
@@ -445,7 +487,7 @@ class CustomBackend(TechnicalAnalysisBackend):
         
         return atr
     
-    def _calculate_rsi(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_rsi(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate RSI using custom NumPy implementation."""
         close = data["close"]
         timeperiod = params.get("timeperiod", 14)
@@ -478,7 +520,7 @@ class CustomBackend(TechnicalAnalysisBackend):
         
         return rsi
     
-    def _calculate_sma(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_sma(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate SMA using custom NumPy implementation."""
         close = data["close"]
         timeperiod = params.get("timeperiod", 20)
@@ -488,7 +530,7 @@ class CustomBackend(TechnicalAnalysisBackend):
         
         return sma
     
-    def _calculate_ema(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_ema(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate EMA using custom NumPy implementation."""
         close = data["close"]
         timeperiod = params.get("timeperiod", 20)
@@ -502,7 +544,7 @@ class CustomBackend(TechnicalAnalysisBackend):
         
         return ema
     
-    def _calculate_vwap(self, data: Dict[str, np.ndarray], params: Dict[str, Any]) -> np.ndarray:
+    def _calculate_vwap(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate VWAP using custom NumPy implementation."""
         high = data["high"]
         low = data["low"]
@@ -528,7 +570,7 @@ class CustomBackend(TechnicalAnalysisBackend):
 class TechnicalAnalysisManager:
     """Production-ready technical analysis manager with caching and fallbacks."""
     
-    def __init__(self, config: Dict[str, Any], logger: logging.Logger):
+    def __init__(self, config: Dict[str, Any], logger: logging.Logger) -> None:
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -543,7 +585,7 @@ class TechnicalAnalysisManager:
         self.cache: Dict[str, IndicatorResult] = {}
         
         # Performance tracking
-        self.calculation_stats = {
+        self.calculation_stats: Dict[str, Union[int, float, Dict[str, int]]] = {
             "total_calculations": 0,
             "cache_hits": 0,
             "backend_usage": {},
@@ -559,23 +601,23 @@ class TechnicalAnalysisManager:
         """Initialize available backends in order of preference."""
         # Try TA-Lib first (most comprehensive)
         try:
-            backend = TALibBackend()
-            self.backends.append(backend)
+            talib_backend: TechnicalAnalysisBackend = TALibBackend()
+            self.backends.append(talib_backend)
             self.logger.info("TA-Lib backend initialized", extra={"source_module": self._source_module})
         except ImportError:
             self.logger.warning("TA-Lib backend not available", extra={"source_module": self._source_module})
         
         # Try pandas-ta second
         try:
-            backend = PandasTABackend()
-            self.backends.append(backend)
+            pandas_backend: TechnicalAnalysisBackend = PandasTABackend()
+            self.backends.append(pandas_backend)
             self.logger.info("Pandas-TA backend initialized", extra={"source_module": self._source_module})
         except ImportError:
             self.logger.warning("Pandas-TA backend not available", extra={"source_module": self._source_module})
         
         # Always have custom backend as fallback
-        backend = CustomBackend()
-        self.backends.append(backend)
+        custom_backend: TechnicalAnalysisBackend = CustomBackend()
+        self.backends.append(custom_backend)
         self.logger.info("Custom backend initialized", extra={"source_module": self._source_module})
         
         if not self.backends:
@@ -584,7 +626,7 @@ class TechnicalAnalysisManager:
     def calculate_indicator(
         self,
         indicator_config: IndicatorConfig,
-        data: Dict[str, np.ndarray]
+        data: Dict[str, np.ndarray[Any, Any]]
     ) -> IndicatorResult:
         """Calculate technical indicator with caching and fallbacks."""
         
@@ -598,7 +640,8 @@ class TechnicalAnalysisManager:
             if cache_key in self.cache:
                 result = self.cache[cache_key]
                 result.cache_hit = True
-                self.calculation_stats["cache_hits"] += 1
+                cache_hits = cast(int, self.calculation_stats["cache_hits"])
+                self.calculation_stats["cache_hits"] = cache_hits + 1
                 return result
         
         # Try backends in order of preference
@@ -637,7 +680,7 @@ class TechnicalAnalysisManager:
         
         raise RuntimeError(f"All backends failed for {indicator_config.indicator_type}: {last_error}")
     
-    def _validate_input_data(self, data: Dict[str, np.ndarray], config: IndicatorConfig) -> None:
+    def _validate_input_data(self, data: Dict[str, np.ndarray[Any, Any]], config: IndicatorConfig) -> None:
         """Validate input data for indicator calculation."""
         required_fields = self._get_required_fields(config.indicator_type)
         
@@ -673,7 +716,7 @@ class TechnicalAnalysisManager:
         }
         return field_map.get(indicator_type, ["close"])
     
-    def _generate_cache_key(self, config: IndicatorConfig, data: Dict[str, np.ndarray]) -> str:
+    def _generate_cache_key(self, config: IndicatorConfig, data: Dict[str, np.ndarray[Any, Any]]) -> str:
         """Generate cache key for indicator calculation."""
         # Create hash from data and parameters
         data_str = ""
@@ -694,7 +737,7 @@ class TechnicalAnalysisManager:
         
         self.cache[cache_key] = result
     
-    def _create_fallback_result(self, config: IndicatorConfig, data: Dict[str, np.ndarray]) -> IndicatorResult:
+    def _create_fallback_result(self, config: IndicatorConfig, data: Dict[str, np.ndarray[Any, Any]]) -> IndicatorResult:
         """Create fallback result when all backends fail."""
         data_length = len(data.get("close", []))
         fallback_array = np.full(data_length, config.fallback_value)
@@ -709,15 +752,17 @@ class TechnicalAnalysisManager:
     
     def _update_statistics(self, backend_name: str, calculation_time: float) -> None:
         """Update calculation statistics."""
-        self.calculation_stats["total_calculations"] += 1
+        total_calc = cast(int, self.calculation_stats["total_calculations"])
+        self.calculation_stats["total_calculations"] = total_calc + 1
         
-        if backend_name not in self.calculation_stats["backend_usage"]:
-            self.calculation_stats["backend_usage"][backend_name] = 0
-        self.calculation_stats["backend_usage"][backend_name] += 1
+        backend_usage = cast(Dict[str, int], self.calculation_stats["backend_usage"])
+        if backend_name not in backend_usage:
+            backend_usage[backend_name] = 0
+        backend_usage[backend_name] += 1
         
         # Update average calculation time
-        total = self.calculation_stats["total_calculations"]
-        current_avg = self.calculation_stats["average_calculation_time"]
+        total = cast(int, self.calculation_stats["total_calculations"])
+        current_avg = cast(float, self.calculation_stats["average_calculation_time"])
         self.calculation_stats["average_calculation_time"] = (
             (current_avg * (total - 1) + calculation_time) / total
         )
@@ -725,8 +770,10 @@ class TechnicalAnalysisManager:
     def get_diagnostics(self) -> Dict[str, Any]:
         """Get diagnostic information about the technical analysis manager."""
         cache_hit_rate = 0.0
-        if self.calculation_stats["total_calculations"] > 0:
-            cache_hit_rate = self.calculation_stats["cache_hits"] / self.calculation_stats["total_calculations"]
+        total_calculations = cast(int, self.calculation_stats["total_calculations"])
+        if total_calculations > 0:
+            cache_hits = cast(int, self.calculation_stats["cache_hits"])
+            cache_hit_rate = cache_hits / total_calculations
         
         return {
             "available_backends": [backend.get_backend_name() for backend in self.backends],

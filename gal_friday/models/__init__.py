@@ -11,8 +11,7 @@ from .strategy_models import (
     StrategyConfig,
     StrategyPerformanceSnapshot,
     StrategySelectionEvent,
-    StrategyBacktestResult,
-)
+    StrategyBacktestResult)
 
 __all__ = [
     "Base",

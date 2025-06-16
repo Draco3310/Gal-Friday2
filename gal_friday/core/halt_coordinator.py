@@ -28,7 +28,7 @@ class HaltCondition:
 class HaltCoordinator:
     """Central coordinator for all HALT conditions and triggers."""
 
-    def __init__(self, config_manager: ConfigManager, pubsub_manager: PubSubManager, logger_service: LoggerService):
+    def __init__(self, config_manager: ConfigManager, pubsub_manager: PubSubManager, logger_service: LoggerService) -> None:
         self.config = config_manager
         self.pubsub = pubsub_manager
         self.logger = logger_service
@@ -50,41 +50,34 @@ class HaltCoordinator:
         self.register_condition(
             "max_total_drawdown",
             "Maximum Total Drawdown",
-            self.config.get_decimal("risk.limits.max_total_drawdown_pct", Decimal("15.0")),
-        )
+            self.config.get_decimal("risk.limits.max_total_drawdown_pct", Decimal("15.0")))
         self.register_condition(
             "max_daily_drawdown",
             "Maximum Daily Drawdown",
-            self.config.get_decimal("risk.limits.max_daily_drawdown_pct", Decimal("2.0")),
-        )
+            self.config.get_decimal("risk.limits.max_daily_drawdown_pct", Decimal("2.0")))
         self.register_condition(
             "max_consecutive_losses",
             "Maximum Consecutive Losses",
-            self.config.get_int("risk.limits.max_consecutive_losses", 5),
-        )
+            self.config.get_int("risk.limits.max_consecutive_losses", 5))
         # Market conditions
         self.register_condition(
             "max_volatility",
             "Maximum Market Volatility",
-            self.config.get_decimal("monitoring.max_volatility_threshold", Decimal("5.0")),
-        )
+            self.config.get_decimal("monitoring.max_volatility_threshold", Decimal("5.0")))
         # System conditions
         self.register_condition(
             "api_error_rate",
             "API Error Rate Threshold",
-            self.config.get_int("monitoring.max_api_errors_per_minute", 10),
-        )
+            self.config.get_int("monitoring.max_api_errors_per_minute", 10))
         self.register_condition(
             "data_staleness",
             "Market Data Staleness",
-            self.config.get_int("monitoring.max_data_staleness_seconds", 60),
-        )
+            self.config.get_int("monitoring.max_data_staleness_seconds", 60))
 
         self.logger.info(
             f"Initialized {len(self.conditions)} HALT conditions",
             source_module=self._source_module,
-            context={"conditions": list(self.conditions.keys())},
-        )
+            context={"conditions": list[Any](self.conditions.keys())})
 
     def register_condition(self, condition_id: str, name: str, threshold: int | float | Decimal | str | bool) -> None:
         """Register a new HALT condition."""
@@ -94,8 +87,7 @@ class HaltCoordinator:
             threshold=threshold,
             current_value=None, # Remains None until first update
             is_triggered=False,
-            timestamp=datetime.now(UTC),
-        )
+            timestamp=datetime.now(UTC))
 
     def update_condition(self, condition_id: str, current_value: int | float | Decimal | str | bool) -> bool:
         """Update a condition's current value and check if triggered.
@@ -106,8 +98,7 @@ class HaltCoordinator:
         if condition_id not in self.conditions:
             self.logger.warning(
                 f"Unknown condition ID: {condition_id}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return False
 
         condition = self.conditions[condition_id]
@@ -127,11 +118,10 @@ class HaltCoordinator:
             # String comparison - both values must be strings
             condition.is_triggered = current_value == condition.threshold
         else:
-            # Type mismatch or other comparison - log warning and don't trigger
+            # Type[Any] mismatch or other comparison - log warning and don't trigger
             self.logger.warning(
-                f"Type mismatch in condition '{condition.name}': threshold type {type(condition.threshold).__name__} vs current_value type {type(current_value).__name__}",
-                source_module=self._source_module,
-            )
+                f"Type[Any] mismatch in condition '{condition.name}': threshold type {type(condition.threshold).__name__} vs current_value type {type(current_value).__name__}",
+                source_module=self._source_module)
             condition.is_triggered = False
 
         # Log if condition state changed
@@ -143,13 +133,12 @@ class HaltCoordinator:
                     "condition_id": condition_id,
                     "current_value": str(current_value),
                     "threshold": str(condition.threshold),
-                },
-            )
+                })
 
         return condition.is_triggered
 
     def check_all_conditions(self) -> list[HaltCondition]:
-        """Check all conditions and return list of triggered ones."""
+        """Check all conditions and return list[Any] of triggered ones."""
         triggered = []
         for condition in self.conditions.values():
             if condition.is_triggered:

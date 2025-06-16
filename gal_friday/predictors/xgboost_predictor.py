@@ -27,8 +27,7 @@ class XGBoostPredictor(PredictorInterface):
         self,
         model_path: str,
         model_id: str,
-        config: dict[str, Any] | None = None,
-    ) -> None:
+        config: dict[str, Any] | None = None) -> None:
         """Initialize the XGBoost predictor.
 
         Args:
@@ -70,8 +69,7 @@ class XGBoostPredictor(PredictorInterface):
             self.model.load_model(self.model_path)
             self.logger.info(
                 "XGBoost model loaded successfully from %s",
-                self.model_path,
-            )
+                self.model_path)
 
         except xgb.core.XGBoostError as e:
             error_msg = f"Failed to load XGBoost model from {self.model_path}"
@@ -81,14 +79,13 @@ class XGBoostPredictor(PredictorInterface):
         # Load Scaler
         self.scaler = None # Scaler is no longer loaded or used by this predictor.
         self.logger.info(
-            "Scaler attribute is set to None. Features are expected to be pre-scaled.",
-        )
+            "Scaler attribute is set to None. Features are expected to be pre-scaled.")
         # if self.scaler_path: # Removed scaler loading logic
         # else:
         #     self.logger.info("No scaler_path provided. Proceeding without a scaler.")
         #     self.scaler = None
 
-    def predict(self, features: np.ndarray) -> np.ndarray:
+    def predict(self, features: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Generate predictions using the XGBoost model.
         Features are expected to be pre-scaled by the FeatureEngine.
 
@@ -125,22 +122,20 @@ class XGBoostPredictor(PredictorInterface):
         if not model_feature_names:
             self.logger.warning(
                 "expected_feature_names not available. "
-                "DMatrix will be created without feature names.",
-            )
+                "DMatrix will be created without feature names.")
 
         try:
             dmatrix = xgb.DMatrix(processed_features, feature_names=model_feature_names)
             raw_predictions = self.model.predict(dmatrix)
             # For binary:logistic, predict returns probabilities of the positive class.
-            # This is typically a 1D array of shape (1,) or (n_samples,)
+            # This is typically a 1D array of shape (1) or (n_samples)
             # Ensure it's a simple float or 1D array.
             if isinstance(raw_predictions, np.ndarray):
                 # If it's like array([0.7]), get 0.7. If it's already a scalar float, it's fine.
                 return raw_predictions.astype(np.float32)  # Ensure correct type
             return np.array(
                 [raw_predictions],
-                dtype=np.float32,
-            )  # Convert scalar to 1-element array
+                dtype=np.float32)  # Convert scalar to 1-element array
 
         except xgb.core.XGBoostError:
             self.logger.exception("XGBoost prediction failed.")
@@ -151,7 +146,7 @@ class XGBoostPredictor(PredictorInterface):
 
     @property
     def expected_feature_names(self) -> list[str] | None:
-        """Return the list of feature names the model expects from config."""
+        """Return the list[Any] of feature names the model expects from config."""
         return self.config.get("model_feature_names")
 
     @classmethod
@@ -159,8 +154,7 @@ class XGBoostPredictor(PredictorInterface):
         cls,
         model_path: str,
         model_id: str,
-        logger: logging.Logger,
-    ) -> tuple[xgb.Booster | None, dict[str, Any]]:
+        logger: logging.Logger) -> tuple[xgb.Booster | None, dict[str, Any]]:
         """Load XGBoost model from file."""
         if not Path(model_path).exists():
             return None, {"error": f"Model file not found: {model_path}", "model_id": model_id}
@@ -178,8 +172,7 @@ class XGBoostPredictor(PredictorInterface):
         cls,
         scaler_path: str,
         model_id: str,
-        logger: logging.Logger,
-    ) -> tuple[Any, dict[str, Any]]:
+        logger: logging.Logger) -> tuple[Any, dict[str, Any]]:
         """Load and return a scaler from file."""
         if not scaler_path or not Path(scaler_path).is_file():
             return None, {}
@@ -200,11 +193,10 @@ class XGBoostPredictor(PredictorInterface):
 
     @staticmethod
     def _prepare_features(
-        feature_vector: np.ndarray,
+        feature_vector: np.ndarray[Any, Any],
         scaler: object | None,  # Could be StandardScaler, MinMaxScaler, etc.
         model_id: str,
-        logger: logging.Logger,
-    ) -> tuple[np.ndarray | None, dict[str, Any]]:
+        logger: logging.Logger) -> tuple[np.ndarray[Any, Any] | None, dict[str, Any]]:
         """Prepare and scale features for prediction."""
         if feature_vector.ndim != 1:
             error_msg = "Feature vector must be 1D for processing."
@@ -234,11 +226,10 @@ class XGBoostPredictor(PredictorInterface):
     def _make_prediction(
         cls,
         model: xgb.Booster,
-        features: np.ndarray,
+        features: np.ndarray[Any, Any],
         feature_names: list[str],  # Renamed to match call site
         model_id: str,
-        logger: logging.Logger,
-    ) -> dict[str, Any]:
+        logger: logging.Logger) -> dict[str, Any]:
         """Make prediction using the loaded model."""
         try:
             dmatrix = xgb.DMatrix(features, feature_names=feature_names)
@@ -263,8 +254,7 @@ class XGBoostPredictor(PredictorInterface):
                 "Prediction for %s successful: %s, Confidence: %s",
                 model_id,
                 prediction_float,
-                confidence_float,
-            )
+                confidence_float)
             result = {
                 "prediction": prediction_float,
                 "confidence": confidence_float,
@@ -282,17 +272,16 @@ class XGBoostPredictor(PredictorInterface):
         model_id: str,
         model_path: str,
         scaler_path: str | None, # Kept for interface compatibility, but not used.
-        feature_vector: np.ndarray,  # Expects 1D pre-scaled feature vector
+        feature_vector: np.ndarray[Any, Any],  # Expects 1D pre-scaled feature vector
         model_feature_names: list[str],  # From model config
-        _predictor_specific_config: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        _predictor_specific_config: dict[str, Any] | None = None) -> dict[str, Any]:
         """Run inference in a separate process. Expects pre-scaled features.
 
         Args:
             model_id (str): Unique identifier for the model
             model_path (str): Path to the XGBoost model file
             scaler_path (Optional[str]): No longer used; features should be pre-scaled.
-            feature_vector (np.ndarray): 1D numpy array of pre-scaled feature values.
+            feature_vector (np.ndarray[Any, Any]): 1D numpy array of pre-scaled feature values.
             model_feature_names (list[str]): List of feature names expected by the model.
             _predictor_specific_config (dict[str, Any] | None): Optional additional configuration.
 
@@ -343,8 +332,7 @@ class XGBoostPredictor(PredictorInterface):
                     features=processed_features,
                     feature_names=model_feature_names,
                     model_id=model_id,
-                    logger=logger,
-                )
+                    logger=logger)
                 # If _make_prediction returned an error, use it
                 if "error" in prediction_result:
                     result["error"] = prediction_result["error"]
@@ -354,8 +342,7 @@ class XGBoostPredictor(PredictorInterface):
             elif not result["error"]:
                 if model is None:
                     result["error"] = "Model failed to load"
-                else:
-                    result["error"] = "Failed to process features"
+                # else block removed as it was unreachable
 
         except Exception as e:
             error_msg = f"Unexpected error during inference: {e!s}"

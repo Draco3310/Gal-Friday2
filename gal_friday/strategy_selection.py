@@ -23,6 +23,7 @@ from scipy import stats
 # Import from existing Gal-Friday modules
 from .logger_service import LoggerService
 from .core.events import EventType
+from typing import Any
 
 
 # === Data Models ===
@@ -101,12 +102,12 @@ class StrategyPerformanceMetrics:
     # Return metrics
     total_return: float
     annualized_return: float
-    monthly_returns: List[float] = field(default_factory=list)
-    daily_returns: List[float] = field(default_factory=list)
+    monthly_returns: List[float] = field(default_factory=list[Any])
+    daily_returns: List[float] = field(default_factory=list[Any])
     
     # Additional context
-    trading_pairs: List[str] = field(default_factory=list)
-    market_conditions_exposure: Dict[str, float] = field(default_factory=dict)
+    trading_pairs: List[str] = field(default_factory=list[Any])
+    market_conditions_exposure: Dict[str, float] = field(default_factory=dict[str, Any])
     correlation_with_market: float = 0.0
     
     
@@ -195,8 +196,7 @@ class StrategyPerformanceAnalyzer:
         config: Dict[str, Any],
         trade_repository: Any,
         portfolio_snapshot_repository: Any,
-        execution_repository: Any,
-    ) -> None:
+        execution_repository: Any) -> None:
         self.logger = logger
         self.config = config
         self.trade_repository = trade_repository
@@ -487,7 +487,7 @@ class StrategyPerformanceAnalyzer:
             "halt_frequency": 0.2  # per week
         }
         
-    def _calculate_max_drawdown_from_returns(self, cumulative_returns: np.ndarray) -> float:
+    def _calculate_max_drawdown_from_returns(self, cumulative_returns: np.ndarray[Any, Any]) -> float:
         """Calculate maximum drawdown from cumulative returns series."""
         running_max = np.maximum.accumulate(cumulative_returns)
         drawdown = (cumulative_returns - running_max) / (1 + running_max)
@@ -566,8 +566,7 @@ class StrategyPerformanceAnalyzer:
         except Exception as exc:  # pragma: no cover - DB errors
             self.logger.error(
                 f"Failed to fetch trades for {strategy_id}: {exc}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return []
 
         return [t.to_dict() if hasattr(t, "to_dict") else t for t in trades]
@@ -586,8 +585,7 @@ class StrategyPerformanceAnalyzer:
         except Exception as exc:  # pragma: no cover - DB errors
             self.logger.error(
                 f"Failed to fetch portfolio snapshots: {exc}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return []
 
         return [s.to_dict() if hasattr(s, "to_dict") else s for s in snapshots]
@@ -607,8 +605,7 @@ class StrategyPerformanceAnalyzer:
         except Exception as exc:  # pragma: no cover - DB errors
             self.logger.error(
                 f"Failed to fetch execution metrics for {strategy_id}: {exc}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             return []
 
         return [m.to_dict() if hasattr(m, "to_dict") else m for m in metrics]
@@ -627,7 +624,7 @@ class StrategyPerformanceAnalyzer:
             
         # Get recent values for the metric
         recent_values = []
-        for metrics in list(history)[-periods:]:
+        for metrics in list[Any](history)[-periods:]:
             value = getattr(metrics, metric, None)
             if value is not None:
                 recent_values.append(float(value))
@@ -645,7 +642,7 @@ class StrategyPerformanceAnalyzer:
 class MarketConditionMonitor:
     """Monitors and classifies current market conditions."""
     
-    def __init__(self, logger: LoggerService, config: Dict[str, Any]):
+    def __init__(self, logger: LoggerService, config: Dict[str, Any]) -> None:
         self.logger = logger
         self.config = config
         self._source_module = self.__class__.__name__
@@ -1544,7 +1541,7 @@ class StrategySelector:
         confidence_factors.append(data_confidence * 0.3)
         
         # Score consistency
-        score_variance = np.var(list(component_scores.values()))
+        score_variance = np.var(list[Any](component_scores.values()))
         consistency_confidence = 1.0 - min(score_variance * 2, 1.0)
         confidence_factors.append(consistency_confidence * 0.2)
         
@@ -2007,7 +2004,14 @@ class StrategySelectionSystem:
         self._source_module = self.__class__.__name__
         
         # Initialize components
-        self.performance_analyzer = StrategyPerformanceAnalyzer(logger, config)
+        # Note: For now, passing None for repositories until they are properly injected
+        self.performance_analyzer = StrategyPerformanceAnalyzer(
+            logger, 
+            config,
+            trade_repository=None,
+            portfolio_snapshot_repository=None,
+            execution_repository=None
+        )
         self.market_monitor = MarketConditionMonitor(logger, config)
         self.risk_evaluator = RiskEvaluator(logger, config, risk_manager, portfolio_manager)
         
@@ -2147,8 +2151,7 @@ class StrategySelectionSystem:
         except Exception as exc:  # pragma: no cover - defensive catch
             self.logger.error(
                 f"Failed to retrieve portfolio state: {exc}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             portfolio_state = {}
         
         # Assess market conditions
@@ -2163,8 +2166,7 @@ class StrategySelectionSystem:
         except Exception as exc:  # pragma: no cover - defensive catch
             self.logger.error(
                 f"Failed to retrieve risk budget: {exc}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             risk_budget = Decimal("0")
         
         return StrategySelectionContext(

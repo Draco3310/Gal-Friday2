@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .models_base import Base
+from typing import Any
 
 
 class ReconciliationEvent(Base):
@@ -25,19 +26,17 @@ class ReconciliationEvent(Base):
     discrepancies_found: Mapped[int | None] = mapped_column(Integer, server_default="0")
     auto_corrected: Mapped[int | None] = mapped_column(Integer, server_default="0")
     manual_review_required: Mapped[int | None] = mapped_column(Integer, server_default="0")
-    report: Mapped[dict] = mapped_column(JSONB, nullable=False) # From 003
+    report: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False) # From 003
     duration_seconds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True) # Precision from 003
     created_at: Mapped[datetime | None] = mapped_column(
-        DateTime, server_default=func.current_timestamp(),
-    )
+        DateTime, server_default=func.current_timestamp())
 
     # Relationship to PositionAdjustment
     adjustments = relationship("PositionAdjustment", back_populates="reconciliation_event")
 
     __table_args__ = (
         Index("idx_reconciliation_timestamp", "timestamp"),
-        Index("idx_reconciliation_status", "status"),
-    )
+        Index("idx_reconciliation_status", "status"))
 
     def __repr__(self) -> str:
         return (

@@ -23,8 +23,7 @@ from gal_friday.core.events import (
     ExecutionReportEvent,
     MarketDataL2Event,
     SystemStateEvent,
-    TradeSignalProposedEvent,
-)
+    TradeSignalProposedEvent)
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
 from gal_friday.monitoring_service import MonitoringService
@@ -108,8 +107,7 @@ class MetricsCollector:
         self,
         metric_type: str,
         value: float | int | str | dict[str, float | int | str],
-        tags: dict[str, str] | None = None,
-    ) -> None:
+        tags: dict[str, str] | None = None) -> None:
         """Record a metric value."""
         timestamp = datetime.now(UTC)
         metric = {
@@ -127,7 +125,7 @@ class MetricsCollector:
             key = f"metric:{metric_type}:{timestamp.timestamp()}"
             await self.redis.setex(key, 3600, json.dumps(metric, default=str))
 
-    async def get_recent_metrics(self, metric_type: str, minutes: int = 5) -> list[dict]:
+    async def get_recent_metrics(self, metric_type: str, minutes: int = 5) -> list[dict[str, Any]]:
         """Get recent metrics of specified type."""
         cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
 
@@ -149,7 +147,7 @@ class MetricsCollector:
         # Risk metrics
         self.aggregated_metrics["risk_metrics"] = await self._calculate_risk_metrics()
 
-    async def _calculate_system_health(self) -> dict:
+    async def _calculate_system_health(self) -> dict[str, Any]:
         """Calculate system health metrics."""
         api_errors = await self.get_recent_metrics("api_error", 5)
         latency_metrics = await self.get_recent_metrics("latency", 5)
@@ -164,7 +162,7 @@ class MetricsCollector:
             "uptime_pct": self.calculate_uptime(),
         }
 
-    async def _calculate_trading_performance(self) -> dict:
+    async def _calculate_trading_performance(self) -> dict[str, Any]:
         """Calculate trading performance metrics."""
         trades = await self.get_recent_metrics("trade_complete", 60)
 
@@ -186,7 +184,7 @@ class MetricsCollector:
             "total_pnl": float(total_pnl),
         }
 
-    async def _calculate_risk_metrics(self) -> dict:
+    async def _calculate_risk_metrics(self) -> dict[str, Any]:
         """Calculate risk metrics."""
         positions = await self.get_recent_metrics("position_update", 1)
 
@@ -228,7 +226,7 @@ class MetricsCollector:
 
         return round((uptime_minutes / total_minutes) * 100, 2)
 
-    def calculate_correlation_risk(self, positions: dict) -> float:
+    def calculate_correlation_risk(self, positions: dict[str, Any]) -> float:
         """Calculate correlation risk for current positions.
         
         Args:
@@ -311,8 +309,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title="Gal-Friday Monitoring Dashboard",
     version="1.0.0",
-    lifespan=lifespan,
-)
+    lifespan=lifespan)
 
 # Add CORS middleware for frontend
 app.add_middleware(
@@ -320,8 +317,7 @@ app.add_middleware(
     allow_origins=["http://localhost:3000"],  # React dev server
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
-)
+    allow_headers=["*"])
 
 
 # Dependency injection
@@ -353,7 +349,7 @@ async def get_system_status() -> dict[str, Any]:
     """Get current system status.
 
     Returns:
-        dict: System status including halt state and details
+        dict[str, Any]: System status including halt state and details
     """
     monitoring = get_monitoring_service()
     halt_status = (
@@ -377,7 +373,7 @@ async def trigger_halt(reason: str) -> dict[str, str]:
         reason: Reason for halting the system
 
     Returns:
-        dict: Status and reason for the halt
+        dict[str, Any]: Status and reason for the halt
     """
     monitoring = get_monitoring_service()
     await monitoring.trigger_halt(reason, "Dashboard API")
@@ -389,7 +385,7 @@ async def trigger_resume() -> dict[str, str]:
     """Resume system from HALT.
 
     Returns:
-        dict: Status and message confirming the resume
+        dict[str, Any]: Status and message confirming the resume
     """
     monitoring = get_monitoring_service()
     await monitoring.trigger_resume("Dashboard API")
@@ -437,7 +433,7 @@ async def get_aggregated_metrics() -> dict[str, Any]:
 
 @app.get("/api/orders/active")
 async def get_active_orders() -> dict[str, Any]:
-    """Get list of active orders from execution handler."""
+    """Get list[Any] of active orders from execution handler."""
     try:
         data_collector = app.state.live_data_collector
         if data_collector:
@@ -776,8 +772,7 @@ class EventBroadcaster:
                     "quantity": float(event.quantity_filled),
                     "price": float(event.average_fill_price) if event.average_fill_price else 0,
                     "pnl": 0,  # Would be calculated from position
-                },
-            )
+                })
 
     async def _handle_system_state(self, event: SystemStateEvent) -> None:
         """Broadcast system state changes."""
@@ -796,8 +791,7 @@ class EventBroadcaster:
             {
                 "state": event.new_state,
                 "reason": event.reason,
-            },
-        )
+            })
 
 
 # Initialize the dashboard with system components
@@ -809,8 +803,7 @@ def initialize_dashboard(
     logger: LoggerService,
     execution_handler: Any = None,
     strategy_selection: Any = None,
-    risk_manager: Any = None,
-) -> FastAPI:
+    risk_manager: Any = None) -> FastAPI:
     """Initialize dashboard with system components."""
     app.state.config = config
     app.state.pubsub = pubsub

@@ -39,8 +39,7 @@ class ComponentInitializationError(SetupError):
         self,
         component_name: str,
         details: str | None = None,
-        message: str | None = None,
-    ) -> None:
+        message: str | None = None) -> None:
         """Initialize ComponentInitializationError.
 
         Args:
@@ -87,13 +86,12 @@ class UnsupportedModeError(OperationalError, ValueError):
         self,
         mode: str,
         supported_modes: list[str] | None = None,
-        message: str | None = None,
-    ) -> None:
+        message: str | None = None) -> None:
         """Initialize UnsupportedModeError.
 
         Args:
             mode: The mode that was not supported
-            supported_modes: Optional list of supported modes
+            supported_modes: Optional list[Any] of supported modes
             message: Optional custom error message
         """
         self.mode = mode
@@ -127,7 +125,7 @@ class InvalidLoggerTableNameError(ConfigurationError):
             table_name: The invalid table name that was provided
             allowed_tables: Set of valid table names
         """
-        message = f"Table name '{table_name}' not in allowed list: {allowed_tables}"
+        message = f"Table name '{table_name}' not in allowed list[Any]: {allowed_tables}"
         super().__init__(message)
         self.table_name = table_name
         self.allowed_tables = allowed_tables
@@ -141,8 +139,7 @@ class APIError(GalFridayError):
         message: str,
         service_name: str,
         status_code: int | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
+        details: dict[str, Any] | None = None) -> None:
         """Initialize an APIError.
 
         Args:
@@ -157,8 +154,7 @@ class APIError(GalFridayError):
             {
                 "service_name": service_name,
                 "status_code": status_code,
-            },
-        )
+            })
         super().__init__(message, details)
 
 
@@ -305,8 +301,7 @@ class RiskManagerInstantiationFailedExit(CriticalExit):
     def __init__(
         self,
         component_name: str = "RiskManager",
-        _original_exception: Exception | None = None,
-    ) -> None:
+        _original_exception: Exception | None = None) -> None:
         """Initialize RiskManagerInstantiationFailedExit.
 
         Args:
@@ -324,13 +319,12 @@ class MarketPriceServiceUnsupportedModeError(UnsupportedModeError):
         self,
         mode: str,
         supported_modes: list[str] | None = None,
-        message: str | None = None,
-    ) -> None:
+        message: str | None = None) -> None:
         """Initialize MarketPriceServiceUnsupportedModeError.
 
         Args:
             mode: The mode that is not supported by MarketPriceService
-            supported_modes: Optional list of supported modes
+            supported_modes: Optional list[Any] of supported modes
             message: Optional custom error message
         """
         if message is None:
@@ -351,8 +345,7 @@ class MarketPriceServiceCriticalFailureExit(CriticalExit):
             _original_exception: Optional original exception that caused the failure
         """
         super().__init__(
-            "MarketPriceService instantiation failed critically. " "Application exiting.",
-        )
+            "MarketPriceService instantiation failed critically. " "Application exiting.")
 
 
 class PortfolioManagerInstantiationFailedExit(CriticalExit):
@@ -365,8 +358,7 @@ class PortfolioManagerInstantiationFailedExit(CriticalExit):
             _original_exception: Optional original exception that caused the failure
         """
         super().__init__(
-            "PortfolioManager instantiation failed. Application exiting.",
-        )
+            "PortfolioManager instantiation failed. Application exiting.")
 
 
 class LoggerServiceInstantiationFailedExit(CriticalExit):
@@ -379,8 +371,7 @@ class LoggerServiceInstantiationFailedExit(CriticalExit):
             _original_exception: Optional original exception that caused the failure
         """
         super().__init__(
-            "LoggerService instantiation failed. Application exiting.",
-        )
+            "LoggerService instantiation failed. Application exiting.")
 
 
 class PubSubManagerInstantiationFailedExit(CriticalExit):
@@ -393,8 +384,7 @@ class PubSubManagerInstantiationFailedExit(CriticalExit):
             _original_exception: Optional original exception that caused the failure
         """
         super().__init__(
-            "PubSubManager core instantiation failed. Application exiting.",
-        )
+            "PubSubManager core instantiation failed. Application exiting.")
 
 
 class ConfigurationLoadingFailedExit(CriticalExit):
@@ -407,5 +397,4 @@ class ConfigurationLoadingFailedExit(CriticalExit):
             _original_exception: Optional original exception that caused the failure
         """
         super().__init__(
-            "Configuration loading failed. Application exiting.",
-        )
+            "Configuration loading failed. Application exiting.")

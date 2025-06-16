@@ -7,8 +7,7 @@ import pandas as pd
 from ..simulated_market_price_service import (
     DataRequest,
     HistoricalDataPoint,
-    HistoricalDataProvider,
-)
+    HistoricalDataProvider)
 
 
 class LocalFileDataProvider(HistoricalDataProvider):
@@ -52,8 +51,7 @@ class LocalFileDataProvider(HistoricalDataProvider):
                 high=row["high"],
                 low=row["low"],
                 close=row["close"],
-                volume=row.get("volume", 0.0),
-            )
+                volume=row.get("volume", 0.0))
             for _, row in df.iterrows()
         ]
         return data

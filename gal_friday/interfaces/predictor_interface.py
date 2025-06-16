@@ -14,8 +14,7 @@ class PredictorInterface(ABC):
         self,
         model_path: str,
         model_id: str,
-        config: dict[str, Any] | None = None,
-    ) -> None:
+        config: dict[str, Any] | None = None) -> None:
         """Initialize the predictor.
 
         Args:
@@ -45,7 +44,7 @@ class PredictorInterface(ABC):
         """
 
     @abstractmethod
-    def predict(self, features: np.ndarray) -> np.ndarray:
+    def predict(self, features: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Generate predictions from the raw, ordered feature vector.
 
         Implementations should handle any necessary internal preprocessing
@@ -69,4 +68,4 @@ class PredictorInterface(ABC):
     @property
     @abstractmethod
     def expected_feature_names(self) -> list[str] | None:
-        """Return the list of feature names the model expects, if applicable."""
+        """Return the list[Any] of feature names the model expects, if applicable."""

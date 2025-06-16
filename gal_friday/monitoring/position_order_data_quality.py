@@ -31,7 +31,7 @@ class DataQualityIssue:
     entity_type: str  # "ORDER", "POSITION", "RELATIONSHIP"
     entity_id: str
     description: str
-    details: dict[str, Any] = field(default_factory=dict)
+    details: dict = field(default_factory=dict)
     discovered_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -65,8 +65,7 @@ class PositionOrderDataQualityMonitor:
     def __init__(
         self,
         session_maker: async_sessionmaker[AsyncSession],
-        logger: LoggerService,
-    ) -> None:
+        logger: LoggerService) -> None:
         """Initialize the data quality monitor.
         
         Args:
@@ -97,8 +96,7 @@ class PositionOrderDataQualityMonitor:
         """
         self.logger.info(
             f"Starting comprehensive data quality check (last {hours_back} hours)",
-            source_module=self._source_module,
-        )
+            source_module=self._source_module)
         
         report_start = datetime.now(UTC)
         issues: list[DataQualityIssue] = []
@@ -138,22 +136,19 @@ class PositionOrderDataQualityMonitor:
                 total_orders_checked=total_orders,
                 total_positions_checked=total_positions,
                 issues_found=issues,
-                metrics=metrics,
-            )
+                metrics=metrics)
             
             self.logger.info(
                 f"Data quality check completed. Found {len(issues)} issues "
                 f"({len(report.high_priority_issues)} high priority)",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             
             return report
             
         except Exception as e:
             self.logger.exception(
                 f"Error during comprehensive data quality check: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             raise
 
     async def _check_unlinked_filled_orders(self, hours_back: int) -> list[DataQualityIssue]:
@@ -180,14 +175,12 @@ class PositionOrderDataQualityMonitor:
             
             self.logger.debug(
                 f"Found {len(unlinked_orders)} unlinked filled orders",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             
         except Exception as e:
             self.logger.error(
                 f"Error checking unlinked filled orders: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         
         return issues
 
@@ -227,14 +220,12 @@ class PositionOrderDataQualityMonitor:
                 
                 self.logger.debug(
                     f"Found {len(orphaned_orders)} orders with orphaned position references",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 
         except Exception as e:
             self.logger.error(
                 f"Error checking orphaned position references: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         
         return issues
 
@@ -278,14 +269,12 @@ class PositionOrderDataQualityMonitor:
                 
                 self.logger.debug(
                     f"Found {len(positions_without_orders)} positions without contributing orders",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 
         except Exception as e:
             self.logger.error(
                 f"Error checking positions without orders: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         
         return issues
 
@@ -327,14 +316,12 @@ class PositionOrderDataQualityMonitor:
                 
                 self.logger.debug(
                     f"Checked quantity consistency, found {len(issues)} mismatches",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 
         except Exception as e:
             self.logger.error(
                 f"Error checking quantity consistency: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         
         return issues
 
@@ -347,14 +334,12 @@ class PositionOrderDataQualityMonitor:
             # For now, placeholder for future enhancement
             self.logger.debug(
                 "Historical data integrity check completed",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
             
         except Exception as e:
             self.logger.error(
                 f"Error during historical data integrity check: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         
         return issues
 
@@ -407,14 +392,12 @@ class PositionOrderDataQualityMonitor:
                 
                 self.logger.debug(
                     f"Calculated relationship metrics: {metrics}",
-                    source_module=self._source_module,
-                )
+                    source_module=self._source_module)
                 
         except Exception as e:
             self.logger.error(
                 f"Error calculating relationship metrics: {e}",
-                source_module=self._source_module,
-            )
+                source_module=self._source_module)
         
         return metrics
 
@@ -478,12 +461,10 @@ class PositionOrderDataQualityMonitor:
                     fixed_count += 1
                     self.logger.info(
                         f"Auto-fixed orphaned position reference for order {issue.entity_id}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
                 except Exception as e:
                     self.logger.error(
                         f"Failed to auto-fix orphaned position reference for order {issue.entity_id}: {e}",
-                        source_module=self._source_module,
-                    )
+                        source_module=self._source_module)
         
         return fixed_count 

@@ -30,7 +30,7 @@ class StrategyPositionTracker:
         self._source_module = self.__class__.__name__
 
         # Add proper type annotations for class variables
-        self._strategy_positions: dict[str, dict[str, Any]] = defaultdict(dict)
+        self._strategy_positions: dict[str, dict[str, Any]] = defaultdict(dict[str, Any])
 
         # Define the type of performance metrics
         self._strategy_performance: dict[str, dict[str, Decimal | int | datetime]] = defaultdict(
@@ -42,16 +42,14 @@ class StrategyPositionTracker:
                 "exposure_pct": Decimal("0"),
                 "position_count": 0,
                 "last_updated": datetime.utcnow(),
-            },
-        )
+            })
         self._portfolio_equity = Decimal("0")  # Total portfolio equity for reference
 
     def add_position(
         self,
         strategy_id: str,
         trading_pair: str,
-        position_data: dict[str, Any],
-    ) -> None:
+        position_data: dict[str, Any]) -> None:
         """Add or update a position for a strategy.
 
         Args:
@@ -159,15 +157,11 @@ class StrategyPositionTracker:
                 if isinstance(metrics["drawdown_pct"], Decimal)
                 else Decimal(
                     str(
-                        metrics["drawdown_pct"] if metrics["drawdown_pct"] is not None else 0,
-                    ),
-                ),
-            ),
-            source_module=self._source_module,
-        )
+                        metrics["drawdown_pct"] if metrics["drawdown_pct"] is not None else 0))),
+            source_module=self._source_module)
 
     def get_all_strategy_ids(self) -> list[str]:
-        """Get list of all strategy IDs currently being tracked.
+        """Get list[Any] of all strategy IDs currently being tracked.
 
         Returns:
         -------
@@ -175,9 +169,8 @@ class StrategyPositionTracker:
         """
         # Return all strategy IDs from both positions and performance tracking
         all_ids = set(self._strategy_positions.keys()).union(
-            self._strategy_performance.keys(),
-        )
-        return list(all_ids)
+            self._strategy_performance.keys())
+        return list[Any](all_ids)
 
     def _initialize_strategy_metrics(self, strategy_id: str) -> None:
         """Initialize metrics for a new strategy.

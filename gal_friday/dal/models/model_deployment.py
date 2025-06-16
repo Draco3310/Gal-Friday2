@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .models_base import Base
+from typing import Any
 
 
 class ModelDeployment(Base):
@@ -16,15 +17,14 @@ class ModelDeployment(Base):
     __tablename__ = "model_deployments"
 
     deployment_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
-    )
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
     # model_id is a ForeignKey to model_versions.model_id
     model_id: Mapped[UUID] = mapped_column(
         ForeignKey("model_versions.model_id"), nullable=True, index=True, # Schema allows NULL, added index
     )
     deployed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False) # No server_default in schema
     deployed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    deployment_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    deployment_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool | None] = mapped_column(Boolean, server_default="true", index=True) # Added index
 
     # Relationship to ModelVersion
@@ -32,8 +32,7 @@ class ModelDeployment(Base):
 
     __table_args__ = (
         Index("idx_deployments_model", "model_id"),
-        Index("idx_deployments_active", "is_active"),
-    )
+        Index("idx_deployments_active", "is_active"))
 
     def __repr__(self) -> str:
         return (

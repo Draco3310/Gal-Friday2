@@ -65,5 +65,4 @@ class SystemLog(Base):
             timestamp=self.log_timestamp or datetime.utcnow(), # Use the log's timestamp if available
             level=self.log_level.upper(),
             message=self.message,
-            context=event_context,
-        )
+            context=event_context)

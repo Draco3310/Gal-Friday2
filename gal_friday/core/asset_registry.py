@@ -68,7 +68,7 @@ class AssetSpecification:
 
     # Exchange-specific metadata
     exchange_symbol: str = ""            # Exchange-native symbol format
-    exchange_metadata: dict[str, Any] = field(default_factory=dict)
+    exchange_metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass(frozen=True)
@@ -97,7 +97,7 @@ class ExchangeSpecification:
     max_market_data_depth: int = 20
 
     # Trading sessions
-    trading_sessions: list[TradingSession] = field(default_factory=list)
+    trading_sessions: list[TradingSession] = field(default_factory=list[Any])
 
     # Rate limits and constraints
     max_orders_per_second: int | None = None
@@ -161,7 +161,7 @@ class AssetRegistry:
 
     def get_supported_assets(self, exchange_id: str) -> list[AssetSpecification]:
         """Get all assets supported by an exchange."""
-        return list(self._assets.get(exchange_id, {}).values())
+        return list[Any](self._assets.get(exchange_id, {}).values())
 
     def get_exchange(self, exchange_id: str) -> ExchangeSpecification | None:
         """Get exchange specification."""
@@ -169,7 +169,7 @@ class AssetRegistry:
 
     def get_all_exchanges(self) -> list[ExchangeSpecification]:
         """Get all registered exchanges."""
-        return list(self._exchanges.values())
+        return list[Any](self._exchanges.values())
 
     def normalize_symbol(self, symbol: str, from_exchange: str, to_exchange: str) -> str:
         """Convert symbol format between exchanges."""
@@ -182,7 +182,7 @@ class AssetRegistry:
         if to_exchange not in exchange_mappings:
             return symbol
 
-        # Get the symbol mapping dict
+        # Get the symbol mapping dict[str, Any]
         symbol_mapping_dict = exchange_mappings[to_exchange]
         return symbol_mapping_dict.get(symbol, symbol)  # Return original if no mapping
 
@@ -197,10 +197,10 @@ class AssetRegistry:
                           exchange_id: str | None = None) -> list[AssetSpecification]:
         """Get all assets of a specific type, optionally filtered by exchange."""
         assets = []
-        exchanges_to_check = [exchange_id] if exchange_id else list(self._assets.keys())
+        exchanges_to_check = [exchange_id] if exchange_id else list[Any](self._assets.keys())
 
         for exch_id in exchanges_to_check:
-            # PERF401: Use extend with a list comprehension
+            # PERF401: Use extend with a list[Any] comprehension
             assets.extend([
                 asset_spec for asset_spec in self._assets.get(exch_id, {}).values()
                 if asset_spec.asset_type == asset_type
@@ -245,8 +245,7 @@ def initialize_default_assets() -> None:
         taker_fee_bps=Decimal("26"),  # 0.26%
         trading_sessions=kraken_sessions,
         max_orders_per_second=10,
-        typical_latency_ms=50.0,
-    )
+        typical_latency_ms=50.0)
 
     asset_registry.register_exchange(kraken_exchange)
 
@@ -258,8 +257,7 @@ def initialize_default_assets() -> None:
         quote_asset="USD",
         min_order_size=Decimal("1"),
         tick_size=Decimal("0.0001"),
-        exchange_symbol="XRPUSD",
-    )
+        exchange_symbol="XRPUSD")
 
     doge_usd = AssetSpecification(
         symbol="DOGE/USD",
@@ -268,8 +266,7 @@ def initialize_default_assets() -> None:
         quote_asset="USD",
         min_order_size=Decimal("1"),
         tick_size=Decimal("0.00001"),
-        exchange_symbol="DOGEUSD",
-    )
+        exchange_symbol="DOGEUSD")
 
     asset_registry.register_asset(xrp_usd, "kraken")
     asset_registry.register_asset(doge_usd, "kraken")

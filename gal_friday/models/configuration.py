@@ -30,20 +30,21 @@ class Configuration(Base):
         """Convert this configuration to a ``LogEvent``."""
         from gal_friday.core.events import LogEvent
 
-        event_data = {
+        context = {
+            "config_pk": self.config_pk,
+            "config_hash": self.config_hash,
+            "is_active": self.is_active,
+            "loaded_at": self.loaded_at.isoformat() if self.loaded_at else None,
             "source_module": self.__class__.__name__,
-            "event_id": uuid.uuid4(),
-            "timestamp": datetime.utcnow(),
-            "level": "INFO",
-            "message": (
-                f"Configuration accessed/processed: PK={self.config_pk}, Hash={self.config_hash}"
-            ),
-            "context": {
-                "config_pk": self.config_pk,
-                "config_hash": self.config_hash,
-                "is_active": self.is_active,
-                "loaded_at": self.loaded_at.isoformat() if self.loaded_at else None,
-            },
         }
+        
+        message = f"Configuration accessed/processed: PK={self.config_pk}, Hash={self.config_hash}"
 
-        return LogEvent(**event_data)
+        return LogEvent(
+            source_module=self.__class__.__name__,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.utcnow(),
+            level="INFO",
+            message=message,
+            context=context
+        )

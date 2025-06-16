@@ -14,6 +14,7 @@ from scipy import stats
 
 from gal_friday.core.events import LogEvent
 from gal_friday.core.pubsub import PubSubManager
+from typing import Any
 
 if TYPE_CHECKING:
     from gal_friday.config_manager import ConfigManager
@@ -51,7 +52,7 @@ class DriftMetrics:
     is_significant: bool
     threshold: float = 0.1
     detection_time: datetime = field(default_factory=lambda: datetime.now(UTC))
-    details: dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass
@@ -61,7 +62,7 @@ class RetrainingJob:
     model_id: str
     model_name: str
     trigger: RetrainingTrigger
-    drift_metrics: list[DriftMetrics] = field(default_factory=list)
+    drift_metrics: list[DriftMetrics] = field(default_factory=list[Any])
     status: str = "pending"
     start_time: datetime | None = None
     end_time: datetime | None = None
@@ -69,7 +70,7 @@ class RetrainingJob:
     performance_comparison: dict[str, Any] | None = None
     error_message: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    task: asyncio.Task | None = field(default=None, init=False, repr=False) # Added task field
+    task: asyncio.Task[Any] | None = field(default=None, init=False, repr=False) # Added task field
 
 
 class DriftDetector:
@@ -79,8 +80,7 @@ class DriftDetector:
         self,
         config: "ConfigManager",
         model_registry: "ModelRegistry",
-        logger: "LoggerService",
-    ) -> None:
+        logger: "LoggerService") -> None:
         """Initialize the drift detector.
 
         Args:
@@ -148,8 +148,7 @@ class DriftDetector:
 
                 # Calculate drift using statistical distance
                 drift_score = self._calculate_statistical_distance(
-                    baseline_stats, current_value,
-                )
+                    baseline_stats, current_value)
 
                 threshold = self.drift_thresholds[DriftType.DATA_DRIFT]
                 is_significant = drift_score > threshold
@@ -166,8 +165,7 @@ class DriftDetector:
                         details={
                             "baseline_stats": baseline_stats,
                             "statistical_test": "ks_test",
-                        },
-                    ))
+                        }))
 
         return drift_metrics
 
@@ -203,8 +201,7 @@ class DriftDetector:
                         details={
                             "relative_change": (current_value - baseline_value) / baseline_value,
                             "degradation": current_value < baseline_value,
-                        },
-                    ))
+                        }))
 
         return drift_metrics
 
@@ -220,8 +217,7 @@ class DriftDetector:
         if current_predictions and baseline_predictions:
             # Calculate KL divergence or similar metric
             drift_score = self._calculate_prediction_drift_score(
-                baseline_predictions, current_predictions,
-            )
+                baseline_predictions, current_predictions)
 
             threshold = self.drift_thresholds[DriftType.PREDICTION_DRIFT]
             is_significant = drift_score > threshold
@@ -238,8 +234,7 @@ class DriftDetector:
                     details={
                         "baseline_mean": sum(baseline_predictions) / len(baseline_predictions),
                         "current_mean": sum(current_predictions) / len(current_predictions),
-                    },
-                ))
+                    }))
 
         return drift_metrics
 
@@ -327,8 +322,7 @@ class DriftDetector:
         except Exception as e:
             # Fall back to simple mean difference if KL calculation fails
             self.logger.warning(
-                f"KL divergence calculation failed, using mean difference: {e}",
-            )
+                f"KL divergence calculation failed, using mean difference: {e}")
             baseline_mean = sum(baseline) / len(baseline)
             current_mean = sum(current) / len(current)
             return abs(baseline_mean - current_mean)
@@ -342,11 +336,10 @@ class RetrainingPipeline:
         config: "ConfigManager",
         model_registry: "ModelRegistry",
         drift_detector: DriftDetector | None,
-        predictor_factory: Callable[[], Any] | None,
+        predictor_factory: Callable[..., Any] | None,
         retraining_repository: Optional["RetrainingRepository"],
         pubsub: PubSubManager | None,
-        logger: "LoggerService",
-    ) -> None:
+        logger: "LoggerService") -> None:
         """Initialize the retraining pipeline.
 
         Args:
@@ -370,7 +363,7 @@ class RetrainingPipeline:
         self._active_jobs: dict[str, RetrainingJob] = {}
         self._is_running = False
         self._check_interval = 3600  # 1 hour
-        self._monitoring_task: asyncio.Task | None = None
+        self._monitoring_task: asyncio.Task[Any] | None = None
 
     async def start(self) -> None:
         """Start the retraining pipeline."""
@@ -418,8 +411,7 @@ class RetrainingPipeline:
 
                 # Run drift detection
                 drift_metrics = await self.drift_detector.detect_drift(
-                    model.model_id, current_data,
-                )
+                    model.model_id, current_data)
 
                 # Check if retraining is needed
                 significant_drift = [m for m in drift_metrics if m.is_significant]
@@ -427,8 +419,7 @@ class RetrainingPipeline:
                     await self.trigger_retraining(
                         model.model_id,
                         RetrainingTrigger.DRIFT_DETECTED,
-                        significant_drift,
-                    )
+                        significant_drift)
 
         except Exception as e:
             self.logger.error(f"Error checking models for drift: {e}")
@@ -473,14 +464,13 @@ class RetrainingPipeline:
             model_id=model_id,
             model_name=model_metadata.model_name,
             trigger=trigger,
-            drift_metrics=drift_metrics or [],
-        )
+            drift_metrics=drift_metrics or [])
 
         # Store job
         self._active_jobs[job.job_id] = job
 
         if self.retraining_repository:
-            await self.retraining_repository.save_job(asdict(job)) # Convert job to dict
+            await self.retraining_repository.save_job(asdict(job)) # Convert job to dict[str, Any]
 
         # Start retraining process and store task reference
         task = asyncio.create_task(self._execute_retraining(job))
@@ -551,10 +541,8 @@ class RetrainingPipeline:
                         "model_id": job.model_id,
                         "new_model_id": job.new_model_id,
                         "performance_improvement": job.performance_comparison.get(
-                            "improvement", 0,
-                        ),
-                    },
-                )
+                            "improvement", 0),
+                    })
                 await self.pubsub.publish(log_event)
 
         except Exception as e:
@@ -583,8 +571,8 @@ class RetrainingPipeline:
 
         if self.retraining_repository:
             recent_jobs = await self.retraining_repository.get_recent_jobs(7)
-            recent_completed = len([j for j in recent_jobs if j["status"] == "completed"])
-            recent_failed = len([j for j in recent_jobs if j["status"] == "failed"])
+            recent_completed = len([j for j in recent_jobs if j.status == "completed"])
+            recent_failed = len([j for j in recent_jobs if j.status == "failed"])
 
         return {
             "active_jobs": [
@@ -629,6 +617,21 @@ class RetrainingPipeline:
 
         # Check repository
         if self.retraining_repository:
-            return await self.retraining_repository.get_job(uuid.UUID(job_id)) # Convert str to UUID
+            db_job = await self.retraining_repository.get_job(uuid.UUID(job_id))
+            if db_job:
+                return {
+                    "job_id": str(db_job.job_id),
+                    "model_id": str(db_job.model_id),
+                    "model_name": db_job.model_name,
+                    "status": db_job.status,
+                    "trigger": db_job.trigger,
+                    "start_time": db_job.start_time.isoformat() if db_job.start_time else None,
+                    "end_time": db_job.end_time.isoformat() if db_job.end_time else None,
+                    "new_model_id": str(db_job.new_model_id) if db_job.new_model_id else None,
+                    "performance_comparison": db_job.performance_comparison,
+                    "error_message": db_job.error_message,
+                    "created_at": db_job.created_at.isoformat() if db_job.created_at else None,
+                    "drift_metrics": db_job.drift_metrics or [],
+                }
 
         return None

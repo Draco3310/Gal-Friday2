@@ -17,8 +17,7 @@ class RiskMetrics(Base):
     __tablename__ = "risk_metrics"
 
     id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4(),
-    )
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
     
     # Risk counters
     consecutive_losses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -60,8 +59,7 @@ class RiskMetrics(Base):
 
     __table_args__ = (
         Index("idx_risk_metrics_updated", "last_updated"),
-        Index("idx_risk_metrics_risk_level", "risk_level"),
-    )
+        Index("idx_risk_metrics_risk_level", "risk_level"))
 
     def __repr__(self) -> str:
         return (

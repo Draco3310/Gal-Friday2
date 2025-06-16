@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from gal_friday.config_manager import ConfigManager
@@ -76,8 +77,7 @@ engine = create_async_engine(
         "server_settings": {"application_name": "gal_friday"},
         "command_timeout": 60,
         "connection_timeout": 10,
-    },
-)
+    })
 
 # Create session factory
 AsyncSessionFactory = async_sessionmaker(
@@ -85,8 +85,7 @@ AsyncSessionFactory = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
     autoflush=False,
-    autocommit=False,
-)
+    autocommit=False)
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -117,7 +116,7 @@ async def init_database() -> None:
     try:
         # Test the connection
         async with engine.begin() as conn:
-            await conn.run_sync(lambda sync_conn: sync_conn.execute("SELECT 1"))
+            await conn.run_sync(lambda sync_conn: sync_conn.execute(text("SELECT 1")))
         print("✅ Database connection verified")
     except Exception as e:
         print(f"❌ Database connection failed: {e}")

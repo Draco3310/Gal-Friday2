@@ -17,6 +17,7 @@ sys.path.insert(0, str(project_root))
 
 from gal_friday.cli_service_mocks import ConfigManager, LoggerService
 from gal_friday.monitoring.dashboard_service import DashboardService, RealTimeDashboard
+from typing import Any
 
 
 async def test_dashboard_service():
@@ -106,7 +107,7 @@ async def test_real_time_dashboard():
         # Check if data was collected
         if real_time_dashboard.current_data:
             print("✅ Real-time dashboard test passed")
-            print(f"   - Widget types: {list(real_time_dashboard.current_data.keys())}")
+            print(f"   - Widget types: {list[Any](real_time_dashboard.current_data.keys())}")
             
             # Check portfolio data
             if 'portfolio_value' in real_time_dashboard.current_data:
@@ -150,7 +151,7 @@ async def test_websocket_connection(port=8000):
             
             if response_data.get("type") == "initial_data":
                 print("✅ Received initial data")
-                print(f"   - Data keys: {list(response_data.get('data', {}).keys())}")
+                print(f"   - Data keys: {list[Any](response_data.get('data', {}).keys())}")
             elif response_data.get("type") == "pong":
                 print("✅ Ping-pong successful")
             

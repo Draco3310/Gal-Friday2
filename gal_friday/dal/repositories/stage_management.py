@@ -34,7 +34,7 @@ class StageValidationError(Exception):
     """Exception raised for invalid stage operations."""
     
     def __init__(self, message: str, stage: ModelStage | None = None, 
-                 model_id: str | None = None, details: dict[str, Any] | None = None):
+                 model_id: str | None = None, details: dict[str, Any] | None = None) -> None:
         """Initialize stage validation error.
         
         Args:
@@ -57,9 +57,9 @@ class StageConfig:
     max_models: Optional[int] = None
     auto_monitoring: bool = True
     backup_required: bool = False
-    performance_thresholds: dict[str, float] = field(default_factory=dict)
+    performance_thresholds: dict[str, float] = field(default_factory=dict[str, Any])
     allowed_transitions: set[ModelStage] = field(default_factory=set)
-    metadata_requirements: list[str] = field(default_factory=list)
+    metadata_requirements: list[str] = field(default_factory=list[Any])
     validation_level: StageValidationLevel = StageValidationLevel.BASIC
 
 
@@ -75,7 +75,7 @@ class StageTransitionRecord:
     user_id: Optional[str] = None
     reason: Optional[str] = None
     approval_id: Optional[str] = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
     success: bool = True
     error_message: Optional[str] = None
 
@@ -95,7 +95,7 @@ class StageMetrics:
 class ModelStageManager:
     """Enterprise-grade model stage management system."""
     
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize the stage manager.
         
         Args:
