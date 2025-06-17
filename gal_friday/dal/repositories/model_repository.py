@@ -371,7 +371,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
         Raises:
             StageValidationError: If promotion validation fails
         """
-        metadata = {
+        metadata: dict[str, Any] = {
             "model_type": "production_candidate",
             "created_by": deployed_by,
             "validation_results": "passed",
@@ -380,7 +380,9 @@ class ModelRepository(BaseRepository[ModelVersion]):
         }
         
         if performance_metrics:
-            metadata.update(performance_metrics)
+            # Convert float values to Any type for metadata compatibility
+            metrics_as_any: dict[str, Any] = {k: v for k, v in performance_metrics.items()}
+            metadata.update(metrics_as_any)
         
         return await self.update_model_version_stage(
             model_id=model_id,

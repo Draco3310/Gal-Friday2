@@ -5,6 +5,7 @@ Test script for the Real-Time Trading Dashboard
 
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -15,23 +16,32 @@ import websockets
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from gal_friday.cli_service_mocks import ConfigManager, LoggerService
+from gal_friday.config_manager import ConfigManager
+from gal_friday.logger_service import LoggerService
+from gal_friday.portfolio_manager import PortfolioManager
+from gal_friday.core.pubsub import PubSubManager
 from gal_friday.monitoring.dashboard_service import DashboardService, RealTimeDashboard
 from typing import Any
 
 
-async def test_dashboard_service():
+async def test_dashboard_service() -> bool:
     """Test the basic dashboard service functionality"""
     print("🧪 Testing Dashboard Service...")
     
     try:
         # Initialize configuration and logger
         config = ConfigManager()
-        logger = LoggerService()
+        # Create a basic logger for PubSubManager
+        basic_logger = logging.getLogger(__name__)
+        pubsub = PubSubManager(basic_logger, config)
+        logger = LoggerService(config, pubsub)
         
         # Create mock portfolio manager
-        class MockPortfolioManager:
-            def get_current_state(self):
+        class MockPortfolioManager(PortfolioManager):
+            def __init__(self) -> None:
+                pass
+                
+            def get_current_state(self) -> dict[str, Any]:
                 return {
                     "total_equity": 500000.0,
                     "total_unrealized_pnl": 7500.0,
@@ -64,17 +74,23 @@ async def test_dashboard_service():
         return False
 
 
-async def test_real_time_dashboard():
+async def test_real_time_dashboard() -> bool:
     """Test the real-time dashboard functionality"""
     print("🧪 Testing Real-Time Dashboard...")
     
     try:
         # Initialize services
         config = ConfigManager()
-        logger = LoggerService()
+        # Create a basic logger for PubSubManager
+        basic_logger = logging.getLogger(__name__)
+        pubsub = PubSubManager(basic_logger, config)
+        logger = LoggerService(config, pubsub)
         
-        class MockPortfolioManager:
-            def get_current_state(self):
+        class MockPortfolioManager(PortfolioManager):
+            def __init__(self) -> None:
+                pass
+                
+            def get_current_state(self) -> dict[str, Any]:
                 return {
                     "total_equity": 750000.0,
                     "total_unrealized_pnl": 12500.0,
@@ -131,7 +147,7 @@ async def test_real_time_dashboard():
         return False
 
 
-async def test_websocket_connection(port=8000):
+async def test_websocket_connection(port: int = 8000) -> bool:
     """Test WebSocket connection to a running dashboard"""
     print("🧪 Testing WebSocket Connection...")
     
@@ -165,7 +181,7 @@ async def test_websocket_connection(port=8000):
         return False
 
 
-async def test_http_endpoints(port=8000):
+async def test_http_endpoints(port: int = 8000) -> bool:
     """Test HTTP endpoints of a running dashboard"""
     print("🧪 Testing HTTP Endpoints...")
     
@@ -201,7 +217,7 @@ async def test_http_endpoints(port=8000):
         return False
 
 
-async def run_all_tests():
+async def run_all_tests() -> bool:
     """Run all dashboard tests"""
     print("🚀 Starting Dashboard Tests...\n")
     
@@ -245,7 +261,7 @@ async def run_all_tests():
     return passed == len(results)
 
 
-async def main():
+async def main() -> None:
     """Main function"""
     if len(sys.argv) > 1 and sys.argv[1] == "server":
         # Test against running server

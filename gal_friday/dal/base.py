@@ -64,7 +64,7 @@ class BaseRepository(Generic[T]):
                 self.logger.debug(
                     f"Created new {self.model_class.__name__} with ID {getattr(instance, 'id', None)}",
                     source_module=self._source_module)
-                return cast("T", instance)
+                return instance
         except Exception as e: # Catch generic Exception for logging, re-raise specific if needed
             self.logger.exception(
                 f"Error creating in {self.model_class.__name__}: {e}",
@@ -132,7 +132,7 @@ class BaseRepository(Generic[T]):
                                 f"Attempted to update non-existent attribute '{key}' on {self.model_class.__name__}",
                                 source_module=self._source_module)
                     if hasattr(entity, "updated_at"):
-                        entity.updated_at = datetime.now(UTC) # type: ignore
+                        entity.updated_at = datetime.now(UTC)
 
                     await session.commit()
                     await session.refresh(entity)

@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import DateTime, Index, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -16,7 +17,7 @@ class RiskMetrics(Base):
 
     __tablename__ = "risk_metrics"
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped[PythonUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
     
     # Risk counters

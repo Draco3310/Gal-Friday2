@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import Boolean, DateTime, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -16,7 +17,7 @@ class Position(Base):
 
     __tablename__ = "positions"
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped[PythonUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False, index=True) # Added index based on schema
     side: Mapped[str] = mapped_column(String(10), nullable=False)

@@ -9,14 +9,17 @@ import sys
 from pathlib import Path
 from typing import Dict, Any
 
-import uvicorn
+import uvicorn  # type: ignore[import-not-found]
 from fastapi.staticfiles import StaticFiles
 
 # Add the project root to the path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from gal_friday.cli_service_mocks import ConfigManager, LoggerService
+from gal_friday.config_manager import ConfigManager
+from gal_friday.logger_service import LoggerService
+from gal_friday.portfolio_manager import PortfolioManager
+from gal_friday.core.pubsub import PubSubManager
 from gal_friday.monitoring.dashboard_service import DashboardService, RealTimeDashboard
 from typing import Any
 
@@ -27,13 +30,19 @@ async def create_dashboard_app() -> RealTimeDashboard:
     # Initialize configuration
     config = ConfigManager()
     
-    # Initialize logger
-    logger = LoggerService()
+    # Initialize pubsub and logger
+    import logging
+    basic_logger = logging.getLogger(__name__)
+    pubsub = PubSubManager(basic_logger, config)
+    logger = LoggerService(config, pubsub)
     
     # Create a mock portfolio manager for demonstration
     # In production, this would be the actual portfolio manager
-    class MockPortfolioManager:
-        def get_current_state(self):
+    class MockPortfolioManager(PortfolioManager):
+        def __init__(self) -> None:
+            pass
+            
+        def get_current_state(self) -> dict[str, Any]:
             return {
                 "total_equity": 1000000.0,
                 "total_unrealized_pnl": 15000.0,
@@ -76,7 +85,7 @@ async def create_dashboard_app() -> RealTimeDashboard:
     
     # Add route to serve the main dashboard page
     @real_time_dashboard.app.get("/dashboard")
-    async def serve_dashboard():
+    async def serve_dashboard() -> Any:
         """Serve the main dashboard HTML page"""
         dashboard_path = static_dir / "dashboard.html"
         with open(dashboard_path, 'r') as f:
@@ -88,7 +97,7 @@ async def create_dashboard_app() -> RealTimeDashboard:
     return real_time_dashboard
 
 
-async def main():
+async def main() -> None:
     """Main function to run the dashboard"""
     
     print("🚀 Starting Gal Friday Real-Time Trading Dashboard...")

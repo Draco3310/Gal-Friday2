@@ -231,12 +231,13 @@ class StatisticalAnalyzer:
         if len(returns) < 2:
             raise ValueError("Insufficient data for performance analysis")
         
-        returns_array = returns.values
+        # Ensure we have a numpy array
+        returns_array = np.asarray(returns.values)
         
         # Basic statistics
-        total_return = (1 + returns).prod() - 1
-        annualized_return = (1 + returns.mean()) ** 252 - 1
-        volatility = returns.std() * np.sqrt(252)
+        total_return = float((1 + returns_array).prod() - 1)
+        annualized_return = float((1 + returns.mean()) ** 252 - 1)
+        volatility = float(returns.std() * np.sqrt(252))
         
         # Risk-adjusted metrics
         excess_returns = returns - risk_free_rate / 252
@@ -431,7 +432,7 @@ class ConfigurableEnsemble:
             action_type=winning_action_type,
             symbol=representative_action.symbol,
             exchange_id=representative_action.exchange_id,
-            confidence=np.mean([a.confidence for a in winning_actions]),
+            confidence=float(np.mean([a.confidence for a in winning_actions])),
             suggested_quantity=representative_action.suggested_quantity,
             suggested_price=representative_action.suggested_price,
             reasoning=f"Majority vote: {len(winning_actions)}/{len(actions)} strategies",
@@ -495,7 +496,7 @@ class ConfigurableEnsemble:
         
         # Calculate performance-based weights
         performance_weights = {}
-        total_performance = 0
+        total_performance = 0.0
         
         for strategy_id, metrics in performance_metrics.items():
             if strategy_id in [action.strategy_id for action in actions.values()]:
@@ -571,7 +572,7 @@ class ConfigurableEnsemble:
         
         # Shift Sharpe ratios to be positive
         sharpe_offset = max(0, -min_sharpe + 0.1)
-        total_sharpe = 0
+        total_sharpe = 0.0
         
         for strategy_id, metrics in performance_metrics.items():
             if strategy_id in [action.strategy_id for action in actions.values()]:
@@ -599,7 +600,7 @@ class ConfigurableEnsemble:
         
         # Calculate inverse volatility weights
         inv_vol_weights = {}
-        total_inv_vol = 0
+        total_inv_vol = 0.0
         
         for strategy_id, metrics in performance_metrics.items():
             if strategy_id in [action.strategy_id for action in actions.values()]:
@@ -733,7 +734,7 @@ class StatisticalReweighting:
         # Shift Sharpe ratios to be positive
         sharpe_offset = max(0, -min_sharpe + 0.1)
         
-        total_adjusted_sharpe = 0
+        total_adjusted_sharpe = 0.0
         for strategy_id, m in metrics.items():
             adjusted_sharpe = m.sharpe_ratio + sharpe_offset
             # Filter out strategies with poor statistical significance
@@ -756,7 +757,7 @@ class StatisticalReweighting:
         # Shift Sortino ratios to be positive
         sortino_offset = max(0, -min_sortino + 0.1)
         
-        total_adjusted_sortino = 0
+        total_adjusted_sortino = 0.0
         for strategy_id, m in metrics.items():
             adjusted_sortino = m.sortino_ratio + sortino_offset
             # Apply statistical significance penalty
@@ -774,7 +775,7 @@ class StatisticalReweighting:
     def _risk_parity_weighting(self, metrics: dict[str, PerformanceMetrics]) -> dict[str, float]:
         """Calculate risk parity weights (inverse volatility)."""
         inv_vol_scores = {}
-        total_inv_vol = 0
+        total_inv_vol = 0.0
         
         for strategy_id, m in metrics.items():
             if m.volatility > 0:
@@ -837,13 +838,13 @@ class StatisticalReweighting:
                 return self._equal_weights(strategy_ids)
             
             # Calculate volatilities and correlation matrix
-            volatilities = returns_matrix.std().values
+            volatilities = np.asarray(returns_matrix.std().values)
             correlation_matrix = returns_matrix.corr().values
             
             # Maximum diversification: maximize (w^T * σ) / sqrt(w^T * Σ * w)
             # This is equivalent to minimum variance with volatility scaling
             inv_corr = np.linalg.pinv(correlation_matrix)
-            vol_scaled_weights = inv_corr @ (1 / volatilities)
+            vol_scaled_weights = inv_corr @ (1.0 / volatilities)
             vol_scaled_weights = vol_scaled_weights / vol_scaled_weights.sum()
             
             # Ensure non-negative weights
@@ -890,7 +891,7 @@ class StatisticalReweighting:
         penalty_factor = self.config.transaction_cost
         
         # Calculate turnover
-        total_turnover = 0
+        total_turnover = 0.0
         for strategy_id in new_weights:
             current_weight = current_weights.get(strategy_id, 0)
             turnover = abs(new_weights[strategy_id] - current_weight)
@@ -931,7 +932,7 @@ class StatisticalReweighting:
         
         latest_weights = self.weight_history[-1] if self.weight_history else {}
         
-        attribution = {
+        attribution: dict[str, Any] = {
             "individual_contributions": {},
             "total_portfolio_metrics": {},
             "diversification_ratio": 0.0,
@@ -939,8 +940,8 @@ class StatisticalReweighting:
         }
         
         # Calculate individual contributions
-        total_return = 0
-        total_volatility = 0
+        total_return = 0.0
+        total_volatility = 0.0
         
         for strategy_id, metrics in self.performance_cache.items():
             weight = latest_weights.get(strategy_id, 0)
@@ -968,7 +969,8 @@ class StatisticalReweighting:
         # Concentration metrics
         weights_array = np.array(list[Any](latest_weights.values()))
         attribution["concentration_index"] = np.sum(weights_array ** 2)  # Herfindahl index
-        attribution["effective_strategies"] = 1.0 / attribution["concentration_index"] if attribution["concentration_index"] > 0 else 0
+        concentration = float(attribution["concentration_index"])
+        attribution["effective_strategies"] = 1.0 / concentration if concentration > 0 else 0
         
         return attribution
 
@@ -1556,7 +1558,7 @@ class EnsembleStrategyInterface(StrategyInterface):
         try:
             # Apply current strategy weights to actions
             weighted_actions = {}
-            total_weight = 0
+            total_weight = 0.0
             
             for strategy_id, action in sub_actions.items():
                 weight = self.strategy_weights.get(strategy_id, 0)

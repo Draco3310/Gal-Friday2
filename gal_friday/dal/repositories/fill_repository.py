@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
 
-class FillRepository(BaseRepository):
+class FillRepository(BaseRepository[Fill]):
     """Repository for fill data persistence using SQLAlchemy."""
 
     def __init__(

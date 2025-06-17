@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
 
-class PositionRepository(BaseRepository):
+class PositionRepository(BaseRepository[Position]):
     """Repository for position data persistence using SQLAlchemy."""
 
     def __init__(

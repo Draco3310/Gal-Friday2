@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import (
     CheckConstraint,
@@ -25,13 +26,13 @@ class Experiment(Base):
 
     __tablename__ = "experiments"
 
-    experiment_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    experiment_id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Assuming model_versions.model_id is UUID and ModelVersion model exists
-    control_model_id: Mapped[UUID] = mapped_column(
+    control_model_id: Mapped[PythonUUID] = mapped_column(
         ForeignKey("model_versions.model_id"), nullable=False)
-    treatment_model_id: Mapped[UUID] = mapped_column(
+    treatment_model_id: Mapped[PythonUUID] = mapped_column(
         ForeignKey("model_versions.model_id"), nullable=False)
     allocation_strategy: Mapped[str] = mapped_column(String(50), nullable=False)
     traffic_split: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False)

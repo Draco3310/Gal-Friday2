@@ -10,12 +10,12 @@ from typing import (
     cast,
     ClassVar)
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gal_friday.core.events import ExecutionReportEvent, ExecutionReportParams
 
-from .base import Base
+from gal_friday.dal.models import Base
 
 if TYPE_CHECKING:
     from .order import Order
@@ -130,7 +130,7 @@ class ExecutionEventBuilder:
         
         # Use the order's current status if available
         if hasattr(fill.order, 'status') and fill.order.status:
-            return fill.order.status.upper()
+            return str(fill.order.status).upper()
         
         # Calculate status based on fill vs order quantities
         if hasattr(fill.order, 'quantity_ordered'):
@@ -147,7 +147,7 @@ class ExecutionEventBuilder:
     def _get_order_type(self, fill: 'Fill') -> str:
         """Get order type from related order data."""
         if fill.order and hasattr(fill.order, 'order_type') and fill.order.order_type:
-            return fill.order.order_type.upper()
+            return str(fill.order.order_type).upper()
         
         # Infer from liquidity type if available
         if fill.liquidity_type:
@@ -159,21 +159,17 @@ class ExecutionEventBuilder:
     def _get_quantity_ordered(self, fill: 'Fill') -> Decimal:
         """Get the original ordered quantity."""
         if fill.order and hasattr(fill.order, 'quantity_ordered'):
-            return cast(Decimal, fill.order.quantity_ordered)
+            # SQLAlchemy will return the actual Decimal value, not a Column
+            return fill.order.quantity_ordered
         
         # If no order context, use the fill quantity as a fallback
-        return cast(Decimal, fill.quantity_filled)
+        return fill.quantity_filled
     
     def _get_signal_id(self, fill: 'Fill') -> Optional[uuid.UUID]:
         """Extract signal ID from related order."""
         if fill.order and hasattr(fill.order, 'signal_id') and fill.order.signal_id:
-            if isinstance(fill.order.signal_id, uuid.UUID):
-                return fill.order.signal_id
-            # Try to convert string to UUID
-            try:
-                return uuid.UUID(str(fill.order.signal_id))
-            except (ValueError, TypeError):
-                self.logger.warning(f"Invalid signal_id format: {fill.order.signal_id}")
+            # SQLAlchemy will return the actual UUID value, not a Column
+            return fill.order.signal_id
         
         return None
     
@@ -224,7 +220,7 @@ class ExecutionEventBuilder:
 class ExecutionEventPublisher:
     """Publisher for execution report events with monitoring and error handling."""
     
-    def __init__(self, event_bus=None) -> None:
+    def __init__(self, event_bus: Optional[Any] = None) -> None:
         self.event_bus = event_bus
         self.logger = logging.getLogger(__name__)
         
@@ -307,7 +303,7 @@ class Fill(Base):
 
     # Constraints
     __table_args__ = (
-        UniqueConstraint("exchange", "fill_id", name="uq_exchange_fill_id"))
+        UniqueConstraint("exchange", "fill_id", name="uq_exchange_fill_id"),)
 
     # Class-level builders (can be dependency-injected in production)
     _event_builder: ClassVar[Optional[ExecutionEventBuilder]] = None

@@ -2,7 +2,7 @@ import pandas as pd
 from collections import defaultdict
 from typing import Dict
 
-_recent_features: Dict = defaultdict(pd.DataFrame)
+_recent_features: Dict[str, pd.DataFrame] = defaultdict(pd.DataFrame)
 
 
 async def fetch_latest_features(trading_pair: str, limit: int = 200) -> pd.DataFrame | None:
@@ -11,7 +11,9 @@ async def fetch_latest_features(trading_pair: str, limit: int = 200) -> pd.DataF
     if df is None or df.empty:
         return None
     df = df.sort_index()
-    return df.tail(limit)
+    # Ensure we return a DataFrame, not Any
+    result = df.tail(limit)
+    return result if isinstance(result, pd.DataFrame) else None
 
 
 def store_features(trading_pair: str, features: dict[str, float]) -> None:

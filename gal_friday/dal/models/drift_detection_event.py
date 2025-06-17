@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal  # Though schema uses DECIMAL(10,6) which fits float, Decimal is safer
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import (
     Boolean,
@@ -23,10 +24,10 @@ class DriftDetectionEvent(Base):
 
     __tablename__ = "drift_detection_events"
 
-    event_id: Mapped[UUID] = mapped_column(
+    event_id: Mapped[PythonUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
     # Assuming model_versions.model_id is UUID and ModelVersion model exists
-    model_id: Mapped[UUID] = mapped_column(
+    model_id: Mapped[PythonUUID] = mapped_column(
         ForeignKey("model_versions.model_id"), nullable=False, index=True, # Added index based on schema
     )
     drift_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True) # Added index

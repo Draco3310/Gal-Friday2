@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import (
     Boolean,
@@ -23,13 +24,13 @@ class ExperimentOutcome(Base):
 
     __tablename__ = "experiment_outcomes"
 
-    outcome_id: Mapped[UUID] = mapped_column(
+    outcome_id: Mapped[PythonUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    experiment_id: Mapped[UUID] = mapped_column(
+    experiment_id: Mapped[PythonUUID] = mapped_column(
         ForeignKey("experiments.experiment_id"), index=True)
     # Assuming event_id is a generic UUID, not necessarily FK to experiment_assignments.event_id
     # If it should be, then add ForeignKey("experiment_assignments.event_id")
-    event_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    event_id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     variant: Mapped[str] = mapped_column(String(20), nullable=False, index=True) # Added index based on schema
     outcome_data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     correct_prediction: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -16,9 +17,9 @@ class DataQualityIssue(Base):
 
     __tablename__ = "data_quality_issues"
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped[PythonUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    alert_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    alert_id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)
     alert_type: Mapped[str] = mapped_column(String(100), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False)

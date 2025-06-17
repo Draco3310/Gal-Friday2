@@ -6,26 +6,38 @@ Quick test to verify dashboard functionality
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
 # Add the project root to the path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from gal_friday.cli_service_mocks import ConfigManager, LoggerService
+from gal_friday.config_manager import ConfigManager
+from gal_friday.logger_service import LoggerService
+from gal_friday.portfolio_manager import PortfolioManager
+from gal_friday.core.pubsub import PubSubManager
 from gal_friday.monitoring.dashboard_service import DashboardService, RealTimeDashboard
 
 
-async def quick_test():
+async def quick_test() -> None:
     """Quick test of dashboard functionality"""
     print("🧪 Quick Dashboard Test")
     
     # Initialize services
     config = ConfigManager()
-    logger = LoggerService()
+    # Create a basic logger for PubSubManager
+    import logging
+    basic_logger = logging.getLogger(__name__)
+    pubsub = PubSubManager(basic_logger, config)
+    logger = LoggerService(config, pubsub)
     
-    # Create mock portfolio manager
-    class MockPortfolioManager:
-        def get_current_state(self):
+    # Create mock portfolio manager that satisfies the PortfolioManager interface
+    class MockPortfolioManager(PortfolioManager):
+        def __init__(self) -> None:
+            # Initialize with minimal required arguments
+            pass
+            
+        def get_current_state(self) -> dict[str, Any]:
             return {
                 "total_equity": 1000000.0,
                 "total_unrealized_pnl": 15000.0,

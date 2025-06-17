@@ -160,10 +160,10 @@ class AdvancedSpreadCalculator:
             
             if effective_spreads:
                 return {
-                    'effective_spread_mean': np.mean(effective_spreads),
-                    'effective_spread_median': np.median(effective_spreads),
-                    'effective_spread_std': np.std(effective_spreads),
-                    'effective_spread_bps_mean': np.mean(effective_spreads) / midpoint * 10000,
+                    'effective_spread_mean': float(np.mean(effective_spreads)),
+                    'effective_spread_median': float(np.median(effective_spreads)),
+                    'effective_spread_std': float(np.std(effective_spreads)),
+                    'effective_spread_bps_mean': float(np.mean(effective_spreads) / midpoint * 10000),
                     'trade_count': len(effective_spreads)
                 }
             
@@ -219,7 +219,7 @@ class AdvancedSpreadCalculator:
                     
                     return {
                         'liquidity_weighted_spread_abs': liquidity_weighted_spread,
-                        'liquidity_weighted_spread_bps': liquidity_weighted_spread / midpoint * 10000,
+                        'liquidity_weighted_spread_bps': float(liquidity_weighted_spread / midpoint * 10000),
                         'vwap_bid': vwap_bid,
                         'vwap_ask': vwap_ask,
                         'total_bid_volume': total_bid_volume,
@@ -365,7 +365,7 @@ class IntelligentImputationEngine:
         """Intelligent feature imputation with multiple strategies."""
         try:
             imputed_data = data.copy()
-            imputation_report = {
+            imputation_report: dict[str, Any] = {
                 'strategy_used': strategy.value,
                 'features_imputed': {},
                 'imputation_quality': {},
@@ -559,7 +559,7 @@ class IntelligentImputationEngine:
         imputed = series.copy()
         
         # Use regime-specific patterns with time-of-day adjustment
-        if hasattr(series.index, 'hour'):
+        if isinstance(series.index, pd.DatetimeIndex) and isinstance(regime_data.index, pd.DatetimeIndex):
             hourly_patterns = regime_data.groupby(regime_data.index.hour).median()
             
             for idx in series.index[series.isna()]:
@@ -567,7 +567,11 @@ class IntelligentImputationEngine:
                 base_value = hourly_patterns.get(hour, regime_data.median())
                 
                 # Add recent trend
-                recent_data = series.iloc[max(0, series.index.get_loc(idx) - 5):series.index.get_loc(idx)]
+                loc = series.index.get_loc(idx)
+                if isinstance(loc, int):
+                    recent_data = series.iloc[max(0, loc - 5):loc]
+                else:
+                    recent_data = pd.Series([])
                 if len(recent_data.dropna()) > 1:
                     trend = recent_data.dropna().diff().mean()
                     imputed[idx] = max(0, base_value + trend)
@@ -642,7 +646,7 @@ class IntelligentImputationEngine:
             return series.interpolate(method='cubic')
         elif feature_type == 'volume':
             # Use linear interpolation for volume
-            return series.interpolate(method='linear').fillna(method='ffill')
+            return series.interpolate(method='linear').ffill()
         else:
             # Default to linear for technical indicators
             return series.interpolate(method='linear')
@@ -669,7 +673,7 @@ class IntelligentImputationEngine:
                     imputed[idx] = decomposition.seasonal[idx] + decomposition.trend[idx]
             
             # Fill any remaining NAs
-            imputed = imputed.fillna(method='ffill').fillna(method='bfill')
+            imputed = imputed.ffill().bfill()
             
             return imputed
             
@@ -684,11 +688,11 @@ class IntelligentImputationEngine:
         """KNN-based imputation."""
         try:
             # Reshape for sklearn
-            data = series.values.reshape(-1, 1)
+            data = np.array(series.values).reshape(-1, 1)
             
             # Use KNN imputer
             imputer = KNNImputer(n_neighbors=self._knn_neighbors)
-            imputed_data = imputer.fit_transform(data)
+            imputed_data: np.ndarray = imputer.fit_transform(data)
             
             return pd.Series(imputed_data.flatten(), index=series.index)
             
@@ -701,7 +705,7 @@ class IntelligentImputationEngine:
     
     def _forward_fill_imputation(self, series: pd.Series[Any]) -> pd.Series[Any]:
         """Forward fill with back fill fallback."""
-        return series.fillna(method='ffill').fillna(method='bfill')
+        return series.ffill().bfill()
     
     def _get_max_consecutive_na(self, series: pd.Series[Any]) -> int:
         """Get maximum consecutive NaN count."""
@@ -727,7 +731,7 @@ class IntelligentImputationEngine:
             else:
                 return 'regime_aware_generic'
         else:
-            return strategy.value
+            return str(strategy.value)
 
 
 class ComprehensiveFeatureValidator:
@@ -751,7 +755,7 @@ class ComprehensiveFeatureValidator:
         """Comprehensive feature validation."""
         try:
             validated_features = features.copy()
-            validation_report = {
+            validation_report: dict[str, Any] = {
                 'passed_features': {},
                 'failed_features': {},
                 'warnings': [],
@@ -799,7 +803,7 @@ class ComprehensiveFeatureValidator:
         historical_data: Optional[pd.DataFrame]
     ) -> Dict[str, Any]:
         """Detect statistical outliers in features."""
-        outlier_results = {}
+        outlier_results: dict[str, Any] = {}
         
         if historical_data is None:
             return outlier_results
@@ -1082,10 +1086,13 @@ class AdvancedTemporalPatternEngine:
             
             for session_name, (start_hour, end_hour) in self._market_sessions.items():
                 # Handle sessions that cross midnight
-                if start_hour > end_hour:
-                    session_mask = (data.index.hour >= start_hour) | (data.index.hour < end_hour)
+                if isinstance(data.index, pd.DatetimeIndex):
+                    if start_hour > end_hour:
+                        session_mask = (data.index.hour >= start_hour) | (data.index.hour < end_hour)
+                    else:
+                        session_mask = (data.index.hour >= start_hour) & (data.index.hour < end_hour)
                 else:
-                    session_mask = (data.index.hour >= start_hour) & (data.index.hour < end_hour)
+                    continue
                 
                 session_data = data[session_mask][target_feature]
                 
@@ -1147,7 +1154,7 @@ class AdvancedTemporalPatternEngine:
             # Arch test for volatility clustering
             try:
                 from arch.unitroot import DFGLS
-                from arch.tests import het_arch
+                from arch import het_arch  # type: ignore[attr-defined]
                 
                 # ARCH-LM test
                 arch_test = het_arch(returns.dropna(), lags=5)
@@ -1189,11 +1196,13 @@ class AdvancedTemporalPatternEngine:
             for i in range(len(correlation_matrix.columns)):
                 for j in range(i+1, len(correlation_matrix.columns)):
                     corr_value = correlation_matrix.iloc[i, j]
-                    if abs(corr_value) > 0.7:  # High correlation threshold
-                        high_correlations.append({
-                            'feature1': correlation_matrix.columns[i],
-                            'feature2': correlation_matrix.columns[j],
-                            'correlation': corr_value
+                    if pd.notna(corr_value) and isinstance(corr_value, (int, float, np.number)):
+                        corr_float = float(corr_value)
+                        if abs(corr_float) > 0.7:  # High correlation threshold
+                            high_correlations.append({
+                                'feature1': correlation_matrix.columns[i],
+                                'feature2': correlation_matrix.columns[j],
+                                'correlation': corr_float
                         })
             
             # Lead-lag relationships
@@ -1206,7 +1215,7 @@ class AdvancedTemporalPatternEngine:
                     if col != price_col:
                         # Test different lags
                         best_lag = 0
-                        best_corr = 0
+                        best_corr = 0.0
                         
                         for lag in range(-5, 6):  # -5 to +5 periods
                             if lag == 0:
@@ -1319,7 +1328,7 @@ class AdvancedTemporalPatternEngine:
             daily_stats = data.groupby(data.index.dayofweek)[target_feature].agg([
                 'mean', 'std', 'count'
             ])
-            daily_stats.index = [day_names[i] for i in daily_stats.index]
+            daily_stats.index = pd.Index([day_names[i] for i in daily_stats.index])
             
             # Statistical significance test
             from scipy.stats import kruskal

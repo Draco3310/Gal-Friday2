@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -16,12 +17,12 @@ class PositionAdjustment(Base):
 
     __tablename__ = "position_adjustments"
 
-    adjustment_id: Mapped[UUID] = mapped_column(
+    adjustment_id: Mapped[PythonUUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         server_default=func.uuid_generate_v4())
     # reconciliation_id is a ForeignKey to reconciliation_events.reconciliation_id
-    reconciliation_id: Mapped[UUID] = mapped_column(
+    reconciliation_id: Mapped[PythonUUID] = mapped_column(
         ForeignKey("reconciliation_events.reconciliation_id"),
         nullable=False,
         index=True)

@@ -1,6 +1,7 @@
 """SQLAlchemy model for the 'experiment_assignments' table."""
 
 from datetime import datetime
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import DateTime, ForeignKey, Index, PrimaryKeyConstraint, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -14,9 +15,9 @@ class ExperimentAssignment(Base):
 
     __tablename__ = "experiment_assignments"
 
-    experiment_id: Mapped[UUID] = mapped_column(
+    experiment_id: Mapped[PythonUUID] = mapped_column(
         ForeignKey("experiments.experiment_id"), primary_key=True)
-    event_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True) # Assuming this is a generic UUID for an event
+    event_id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), primary_key=True) # Assuming this is a generic UUID for an event
     variant: Mapped[str] = mapped_column(String(20), nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True) # Added index
 

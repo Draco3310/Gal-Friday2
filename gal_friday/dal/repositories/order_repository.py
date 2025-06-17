@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from gal_friday.dal.base import BaseRepository
@@ -18,11 +18,11 @@ if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
 
-class OrderRepository(BaseRepository):
+class OrderRepository(BaseRepository[Order]):
     """Repository for order data persistence using SQLAlchemy."""
 
     def __init__(
-        self, session_maker: async_sessionmaker, logger: "LoggerService") -> None:
+        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
         """Initialize the order repository.
 
         Args:

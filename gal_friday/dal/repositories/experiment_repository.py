@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
 
-class ExperimentRepository(BaseRepository):
+class ExperimentRepository(BaseRepository[Experiment]):
     """Repository for Experiment data persistence using SQLAlchemy."""
 
     def __init__(
@@ -163,20 +163,21 @@ class ExperimentRepository(BaseRepository):
         if "trade_return" in outcome_data and not isinstance(outcome_data["trade_return"], Decimal):
             outcome_data["trade_return"] = Decimal(str(outcome_data["trade_return"]))
 
-        stmt = pg_insert(ExperimentOutcome).values(**outcome_data)
+        insert_stmt = pg_insert(ExperimentOutcome).values(**outcome_data)
         update_cols = {
-            key: stmt.excluded[key]
+            key: insert_stmt.excluded[key]
             for key in outcome_data.keys()
             if key != "outcome_id"
         }
-        stmt = stmt.on_conflict_do_update(
+        upsert_stmt = insert_stmt.on_conflict_do_update(
             index_elements=[ExperimentOutcome.outcome_id],
             set_=update_cols).returning(ExperimentOutcome)
 
         async with self.session_maker() as session:
-            result = await session.execute(stmt)
+            result = await session.execute(upsert_stmt)
             await session.commit()
-            return result.scalar_one()
+            outcome: ExperimentOutcome = result.scalar_one()
+            return outcome
 
     async def get_or_create_outcome(
         self, outcome_data: dict[str, Any]) -> ExperimentOutcome:

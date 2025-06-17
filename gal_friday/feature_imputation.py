@@ -131,9 +131,9 @@ class ImputationStrategy(ABC):
         self._source_module = self.__class__.__name__
         
         # Performance tracking
-        self._computation_times = deque(maxlen=100)
-        self._accuracy_scores = deque(maxlen=50)
-        self._cache = {}
+        self._computation_times: deque[float] = deque(maxlen=100)
+        self._accuracy_scores: deque[float] = deque(maxlen=50)
+        self._cache: dict[str, Any] = {}
         self._cache_hits = 0
         self._cache_misses = 0
         
@@ -185,10 +185,10 @@ class ImputationStrategy(ABC):
     def get_performance_summary(self) -> Dict[str, float]:
         """Get summary of strategy performance."""
         return {
-            "avg_computation_time_ms": np.mean(self._computation_times) if self._computation_times else 0,
-            "avg_accuracy_score": np.mean(self._accuracy_scores) if self._accuracy_scores else 0,
-            "cache_hit_rate": self._cache_hits / (self._cache_hits + self._cache_misses) if (self._cache_hits + self._cache_misses) > 0 else 0,
-            "total_computations": len(self._computation_times)
+            "avg_computation_time_ms": float(np.mean(self._computation_times)) if self._computation_times else 0.0,
+            "avg_accuracy_score": float(np.mean(self._accuracy_scores)) if self._accuracy_scores else 0.0,
+            "cache_hit_rate": self._cache_hits / (self._cache_hits + self._cache_misses) if (self._cache_hits + self._cache_misses) > 0 else 0.0,
+            "total_computations": float(len(self._computation_times))
         }
 
 
@@ -209,7 +209,8 @@ class SimpleImputationStrategy(ImputationStrategy):
         
         if self.should_use_cache(cache_key):
             self._cache_hits += 1
-            return self._cache[cache_key]
+            result: ImputationResult = self._cache[cache_key]
+            return result
             
         self._cache_misses += 1
         
@@ -238,19 +239,19 @@ class SimpleImputationStrategy(ImputationStrategy):
                 confidence = 0.65  # Slightly better than mean for outliers
                 
             elif self.config.primary_method == ImputationMethod.FORWARD_FILL:
-                imputed_data = data.fillna(method='ffill', limit=self.config.max_gap_minutes)
+                imputed_data = data.ffill(limit=self.config.max_gap_minutes)
                 # Calculate confidence based on gap size
                 remaining_missing = imputed_data.isna().sum()
                 confidence = max(0.8 - (remaining_missing / missing_count * 0.3), 0.3)
                 
             elif self.config.primary_method == ImputationMethod.BACKWARD_FILL:
-                imputed_data = data.fillna(method='bfill', limit=self.config.max_gap_minutes)
+                imputed_data = data.bfill(limit=self.config.max_gap_minutes)
                 remaining_missing = imputed_data.isna().sum()
                 confidence = max(0.75 - (remaining_missing / missing_count * 0.3), 0.3)
                 
             else:
                 # Default to forward fill
-                imputed_data = data.fillna(method='ffill')
+                imputed_data = data.ffill()
                 confidence = 0.7
                 
             # Handle any remaining missing values with fallback
@@ -293,7 +294,7 @@ class SimpleImputationStrategy(ImputationStrategy):
             imputed_data = imputed_data.fillna(original_data.median())
         else:
             # Default fallback to forward fill then mean
-            imputed_data = imputed_data.fillna(method='ffill').fillna(original_data.mean())
+            imputed_data = imputed_data.ffill().fillna(original_data.mean())
             
         return imputed_data
         
@@ -320,7 +321,8 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
         
         if self.should_use_cache(cache_key):
             self._cache_hits += 1
-            return self._cache[cache_key]
+            result: ImputationResult = self._cache[cache_key]
+            return result
             
         self._cache_misses += 1
         
@@ -346,7 +348,7 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
                 # Use spline interpolation for smoother curves
                 imputed_data = data.interpolate(
                     method='spline', 
-                    order=min(3, len(data.dropna()) - 1),
+                    order=min(3, max(1, len(data.dropna()) - 1)),
                     limit=self.config.max_gap_minutes
                 )
                 confidence = self._calculate_interpolation_confidence(data, missing_mask, 'spline')
@@ -358,7 +360,7 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
                 
             # Handle any remaining missing values
             if imputed_data.isna().any():
-                imputed_data = imputed_data.fillna(method='ffill').fillna(data.mean())
+                imputed_data = imputed_data.ffill().fillna(data.mean())
                 confidence *= 0.7
                 
             computation_time = (time.time() - start_time) * 1000
@@ -477,6 +479,7 @@ class KNNImputationStrategy(ImputationStrategy):
                 )
             
             # Perform imputation
+            assert self._knn_imputer is not None  # Type narrowing for mypy
             imputed_matrix = self._knn_imputer.fit_transform(feature_matrix)
             imputed_values = pd.Series(
                 imputed_matrix[:, 0], 
@@ -519,20 +522,20 @@ class KNNImputationStrategy(ImputationStrategy):
         context: Optional[Dict[str, Any]]
     ) -> Optional[np.ndarray[Any, Any]]:
         """Prepare feature matrix for KNN imputation."""
-        features = [data.values.reshape(-1, 1)]
+        features = [np.asarray(data.values).reshape(-1, 1)]
         
         if context:
             # Add lagged features
             for lag in [1, 2, 3, 5, 10]:
                 if len(data) > lag:
-                    lagged = data.shift(lag).values.reshape(-1, 1)
+                    lagged = np.asarray(data.shift(lag).values).reshape(-1, 1)
                     features.append(lagged)
             
             # Add rolling statistics
             for window in [5, 10, 20]:
                 if len(data) > window:
-                    rolling_mean = data.rolling(window).mean().values.reshape(-1, 1)
-                    rolling_std = data.rolling(window).std().values.reshape(-1, 1)
+                    rolling_mean = np.asarray(data.rolling(window).mean().values).reshape(-1, 1)
+                    rolling_std = np.asarray(data.rolling(window).std().values).reshape(-1, 1)
                     features.extend([rolling_mean, rolling_std])
             
             # Add related market data if available
@@ -563,7 +566,7 @@ class KNNImputationStrategy(ImputationStrategy):
         # Bonus for more features
         feature_bonus = min((feature_matrix.shape[1] - 1) * 0.05, 0.15)
         
-        return max(base_confidence - missing_penalty + feature_bonus, 0.4)
+        return float(max(base_confidence - missing_penalty + feature_bonus, 0.4))
         
     def validate_parameters(self) -> bool:
         """Validate KNN imputation parameters."""
@@ -614,12 +617,12 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
                 
             else:
                 # Default to forward fill for crypto
-                imputed_data = data.fillna(method='ffill', limit=self.config.max_gap_minutes)
+                imputed_data = data.ffill(limit=self.config.max_gap_minutes)
                 confidence = 0.70
                 
             # Handle any remaining missing values
             if imputed_data.isna().any():
-                imputed_data = imputed_data.fillna(method='ffill').fillna(data.mean())
+                imputed_data = imputed_data.ffill().fillna(data.mean())
                 confidence *= 0.8
                 
             computation_time = (time.time() - start_time) * 1000
@@ -673,7 +676,7 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
                 imputed_data[idx] = vwap + noise
         else:
             # Fallback to weighted average of recent values
-            imputed_data = data.fillna(method='ffill')
+            imputed_data = data.ffill()
             
         return imputed_data
         
@@ -692,7 +695,7 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
         # Adjust imputation based on volatility regime
         if volatility > data.std() * 1.5:  # High volatility
             # Use more conservative forward fill
-            imputed_data = data.fillna(method='ffill', limit=5)
+            imputed_data = data.ffill(limit=5)
         else:  # Normal/low volatility
             # Can use interpolation more aggressively
             imputed_data = data.interpolate(method='linear', limit=self.config.max_gap_minutes)
@@ -748,7 +751,11 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
                     
                     if session_value is not None:
                         # Add trend adjustment
-                        recent_data = data.iloc[max(0, data.index.get_loc(idx) - 5):data.index.get_loc(idx)]
+                        loc = data.index.get_loc(idx)
+                        if isinstance(loc, int):
+                            recent_data = data.iloc[max(0, loc - 5):loc]
+                        else:
+                            recent_data = pd.Series([])
                         if len(recent_data.dropna()) > 1:
                             trend = recent_data.dropna().diff().mean()
                             imputed_data[idx] = session_value + trend * 0.3
@@ -773,7 +780,7 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
                         imputed_data[idx] = base_value + recent_trend * 0.5
             else:
                 # Final fallback
-                imputed_data = data.fillna(method='ffill')
+                imputed_data = data.ffill()
                 
             return imputed_data
             
@@ -793,7 +800,7 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
                         imputed_data[idx] = base_value + recent_trend * 0.5
             else:
                 # Fallback
-                imputed_data = data.fillna(method='ffill')
+                imputed_data = data.ffill()
                 
             return imputed_data
         
@@ -1107,7 +1114,7 @@ class ImputationValidator:
     def generate_missing_patterns(
         self, 
         data_length: int, 
-        pattern_types: List[str] = None
+        pattern_types: Optional[List[str]] = None
     ) -> List[pd.Series[Any]]:
         """Generate various missing data patterns for testing."""
         if pattern_types is None:

@@ -368,7 +368,7 @@ class EnterpriseElasticsearchLogHandler(BaseLogHandler):
         self.batch_buffer: List[Dict[str, Any]] = []
         self.last_flush_time = time.time()
 
-    def _create_es_client(self):
+    def _create_es_client(self) -> Any:
         """Create Elasticsearch client if available."""
         try:
             from elasticsearch import Elasticsearch
@@ -466,21 +466,23 @@ class EnterpriseInfluxDBLogHandler(BaseLogHandler):
         self.measurement = config.parameters.get("measurement", "application_logs")
 
         # Initialize InfluxDB client
-        self.influx_client = self._create_influx_client()
+        self.influx_client: Any = self._create_influx_client()
 
         # Batch processing
         self.batch_size = config.parameters.get("batch_size", 100)
         self.batch_buffer: List[Dict[str, Any]] = []
 
-    def _create_influx_client(self):
+    def _create_influx_client(self) -> Any:
         """Create InfluxDB client if available."""
         try:
             from influxdb_client import InfluxDBClient
 
+            token = self.config.parameters.get("token", "")
+            org = self.config.parameters.get("org", "")
             return InfluxDBClient(
                 url=f"http://{self.host}:{self.port}",
-                token=self.config.parameters.get("token"),
-                org=self.config.parameters.get("org"))
+                token=token,
+                org=org)
         except ImportError:
             logging.getLogger(__name__).warning(
                 "InfluxDB client not available. Install 'influxdb-client' package."
@@ -974,8 +976,8 @@ class LoggerService(ServiceProtocol):
     and enterprise-grade handler implementations.
     """
 
-    _influx_client: Optional["InfluxDBClient"] = None  # type: ignore[name-defined]
-    _influx_write_api: Optional["WriteApi"] = None  # type: ignore[name-defined]
+    _influx_client: Optional[Any] = None
+    _influx_write_api: Optional[Any] = None
     _sqlalchemy_engine: AsyncEngine | None = None  # Added
     _sqlalchemy_session_factory: async_sessionmaker[AsyncSession] | None = None  # Added
 
@@ -1007,7 +1009,7 @@ class LoggerService(ServiceProtocol):
             "%Y-%m-%d %H:%M:%S")
 
         # Enterprise handler registry with proper type annotations
-        self._enterprise_handlers: Dict[str, BaseLogHandler] = {}
+        self._enterprise_handlers: Dict[str, Union[BaseLogHandler, EnterpriseAsyncPostgresHandler]] = {}
         self._handler_configs: Dict[str, HandlerConfig] = {}
         self._handler_stats: Dict[str, Dict[str, Any]] = {}
 
@@ -1355,7 +1357,7 @@ class LoggerService(ServiceProtocol):
     def initialize_enterprise_handlers(self) -> None:
         """Initialize enterprise handlers from configuration."""
 
-        handlers_config = self._config_manager.get("logging.enterprise_handlers", [])
+        handlers_config: list[dict[str, Any]] = self._config_manager.get("logging.enterprise_handlers", [])
 
         for handler_config_data in handlers_config:
             try:
@@ -1371,6 +1373,7 @@ class LoggerService(ServiceProtocol):
 
                 # Create and register handler
                 if config.enabled:
+                    handler: BaseLogHandler
                     if config.handler_type == HandlerType.DATABASE:
                         # Special handling for database handler
                         if self._db_session_maker:
@@ -1408,6 +1411,7 @@ class LoggerService(ServiceProtocol):
                 self.warning(f"Enterprise handler {config.name} already exists")
                 return False
 
+            handler: BaseLogHandler
             if config.handler_type == HandlerType.DATABASE:
                 # Special handling for database handler
                 if self._db_session_maker:
@@ -1584,9 +1588,14 @@ class LoggerService(ServiceProtocol):
             for key, value in tags.items():
                 point = point.tag(key, str(value))
 
-            valid_fields: dict[str, Any] = {}  # Changed to Any for diagnosis
+            valid_fields: dict[str, Any] = {}
             for key, value in fields.items():
-                if isinstance(value, float | int | bool | str):
+                # Handle specific types first
+                if isinstance(value, bool):  # bool must come before int since bool is a subclass of int
+                    valid_fields[key] = value
+                elif isinstance(value, (int, float)):
+                    valid_fields[key] = value
+                elif isinstance(value, str):
                     valid_fields[key] = value
                 elif isinstance(value, Decimal):
                     valid_fields[key] = float(value)
@@ -1886,12 +1895,7 @@ class LoggerService(ServiceProtocol):
         ----
             event: The LogEvent object containing log information
         """
-        if not isinstance(event, LogEvent):
-            self.warning(
-                "Received non-LogEvent on LOG_ENTRY topic: %s",
-                type(event),
-                source_module="LoggerService")
-            return
+        # Event is already typed as LogEvent, no need for runtime check
 
         # Map event level string to logging level integer
         level_name = event.level.upper() if hasattr(event, "level") else "INFO"

@@ -137,7 +137,7 @@ class GCPSecretsBackend(SecretsBackend):
         self._source_module = self.__class__.__name__
 
         try:
-            from google.cloud import secretmanager  # type: ignore
+            from google.cloud import secretmanager
             self.client = secretmanager.SecretManagerServiceClient()
         except ImportError:
             raise ImportError("google-cloud-secret-manager package not installed") from None
@@ -152,7 +152,7 @@ class GCPSecretsBackend(SecretsBackend):
             response = self.client.access_secret_version(request={"name": name})
 
             # Return the secret value
-            payload_data: bytes = response.payload.data  # type: ignore[attr-defined]
+            payload_data: bytes = response.payload.data
             return payload_data.decode("UTF-8")
 
         except Exception as e:

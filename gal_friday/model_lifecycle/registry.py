@@ -409,9 +409,10 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         else:
             raise ValueError(f"Unsupported cloud provider: {provider}")
 
-        self.logger.info(
-            f"Initialized {provider.upper()} cloud storage",
-            source_module=self._source_module)
+        if self.cloud_storage:
+            self.logger.info(
+                f"Initialized {provider.upper()} cloud storage",
+                source_module=self._source_module)
 
     async def register_model(
         self,
@@ -482,11 +483,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                 await self._upload_to_cloud(artifact_path, model_name, version)
 
             model_id_uuid = created_model_version.model_id
-            if not isinstance(model_id_uuid, uuid.UUID):
-                error_msg = f"Returned model_id is not a UUID instance: {type(model_id_uuid)}"
-                self.logger.error(error_msg, source_module=self._source_module)
-                raise TypeError(error_msg)
-
+            
             self.logger.info(
                 f"Model registered: {model_name} v{version}",
                 source_module=self._source_module,
@@ -704,11 +701,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
 
     def _model_version_to_metadata_dto(self, model_version: ModelVersionModel) -> ModelMetadata:
         model_id_uuid = model_version.model_id
-        if not isinstance(model_id_uuid, uuid.UUID):
-            error_msg = f"ModelVersionModel.model_id is not a UUID instance: {type(model_id_uuid)} for model_name {model_version.model_name}"
-            self.logger.error(error_msg, source_module=self._source_module)
-            raise TypeError(error_msg)
-
+        
         # Ensure created_at and training_completed_at are timezone-aware (UTC)
         created_at_utc = model_version.created_at.replace(tzinfo=UTC if model_version.created_at.tzinfo is None else None)
         training_completed_at_utc = None

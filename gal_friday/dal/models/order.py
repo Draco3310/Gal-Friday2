@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -16,13 +17,13 @@ class Order(Base):
 
     __tablename__ = "orders"
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped[PythonUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
     # Assuming trade_signals table will have a TradeSignal model and 'id' as primary key
-    signal_id: Mapped[UUID] = mapped_column(
+    signal_id: Mapped[PythonUUID] = mapped_column(
         ForeignKey("trade_signals.id"), nullable=False, index=True)
     # Foreign key to positions table - nullable since orders may not immediately affect positions
-    position_id: Mapped[UUID | None] = mapped_column(
+    position_id: Mapped[PythonUUID | None] = mapped_column(
         ForeignKey("positions.id"), nullable=True, index=True)
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)
     exchange: Mapped[str] = mapped_column(String(50), nullable=False)

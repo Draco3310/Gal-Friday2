@@ -1,6 +1,7 @@
 """SQLAlchemy model for the 'retraining_jobs' table."""
 
 from datetime import datetime
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import (
     DateTime,
@@ -21,9 +22,9 @@ class RetrainingJob(Base):
 
     __tablename__ = "retraining_jobs"
 
-    job_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    job_id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     # Assuming model_versions.model_id is UUID and ModelVersion model exists
-    model_id: Mapped[UUID] = mapped_column(
+    model_id: Mapped[PythonUUID] = mapped_column(
         ForeignKey("model_versions.model_id"), nullable=False, index=True)
     model_name: Mapped[str] = mapped_column(String(200), nullable=False)
     trigger: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -33,7 +34,7 @@ class RetrainingJob(Base):
     start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Assuming new_model_id also refers to model_versions.model_id
-    new_model_id: Mapped[UUID | None] = mapped_column(
+    new_model_id: Mapped[PythonUUID | None] = mapped_column(
         ForeignKey("model_versions.model_id"), nullable=True)
     performance_comparison: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

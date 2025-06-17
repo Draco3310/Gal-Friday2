@@ -8,6 +8,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator, ValidationError as PydanticValidationError
+from pydantic import ValidationInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -146,7 +147,7 @@ class ReconciliationEventSchema(BaseModel):
     
     @field_validator('auto_corrected')
     @classmethod
-    def validate_auto_corrected(cls, v: int, info) -> int:
+    def validate_auto_corrected(cls, v: int, info: ValidationInfo) -> int:
         """Validate auto_corrected count doesn't exceed discrepancies_found."""
         if info.data and 'discrepancies_found' in info.data:
             discrepancies = info.data['discrepancies_found']
@@ -158,7 +159,7 @@ class ReconciliationEventSchema(BaseModel):
     
     @field_validator('manual_review_required')
     @classmethod
-    def validate_manual_review(cls, v: int, info) -> int:
+    def validate_manual_review(cls, v: int, info: ValidationInfo) -> int:
         """Validate manual review count is consistent with other counts."""
         if info.data and 'discrepancies_found' in info.data and 'auto_corrected' in info.data:
             discrepancies = info.data['discrepancies_found']
@@ -387,8 +388,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
         }
         
         self.logger.info(
-            f"Audit trail: {operation} {entity_type} {entity_id}",
-            extra={'audit_data': audit_entry},
+            f"Audit trail: {operation} {entity_type} {entity_id} - {audit_entry}",
             source_module=self._source_module
         )
 

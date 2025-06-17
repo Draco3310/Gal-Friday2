@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
 
 
-class RetrainingRepository(BaseRepository):
+class RetrainingRepository(BaseRepository[RetrainingJob]):
     """Repository for RetrainingJob data persistence using SQLAlchemy."""
 
     def __init__(
@@ -54,7 +54,8 @@ class RetrainingRepository(BaseRepository):
         if "job_id" not in job_data:
             job_data["job_id"] = uuid.uuid4()
 
-        return await self.create(job_data)
+        job = await self.create(job_data)
+        return job
 
     async def update_job_status(self, job_id: uuid.UUID, updates: dict[str, Any]) -> RetrainingJob | None:
         """Update job status and results."""
