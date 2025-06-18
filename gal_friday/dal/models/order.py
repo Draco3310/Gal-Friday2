@@ -45,7 +45,7 @@ class Order(Base):
 
     # Relationship to TradeSignal (assuming TradeSignal model will be defined)
     signal = relationship("TradeSignal", back_populates="orders")
-    
+
     # Relationship to Position - many orders can contribute to one position
     position = relationship("Position", back_populates="orders")
 

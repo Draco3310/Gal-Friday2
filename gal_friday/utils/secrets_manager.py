@@ -5,10 +5,11 @@ with support for multiple backends (environment variables, files, cloud services
 """
 
 import base64
+from datetime import UTC, datetime
 import json
 import os
-from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
@@ -16,7 +17,6 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
-from typing import Any
 
 # Constants
 MAX_ACCESS_LOG_ENTRIES = 1000
@@ -137,7 +137,7 @@ class GCPSecretsBackend(SecretsBackend):
         self._source_module = self.__class__.__name__
 
         try:
-            import google.cloud.secretmanager as secretmanager  # type: ignore[import-untyped]
+            from google.cloud import secretmanager  # type: ignore[import-untyped]
             self.client = secretmanager.SecretManagerServiceClient()
         except ImportError:
             raise ImportError("google-cloud-secret-manager package not installed") from None
@@ -158,8 +158,8 @@ class GCPSecretsBackend(SecretsBackend):
         except Exception as e:
             if "NOT_FOUND" in str(e):
                 return None
-            self.logger.error(
-                f"Error retrieving secret from GCP: {e}",
+            self.logger.exception(
+                "Error retrieving secret from GCP: ",
                 source_module=self._source_module)
             return None
 
@@ -195,9 +195,9 @@ class GCPSecretsBackend(SecretsBackend):
 
             return True
 
-        except Exception as e:
-            self.logger.error(
-                f"Error storing secret in GCP: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error storing secret in GCP: ",
                 source_module=self._source_module)
             return False
 
@@ -207,9 +207,9 @@ class GCPSecretsBackend(SecretsBackend):
             name = f"projects/{self.project_id}/secrets/{key}"
             self.client.delete_secret(request={"name": name})
             return True
-        except Exception as e:
-            self.logger.error(
-                f"Error deleting secret from GCP: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error deleting secret from GCP: ",
                 source_module=self._source_module)
             return False
 

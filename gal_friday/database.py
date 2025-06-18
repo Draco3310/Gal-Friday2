@@ -10,10 +10,10 @@ from gal_friday.config_manager import ConfigManager
 
 def get_database_connection_string() -> str:
     """Get database connection string from configuration.
-    
+
     Returns:
         Database connection string in format: postgresql+asyncpg://user:password@host:port/dbname
-        
+
     Raises:
         ValueError: If database configuration is invalid or missing
     """
@@ -90,10 +90,10 @@ AsyncSessionFactory = async_sessionmaker(
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """Get an async database session.
-    
+
     Yields:
         AsyncSession: Database session for async operations
-        
+
     Note:
         Session is automatically closed when context exits
     """
@@ -109,7 +109,7 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_database() -> None:
     """Initialize database connection and verify connectivity.
-    
+
     Raises:
         Exception: If database connection fails
     """
@@ -117,13 +117,10 @@ async def init_database() -> None:
         # Test the connection
         async with engine.begin() as conn:
             await conn.run_sync(lambda sync_conn: sync_conn.execute(text("SELECT 1")))
-        print("✅ Database connection verified")
-    except Exception as e:
-        print(f"❌ Database connection failed: {e}")
+    except Exception:
         raise
 
 
 async def close_database() -> None:
     """Close database connections and dispose of connection pool."""
     await engine.dispose()
-    print("✅ Database connections closed")

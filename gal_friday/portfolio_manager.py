@@ -5,11 +5,12 @@ to provide a unified interface for portfolio operations, state tracking, and
 exchange reconciliation.
 """
 
-import asyncio
 from collections.abc import Callable, Coroutine
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, getcontext
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+
+import asyncio
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -25,7 +26,8 @@ from .dal.models.position import Position as PositionModel
 from .exceptions import (
     DataValidationError,
     InsufficientFundsError,
-    PriceNotAvailableError)
+    PriceNotAvailableError,
+)
 from .interfaces import MarketPriceService
 from .logger_service import LoggerService
 from .portfolio.funds_manager import FundsManager, TradeParams
@@ -33,7 +35,8 @@ from .portfolio.position_manager import PositionManager
 from .portfolio.trade_history_service import TradeHistoryService
 from .portfolio.valuation_service import (
     PositionInput,  # Added import
-    ValuationService)
+    ValuationService,
+)
 
 # Set Decimal precision
 getcontext().prec = 28
@@ -147,7 +150,7 @@ class PortfolioManager:
             initial_capital = self.config_manager.get("portfolio.initial_capital", {})
             await self.funds_manager.initialize_funds(initial_capital)
 
-            initial_positions_config = self.config_manager.get("portfolio.initial_positions", {})
+            self.config_manager.get("portfolio.initial_positions", {})
             await self.position_manager.initialize_positions() # Removed arguments
 
             # Perform initial valuation
@@ -491,7 +494,7 @@ class PortfolioManager:
             async with self._lock:
                 self._last_known_prices = latest_prices
                 self._last_total_exposure_pct = exposure_pct
-                self._last_state_update_time = datetime.utcnow()
+                self._last_state_update_time = datetime.now(UTC)
 
         except PriceNotAvailableError:
             self.logger.exception(
@@ -611,7 +614,7 @@ class PortfolioManager:
             "timestamp": (
                 self._last_state_update_time.isoformat() + "Z"
                 if self._last_state_update_time
-                else datetime.utcnow().isoformat() + "Z"  # Fallback timestamp
+                else datetime.now(UTC).isoformat() + "Z"  # Fallback timestamp
             ),
             "valuation_currency": self.valuation_currency,
             "total_equity": str(current_equity),
@@ -650,7 +653,7 @@ class PortfolioManager:
         return self.valuation_service.total_equity
 
     async def get_position_history(
-        self, 
+        self,
         pair: str,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
@@ -700,9 +703,9 @@ class PortfolioManager:
 
             return trade_history
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error retrieving trade history for {pair}: {e}",
+                f"Error retrieving trade history for {pair}: ",
                 source_module=self._source_module)
             # Return empty list[Any] on error to maintain API compatibility
             return []
@@ -746,7 +749,7 @@ class PortfolioManager:
 
         except Exception as e:
             self.logger.exception(
-                f"Error generating trade analytics for {pair}: {e}",
+                f"Error generating trade analytics for {pair}: ",
                 source_module=self._source_module)
             # Return empty analytics on error
             return {
@@ -769,9 +772,9 @@ class PortfolioManager:
             self.logger.info(
                 "Trade history cache cleared successfully",
                 source_module=self._source_module)
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error clearing trade history cache: {e}",
+                "Error clearing trade history cache: ",
                 source_module=self._source_module)
 
     def get_trade_history_cache_stats(self) -> dict[str, Any]:
@@ -1094,7 +1097,7 @@ class PortfolioManager:
         cost = abs_qty * price
 
         # Create reconciliation trade
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         description = (
             f"Reconciliation trade to adjust {pair} from "
             f"{current_pos.quantity} to {target_pos.quantity}"
@@ -1160,7 +1163,7 @@ class PortfolioManager:
         cost = abs_qty * price
 
         # Create mock trade to establish the position
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         self.logger.info(
             "Creating position from exchange: %s %s %s @ %s",
             pair,

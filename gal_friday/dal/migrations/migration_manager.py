@@ -1,7 +1,7 @@
 """Database migration management system using Alembic."""
 
-import os
 from collections.abc import Sequence
+import os
 
 from alembic import command
 from alembic.config import Config
@@ -33,33 +33,30 @@ class MigrationManager:
 
         if not os.path.isfile(self.alembic_cfg_path):
             raise FileNotFoundError(
-                f"Alembic config file not found at: {self.alembic_cfg_path}"
+                f"Alembic config file not found at: {self.alembic_cfg_path}",
             )
 
     def _get_alembic_config(self) -> Config:
         """Load Alembic configuration with absolute paths."""
-
         alembic_cfg = Config(self.alembic_cfg_path)
         alembic_cfg.set_main_option("script_location", self.script_location)
         return alembic_cfg
 
     def get_script_revisions(self) -> Sequence[str]:
         """Return revisions available on disk without querying the database."""
-
         script = ScriptDirectory.from_config(self._get_alembic_config())
         return tuple(rev.revision for rev in script.walk_revisions())
 
     def get_database_heads(self) -> Sequence[str]:
         """Return revision identifiers currently applied to the database."""
-
         self.logger.debug(
-            "Fetching database head revision(s)...", source_module=self._source_module
+            "Fetching database head revision(s)...", source_module=self._source_module,
         )
         try:
             alembic_cfg = self._get_alembic_config()
 
-            import sys
             from io import StringIO
+            import sys
 
             old_stdout = sys.stdout
             sys.stdout = captured_output = StringIO()
@@ -68,17 +65,17 @@ class MigrationManager:
             output = captured_output.getvalue().strip()
 
             if not output or "no version" in output or "no migration" in output:
-                return tuple()
+                return ()
 
             return tuple(line.split(" ")[0] for line in output.splitlines() if line)
         except SQLAlchemyError as exc:
             error_msg = str(exc).lower()
             if "alembic_version" in error_msg and "does not exist" in error_msg:
-                return tuple()
+                return ()
             raise DatabaseConnectionError(str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.logger.exception(
-                "Unexpected error reading database heads: %s", exc, source_module=self._source_module
+                "Unexpected error reading database heads: %s", exc, source_module=self._source_module,
             )
             raise
 
@@ -93,12 +90,12 @@ class MigrationManager:
                 source_module=self._source_module)
         except SQLAlchemyError as exc:
             self.logger.exception(
-                "Database error during upgrade to head: %s", exc, source_module=self._source_module
+                "Database error during upgrade to head: %s", exc, source_module=self._source_module,
             )
             raise DatabaseConnectionError(str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.logger.exception(
-                "Error during database upgrade to head: %s", exc, source_module=self._source_module
+                "Error during database upgrade to head: %s", exc, source_module=self._source_module,
             )
             raise
 
@@ -113,24 +110,23 @@ class MigrationManager:
                 source_module=self._source_module)
         except SQLAlchemyError as exc:
             self.logger.exception(
-                "Database error during downgrade to %s: %s", version, exc, source_module=self._source_module
+                "Database error during downgrade to %s: %s", version, exc, source_module=self._source_module,
             )
             raise DatabaseConnectionError(str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.logger.exception(
-                "Error during database downgrade to version %s: %s", version, exc, source_module=self._source_module
+                "Error during database downgrade to version %s: %s", version, exc, source_module=self._source_module,
             )
             raise
 
     def get_current_revision(self) -> str | None:
         """Return the current database revision or ``None`` if unavailable."""
-
         heads = self.get_database_heads()
         if not heads:
             return None
         if len(heads) > 1:
             self.logger.warning(
-                "Multiple database heads detected: %s", heads, source_module=self._source_module
+                "Multiple database heads detected: %s", heads, source_module=self._source_module,
             )
         return heads[0]
 
@@ -145,12 +141,12 @@ class MigrationManager:
                 source_module=self._source_module)
         except SQLAlchemyError as exc:
             self.logger.exception(
-                "Database error stamping revision %s: %s", revision, exc, source_module=self._source_module
+                "Database error stamping revision %s: %s", revision, exc, source_module=self._source_module,
             )
             raise DatabaseConnectionError(str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.logger.exception(
-                "Error stamping database with revision %s: %s", revision, exc, source_module=self._source_module
+                "Error stamping database with revision %s: %s", revision, exc, source_module=self._source_module,
             )
             raise
 
@@ -169,11 +165,11 @@ class MigrationManager:
                 source_module=self._source_module)
         except SQLAlchemyError as exc:
             self.logger.exception(
-                "Database error generating revision '%s': %s", message, exc, source_module=self._source_module
+                "Database error generating revision '%s': %s", message, exc, source_module=self._source_module,
             )
             raise DatabaseConnectionError(str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.logger.exception(
-                "Error generating new revision '%s': %s", message, exc, source_module=self._source_module
+                "Error generating new revision '%s': %s", message, exc, source_module=self._source_module,
             )
             raise

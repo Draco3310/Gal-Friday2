@@ -6,8 +6,8 @@ Create Date: 2025-06-11 00:00:00.000000
 
 """
 
-import sqlalchemy as sa
 from alembic import op
+import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "enforce_non_nullable_reconciliation_id"

@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID as PythonUUID
 
 from sqlalchemy import (
@@ -12,13 +13,13 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
-    Text)
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .models_base import Base
-from typing import Any
 
 
 class Experiment(Base):

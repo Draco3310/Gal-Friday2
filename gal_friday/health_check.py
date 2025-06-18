@@ -4,9 +4,8 @@ This module provides comprehensive health checks including liveness probes,
 readiness probes, dependency checks, and component health monitoring.
 """
 
-import asyncio
-import contextlib
 from collections.abc import Callable, Coroutine
+import contextlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import Enum
@@ -14,6 +13,7 @@ from http import HTTPStatus
 from typing import Any
 
 import aiohttp
+import asyncio
 import asyncpg
 import psutil
 

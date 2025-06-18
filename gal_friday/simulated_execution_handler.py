@@ -1,12 +1,12 @@
 """Simulated execution handler for backtesting and paper trading."""
 
-import decimal
-import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import decimal
 from decimal import Decimal
 from typing import Any
+import uuid
 
 import pandas as pd
 
@@ -14,7 +14,8 @@ from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import (
     ExecutionReportEvent,
     PotentialHaltTriggerEvent,
-    TradeSignalApprovedEvent)
+    TradeSignalApprovedEvent,
+)
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
 
@@ -927,7 +928,9 @@ class SimulatedExecutionHandler:
                     # Ensure the new signal_id for the remainder is unique if needed,
                     # but _add_to_active_limit_orders uses its own internal_sim_order_id.
                     # The original signal_id is still important for SL/TP tracking.
-                    from gal_friday.core.events import TradeSignalApprovedEvent as ConcreteEvent
+                    from gal_friday.core.events import (
+                        TradeSignalApprovedEvent as ConcreteEvent,
+                    )
 
                     event_for_active = ConcreteEvent(**remaining_payload)
 
@@ -1466,7 +1469,7 @@ class SimulatedExecutionHandler:
 
         report_overrides = CustomReportOverrides(
             exchange_order_id=(
-                f"sim_tp_exit_{position_id}_" f"{int(datetime.now(UTC).timestamp() * 1e6)}"
+                f"sim_tp_exit_{position_id}_{int(datetime.now(UTC).timestamp() * 1e6)}"
             ),
             client_order_id=f"sim_tp_exit_{position_id}",
             order_type=exit_details["exit_order_type"],  # Should be "LIMIT" or "TAKE_PROFIT_LIMIT"
@@ -1559,7 +1562,7 @@ class SimulatedExecutionHandler:
                     order_type="MARKET",
                     side=exit_side,
                     exchange_order_id=(
-                        f"sim_sl_err_{position_id}_" f"{int(datetime.now(UTC).timestamp() * 1e6)}"
+                        f"sim_sl_err_{position_id}_{int(datetime.now(UTC).timestamp() * 1e6)}"
                     ),
                     client_order_id=f"sim_sl_err_{position_id}"))
             return
@@ -1588,7 +1591,7 @@ class SimulatedExecutionHandler:
 
         report_overrides = CustomReportOverrides(
             exchange_order_id=(
-                f"sim_sl_exit_{position_id}_" f"{int(datetime.now(UTC).timestamp() * 1e6)}"
+                f"sim_sl_exit_{position_id}_{int(datetime.now(UTC).timestamp() * 1e6)}"
             ),
             client_order_id=f"sim_sl_exit_{position_id}",
             order_type="MARKET",  # Or specific like "STOP_MARKET"
@@ -1771,8 +1774,8 @@ class SimulatedExecutionHandler:
             side=params.side,
             order_type="MARKET",  # Always market for SL
             quantity=params.quantity,
-            sl_price=Decimal("0"),  # Required field, set to 0 for SL exit event
-            tp_price=Decimal("0"),  # Required field, set to 0 for SL exit event
+            sl_price=Decimal(0),  # Required field, set to 0 for SL exit event
+            tp_price=Decimal(0),  # Required field, set to 0 for SL exit event
             risk_parameters={
                 "reason": "SL_EXIT_INTERNAL_SIM",
                 "original_signal_id": str(params.originating_event.signal_id),
@@ -1905,9 +1908,9 @@ class SimulatedExecutionHandler:
         position_id = initial_event_signal_id_str
 
         # Check if SL/TP prices are effectively not set (using 0 as sentinel value)
-        sl_is_set = fill_details.event.sl_price != Decimal("0")
-        tp_is_set = fill_details.event.tp_price != Decimal("0")
-        
+        sl_is_set = fill_details.event.sl_price != Decimal(0)
+        tp_is_set = fill_details.event.tp_price != Decimal(0)
+
         if not sl_is_set and not tp_is_set:
             self.logger.debug(
                 "No SL or TP price provided for signal %s. Skipping SL/TP registration.",

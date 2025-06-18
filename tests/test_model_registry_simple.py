@@ -1,11 +1,11 @@
 """Simple test to demonstrate Model Registry structure."""
 
+from datetime import UTC, datetime
 import json
+from pathlib import Path
 import pickle
 import shutil
 import uuid
-from datetime import UTC, datetime
-from pathlib import Path
 
 from rich import print as rich_print
 

@@ -8,9 +8,10 @@ Error messages and import status are written to stderr.
 The script assumes that all necessary SQLAlchemy models are defined in
 `gal_friday.dal.models` and are correctly imported.
 """
-import asyncio
-import sys
 from pathlib import Path
+import sys
+
+import asyncio
 
 # Ensure the current directory (project root) is in sys.path
 # This allows 'from gal_friday...' imports if the script is in the project root
@@ -65,7 +66,7 @@ async def main() -> None:
             # Compile DDL using the engine's dialect
             ddl_statement = str(CreateTable(table).compile(dialect=pg_dialect)).strip()
             sys.stdout.write(f"{ddl_statement};\n")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             sys.stderr.write(f"-- Error compiling CREATE for table {table.name}: {e}\n")
 
 
@@ -75,7 +76,7 @@ async def main() -> None:
             # Compile DDL using the engine's dialect
             ddl_statement = str(DropTable(table).compile(dialect=pg_dialect)).strip()
             sys.stdout.write(f"{ddl_statement};\n")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             sys.stderr.write(f"-- Error compiling DROP for table {table.name}: {e}\n")
 
 if __name__ == "__main__":

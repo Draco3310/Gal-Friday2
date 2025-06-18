@@ -5,37 +5,39 @@ handling authentication, API communication, and order processing for the Kraken
 cryptocurrency exchange.
 """
 
-import time
-import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+import time
 from typing import Any
+import uuid
 
-from ..config_manager import ConfigManager
-from ..core.asset_registry import AssetSpecification, ExchangeSpecification
+from gal_friday.config_manager import ConfigManager
+from gal_friday.core.asset_registry import AssetSpecification, ExchangeSpecification
 
 # Import events for HALT triggers
-from ..core.events import PotentialHaltTriggerEvent
-from ..core.pubsub import PubSubManager
+from gal_friday.core.events import PotentialHaltTriggerEvent
+from gal_friday.core.pubsub import PubSubManager
 
 # Import custom exceptions
-from ..exceptions import (
+from gal_friday.exceptions import (
     ExecutionHandlerAuthenticationError,
     ExecutionHandlerCriticalError,
-    ExecutionHandlerNetworkError)
+    ExecutionHandlerNetworkError,
+)
 
 # Import the proper interface
-from ..interfaces.execution_handler_interface import (
+from gal_friday.interfaces.execution_handler_interface import (
     ExecutionHandlerInterface,
     OrderRequest,
     OrderResponse,
     OrderStatus,
     OrderType,
     PositionInfo,
-    TimeInForce)
-from ..logger_service import LoggerService
-from ..monitoring_service import MonitoringService
-from ..utils.kraken_api import generate_kraken_signature
+    TimeInForce,
+)
+from gal_friday.logger_service import LoggerService
+from gal_friday.monitoring_service import MonitoringService
+from gal_friday.utils.kraken_api import generate_kraken_signature
 
 
 class KrakenExecutionError(ExecutionHandlerCriticalError):
@@ -90,7 +92,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         pubsub_manager: PubSubManager,
         monitoring_service: MonitoringService,
         logger_service: LoggerService,
-        **kwargs: Any,  # noqa: ANN401
+        **kwargs: Any,
     ) -> None:
         """Initialize the Kraken-specific execution handler.
 
@@ -150,7 +152,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         """
         try:
             self.logger.info(
-                f"Submitting {order_request.side} {order_request.order_type.name} order for {order_request.symbol}",  # noqa: E501
+                f"Submitting {order_request.side} {order_request.order_type.name} order for {order_request.symbol}",
                 source_module=self.__class__.__name__)
 
             # Validate order request
@@ -351,7 +353,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
 
         except Exception as e:
             await self._trigger_halt_if_needed(e, {"operation": "get_account_balance"})
-            self.logger.error(
+            self.logger.exception(
                 f"Failed to get account balance: {e!s}",
                 source_module=self.__class__.__name__)
             return {}
@@ -397,7 +399,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
 
         except Exception as e:
             await self._trigger_halt_if_needed(e, {"operation": "get_positions"})
-            self.logger.error(
+            self.logger.exception(
                 f"Failed to get positions: {e!s}",
                 source_module=self.__class__.__name__)
             return []
@@ -419,7 +421,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
 
             if not result or result.get("error"):
                 self.logger.error(
-                    f"Failed to get asset pairs: {result.get('error') if result else 'No response'}",  # noqa: E501
+                    f"Failed to get asset pairs: {result.get('error') if result else 'No response'}",
                     source_module=self.__class__.__name__)
                 return []
 
@@ -440,7 +442,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
 
         except Exception as e:
             await self._trigger_halt_if_needed(e, {"operation": "get_supported_assets"})
-            self.logger.error(
+            self.logger.exception(
                 f"Failed to get supported assets: {e!s}",
                 source_module=self.__class__.__name__)
             return []
@@ -483,7 +485,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         except Exception as e:
             await self._trigger_halt_if_needed(
                 e, {"operation": "get_trading_fees", "symbol": symbol})
-            self.logger.error(
+            self.logger.exception(
                 f"Failed to get trading fees for {symbol}: {e!s}",
                 source_module=self.__class__.__name__)
             return {
@@ -520,7 +522,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
 
         except Exception as e:
             self._connected = False
-            self.logger.error(
+            self.logger.exception(
                 f"Failed to connect to Kraken: {e!s}",
                 source_module=self.__class__.__name__)
             return False
@@ -628,7 +630,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
             exchange_order_id=txids[0],
             client_order_id=order_request.client_order_id,
             status=OrderStatus.PENDING,
-            created_at=datetime.utcnow())
+            created_at=datetime.now(UTC))
 
     def _parse_order_data_to_response(
         self, order_data: dict[str, Any], exchange_order_id: str) -> OrderResponse:
@@ -678,7 +680,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
             avg_price = (
                 Decimal(pos_info.get("cost", "0")) / quantity
                 if quantity > 0
-                else Decimal("0")
+                else Decimal(0)
             )
 
             return PositionInfo(
@@ -700,7 +702,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
         self, pair_name: str, pair_info: dict[str, Any]) -> AssetSpecification | None:
         """Parse Kraken asset pair into AssetSpecification."""
         try:
-            from ..core.asset_registry import AssetType
+            from gal_friday.core.asset_registry import AssetType
 
             return AssetSpecification(
                 symbol=pair_info.get("altname", pair_name),
@@ -709,7 +711,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                 quote_asset=pair_info.get("quote", ""),
                 min_order_size=Decimal(pair_info.get("ordermin", "0")),
                 tick_size=Decimal(pair_info.get("tick_size", "0.01")),
-                lot_size=Decimal("1"),  # Default for Kraken
+                lot_size=Decimal(1),  # Default for Kraken
                 exchange_symbol=pair_info.get("altname", pair_name),
                 exchange_metadata=pair_info)
 
@@ -757,10 +759,10 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
     async def _make_private_request_with_retry(
         self, uri_path: str, params: dict[str, Any]) -> dict[str, Any]:
         """Make authenticated request to Kraken with retry logic."""
-        import asyncio
         from typing import cast
 
         import aiohttp
+        import asyncio
 
         if not self._api_key or not self._api_secret:
             raise KrakenCredentialsMissingError
@@ -805,10 +807,10 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
 
     async def _make_public_request_with_retry(self, url: str) -> dict[str, Any] | None:
         """Make public request to Kraken with retry logic."""
-        import asyncio
         from typing import cast
 
         import aiohttp
+        import asyncio
 
         for attempt in range(self._max_retries + 1):
             try:
@@ -830,7 +832,7 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                     await asyncio.sleep(wait_time)
                     continue
 
-                self.logger.error(
+                self.logger.exception(
                     f"Public request failed after {self._max_retries + 1} attempts: {e!s}",
                     source_module=self.__class__.__name__)
                 return None

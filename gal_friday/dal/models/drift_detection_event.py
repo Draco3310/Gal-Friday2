@@ -1,7 +1,10 @@
 """SQLAlchemy model for the 'drift_detection_events' table."""
 
 from datetime import datetime
-from decimal import Decimal  # Though schema uses DECIMAL(10,6) which fits float, Decimal is safer
+from decimal import (
+    Decimal,  # Though schema uses DECIMAL(10,6) which fits float, Decimal is safer
+)
+from typing import Any
 from uuid import UUID as PythonUUID
 
 from sqlalchemy import (
@@ -10,13 +13,13 @@ from sqlalchemy import (
     ForeignKey,  # Not used in this specific table schema, but common
     Index,
     Numeric,
-    String)
+    String,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .models_base import Base
-from typing import Any
 
 
 class DriftDetectionEvent(Base):

@@ -1,11 +1,11 @@
 """End-to-end integration tests for Gal-Friday system."""
 
-import asyncio
-import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
+import uuid
 
+import asyncio
 import pytest
 from rich import print as rich_print
 
@@ -34,8 +34,8 @@ class MockKrakenClient:
 
     def __init__(self):
         self.positions = {
-            "XRP/USD": {"amount": Decimal("1000"), "avg_price": Decimal("0.5")},
-            "DOGE/USD": {"amount": Decimal("5000"), "avg_price": Decimal("0.08")},
+            "XRP/USD": {"amount": Decimal(1000), "avg_price": Decimal("0.5")},
+            "DOGE/USD": {"amount": Decimal(5000), "avg_price": Decimal("0.08")},
         }
         self.orders = []
 
@@ -142,7 +142,7 @@ class TestEndToEndIntegration:
             timestamp=datetime.now(UTC),
             trading_pair="XRP/USD",
             price=Decimal("0.52"),
-            volume=Decimal("1000000"),
+            volume=Decimal(1000000),
             bid=Decimal("0.519"),
             ask=Decimal("0.521"),
         )
@@ -297,8 +297,8 @@ class TestEndToEndIntegration:
 
         # Set internal positions
         internal_positions = {
-            "XRP/USD": {"amount": Decimal("1000"), "avg_price": Decimal("0.5")},
-            "DOGE/USD": {"amount": Decimal("4900"), "avg_price": Decimal("0.08")},  # Discrepancy
+            "XRP/USD": {"amount": Decimal(1000), "avg_price": Decimal("0.5")},
+            "DOGE/USD": {"amount": Decimal(4900), "avg_price": Decimal("0.08")},  # Discrepancy
         }
 
         # Run reconciliation
@@ -440,7 +440,7 @@ class TestEndToEndIntegration:
             timestamp=datetime.now(UTC),
             trading_pair="XRP/USD",
             price=Decimal("0.55"),
-            volume=Decimal("2000000"),
+            volume=Decimal(2000000),
         )
 
         await pubsub.publish(EventType.PRICE_UPDATE, market_event)
@@ -487,7 +487,7 @@ class TestEndToEndIntegration:
             event_type=EventType.PRICE_UPDATE,
             timestamp=datetime.now(UTC),
             trading_pair="XRP/USD",
-            price=Decimal("999999"),  # Extreme price
+            price=Decimal(999999),  # Extreme price
             volume=Decimal("0.00001"),  # Tiny volume
         )
 

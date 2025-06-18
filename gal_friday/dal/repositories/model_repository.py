@@ -1,26 +1,24 @@
 """Model repository implementation using SQLAlchemy."""
 
-import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+import uuid
 
-from sqlalchemy import select
-from sqlalchemy import update as sqlalchemy_update
+from sqlalchemy import select, update as sqlalchemy_update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gal_friday.dal.base import BaseRepository
 from gal_friday.dal.models.model_deployment import ModelDeployment
 from gal_friday.dal.models.model_version import ModelVersion
+from gal_friday.dal.repositories.stage_management import (
+    DEFAULT_STAGE_CONFIG,
+    ModelStageManager,
+    StageValidationError,
+)
 
 # Import ModelStage enum and stage management components
 from gal_friday.model_lifecycle.enums import ModelStage
-from gal_friday.dal.repositories.stage_management import (
-    ModelStageManager, 
-    StageValidationError,
-    DEFAULT_STAGE_CONFIG
-)
-
 
 if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
@@ -40,7 +38,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
             stage_config: Configuration for stage management (optional).
         """
         super().__init__(session_maker, ModelVersion, logger)
-        
+
         # Initialize enterprise-grade stage management
         self.stage_manager = ModelStageManager(stage_config or DEFAULT_STAGE_CONFIG)
 
@@ -101,26 +99,25 @@ class ModelRepository(BaseRepository[ModelVersion]):
     async def update_model_version_stage(
         self, model_id: uuid.UUID, new_stage: str, deployed_by: str | None = None,
         approval_id: str | None = None, metadata: dict[str, Any] | None = None) -> ModelVersion | None:
-        """
-        Update model version's stage with enterprise-grade validation and audit trail.
-        
+        """Update model version's stage with enterprise-grade validation and audit trail.
+
         Args:
             model_id: Model version ID to update
             new_stage: Target stage (string value)
             deployed_by: User who deployed the model (optional)
             approval_id: Approval ID for stage changes requiring approval (optional)
             metadata: Additional metadata for validation and audit (optional)
-            
+
         Returns:
             Updated model version or None if update failed
-            
+
         Raises:
             StageValidationError: If stage transition validation fails
         """
         try:
             # Convert string stage to ModelStage enum for validation
             target_stage = ModelStage(new_stage.lower())
-            
+
             # Get current model to determine current stage
             current_model = await self.get_model_version(model_id)
             current_stage = None
@@ -131,24 +128,24 @@ class ModelRepository(BaseRepository[ModelVersion]):
                     # Handle case where current stage is not a valid enum value
                     self.logger.warning(
                         f"Invalid current stage '{current_model.stage}' for model {model_id}",
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
-            
+
             # Prepare metadata for validation
             validation_metadata = metadata or {}
             if approval_id:
                 validation_metadata["approval_id"] = approval_id
             if deployed_by:
                 validation_metadata["deployed_by"] = deployed_by
-            
+
             # Validate stage transition using enterprise-grade stage manager
             is_valid, error_message = self.stage_manager.validate_stage_transition(
                 model_id=str(model_id),
                 from_stage=current_stage,
                 to_stage=target_stage,
-                metadata=validation_metadata
+                metadata=validation_metadata,
             )
-            
+
             if not is_valid:
                 # Record failed transition attempt
                 self.stage_manager.record_stage_transition(
@@ -160,19 +157,19 @@ class ModelRepository(BaseRepository[ModelVersion]):
                     approval_id=approval_id,
                     metadata=validation_metadata,
                     success=False,
-                    error_message=error_message
+                    error_message=error_message,
                 )
-                
+
                 raise StageValidationError(
                     message=f"Stage transition validation failed: {error_message}",
                     stage=target_stage,
                     model_id=str(model_id),
-                    details=validation_metadata
+                    details=validation_metadata,
                 )
-            
+
             # Update the model stage in database
             updated_model = await self.update(model_id, {"stage": new_stage})
-            
+
             if updated_model:
                 # Record successful transition in audit trail
                 self.stage_manager.record_stage_transition(
@@ -183,9 +180,9 @@ class ModelRepository(BaseRepository[ModelVersion]):
                     reason="Stage promotion",
                     approval_id=approval_id,
                     metadata=validation_metadata,
-                    success=True
+                    success=True,
                 )
-                
+
                 # Replace hardcoded "PRODUCTION" string with enum-based check
                 if self.stage_manager.is_production_stage(target_stage):
                     await self._create_deployment_record(
@@ -194,9 +191,9 @@ class ModelRepository(BaseRepository[ModelVersion]):
                         deployment_config={
                             "promoted_to_stage": target_stage.value,
                             "approval_id": approval_id,
-                            "transition_metadata": validation_metadata
+                            "transition_metadata": validation_metadata,
                         })
-                    
+
                     self.logger.info(
                         f"Model {model_id} promoted to production stage and deployment record created",
                         source_module=self._source_module,
@@ -204,13 +201,13 @@ class ModelRepository(BaseRepository[ModelVersion]):
                             "model_id": str(model_id),
                             "stage": target_stage.value,
                             "deployed_by": deployed_by,
-                            "approval_id": approval_id
-                        }
+                            "approval_id": approval_id,
+                        },
                     )
-                
+
                 self.logger.info(
                     f"Model stage updated successfully: {model_id} -> {target_stage.value}",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
             else:
                 # Record failed database update
@@ -223,24 +220,24 @@ class ModelRepository(BaseRepository[ModelVersion]):
                     approval_id=approval_id,
                     metadata=validation_metadata,
                     success=False,
-                    error_message="Database update failed"
+                    error_message="Database update failed",
                 )
-            
+
             return updated_model
-            
+
         except ValueError as e:
             error_msg = f"Invalid stage value '{new_stage}': {e}"
-            self.logger.error(error_msg, source_module=self._source_module)
+            self.logger.exception(error_msg, source_module=self._source_module)
             raise StageValidationError(
                 message=error_msg,
                 model_id=str(model_id),
-                details={"new_stage": new_stage}
+                details={"new_stage": new_stage},
             )
-        except Exception as e:
-            self.logger.error(
-                f"Failed to update model stage: {e}",
+        except Exception:
+            self.logger.exception(
+                "Failed to update model stage: ",
                 source_module=self._source_module,
-                context={"model_id": str(model_id), "new_stage": new_stage}
+                context={"model_id": str(model_id), "new_stage": new_stage},
             )
             raise
 
@@ -256,7 +253,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
                 .where(
                     ModelDeployment.model_id.in_(
                         select(ModelVersion.model_id).where(ModelVersion.model_name == model_version.model_name)),
-                    ModelDeployment.is_active == True,
+                    ModelDeployment.is_active,
                     ModelDeployment.model_id != model_version.model_id, # Don't deactivate if re-deploying same version
                 )
                 .values(is_active=False)
@@ -285,7 +282,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
             stmt = (
                 select(ModelDeployment)
                 .join(ModelVersion, ModelDeployment.model_id == ModelVersion.model_id)
-                .where(ModelVersion.model_name == model_name, ModelDeployment.is_active == True)
+                .where(ModelVersion.model_name == model_name, ModelDeployment.is_active)
                 .order_by(ModelDeployment.deployed_at.desc())
                 .limit(1)
             )
@@ -310,64 +307,60 @@ class ModelRepository(BaseRepository[ModelVersion]):
     # Enterprise-grade stage management methods
 
     async def is_model_in_production(self, model_id: uuid.UUID) -> bool:
-        """
-        Check if a model is currently in production stage.
-        
+        """Check if a model is currently in production stage.
+
         Args:
             model_id: Model version ID to check
-            
+
         Returns:
             True if model is in production, False otherwise
         """
         model = await self.get_model_version(model_id)
         if not model or not model.stage:
             return False
-        
+
         return self.stage_manager.is_production_stage(model.stage)
 
     async def get_models_by_stage(self, stage: ModelStage) -> Sequence[ModelVersion]:
-        """
-        Get all models in a specific stage.
-        
+        """Get all models in a specific stage.
+
         Args:
             stage: ModelStage enum value
-            
+
         Returns:
             Sequence[Any] of model versions in the specified stage
         """
         return await self.find_all(
             filters={"stage": stage.value},
-            order_by="created_at DESC"
+            order_by="created_at DESC",
         )
 
     async def get_production_models(self) -> Sequence[ModelVersion]:
-        """
-        Get all models currently in production stage.
-        
+        """Get all models currently in production stage.
+
         Returns:
             Sequence[Any] of production model versions
         """
         return await self.get_models_by_stage(ModelStage.PRODUCTION)
 
     async def promote_model_to_production(
-        self, 
-        model_id: uuid.UUID, 
+        self,
+        model_id: uuid.UUID,
         deployed_by: str,
         approval_id: str,
-        performance_metrics: dict[str, float] | None = None
+        performance_metrics: dict[str, float] | None = None,
     ) -> ModelVersion | None:
-        """
-        Promote a model to production with all required validations.
-        
+        """Promote a model to production with all required validations.
+
         Args:
             model_id: Model version ID to promote
             deployed_by: User performing the promotion
             approval_id: Required approval ID for production deployment
             performance_metrics: Performance metrics for validation
-            
+
         Returns:
             Updated model version or None if promotion failed
-            
+
         Raises:
             StageValidationError: If promotion validation fails
         """
@@ -376,47 +369,45 @@ class ModelRepository(BaseRepository[ModelVersion]):
             "created_by": deployed_by,
             "validation_results": "passed",
             "approval_id": approval_id,
-            "performance_test_results": "passed"
+            "performance_test_results": "passed",
         }
-        
+
         if performance_metrics:
             # Convert float values to Any type for metadata compatibility
-            metrics_as_any: dict[str, Any] = {k: v for k, v in performance_metrics.items()}
+            metrics_as_any: dict[str, Any] = dict(performance_metrics.items())
             metadata.update(metrics_as_any)
-        
+
         return await self.update_model_version_stage(
             model_id=model_id,
             new_stage=ModelStage.PRODUCTION.value,
             deployed_by=deployed_by,
             approval_id=approval_id,
-            metadata=metadata
+            metadata=metadata,
         )
 
     def get_stage_transition_history(
-        self, 
+        self,
         model_id: uuid.UUID | None = None,
-        limit: int = 50
+        limit: int = 50,
     ) -> list[Any]:
-        """
-        Get stage transition history with audit trail.
-        
+        """Get stage transition history with audit trail.
+
         Args:
             model_id: Optional model ID to filter by
             limit: Maximum number of records to return
-            
+
         Returns:
             List of transition records
         """
         model_id_str = str(model_id) if model_id else None
         return self.stage_manager.get_transition_history(
             model_id=model_id_str,
-            limit=limit
+            limit=limit,
         )
 
     def get_stage_summary(self) -> dict[str, Any]:
-        """
-        Get comprehensive summary of all model stages.
-        
+        """Get comprehensive summary of all model stages.
+
         Returns:
             Dictionary containing stage configurations, metrics, and allowed transitions
         """
@@ -426,16 +417,15 @@ class ModelRepository(BaseRepository[ModelVersion]):
         self,
         model_id: uuid.UUID,
         target_stage: str,
-        metadata: dict[str, Any] | None = None
+        metadata: dict[str, Any] | None = None,
     ) -> tuple[bool, str | None]:
-        """
-        Preview stage transition validation without actually performing it.
-        
+        """Preview stage transition validation without actually performing it.
+
         Args:
             model_id: Model version ID
             target_stage: Target stage string
             metadata: Metadata for validation
-            
+
         Returns:
             Tuple of (is_valid, error_message)
         """
@@ -445,7 +435,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
                 model_id=str(model_id),
                 from_stage=None,  # Will be determined by stage manager
                 to_stage=target_stage_enum,
-                metadata=metadata or {}
+                metadata=metadata or {},
             )
         except ValueError as e:
             return False, f"Invalid stage value '{target_stage}': {e}"

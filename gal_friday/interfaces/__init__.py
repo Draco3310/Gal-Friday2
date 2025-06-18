@@ -9,8 +9,8 @@ from .feature_engine_interface import FeatureEngineInterface
 from .historical_data_service_interface import HistoricalDataService
 from .market_price_service_interface import MarketPriceService
 from .predictor_interface import PredictorInterface
-from .strategy_interface import StrategyInterface
 from .service_protocol import ServiceProtocol
+from .strategy_interface import StrategyInterface
 
 __all__ = [
     "ExecutionHandlerInterface",
@@ -18,6 +18,6 @@ __all__ = [
     "HistoricalDataService",
     "MarketPriceService",
     "PredictorInterface",
-    "StrategyInterface",
     "ServiceProtocol",
+    "StrategyInterface",
 ]

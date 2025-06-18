@@ -1,10 +1,10 @@
 """Integration tests for FeatureEngine."""
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+import asyncio
 import numpy as np  # For np.nan
 import pandas as pd  # For type hints and creating Series inputs if needed by pipelines
 import pytest
@@ -187,7 +187,6 @@ async def test_end_to_end_feature_calculation_single_bar(initialized_feature_eng
     assert payload["timestamp_features_for"] == target_bar_ts.isoformat().replace("+00:00", "Z")
 
     features = payload["features"]
-    print("Generated features:", features) # For debugging in test runner
 
     # Check presence of all configured features (names are based on pipeline_name.replace('_pipeline',''))
     assert "rsi_14" in features # From rsi_14_custom_pipeline

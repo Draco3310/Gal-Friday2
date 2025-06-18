@@ -1,11 +1,11 @@
 # tests/unit/dal/test_order_repository.py
-import uuid
 from datetime import (  # Changed to timezone.utc for broader compatibility
     UTC,
     datetime,
     timedelta,
 )
 from decimal import Decimal
+import uuid
 
 import pytest
 
@@ -21,7 +21,7 @@ from gal_friday.dal.repositories.order_repository import OrderRepository
 # from tests.conftest import mock_logger # This is correct if tests/conftest.py exists
 
 # Helper to create sample order data
-def sample_order_data(override: dict = None) -> dict:
+def sample_order_data(override: dict | None = None) -> dict:
     data = {
         "id": uuid.uuid4(), # Client-generated UUID for PK
         "signal_id": uuid.uuid4(),
@@ -33,7 +33,7 @@ def sample_order_data(override: dict = None) -> dict:
         "limit_price": Decimal("50000.0"),
         "status": "ACTIVE",
         "exchange_order_id": None,
-        "filled_quantity": Decimal("0"),
+        "filled_quantity": Decimal(0),
         "average_fill_price": None,
         "commission": None,
         "created_at": datetime.now(UTC),

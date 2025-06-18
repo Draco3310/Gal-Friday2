@@ -1,23 +1,28 @@
 """Performance optimization utilities for Gal-Friday."""
 
-import asyncio
+from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 import contextlib
+from dataclasses import dataclass, field
 import functools
 import gc
 import hashlib
-import inspect
 import threading
 import time
-import weakref
-from collections import OrderedDict
-from collections.abc import Callable, Awaitable
-from dataclasses import dataclass, field
 from typing import (
-    Any, Generic, TypeVar, cast, Dict, Optional, Union, Tuple, Protocol, 
-    runtime_checkable, overload, Type, ParamSpec, Concatenate
+    Any,
+    Generic,
+    ParamSpec,
+    Protocol,
+    TypeVar,
+    TypeVar as TypeVarT,
+    cast,
+    overload,
+    runtime_checkable,
 )
-from typing import TypeVar as TypeVarT
+import weakref
 
+import asyncio
 import psutil
 
 from gal_friday.config_manager import ConfigManager
@@ -54,14 +59,14 @@ class CacheEntry(Generic[V]):
     timestamp: float
     access_count: int = 0
     last_access: float = field(default_factory=time.time)
-    ttl: Optional[float] = None
-    
+    ttl: float | None = None
+
     def is_expired(self) -> bool:
         """Check if cache entry is expired."""
         if self.ttl is None:
             return False
         return time.time() - self.timestamp > self.ttl
-    
+
     def touch(self) -> None:
         """Update access information."""
         self.access_count += 1
@@ -71,119 +76,117 @@ class CacheEntry(Generic[V]):
 @dataclass
 class CacheConfig:
     """Type-safe cache configuration."""
-    max_size: Optional[int] = 128
-    ttl: Optional[float] = None
+    max_size: int | None = 128
+    ttl: float | None = None
     typed_keys: bool = True
     thread_safe: bool = True
     eviction_policy: str = "lru"
-    key_serializer: Optional[Callable[..., str]] = None
+    key_serializer: Callable[..., str] | None = None
 
 
 class CacheKeyGenerator(Generic[K]):
     """Type-safe cache key generator."""
-    
+
     def __init__(self, config: CacheConfig) -> None:
+        """Initialize the instance."""
         self.config = config
-        
+
     def generate_key(
-        self, 
-        func: Callable[..., Any], 
-        args: Tuple[Any, ...], 
-        kwargs: Dict[str, Any]
+        self,
+        func: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
     ) -> K:
         """Generate type-safe cache key."""
-        
         if self.config.key_serializer:
-            return cast(K, self.config.key_serializer((func.__name__, args, kwargs)))
-        
+            return cast("K", self.config.key_serializer((func.__name__, args, kwargs)))
+
         # Default key generation with type information
         key_parts = [func.__module__ or "", func.__qualname__]
-        
+
         # Add arguments to key
         for arg in args:
             if self.config.typed_keys:
-                key_parts.append(f"{type(arg).__name__}:{repr(arg)}")
+                key_parts.append(f"{type(arg).__name__}:{arg!r}")
             else:
                 key_parts.append(repr(arg))
-        
+
         # Add keyword arguments to key
         for k, v in sorted(kwargs.items()):
             if self.config.typed_keys:
-                key_parts.append(f"{k}={type(v).__name__}:{repr(v)}")
+                key_parts.append(f"{k}={type(v).__name__}:{v!r}")
             else:
-                key_parts.append(f"{k}={repr(v)}")
-        
+                key_parts.append(f"{k}={v!r}")
+
         # Create hash of key parts
         key_string = "|".join(key_parts)
         key_hash = hashlib.sha256(key_string.encode()).hexdigest()
-        
-        return cast(K, key_hash)
+
+        return cast("K", key_hash)
 
 
 class TypeSafeCache(Generic[K, V]):
     """Type-safe cache implementation with comprehensive features."""
-    
+
     def __init__(self, config: CacheConfig) -> None:
+        """Initialize the instance."""
         self.config = config
         self._cache: OrderedDict[K, CacheEntry[V]] = OrderedDict()
         self._lock = threading.RLock() if config.thread_safe else None
-        
+
         # Statistics
         self.hits = 0
         self.misses = 0
         self.evictions = 0
-    
-    def get(self, key: K) -> Optional[V]:
+
+    def get(self, key: K) -> V | None:
         """Get value from cache with type safety."""
-        
         with self._lock if self._lock else contextlib.nullcontext():
             if key not in self._cache:
                 self.misses += 1
                 return None
-            
+
             entry = self._cache[key]
-            
+
             # Check expiration
             if entry.is_expired():
                 del self._cache[key]
                 self.misses += 1
                 return None
-            
+
             # Update access information
             entry.touch()
-            
+
             # Move to end for LRU
             if self.config.eviction_policy == "lru":
                 self._cache.move_to_end(key)
-            
+
             self.hits += 1
             return entry.value
-    
+
     def put(self, key: K, value: V) -> None:
         """Put value in cache with type safety."""
-        
         with self._lock if self._lock else contextlib.nullcontext():
             # Check if eviction is needed
-            if (self.config.max_size is not None and 
-                len(self._cache) >= self.config.max_size and 
+            if (self.config.max_size is not None and
+                len(self._cache) >= self.config.max_size and
                 key not in self._cache):
                 self._evict_entries()
-            
+
             # Create cache entry
             entry = CacheEntry(
                 value=value,
                 timestamp=time.time(),
-                ttl=self.config.ttl
+                ttl=self.config.ttl,
             )
-            
+
             self._cache[key] = entry
-    
+
     def _evict_entries(self) -> None:
         """Evict entries based on policy."""
-        
         if not self._cache:
             return
-        
+
         if self.config.eviction_policy == "lru":
             # Remove least recently used
             oldest_key = next(iter(self._cache))
@@ -192,9 +195,9 @@ class TypeSafeCache(Generic[K, V]):
             # Remove least frequently used
             lfu_key = min(self._cache.keys(), key=lambda k: self._cache[k].access_count)
             del self._cache[lfu_key]
-        
+
         self.evictions += 1
-    
+
     def clear(self) -> None:
         """Clear all cache entries."""
         with self._lock if self._lock else contextlib.nullcontext():
@@ -202,19 +205,19 @@ class TypeSafeCache(Generic[K, V]):
             self.hits = 0
             self.misses = 0
             self.evictions = 0
-    
-    def stats(self) -> Dict[str, Any]:
+
+    def stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         total_requests = self.hits + self.misses
         hit_rate = (self.hits / total_requests * 100) if total_requests > 0 else 0
-        
+
         return {
             "hits": self.hits,
             "misses": self.misses,
             "evictions": self.evictions,
             "hit_rate_percent": round(hit_rate, 2),
             "cache_size": len(self._cache),
-            "max_size": self.config.max_size
+            "max_size": self.config.max_size,
         }
 
 
@@ -410,19 +413,19 @@ class ConnectionPool:
 
     async def _is_healthy(self, conn: object) -> bool:
         """Check if connection is healthy.
-        
+
         This method should be overridden in subclasses to implement
         connection-specific health checks. For database connections,
         this typically involves executing a simple query.
         """
         # Default implementation for generic connections
-        if hasattr(conn, 'is_closed'):
+        if hasattr(conn, "is_closed"):
             # For asyncpg-style connections
             return not conn.is_closed()
-        elif hasattr(conn, 'closed'):
+        if hasattr(conn, "closed"):
             # For aiopg/psycopg-style connections
             return bool(conn.closed == 0)
-        elif hasattr(conn, 'ping'):
+        if hasattr(conn, "ping"):
             # For connections with ping method
             try:
                 await conn.ping()
@@ -434,7 +437,7 @@ class ConnectionPool:
                 return False
         else:
             # Unknown connection type - log warning once
-            if not hasattr(self, '_health_check_warned'):
+            if not hasattr(self, "_health_check_warned"):
                 self.logger.warning(
                     "Unable to determine health check method for connection type: %s. "
                     "Consider implementing a specific health check.",
@@ -445,17 +448,17 @@ class ConnectionPool:
 
     async def _close_conn(self, conn: object) -> None:
         """Close a connection.
-        
+
         This method should be overridden in subclasses to implement
         connection-specific cleanup.
         """
         try:
-            if hasattr(conn, 'close'):
+            if hasattr(conn, "close"):
                 if asyncio.iscoroutinefunction(conn.close):
                     await conn.close()
                 else:
                     conn.close()
-            elif hasattr(conn, 'terminate'):
+            elif hasattr(conn, "terminate"):
                 # For connections that use terminate instead of close
                 if asyncio.iscoroutinefunction(conn.terminate):
                     await conn.terminate()
@@ -500,11 +503,11 @@ class QueryOptimizer:
         self, query: str, params: tuple[Any, ...] | None = None) -> dict[str, Any]:
         """Analyze query performance and provide optimization suggestions."""
         start_time = time.time()
-        
+
         # Normalize query for analysis
         normalized_query = query.strip().upper()
         suggestions: list[str] = []
-        
+
         # Analyze query structure
         query_type = "UNKNOWN"
         if normalized_query.startswith("SELECT"):
@@ -515,49 +518,49 @@ class QueryOptimizer:
             query_type = "UPDATE"
         elif normalized_query.startswith("DELETE"):
             query_type = "DELETE"
-        
+
         # Estimate complexity based on query structure
         estimated_cost = self._estimate_query_cost(normalized_query)
         estimated_rows = self._estimate_result_rows(normalized_query)
         uses_index = self._check_index_usage(normalized_query)
-        
+
         # Common performance issues and suggestions
         if "SELECT *" in normalized_query:
             suggestions.append("Avoid SELECT *, specify needed columns to reduce data transfer")
             estimated_cost *= 1.5  # Penalize for SELECT *
-        
+
         if "NOT IN" in normalized_query:
             suggestions.append("Consider using NOT EXISTS instead of NOT IN for better null handling")
             estimated_cost *= 1.2
-        
+
         if " OR " in normalized_query and normalized_query.count(" OR ") > 2:
             suggestions.append("Multiple OR conditions can prevent index usage, consider UNION")
             uses_index = False
             estimated_cost *= 1.3
-        
+
         if "LIKE '%%" in normalized_query or "LIKE '%" in normalized_query:
             suggestions.append("Leading wildcard in LIKE prevents index usage")
             uses_index = False
             estimated_cost *= 2.0
-        
+
         # Join analysis
         join_count = normalized_query.count(" JOIN ")
         if join_count > 3:
             suggestions.append(f"{join_count} JOINs detected, consider denormalization or materialized views")
             estimated_cost *= (1.1 ** join_count)
-        
+
         # Subquery analysis
         if "SELECT" in normalized_query[7:]:  # Skip the first SELECT
             subquery_count = normalized_query.count("SELECT") - 1
             if subquery_count > 0:
                 suggestions.append(f"{subquery_count} subqueries detected, consider using JOINs or CTEs")
                 estimated_cost *= (1.2 ** subquery_count)
-        
+
         # Check for missing WHERE clause in UPDATE/DELETE
         if query_type in ["UPDATE", "DELETE"] and " WHERE " not in normalized_query:
             suggestions.append(f"WARNING: {query_type} without WHERE clause affects all rows!")
             estimated_rows = 999999  # Indicate large impact
-        
+
         # Function usage that prevents index
         problematic_functions = ["UPPER(", "LOWER(", "COALESCE(", "CAST(", "CONVERT("]
         for func in problematic_functions:
@@ -568,7 +571,7 @@ class QueryOptimizer:
                     suggestions.append(f"{func.rstrip('(')} in WHERE clause may prevent index usage")
                     uses_index = False
                     estimated_cost *= 1.3
-        
+
         execution_time = time.time() - start_time
 
         analysis = {
@@ -610,70 +613,65 @@ class QueryOptimizer:
     def _estimate_query_cost(self, normalized_query: str) -> float:
         """Estimate relative cost of query execution."""
         base_cost = 10.0
-        
+
         # Table scan indicators
         if " WHERE " not in normalized_query:
             base_cost *= 10.0  # No WHERE clause likely means full table scan
-        
+
         # Aggregation functions
         for agg_func in ["COUNT(", "SUM(", "AVG(", "MAX(", "MIN("]:
             if agg_func in normalized_query:
                 base_cost *= 1.5
-        
+
         # GROUP BY and ORDER BY
         if " GROUP BY " in normalized_query:
             base_cost *= 2.0
         if " ORDER BY " in normalized_query:
             base_cost *= 1.5
-        
+
         # DISTINCT
         if " DISTINCT " in normalized_query:
             base_cost *= 1.8
-        
+
         return base_cost
 
     def _estimate_result_rows(self, normalized_query: str) -> int:
         """Estimate number of result rows based on query structure."""
         if " LIMIT 1" in normalized_query:
             return 1
-        elif " LIMIT " in normalized_query:
+        if " LIMIT " in normalized_query:
             # Extract limit value
             try:
                 limit_part = normalized_query.split(" LIMIT ")[1].split()[0]
                 return int(limit_part)
             except (IndexError, ValueError):
                 pass
-        
+
         # Aggregate without GROUP BY usually returns 1 row
         if any(f in normalized_query for f in ["COUNT(", "SUM(", "AVG("]) and " GROUP BY " not in normalized_query:
             return 1
-        
+
         # Default estimates based on query type
         if " WHERE " in normalized_query:
             if "=" in normalized_query:
                 return 10  # Equality condition
-            else:
-                return 100  # Range condition
-        else:
-            return 1000  # No WHERE clause
+            return 100  # Range condition
+        return 1000  # No WHERE clause
 
     def _check_index_usage(self, normalized_query: str) -> bool:
         """Check if query is likely to use indexes."""
         # Simple heuristics for index usage
         if " WHERE " not in normalized_query:
             return False
-        
+
         where_clause = normalized_query.split(" WHERE ")[1].split(" ORDER BY ")[0].split(" GROUP BY ")[0]
-        
+
         # Good index indicators
         if "=" in where_clause and "LIKE" not in where_clause:
             return True
         if " BETWEEN " in where_clause:
             return True
-        if " IN (" in where_clause and "NOT IN" not in where_clause:
-            return True
-        
-        return False
+        return bool(" IN (" in where_clause and "NOT IN" not in where_clause)
 
     def _normalize_query(self, query: str) -> str:
         """Normalize query for statistics tracking."""
@@ -883,216 +881,222 @@ class PerformanceOptimizer:
 
 class TypedCacheDecorator(Generic[P, T]):
     """Type-safe caching decorator that preserves function signatures."""
-    
-    def __init__(self, config: Optional[CacheConfig] = None) -> None:
+
+    def __init__(self, config: CacheConfig | None = None) -> None:
+        """Initialize the instance."""
         self.config = config or CacheConfig()
         self.cache: TypeSafeCache[str, T] = TypeSafeCache(self.config)
         self.key_generator: CacheKeyGenerator[str] = CacheKeyGenerator(self.config)
-    
+
     def __call__(self, func: Callable[P, T]) -> Callable[P, T]:
         """Create type-safe caching decorator with proper generic typing."""
-        
+
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             # Generate cache key
             cache_key = self.key_generator.generate_key(func, args, kwargs)
-            
+
             # Try to get from cache
             cached_result = self.cache.get(cache_key)
             if cached_result is not None:
                 return cached_result
-            
+
             # Execute function and cache result
             result = func(*args, **kwargs)
             self.cache.put(cache_key, result)
-            
+
             return result
-        
+
         # Add cache management methods with proper typing
         wrapper.cache_clear = self.cache.clear  # type: ignore[attr-defined]
         wrapper.cache_stats = self.cache.stats  # type: ignore[attr-defined]
-        
+
         return wrapper
 
 
 class AsyncTypedCacheDecorator(Generic[AsyncP, AsyncT]):
     """Type-safe async caching decorator."""
-    
-    def __init__(self, config: Optional[CacheConfig] = None) -> None:
+
+    def __init__(self, config: CacheConfig | None = None) -> None:
+        """Initialize the instance."""
         self.config = config or CacheConfig()
         self.cache: TypeSafeCache[str, AsyncT] = TypeSafeCache(self.config)
         self.key_generator: CacheKeyGenerator[str] = CacheKeyGenerator(self.config)
-    
+
     def __call__(self, func: Callable[AsyncP, Awaitable[AsyncT]]) -> Callable[AsyncP, Awaitable[AsyncT]]:
         """Create type-safe async caching decorator."""
-        
+
         @functools.wraps(func)
         async def async_wrapper(*args: AsyncP.args, **kwargs: AsyncP.kwargs) -> AsyncT:
             cache_key = self.key_generator.generate_key(func, args, kwargs)
-            
+
             cached_result = self.cache.get(cache_key)
             if cached_result is not None:
                 return cached_result
-            
+
             result = await func(*args, **kwargs)
             self.cache.put(cache_key, result)
-            
+
             return result
-        
+
         # Add cache management methods
         async_wrapper.cache_clear = self.cache.clear  # type: ignore[attr-defined]
         async_wrapper.cache_stats = self.cache.stats  # type: ignore[attr-defined]
-        
+
         return async_wrapper
 
 
 class TypedRateLimitDecorator(Generic[P, T]):
     """Type-safe rate limiting decorator."""
-    
+
     def __init__(self, calls: int = 10, period: int = 60) -> None:
+        """Initialize the instance."""
         self.calls = calls
         self.period = period
         self.call_times: list[float] = []
         self._lock = threading.Lock()
-    
+
     def __call__(self, func: Callable[P, T]) -> Callable[P, T]:
         """Create type-safe rate limiting decorator."""
-        
+
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             now = time.time()
-            
+
             with self._lock:
                 # Remove old calls
                 self.call_times = [t for t in self.call_times if now - t < self.period]
-                
+
                 # Check rate limit
                 if len(self.call_times) >= self.calls:
                     wait_time = self.period - (now - self.call_times[0])
                     raise RuntimeError(f"Rate limit exceeded. Try again in {wait_time:.1f} seconds")
-                
+
                 # Record call
                 self.call_times.append(now)
-            
+
             # Execute function
             return func(*args, **kwargs)
-        
+
         return wrapper
 
 
 class AsyncTypedRateLimitDecorator(Generic[AsyncP, AsyncT]):
     """Type-safe async rate limiting decorator."""
-    
+
     def __init__(self, calls: int = 10, period: int = 60) -> None:
+        """Initialize the instance."""
         self.calls = calls
         self.period = period
         self.call_times: list[float] = []
         self._lock = asyncio.Lock()
-    
+
     def __call__(self, func: Callable[AsyncP, Awaitable[AsyncT]]) -> Callable[AsyncP, Awaitable[AsyncT]]:
         """Create type-safe async rate limiting decorator."""
-        
+
         @functools.wraps(func)
         async def async_wrapper(*args: AsyncP.args, **kwargs: AsyncP.kwargs) -> AsyncT:
             now = time.time()
-            
+
             async with self._lock:
                 # Remove old calls
                 self.call_times = [t for t in self.call_times if now - t < self.period]
-                
+
                 # Check rate limit
                 if len(self.call_times) >= self.calls:
                     wait_time = self.period - (now - self.call_times[0])
                     raise RuntimeError(f"Rate limit exceeded. Try again in {wait_time:.1f} seconds")
-                
+
                 # Record call
                 self.call_times.append(now)
-            
+
             # Execute function
             return await func(*args, **kwargs)
-        
+
         return async_wrapper
 
 
 class TypedTimingDecorator(Generic[P, T]):
     """Type-safe timing decorator with logging."""
-    
-    def __init__(self, name: Optional[str] = None, logger: Optional[LoggerService] = None) -> None:
+
+    def __init__(self, name: str | None = None, logger: LoggerService | None = None) -> None:
+        """Initialize the instance."""
         self.name = name
         self.logger = logger
-    
+
     def __call__(self, func: Callable[P, T]) -> Callable[P, T]:
         """Create type-safe timing decorator."""
-        
+
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             start_time = time.time()
             function_name = self.name or func.__name__
-            
+
             try:
                 result = func(*args, **kwargs)
                 execution_time = time.time() - start_time
-                
+
                 # Log timing if logger available
                 if self.logger:
                     self.logger.debug(
                         f"{function_name} completed in {execution_time:.3f}s",
                         source_module="TypedTimingDecorator")
-                
+
                 return result
-                
+
             except Exception as e:
                 execution_time = time.time() - start_time
-                
+
                 # Log error with timing
                 if self.logger:
-                    self.logger.error(
+                    self.logger.exception(
                         f"{function_name} failed after {execution_time:.3f}s: {e!s}",
                         source_module="TypedTimingDecorator")
-                
+
                 raise
-        
+
         return wrapper
 
 
 class AsyncTypedTimingDecorator(Generic[AsyncP, AsyncT]):
     """Type-safe async timing decorator with logging."""
-    
-    def __init__(self, name: Optional[str] = None, logger: Optional[LoggerService] = None) -> None:
+
+    def __init__(self, name: str | None = None, logger: LoggerService | None = None) -> None:
+        """Initialize the instance."""
         self.name = name
         self.logger = logger
-    
+
     def __call__(self, func: Callable[AsyncP, Awaitable[AsyncT]]) -> Callable[AsyncP, Awaitable[AsyncT]]:
         """Create type-safe async timing decorator."""
-        
+
         @functools.wraps(func)
         async def async_wrapper(*args: AsyncP.args, **kwargs: AsyncP.kwargs) -> AsyncT:
             start_time = time.time()
             function_name = self.name or func.__name__
-            
+
             try:
                 result = await func(*args, **kwargs)
                 execution_time = time.time() - start_time
-                
+
                 # Log timing if logger available
                 if self.logger:
                     self.logger.debug(
                         f"{function_name} completed in {execution_time:.3f}s",
                         source_module="AsyncTypedTimingDecorator")
-                
+
                 return result
-                
+
             except Exception as e:
                 execution_time = time.time() - start_time
-                
+
                 # Log error with timing
                 if self.logger:
-                    self.logger.error(
+                    self.logger.exception(
                         f"{function_name} failed after {execution_time:.3f}s: {e!s}",
                         source_module="AsyncTypedTimingDecorator")
-                
+
                 raise
-        
+
         return async_wrapper
 
 
@@ -1102,31 +1106,27 @@ class AsyncTypedTimingDecorator(Generic[AsyncP, AsyncT]):
 def cache() -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 @overload
-def cache(*, max_size: Optional[int] = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+def cache(*, max_size: int | None = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 @overload
-def cache(*, ttl: Optional[float] = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+def cache(*, ttl: float | None = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 @overload
-def cache(*, max_size: Optional[int] = ..., ttl: Optional[float] = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+def cache(*, max_size: int | None = ..., ttl: float | None = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 @overload
 def cache(config: CacheConfig) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 def cache(
-    config: Optional[CacheConfig] = None,
+    config: CacheConfig | None = None,
     *,
-    max_size: Optional[int] = None,
-    ttl: Optional[float] = None,
+    max_size: int | None = None,
+    ttl: float | None = None,
     typed_keys: bool = True,
     thread_safe: bool = True,
-    eviction_policy: str = "lru"
+    eviction_policy: str = "lru",
 ) -> Any:
-    """
-    Type-safe caching decorator with comprehensive generic typing.
-    
-    """
-    
+    """Type-safe caching decorator with comprehensive generic typing."""
     # Create configuration if not provided
     if config is None:
         config = CacheConfig(
@@ -1134,32 +1134,31 @@ def cache(
             ttl=ttl,
             typed_keys=typed_keys,
             thread_safe=thread_safe,
-            eviction_policy=eviction_policy
+            eviction_policy=eviction_policy,
         )
-    
+
     return TypedCacheDecorator(config)
 
 
 def async_cache(
-    config: Optional[CacheConfig] = None,
+    config: CacheConfig | None = None,
     *,
-    max_size: Optional[int] = None,
-    ttl: Optional[float] = None,
+    max_size: int | None = None,
+    ttl: float | None = None,
     typed_keys: bool = True,
     thread_safe: bool = True,
-    eviction_policy: str = "lru"
+    eviction_policy: str = "lru",
 ) -> Any:
     """Type-safe async caching decorator with comprehensive generic typing."""
-    
     if config is None:
         config = CacheConfig(
             max_size=max_size,
             ttl=ttl,
             typed_keys=typed_keys,
             thread_safe=thread_safe,
-            eviction_policy=eviction_policy
+            eviction_policy=eviction_policy,
         )
-    
+
     return AsyncTypedCacheDecorator(config)
 
 
@@ -1174,16 +1173,16 @@ def async_rate_limited(calls: int = 10, period: int = 60) -> Any:
 
 
 def timed(
-    name: Optional[str] = None, 
-    logger: Optional[LoggerService] = None
+    name: str | None = None,
+    logger: LoggerService | None = None,
 ) -> Any:
     """Type-safe timing decorator with proper generic typing."""
     return TypedTimingDecorator(name, logger)
 
 
 def async_timed(
-    name: Optional[str] = None, 
-    logger: Optional[LoggerService] = None
+    name: str | None = None,
+    logger: LoggerService | None = None,
 ) -> Any:
     """Type-safe async timing decorator with proper generic typing."""
     return AsyncTypedTimingDecorator(name, logger)
@@ -1193,9 +1192,8 @@ def async_timed(
 F = TypeVarT("F", bound=Callable[..., Any])
 
 def cached(cache_name: str = "default", ttl: int = 300) -> Callable[[F], F]:
-    """
-    Legacy caching decorator for backward compatibility.
-    
+    """Legacy caching decorator for backward compatibility.
+
     DEPRECATED: Use @cache() decorator with proper generic typing instead.
     This decorator is maintained for backward compatibility but lacks proper type safety.
     """
@@ -1230,62 +1228,62 @@ def cached(cache_name: str = "default", ttl: int = 300) -> Callable[[F], F]:
 # Method caching support with proper typing
 class MethodCacheDescriptor(Generic[T]):
     """Type-safe method caching descriptor for class methods."""
-    
-    def __init__(self, config: Optional[CacheConfig] = None) -> None:
+
+    def __init__(self, config: CacheConfig | None = None) -> None:
+        """Initialize the instance."""
         self.config = config or CacheConfig()
         self.caches: weakref.WeakKeyDictionary[Any, TypeSafeCache[str, T]] = weakref.WeakKeyDictionary()
         self.key_generator = CacheKeyGenerator[str](self.config)
-        self.original_method: Optional[Callable[..., T]] = None
-    
-    def __set_name__(self, owner: Type[Any], name: str) -> None:
+        self.original_method: Callable[..., T] | None = None
+
+    def __set_name__(self, owner: type[Any], name: str) -> None:
         """Called when the descriptor is assigned to a class attribute."""
         self.name = name
-    
+
     def __call__(self, method: Callable[..., T]) -> "MethodCacheDescriptor[T]":
         """Used as a decorator to wrap the original method."""
         self.original_method = method
         functools.update_wrapper(self, method)
         return self
-    
-    def __get__(self, instance: Any, owner: Optional[Type[Any]] = None) -> Callable[..., T]:
+
+    def __get__(self, instance: Any, owner: type[Any] | None = None) -> Callable[..., T]:
         """Get the cached method for the instance."""
         if instance is None:
             return self  # type: ignore
-        
+
         if self.original_method is None:
             raise RuntimeError("Method cache descriptor not properly initialized")
-        
+
         # Get or create cache for this instance
         if instance not in self.caches:
             self.caches[instance] = TypeSafeCache[str, T](self.config)
-        
+
         instance_cache = self.caches[instance]
         original_method = self.original_method
-        
+
         @functools.wraps(original_method)
         def cached_method(*args: Any, **kwargs: Any) -> T:
             cache_key = self.key_generator.generate_key(original_method, args, kwargs)
-            
+
             cached_result = instance_cache.get(cache_key)
             if cached_result is not None:
                 return cached_result
-            
+
             result = original_method(instance, *args, **kwargs)
             instance_cache.put(cache_key, result)
-            
+
             return result
-        
+
         # Add cache management methods
         cached_method.cache_clear = instance_cache.clear  # type: ignore[attr-defined]
         cached_method.cache_stats = instance_cache.stats  # type: ignore[attr-defined]
-        
+
         return cached_method
 
 
-def cached_method(config: Optional[CacheConfig] = None) -> MethodCacheDescriptor[T]:
-    """
-    Decorator for creating cached methods with proper typing.
-    
+def cached_method(config: CacheConfig | None = None) -> MethodCacheDescriptor[T]:
+    """Decorator for creating cached methods with proper typing.
+
     Example:
         class DataProcessor:
             @cached_method(CacheConfig(max_size=50, ttl=300))
@@ -1298,26 +1296,27 @@ def cached_method(config: Optional[CacheConfig] = None) -> MethodCacheDescriptor
 # Example usage and integration helpers
 class CacheRegistry:
     """Registry for managing multiple caches with different configurations."""
-    
+
     def __init__(self) -> None:
-        self._caches: Dict[str, TypeSafeCache[Any, Any]] = {}
-        self._configs: Dict[str, CacheConfig] = {}
-    
+        """Initialize the instance."""
+        self._caches: dict[str, TypeSafeCache[Any, Any]] = {}
+        self._configs: dict[str, CacheConfig] = {}
+
     def register_cache(self, name: str, config: CacheConfig) -> None:
         """Register a new cache with the given configuration."""
         self._caches[name] = TypeSafeCache(config)
         self._configs[name] = config
-    
-    def get_cache(self, name: str) -> Optional[TypeSafeCache[Any, Any]]:
+
+    def get_cache(self, name: str) -> TypeSafeCache[Any, Any] | None:
         """Get a registered cache by name."""
         return self._caches.get(name)
-    
+
     def clear_all(self) -> None:
         """Clear all registered caches."""
         for cache in self._caches.values():
             cache.clear()
-    
-    def get_all_stats(self) -> Dict[str, Dict[str, Any]]:
+
+    def get_all_stats(self) -> dict[str, dict[str, Any]]:
         """Get statistics for all registered caches."""
         return {name: cache.stats() for name, cache in self._caches.items()}
 
@@ -1331,7 +1330,7 @@ def register_global_cache(name: str, config: CacheConfig) -> None:
     _global_cache_registry.register_cache(name, config)
 
 
-def get_global_cache_stats() -> Dict[str, Dict[str, Any]]:
+def get_global_cache_stats() -> dict[str, dict[str, Any]]:
     """Get statistics for all global caches."""
     return _global_cache_registry.get_all_stats()
 
@@ -1344,54 +1343,55 @@ def clear_all_global_caches() -> None:
 # Performance monitoring integration
 class CachePerformanceMonitor:
     """Monitor cache performance and provide optimization suggestions."""
-    
+
     def __init__(self, logger: LoggerService) -> None:
+        """Initialize the instance."""
         self.logger = logger
         self._source_module = self.__class__.__name__
-    
-    def analyze_cache_performance(self, cache: TypeSafeCache[Any, Any], cache_name: str) -> Dict[str, Any]:
+
+    def analyze_cache_performance(self, cache: TypeSafeCache[Any, Any], cache_name: str) -> dict[str, Any]:
         """Analyze cache performance and provide recommendations."""
         stats = cache.stats()
-        
+
         analysis = {
             "cache_name": cache_name,
             **stats,
-            "recommendations": []
+            "recommendations": [],
         }
-        
+
         # Analyze hit rate
         hit_rate = stats["hit_rate_percent"]
         if hit_rate < 50:
             analysis["recommendations"].append(
-                f"Low hit rate ({hit_rate:.1f}%). Consider increasing cache size or reviewing cache strategy."
+                f"Low hit rate ({hit_rate:.1f}%). Consider increasing cache size or reviewing cache strategy.",
             )
         elif hit_rate > 95:
             analysis["recommendations"].append(
-                f"Very high hit rate ({hit_rate:.1f}%). Cache is performing excellently."
+                f"Very high hit rate ({hit_rate:.1f}%). Cache is performing excellently.",
             )
-        
+
         # Analyze cache utilization
         if stats["max_size"] and stats["cache_size"] < stats["max_size"] * 0.5:
             analysis["recommendations"].append(
                 f"Cache is underutilized ({stats['cache_size']}/{stats['max_size']}). "
-                "Consider reducing max_size to save memory."
+                "Consider reducing max_size to save memory.",
             )
-        
+
         # Analyze eviction rate
         total_operations = stats["hits"] + stats["misses"]
         if total_operations > 0:
             eviction_rate = (stats["evictions"] / total_operations) * 100
             if eviction_rate > 10:
                 analysis["recommendations"].append(
-                    f"High eviction rate ({eviction_rate:.1f}%). Consider increasing cache size."
+                    f"High eviction rate ({eviction_rate:.1f}%). Consider increasing cache size.",
                 )
-        
+
         return analysis
 
 
 class DatabaseConnectionPool(ConnectionPool):
     """Specialized connection pool for database connections with proper health checks."""
-    
+
     def __init__(
         self,
         create_conn: Callable[[], Any],
@@ -1401,7 +1401,7 @@ class DatabaseConnectionPool(ConnectionPool):
         health_check_interval: int = 30,
         health_check_query: str = "SELECT 1") -> None:
         """Initialize database connection pool with health check query.
-        
+
         Args:
             create_conn: Async function to create a new connection
             logger_service: Logger service instance
@@ -1411,47 +1411,44 @@ class DatabaseConnectionPool(ConnectionPool):
             health_check_query: SQL query to use for health checks
         """
         super().__init__(
-            create_conn, 
-            logger_service, 
-            max_connections, 
-            min_connections, 
-            health_check_interval
+            create_conn,
+            logger_service,
+            max_connections,
+            min_connections,
+            health_check_interval,
         )
         self._health_check_query = health_check_query
         self._source_module = self.__class__.__name__
-    
+
     async def _is_healthy(self, conn: object) -> bool:
         """Check if database connection is healthy by executing a test query."""
         try:
             # First check if connection is closed
-            if hasattr(conn, 'is_closed') and conn.is_closed():
+            if (hasattr(conn, "is_closed") and conn.is_closed()) or (hasattr(conn, "closed") and conn.closed != 0):
                 return False
-            elif hasattr(conn, 'closed') and conn.closed != 0:
-                return False
-            
+
             # Execute health check query
-            if hasattr(conn, 'execute'):
+            if hasattr(conn, "execute"):
                 # For asyncpg-style connections
                 await conn.execute(self._health_check_query)
                 return True
-            elif hasattr(conn, 'fetch') or hasattr(conn, 'fetchval'):
+            if hasattr(conn, "fetch") or hasattr(conn, "fetchval"):
                 # For other async database connections
                 await conn.fetchval(self._health_check_query)  # type: ignore[attr-defined]
                 return True
-            elif hasattr(conn, 'cursor'):
+            if hasattr(conn, "cursor"):
                 # For aiopg-style connections
                 async with conn.cursor() as cursor:
                     await cursor.execute(self._health_check_query)
                     await cursor.fetchone()
                 return True
-            else:
-                # Fall back to parent implementation
-                return await super()._is_healthy(conn)
-                
+            # Fall back to parent implementation
+            return await super()._is_healthy(conn)
+
         except Exception as e:
             self.logger.debug(
                 f"Database health check failed: {e}",
                 source_module=self._source_module,
-                context={"query": self._health_check_query}
+                context={"query": self._health_check_query},
             )
             return False

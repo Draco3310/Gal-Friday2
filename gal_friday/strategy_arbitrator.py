@@ -7,32 +7,32 @@ supports configurable threshold strategies with secondary confirmation rules.
 
 # Strategy Arbitrator Module
 
-import operator  # Added for condition dispatch
-import uuid
-import time
-import json
-from collections.abc import Callable
-from datetime import datetime
-from decimal import Decimal, InvalidOperation
-from typing import ClassVar, Dict, List, Optional, Any, Union
-from dataclasses import dataclass, field
-from enum import Enum
 from abc import ABC, abstractmethod
-
-from .interfaces.service_protocol import ServiceProtocol
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
+from enum import Enum
+import json
+import operator  # Added for condition dispatch
+import time
+from typing import Any, ClassVar
+import uuid
 
 # Event imports
 from .core.events import (
     EventType,
     PredictionEvent,
+    TradeOutcomeEvent,
     TradeSignalProposedEvent,
-    TradeOutcomeEvent)
+)
 
 # Import FeatureRegistryClient
 from .core.feature_registry_client import FeatureRegistryClient
 
 # Import PubSubManager
 from .core.pubsub import PubSubManager
+from .interfaces.service_protocol import ServiceProtocol
 
 # Import LoggerService
 from .logger_service import LoggerService
@@ -43,10 +43,7 @@ from .market_price_service import MarketPriceService
 # Import Strategy Selection System
 from .strategy_selection import (
     StrategySelectionSystem,
-    StrategySelectionContext,
-    StrategyEvaluationResult,
-    MarketConditionSnapshot)
-
+)
 
 # === Enterprise-Grade Prediction Interpretation Framework ===
 
@@ -79,9 +76,9 @@ class PredictionField:
     name: str
     type: PredictionType
     interpretation_strategy: InterpretationStrategy
-    parameters: Dict[str, Any] = field(default_factory=dict[str, Any])
+    parameters: dict[str, Any] = field(default_factory=dict[str, Any])
     required: bool = True
-    validation_rules: Dict[str, Any] = field(default_factory=dict[str, Any])
+    validation_rules: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass
@@ -90,30 +87,28 @@ class PredictionInterpretationConfig:
 
     version: str
     description: str
-    fields: List[PredictionField]
+    fields: list[PredictionField]
     default_interpretation: InterpretationStrategy
-    fallback_rules: Dict[str, Any] = field(default_factory=dict[str, Any])
-    metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
+    fallback_rules: dict[str, Any] = field(default_factory=dict[str, Any])
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 class PredictionInterpreter(ABC):
     """Abstract base class for prediction interpreters."""
 
     @abstractmethod
-    async def interpret(self, prediction: Dict[str, Any], config: PredictionField) -> Any:
+    async def interpret(self, prediction: dict[str, Any], config: PredictionField) -> Any:
         """Interpret a prediction value according to configuration."""
-        pass
 
     @abstractmethod
-    def validate(self, prediction: Dict[str, Any], config: PredictionField) -> bool:
+    def validate(self, prediction: dict[str, Any], config: PredictionField) -> bool:
         """Validate prediction against configuration."""
-        pass
 
 
 class ThresholdBasedInterpreter(PredictionInterpreter):
     """Threshold-based prediction interpreter for enterprise production use."""
 
-    async def interpret(self, prediction: Dict[str, Any], config: PredictionField) -> Any:
+    async def interpret(self, prediction: dict[str, Any], config: PredictionField) -> Any:
         """Interpret prediction using threshold-based logic."""
         field_name = config.name
         if field_name not in prediction:
@@ -128,22 +123,21 @@ class ThresholdBasedInterpreter(PredictionInterpreter):
 
             if value >= buy_threshold:
                 return "BUY"
-            elif value <= sell_threshold:
+            if value <= sell_threshold:
                 return "SELL"
-            else:
-                return "HOLD"
+            return "HOLD"
 
-        elif config.type == PredictionType.SIGNAL:
+        if config.type == PredictionType.SIGNAL:
             threshold = parameters.get("threshold", 0.0)
             return "BUY" if value > threshold else "SELL"
 
-        elif config.type == PredictionType.CONFIDENCE:
+        if config.type == PredictionType.CONFIDENCE:
             min_confidence = parameters.get("min_confidence", 0.5)
             return value >= min_confidence
 
         return value
 
-    def validate(self, prediction: Dict[str, Any], config: PredictionField) -> bool:
+    def validate(self, prediction: dict[str, Any], config: PredictionField) -> bool:
         """Validate prediction value against configured rules."""
         field_name = config.name
         if config.required and field_name not in prediction:
@@ -155,10 +149,10 @@ class ThresholdBasedInterpreter(PredictionInterpreter):
                 value = float(prediction[field_name])
             except (ValueError, TypeError):
                 return False
-            
+
             # Now perform validation on the successfully converted value
             validation_rules = config.validation_rules
-            
+
             # Check value range
             if "min_value" in validation_rules and value < validation_rules["min_value"]:
                 return False
@@ -201,11 +195,11 @@ class ValidationRule:
     name: str
     field_path: str
     operator: ValidationOperator
-    value: Union[float, List[float], Any]
+    value: float | list[float] | Any
     level: ValidationLevel = ValidationLevel.ERROR
-    message: Optional[str] = None
+    message: str | None = None
     enabled: bool = True
-    conditions: Optional[Dict[str, Any]] = None
+    conditions: dict[str, Any] | None = None
 
 
 @dataclass
@@ -214,9 +208,9 @@ class ValidationContext:
 
     symbol: str
     strategy_id: str
-    market_conditions: Dict[str, Any] = field(default_factory=dict[str, Any])
+    market_conditions: dict[str, Any] = field(default_factory=dict[str, Any])
     timestamp: float = field(default_factory=time.time)
-    metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass
@@ -238,17 +232,16 @@ class ProbabilityValidator(ABC):
 
     @abstractmethod
     async def validate(
-        self, data: Dict[str, Any], rule: ValidationRule, context: ValidationContext
+        self, data: dict[str, Any], rule: ValidationRule, context: ValidationContext,
     ) -> ValidationResult:
         """Validate probability data against rule."""
-        pass
 
 
 class BasicProbabilityValidator(ProbabilityValidator):
     """Basic probability validation using configurable operators."""
 
     async def validate(
-        self, data: Dict[str, Any], rule: ValidationRule, context: ValidationContext
+        self, data: dict[str, Any], rule: ValidationRule, context: ValidationContext,
     ) -> ValidationResult:
         """Validate using basic operators with enterprise error handling."""
         # Extract value from nested path
@@ -281,7 +274,7 @@ class BasicProbabilityValidator(ProbabilityValidator):
             actual_value=actual_value,
             expected_value=rule.value)
 
-    def _get_nested_value(self, data: Dict[str, Any], path: str) -> Any:
+    def _get_nested_value(self, data: dict[str, Any], path: str) -> Any:
         """Extract value from nested dictionary using dot notation."""
         keys = path.split(".")
         current = data
@@ -299,27 +292,26 @@ class BasicProbabilityValidator(ProbabilityValidator):
         try:
             if operator == ValidationOperator.GREATER_THAN:
                 return float(actual) > float(expected)
-            elif operator == ValidationOperator.GREATER_EQUAL:
+            if operator == ValidationOperator.GREATER_EQUAL:
                 return float(actual) >= float(expected)
-            elif operator == ValidationOperator.LESS_THAN:
+            if operator == ValidationOperator.LESS_THAN:
                 return float(actual) < float(expected)
-            elif operator == ValidationOperator.LESS_EQUAL:
+            if operator == ValidationOperator.LESS_EQUAL:
                 return float(actual) <= float(expected)
-            elif operator == ValidationOperator.EQUAL:
+            if operator == ValidationOperator.EQUAL:
                 return float(actual) == float(expected)
-            elif operator == ValidationOperator.NOT_EQUAL:
+            if operator == ValidationOperator.NOT_EQUAL:
                 return float(actual) != float(expected)
-            elif operator == ValidationOperator.BETWEEN:
+            if operator == ValidationOperator.BETWEEN:
                 return bool(expected[0] <= float(actual) <= expected[1])
-            elif operator == ValidationOperator.NOT_BETWEEN:
+            if operator == ValidationOperator.NOT_BETWEEN:
                 return not (expected[0] <= float(actual) <= expected[1])
-            elif operator == ValidationOperator.IN_LIST:
+            if operator == ValidationOperator.IN_LIST:
                 return actual in expected
-            elif operator == ValidationOperator.NOT_IN_LIST:
+            if operator == ValidationOperator.NOT_IN_LIST:
                 return actual not in expected
-            else:
-                # This should never happen with a proper enum, but we handle it for robustness
-                raise ValueError(f"Unknown validation operator: {operator}")
+            # This should never happen with a proper enum, but we handle it for robustness
+            raise ValueError(f"Unknown validation operator: {operator}")
         except (ValueError, TypeError, IndexError):
             return False
 
@@ -327,18 +319,19 @@ class BasicProbabilityValidator(ProbabilityValidator):
 class ConfigurableProbabilityValidator:
     """Enterprise-grade configurable probability validator with comprehensive monitoring."""
 
-    def __init__(self, config_path: Optional[str] = None, logger_service: Optional[LoggerService] = None) -> None:
+    def __init__(self, config_path: str | None = None, logger_service: LoggerService | None = None) -> None:
+        """Initialize the instance."""
         self.logger = logger_service
 
         # Validator registry
-        self.validators: Dict[str, ProbabilityValidator] = {"basic": BasicProbabilityValidator()}
+        self.validators: dict[str, ProbabilityValidator] = {"basic": BasicProbabilityValidator()}
 
         # Validation rules
-        self.validation_rules: List[ValidationRule] = []
-        self.rule_groups: Dict[str, List[ValidationRule]] = {}
+        self.validation_rules: list[ValidationRule] = []
+        self.rule_groups: dict[str, list[ValidationRule]] = {}
 
         # Performance statistics
-        self.validation_stats: Dict[str, Any] = {
+        self.validation_stats: dict[str, Any] = {
             "total_validations": 0,
             "successful_validations": 0,
             "failed_validations": 0,
@@ -355,7 +348,7 @@ class ConfigurableProbabilityValidator:
     def load_validation_config(self, config_path: str) -> None:
         """Load validation configuration from file with enterprise error handling."""
         try:
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 config_data = json.load(f)
 
             # Parse validation rules
@@ -380,13 +373,13 @@ class ConfigurableProbabilityValidator:
 
             if self.logger:
                 self.logger.info(
-                    f"Loaded {len(self.validation_rules)} validation rules from {config_path}"
+                    f"Loaded {len(self.validation_rules)} validation rules from {config_path}",
                 )
 
-        except Exception as e:
+        except Exception:
             if self.logger:
-                self.logger.error(
-                    f"Error loading validation configuration from {config_path}: {e}"
+                self.logger.exception(
+                    f"Error loading validation configuration from {config_path}: ",
                 )
             raise
 
@@ -422,10 +415,9 @@ class ConfigurableProbabilityValidator:
         }
 
     async def validate_prediction(
-        self, data: Dict[str, Any], context: ValidationContext, rule_group: Optional[str] = None
-    ) -> List[ValidationResult]:
-        """
-        Validate prediction data with configurable rules.
+        self, data: dict[str, Any], context: ValidationContext, rule_group: str | None = None,
+    ) -> list[ValidationResult]:
+        """Validate prediction data with configurable rules.
         Replaces hardcoded example probability checks with enterprise validation.
         """
         try:
@@ -475,9 +467,9 @@ class ConfigurableProbabilityValidator:
                     ):
                         self.logger.warning(f"Validation warning: {result.message}")
 
-                except Exception as e:
+                except Exception:
                     if self.logger:
-                        self.logger.error(f"Error executing validation rule {rule.name}: {e}")
+                        self.logger.exception(f"Error executing validation rule {rule.name}: ")
 
             # Update success/failure statistics
             failed_results = [
@@ -493,9 +485,9 @@ class ConfigurableProbabilityValidator:
 
             return validation_results
 
-        except Exception as e:
+        except Exception:
             if self.logger:
-                self.logger.error(f"Error during prediction validation: {e}")
+                self.logger.exception("Error during prediction validation: ")
             self.validation_stats["failed_validations"] += 1
             return []
 
@@ -505,14 +497,12 @@ class ConfigurableProbabilityValidator:
             return True
 
         # Check symbol condition
-        if "symbols" in rule.conditions:
-            if context.symbol not in rule.conditions["symbols"]:
-                return False
+        if "symbols" in rule.conditions and context.symbol not in rule.conditions["symbols"]:
+            return False
 
         # Check strategy condition
-        if "strategies" in rule.conditions:
-            if context.strategy_id not in rule.conditions["strategies"]:
-                return False
+        if "strategies" in rule.conditions and context.strategy_id not in rule.conditions["strategies"]:
+            return False
 
         # Check market conditions
         if "market_conditions" in rule.conditions:
@@ -522,7 +512,7 @@ class ConfigurableProbabilityValidator:
 
         return True
 
-    def get_validation_statistics(self) -> Dict[str, Any]:
+    def get_validation_statistics(self) -> dict[str, Any]:
         """Get comprehensive validation performance statistics."""
         total = self.validation_stats["total_validations"]
         success_rate = (
@@ -541,16 +531,17 @@ class ConfigurableProbabilityValidator:
 class PredictionInterpretationEngine:
     """Enterprise-grade prediction interpretation engine with configurable rules."""
 
-    def __init__(self, config_path: Optional[str] = None, logger_service: Optional[LoggerService] = None) -> None:
+    def __init__(self, config_path: str | None = None, logger_service: LoggerService | None = None) -> None:
+        """Initialize the instance."""
         self.logger = logger_service
 
         # Interpreter registry
-        self.interpreters: Dict[InterpretationStrategy, PredictionInterpreter] = {
-            InterpretationStrategy.THRESHOLD_BASED: ThresholdBasedInterpreter()
+        self.interpreters: dict[InterpretationStrategy, PredictionInterpreter] = {
+            InterpretationStrategy.THRESHOLD_BASED: ThresholdBasedInterpreter(),
         }
 
         # Configuration
-        self.interpretation_config: Optional[PredictionInterpretationConfig] = None
+        self.interpretation_config: PredictionInterpretationConfig | None = None
 
         # Statistics
         self.interpretation_stats = {
@@ -569,7 +560,7 @@ class PredictionInterpretationEngine:
     def load_configuration(self, config_path: str) -> None:
         """Load prediction interpretation configuration from file with enterprise error handling."""
         try:
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 config_data = json.load(f)
 
             # Parse configuration
@@ -579,7 +570,7 @@ class PredictionInterpretationEngine:
                     name=field_data["name"],
                     type=PredictionType(field_data["type"]),
                     interpretation_strategy=InterpretationStrategy(
-                        field_data["interpretation_strategy"]
+                        field_data["interpretation_strategy"],
                     ),
                     parameters=field_data.get("parameters", {}),
                     required=field_data.get("required", True),
@@ -591,20 +582,20 @@ class PredictionInterpretationEngine:
                 description=config_data["description"],
                 fields=fields,
                 default_interpretation=InterpretationStrategy(
-                    config_data.get("default_interpretation", "threshold_based")
+                    config_data.get("default_interpretation", "threshold_based"),
                 ),
                 fallback_rules=config_data.get("fallback_rules", {}),
                 metadata=config_data.get("metadata", {}))
 
             if self.logger:
                 self.logger.info(
-                    f"Loaded prediction interpretation configuration: {self.interpretation_config.description}"
+                    f"Loaded prediction interpretation configuration: {self.interpretation_config.description}",
                 )
 
-        except Exception as e:
+        except Exception:
             if self.logger:
-                self.logger.error(
-                    f"Error loading interpretation configuration from {config_path}: {e}"
+                self.logger.exception(
+                    f"Error loading interpretation configuration from {config_path}: ",
                 )
             raise
 
@@ -617,7 +608,7 @@ class PredictionInterpretationEngine:
                 interpretation_strategy=InterpretationStrategy.THRESHOLD_BASED,
                 parameters={"buy_threshold": 0.6, "sell_threshold": 0.4},
                 required=True,
-                validation_rules={"min_value": 0.0, "max_value": 1.0, "type": float})
+                validation_rules={"min_value": 0.0, "max_value": 1.0, "type": float}),
         ]
 
         self.interpretation_config = PredictionInterpretationConfig(
@@ -627,7 +618,7 @@ class PredictionInterpretationEngine:
             default_interpretation=InterpretationStrategy.THRESHOLD_BASED,
             fallback_rules={"prediction_value": {"type": "default_value", "value": 0.5}})
 
-    async def interpret_prediction(self, prediction: Dict[str, Any]) -> Dict[str, Any]:
+    async def interpret_prediction(self, prediction: dict[str, Any]) -> dict[str, Any]:
         """Interpret prediction according to loaded configuration with enterprise error handling."""
         if not self.interpretation_config:
             raise ValueError("No interpretation configuration loaded")
@@ -650,7 +641,7 @@ class PredictionInterpretationEngine:
                         self.interpretation_stats["validation_failures"] += 1
                         if field_config.required and self.logger:
                             self.logger.error(
-                                f"Required field {field_config.name} failed validation"
+                                f"Required field {field_config.name} failed validation",
                             )
                             continue
 
@@ -659,10 +650,10 @@ class PredictionInterpretationEngine:
                         interpreted_value = await interpreter.interpret(prediction, field_config)
                         interpreted_result[field_config.name] = interpreted_value
 
-                except Exception as e:
+                except Exception:
                     self.interpretation_stats["interpretation_errors"] += 1
                     if self.logger:
-                        self.logger.error(f"Error interpreting field {field_config.name}: {e}")
+                        self.logger.exception(f"Error interpreting field {field_config.name}: ")
 
                     # Apply fallback rules
                     fallback_value = self._apply_fallback_rules(field_config.name, prediction)
@@ -679,13 +670,13 @@ class PredictionInterpretationEngine:
             self.interpretation_stats["successful_interpretations"] += 1
             return interpreted_result
 
-        except Exception as e:
+        except Exception:
             self.interpretation_stats["interpretation_errors"] += 1
             if self.logger:
-                self.logger.error(f"Error interpreting prediction: {e}")
+                self.logger.exception("Error interpreting prediction: ")
             raise
 
-    def _apply_fallback_rules(self, field_name: str, prediction: Dict[str, Any]) -> Any:
+    def _apply_fallback_rules(self, field_name: str, prediction: dict[str, Any]) -> Any:
         """Apply fallback rules when interpretation fails."""
         if not self.interpretation_config:
             return None
@@ -698,7 +689,7 @@ class PredictionInterpretationEngine:
 
             if rule_type == "default_value":
                 return rule.get("value")
-            elif rule_type == "copy_field":
+            if rule_type == "copy_field":
                 source_field = rule.get("source_field")
                 return prediction.get(source_field)
 
@@ -781,21 +772,21 @@ class StrategyArbitrator(ServiceProtocol):
 
         # Initialize enterprise-grade interpretation and validation systems
         interpretation_config_path = self._config.get("prediction_interpretation", {}).get(
-            "config_path"
+            "config_path",
         )
         validation_config_path = self._config.get("validation", {}).get("config_path")
 
         self.prediction_interpretation_engine = PredictionInterpretationEngine(
-            config_path=interpretation_config_path, logger_service=logger_service
+            config_path=interpretation_config_path, logger_service=logger_service,
         )
 
         self.probability_validator = ConfigurableProbabilityValidator(
-            config_path=validation_config_path, logger_service=logger_service
+            config_path=validation_config_path, logger_service=logger_service,
         )
 
         # Initialize Strategy Selection System if enabled and dependencies provided
         self._strategy_selection_enabled = self._config.get("strategy_selection", {}).get(
-            "enabled", False
+            "enabled", False,
         ) and all([risk_manager, portfolio_manager, monitoring_service, database_manager])
 
         if self._strategy_selection_enabled:
@@ -954,7 +945,7 @@ class StrategyArbitrator(ServiceProtocol):
                     supported_interpretations,
                     source_module=self._source_module)
             raise StrategyConfigurationError(
-                f"Invalid prediction_interpretation: {self._prediction_interpretation}"
+                f"Invalid prediction_interpretation: {self._prediction_interpretation}",
             )
 
         # Validate field-specific configuration
@@ -1012,7 +1003,7 @@ class StrategyArbitrator(ServiceProtocol):
                         rule,
                         source_module=self._source_module)
                     raise StrategyConfigurationError(
-                        f"Invalid confirmation rule structure for strategy {self._strategy_id}: {rule}"
+                        f"Invalid confirmation rule structure for strategy {self._strategy_id}: {rule}",
                     )
             return
 
@@ -1024,7 +1015,7 @@ class StrategyArbitrator(ServiceProtocol):
                     rule,
                     source_module=self._source_module)
                 raise StrategyConfigurationError(
-                    f"Invalid confirmation rule structure for strategy {self._strategy_id}: {rule}"
+                    f"Invalid confirmation rule structure for strategy {self._strategy_id}: {rule}",
                 )
 
             feature_name = rule.get("feature")
@@ -1140,13 +1131,10 @@ class StrategyArbitrator(ServiceProtocol):
                     source_module=self._source_module)
 
             # Additional business logic validation
-            if not self._validate_prediction_business_rules(event):
-                return False
-
-            return True
+            return self._validate_prediction_business_rules(event)
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Error during enterprise validation of PredictionEvent %s: %s",
                 event.event_id,
                 str(e),
@@ -1189,10 +1177,10 @@ class StrategyArbitrator(ServiceProtocol):
 
         if self._sl_pct is not None and self._sl_pct > 0:
             if side == "BUY":
-                sl_price = current_price * (Decimal("1") - self._sl_pct)
+                sl_price = current_price * (Decimal(1) - self._sl_pct)
                 risk_amount_per_unit = current_price - sl_price
             elif side == "SELL":
-                sl_price = current_price * (Decimal("1") + self._sl_pct)
+                sl_price = current_price * (Decimal(1) + self._sl_pct)
                 risk_amount_per_unit = sl_price - current_price
         elif (
             tp_price_for_rr_calc is not None  # Check if TP is provided for derivation
@@ -1227,9 +1215,9 @@ class StrategyArbitrator(ServiceProtocol):
 
         if self._tp_pct is not None and self._tp_pct > 0:
             if side == "BUY":
-                tp_price = current_price * (Decimal("1") + self._tp_pct)
+                tp_price = current_price * (Decimal(1) + self._tp_pct)
             elif side == "SELL":
-                tp_price = current_price * (Decimal("1") - self._tp_pct)
+                tp_price = current_price * (Decimal(1) - self._tp_pct)
         elif (
             sl_price_for_rr_calc is not None
             and risk_amount_for_rr_calc is not None
@@ -1520,7 +1508,7 @@ class StrategyArbitrator(ServiceProtocol):
             raw_features = associated_payload.get("triggering_features")
 
         if not raw_features or not isinstance(
-            raw_features, dict
+            raw_features, dict,
         ):  # Check if raw_features is None, empty or not a dict
             self.logger.warning(
                 "No valid 'triggering_features' (dict[str, float]) found in PredictionEvent %s for %s on %s.",
@@ -1604,7 +1592,7 @@ class StrategyArbitrator(ServiceProtocol):
 
             # Interpret prediction using configurable framework
             interpreted_result = await self.prediction_interpretation_engine.interpret_prediction(
-                prediction_data
+                prediction_data,
             )
 
             # Extract the signal from interpreted result
@@ -1614,23 +1602,21 @@ class StrategyArbitrator(ServiceProtocol):
                 # Handle different signal formats
                 if isinstance(signal, str) and signal in ["BUY", "SELL", "HOLD"]:
                     return signal if signal != "HOLD" else None
-                elif isinstance(signal, bool):
+                if isinstance(signal, bool):
                     # For confidence-type predictions
                     return "BUY" if signal else None
-                else:
-                    self.logger.warning(
-                        "Unexpected signal format from interpretation engine: %s for %s",
-                        signal,
-                        trading_pair,
-                        source_module=self._source_module)
-                    return None
-            else:
                 self.logger.warning(
-                    "Interpretation result missing expected field '%s' for %s",
-                    self._prediction_interpretation,
+                    "Unexpected signal format from interpretation engine: %s for %s",
+                    signal,
                     trading_pair,
                     source_module=self._source_module)
                 return None
+            self.logger.warning(
+                "Interpretation result missing expected field '%s' for %s",
+                self._prediction_interpretation,
+                trading_pair,
+                source_module=self._source_module)
+            return None
 
         except Exception as e:
             self.logger.warning(
@@ -1736,7 +1722,7 @@ class StrategyArbitrator(ServiceProtocol):
                         generated_event = TradeSignalProposedEvent(
                             source_module=self._source_module,
                             event_id=uuid.uuid4(),
-                            timestamp=datetime.utcnow(),
+                            timestamp=datetime.now(UTC),
                             signal_id=signal_id,
                             trading_pair=trading_pair,
                             exchange=prediction_event.exchange,
@@ -1795,11 +1781,11 @@ class StrategyArbitrator(ServiceProtocol):
             try:
                 await self.strategy_selection_system.start()
                 self.logger.info(
-                    "Strategy Selection System started", source_module=self._source_module
+                    "Strategy Selection System started", source_module=self._source_module,
                 )
-            except Exception as e:
-                self.logger.error(
-                    f"Failed to start Strategy Selection System: {e}",
+            except Exception:
+                self.logger.exception(
+                    "Failed to start Strategy Selection System: ",
                     source_module=self._source_module)
 
         self.logger.info("StrategyArbitrator started.", source_module=self._source_module)
@@ -1815,11 +1801,11 @@ class StrategyArbitrator(ServiceProtocol):
             try:
                 await self.strategy_selection_system.stop()
                 self.logger.info(
-                    "Strategy Selection System stopped", source_module=self._source_module
+                    "Strategy Selection System stopped", source_module=self._source_module,
                 )
-            except Exception as e:
-                self.logger.error(
-                    f"Error stopping Strategy Selection System: {e}",
+            except Exception:
+                self.logger.exception(
+                    "Error stopping Strategy Selection System: ",
                     source_module=self._source_module)
 
         # Unsubscribe
@@ -1943,7 +1929,7 @@ class StrategyArbitrator(ServiceProtocol):
 
             except Exception as validation_error:
                 # Rollback on validation failure
-                self.logger.error(
+                self.logger.exception(
                     f"Strategy update validation failed: {validation_error}. Rolling back.",
                     source_module=self._source_module)
 
@@ -1969,13 +1955,13 @@ class StrategyArbitrator(ServiceProtocol):
 
                 return False
 
-        except Exception as e:
-            self.logger.error(
-                f"Error updating strategy configuration: {e}", source_module=self._source_module
+        except Exception:
+            self.logger.exception(
+                "Error updating strategy configuration: ", source_module=self._source_module,
             )
             return False
 
-    def get_current_strategy_info(self) -> Dict[str, Any]:
+    def get_current_strategy_info(self) -> dict[str, Any]:
         """Get information about the currently active strategy.
 
         Returns:
@@ -1997,8 +1983,8 @@ class StrategyArbitrator(ServiceProtocol):
         self,
         signal_id: str,
         outcome: str,
-        pnl: Optional[Decimal] = None,
-        exit_reason: Optional[str] = None) -> None:
+        pnl: Decimal | None = None,
+        exit_reason: str | None = None) -> None:
         """Report trade outcome back to strategy selection system for learning.
 
         This allows the strategy selection system to track real-world performance
@@ -2037,9 +2023,9 @@ class StrategyArbitrator(ServiceProtocol):
                 f"Reported trade outcome for strategy {self._strategy_id}: "
                 f"signal={signal_id}, outcome={outcome}, pnl={pnl}, exit={exit_reason}",
                 source_module=self._source_module)
-        except Exception as e:
-            self.logger.error(
-                f"Error reporting trade outcome: {e}", source_module=self._source_module
+        except Exception:
+            self.logger.exception(
+                "Error reporting trade outcome: ", source_module=self._source_module,
             )
 
     async def _publish_trade_signal_proposed(self, event: TradeSignalProposedEvent) -> None:
@@ -2081,7 +2067,7 @@ class StrategyArbitrator(ServiceProtocol):
         if self._strategy_selection_enabled and self.strategy_selection_system:
             try:
                 # Get current strategy if we have one
-                current_strategy_id = getattr(self, "_strategy_id", strategies[0].get("id"))
+                getattr(self, "_strategy_id", strategies[0].get("id"))
 
                 # Create a synchronous wrapper for the async evaluation
                 import asyncio
@@ -2090,7 +2076,7 @@ class StrategyArbitrator(ServiceProtocol):
 
                 # Force immediate evaluation
                 evaluation_result = loop.run_until_complete(
-                    self.strategy_selection_system.force_strategy_evaluation()
+                    self.strategy_selection_system.force_strategy_evaluation(),
                 )
 
                 if evaluation_result and evaluation_result.recommendation in ["deploy", "monitor"]:
@@ -2109,15 +2095,15 @@ class StrategyArbitrator(ServiceProtocol):
                         # Log selection reasons
                         for reason in evaluation_result.reasons[:3]:  # Top 3 reasons
                             self.logger.info(
-                                f"Selection reason: {reason}", source_module=self._source_module
+                                f"Selection reason: {reason}", source_module=self._source_module,
                             )
 
                         return selected_config
 
-            except Exception as e:
-                self.logger.error(
-                    f"Error in intelligent strategy selection: {e}. "
-                    f"Falling back to static selection.",
+            except Exception:
+                self.logger.exception(
+                    "Error in intelligent strategy selection: . "
+                    "Falling back to static selection.",
                     source_module=self._source_module)
 
         # Fallback: Static selection based on configuration priority

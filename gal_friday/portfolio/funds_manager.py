@@ -1,12 +1,13 @@
 """Funds management functionality for the portfolio system."""
 
-import asyncio
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from ..exceptions import DataValidationError, InsufficientFundsError
-from ..logger_service import LoggerService
+import asyncio
+
+from gal_friday.exceptions import DataValidationError, InsufficientFundsError
+from gal_friday.logger_service import LoggerService
 
 
 @dataclass

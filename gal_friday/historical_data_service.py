@@ -3,9 +3,9 @@
 import abc
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 import pandas as pd
-from typing import Any
 
 
 class HistoricalDataService(abc.ABC):

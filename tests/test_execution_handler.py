@@ -4,13 +4,13 @@ This module tests the execution handler with a comprehensive mock
 Kraken API, including order lifecycle, error scenarios, and edge cases.
 """
 
-import asyncio
-import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock, Mock
+import uuid
 
+import asyncio
 import pytest
 
 from gal_friday.core.events import (
@@ -42,9 +42,9 @@ class MockKrakenAPI:
 
         # Account state
         self.balances = {
-            "USD": Decimal("100000"),
-            "XRP": Decimal("0"),
-            "DOGE": Decimal("0"),
+            "USD": Decimal(100000),
+            "XRP": Decimal(0),
+            "DOGE": Decimal(0),
         }
 
     async def add_order(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -320,7 +320,7 @@ class TestOrderLifecycle:
             trading_pair="XRP/USD",
             exchange="kraken",
             side="BUY",
-            quantity=Decimal("1000"),
+            quantity=Decimal(1000),
             order_type="MARKET",
             limit_price=None,
             sl_price=Decimal("0.4900"),
@@ -336,7 +336,7 @@ class TestOrderLifecycle:
         # Should have NEW status report
         assert len(execution_reports) >= 1
         assert execution_reports[0].order_status == "NEW"
-        assert execution_reports[0].quantity_ordered == Decimal("1000")
+        assert execution_reports[0].quantity_ordered == Decimal(1000)
 
         # Wait for order to fill (market orders fill quickly in mock)
         await asyncio.sleep(1)
@@ -344,7 +344,7 @@ class TestOrderLifecycle:
         # Should have FILLED status report
         filled_reports = [r for r in execution_reports if r.order_status == "CLOSED"]
         assert len(filled_reports) > 0
-        assert filled_reports[0].quantity_filled == Decimal("1000")
+        assert filled_reports[0].quantity_filled == Decimal(1000)
         assert filled_reports[0].average_fill_price is not None
         assert filled_reports[0].commission is not None
 
@@ -368,7 +368,7 @@ class TestOrderLifecycle:
             trading_pair="XRP/USD",
             exchange="kraken",
             side="BUY",
-            quantity=Decimal("1000"),
+            quantity=Decimal(1000),
             order_type="LIMIT",
             limit_price=Decimal("0.4999"),
             sl_price=None,
@@ -405,7 +405,7 @@ class TestOrderLifecycle:
             trading_pair="XRP/USD",
             exchange="kraken",
             side="BUY",
-            quantity=Decimal("1000"),
+            quantity=Decimal(1000),
             order_type="MARKET",
             limit_price=None,
             sl_price=Decimal("0.4900"),
@@ -427,7 +427,7 @@ class TestOrderLifecycle:
         assert len(sl_orders_placed) > 0
         sl_order = sl_orders_placed[0]
         assert sl_order.side == "SELL"  # Opposite of entry
-        assert sl_order.quantity_ordered == Decimal("1000")
+        assert sl_order.quantity_ordered == Decimal(1000)
 
 
 class TestErrorHandling:
@@ -463,10 +463,10 @@ class TestErrorHandling:
         """Test rate limit enforcement."""
         # Send multiple orders rapidly
         signals = []
-        for i in range(5):
+        for _i in range(5):
             signal = TradeSignalApprovedEvent.create_test_signal(
                 pair="XRP/USD",
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
             )
             signals.append(signal)
 
@@ -532,7 +532,7 @@ class TestEdgeCases:
     async def test_minimum_order_size_validation(self, execution_handler):
         """Test rejection of orders below minimum size."""
         signal = TradeSignalApprovedEvent.create_test_signal(
-            quantity=Decimal("5"),  # Below minimum of 10 for XRP
+            quantity=Decimal(5),  # Below minimum of 10 for XRP
         )
 
         await execution_handler.handle_trade_signal_approved(signal)
@@ -617,7 +617,7 @@ def create_test_signal(**kwargs):
         "trading_pair": kwargs.get("pair", "XRP/USD"),
         "exchange": "kraken",
         "side": "BUY",
-        "quantity": kwargs.get("quantity", Decimal("1000")),
+        "quantity": kwargs.get("quantity", Decimal(1000)),
         "order_type": kwargs.get("order_type", "MARKET"),
         "limit_price": kwargs.get("limit_price"),
         "sl_price": kwargs.get("sl_price"),

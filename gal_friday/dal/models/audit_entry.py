@@ -13,41 +13,41 @@ from gal_friday.dal.models import Base
 
 class AuditEntry(Base):
     """Model for audit trail entries."""
-    
+
     __tablename__ = "audit_entries"
 
     # Primary key
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
-    
+
     # Timestamp
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, index=True)
-    
+
     # Order information
     order_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     symbol: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     side: Mapped[str] = mapped_column(String(10), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False)
-    
+
     # Execution details
     filled_quantity: Mapped[Decimal | None] = mapped_column(nullable=True)
     average_price: Mapped[Decimal | None] = mapped_column(nullable=True)
     commission: Mapped[Decimal | None] = mapped_column(nullable=True)
     realized_pnl: Mapped[Decimal | None] = mapped_column(nullable=True)
-    
+
     # Risk metrics
     consecutive_losses: Mapped[int] = mapped_column(nullable=False, default=0)
     risk_events: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     risk_metrics_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    
+
     # Metadata
     service: Mapped[str] = mapped_column(String(50), nullable=False, default="risk_manager")
     environment: Mapped[str] = mapped_column(String(50), nullable=False, default="production")
     risk_manager_version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0.0")
     audit_schema_version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0")
     instance_id: Mapped[str] = mapped_column(String(100), nullable=False, default="unknown")
-    
+
     # Indexes are defined above on individual columns
-    
+
     def __repr__(self) -> str:
         """String representation of the audit entry."""
         return (
@@ -60,7 +60,7 @@ class AuditEntry(Base):
             f"timestamp={self.timestamp}"
             f")>"
         )
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert the audit entry to a dictionary."""
         return {

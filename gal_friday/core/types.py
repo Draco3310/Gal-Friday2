@@ -7,14 +7,17 @@ ensure type safety and consistency.
 
 from __future__ import annotations
 
-from collections.abc import (
-    Awaitable,  # For PubSubManagerProtocol
-    Callable)
-from datetime import datetime
-from decimal import Decimal
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
-import pandas as pd
+if TYPE_CHECKING:
+    from collections.abc import (
+        Awaitable,  # For PubSubManagerProtocol
+        Callable,
+    )
+    from datetime import datetime
+    from decimal import Decimal
+
+    import pandas as pd
 
 # Type variables for generic types
 T = TypeVar("T")

@@ -1,10 +1,10 @@
 """Repository for model retraining jobs and drift metrics using SQLAlchemy."""
 
-import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+import uuid
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from gal_friday.dal.base import BaseRepository
 from gal_friday.dal.models.drift_detection_event import DriftDetectionEvent
 from gal_friday.dal.models.retraining_job import RetrainingJob
-from typing import Any
 
 # RetrainingJob Pydantic model from pipeline might be used by service layer, not repo directly.
 
@@ -54,8 +53,7 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
         if "job_id" not in job_data:
             job_data["job_id"] = uuid.uuid4()
 
-        job = await self.create(job_data)
-        return job
+        return await self.create(job_data)
 
     async def update_job_status(self, job_id: uuid.UUID, updates: dict[str, Any]) -> RetrainingJob | None:
         """Update job status and results."""

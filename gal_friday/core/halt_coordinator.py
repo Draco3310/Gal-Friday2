@@ -29,6 +29,7 @@ class HaltCoordinator:
     """Central coordinator for all HALT conditions and triggers."""
 
     def __init__(self, config_manager: ConfigManager, pubsub_manager: PubSubManager, logger_service: LoggerService) -> None:
+        """Initialize the instance."""
         self.config = config_manager
         self.pubsub = pubsub_manager
         self.logger = logger_service
@@ -79,7 +80,7 @@ class HaltCoordinator:
             source_module=self._source_module,
             context={"conditions": list[Any](self.conditions.keys())})
 
-    def register_condition(self, condition_id: str, name: str, threshold: int | float | Decimal | str | bool) -> None:
+    def register_condition(self, condition_id: str, name: str, threshold: float | Decimal | str | bool) -> None:
         """Register a new HALT condition."""
         self.conditions[condition_id] = HaltCondition(
             condition_id=condition_id,
@@ -89,9 +90,9 @@ class HaltCoordinator:
             is_triggered=False,
             timestamp=datetime.now(UTC))
 
-    def update_condition(self, condition_id: str, current_value: int | float | Decimal | str | bool) -> bool:
+    def update_condition(self, condition_id: str, current_value: float | Decimal | str | bool) -> bool:
         """Update a condition's current value and check if triggered.
-        
+
         Returns:
             bool: True if condition is triggered
         """
@@ -108,7 +109,7 @@ class HaltCoordinator:
         # Check if condition is triggered based on type
         was_triggered = condition.is_triggered
 
-        if isinstance(condition.threshold, (int, float, Decimal)) and isinstance(current_value, (int, float, Decimal)):
+        if isinstance(condition.threshold, int | float | Decimal) and isinstance(current_value, int | float | Decimal):
             # Numeric comparison - both values must be numeric
             condition.is_triggered = current_value > condition.threshold
         elif isinstance(condition.threshold, bool) and isinstance(current_value, bool):

@@ -1,13 +1,15 @@
 """Core Pub/Sub event bus implementation using Event objects."""
 
-import asyncio
-import logging
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
+import logging
 from typing import Any, Protocol, TypeVar
 
+import asyncio
+
 # Fix import path for ConfigManager
-from ..config_manager import ConfigManager
+from gal_friday.config_manager import ConfigManager
+
 from .events import Event, EventType  # Import base Event and Enum
 
 # Type variable for specific Event subclasses

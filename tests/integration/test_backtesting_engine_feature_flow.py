@@ -1,11 +1,11 @@
-import logging  # <-- Import logging
-import os
-import unittest
-import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+import logging  # <-- Import logging
+import os
 from pathlib import Path
+import unittest
 from unittest.mock import AsyncMock, patch
+import uuid
 
 from gal_friday.backtesting_engine import BacktestingEngine
 from gal_friday.config_manager import ConfigManager
@@ -115,9 +115,9 @@ class MockPredictionService:
         dummy_prediction_value = 0.75 # Example: 75% chance of price increase
 
         try:
-            timestamp_prediction_for = datetime.fromisoformat(timestamp_features_for_str.replace("Z", "+00:00"))
+            timestamp_prediction_for = datetime.fromisoformat(timestamp_features_for_str)
         except ValueError:
-            self.logger.error(f"Could not parse timestamp_features_for: {timestamp_features_for_str}")
+            self.logger.exception(f"Could not parse timestamp_features_for: {timestamp_features_for_str}")
             return
 
         prediction_event = PredictionEvent(
@@ -363,20 +363,20 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
             # This requires self._data to be populated.
 
             raw_data = backtesting_engine._load_raw_data(str(self.historical_data_path))
-            self.assertIsNotNone(raw_data, "Failed to load raw data for backtest.")
+            assert raw_data is not None, "Failed to load raw data for backtest."
 
             backtest_run_config = backtesting_engine._get_backtest_config()
-            self.assertTrue(backtesting_engine._validate_config(backtest_run_config), "Backtest config validation failed.")
+            assert backtesting_engine._validate_config(backtest_run_config), "Backtest config validation failed."
 
             cleaned_data = backtesting_engine._clean_and_validate_data(
                 raw_data,
                 backtest_run_config["start_date"],
                 backtest_run_config["end_date"],
             )
-            self.assertIsNotNone(cleaned_data, "Data cleaning failed.")
+            assert cleaned_data is not None, "Data cleaning failed."
 
             processed_data = backtesting_engine._process_pairs_data(cleaned_data)
-            self.assertIsNotNone(processed_data, "Data processing failed.")
+            assert processed_data is not None, "Data processing failed."
             backtesting_engine._data = processed_data # Set the data for the engine
 
             # Now, call the core simulation part
@@ -386,10 +386,10 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
             )
 
             # 5. Assertions
-            self.assertTrue(mock_validate_rule.called, "StrategyArbitrator._validate_confirmation_rule was not called.")
+            assert mock_validate_rule.called, "StrategyArbitrator._validate_confirmation_rule was not called."
 
-            self.assertGreater(mock_prediction_service.received_features_count, 0, "MockPredictionService did not receive features.")
-            self.assertGreater(mock_prediction_service.published_predictions_count, 0, "MockPredictionService did not publish predictions.")
+            assert mock_prediction_service.received_features_count > 0, "MockPredictionService did not receive features."
+            assert mock_prediction_service.published_predictions_count > 0, "MockPredictionService did not publish predictions."
 
             # Inspect calls to _validate_confirmation_rule
             # Each call to _validate_confirmation_rule has args: (self, rule, features, trading_pair, primary_side)
@@ -430,35 +430,35 @@ class TestBacktestingEngineFeatureFlow(unittest.IsolatedAsyncioTestCase):
                 # The second argument will be `features`
 
                 received_rule_features = call_args.args[1] # This should be the `features` dict
-                self.assertIsInstance(received_rule_features, dict, "Features argument to _validate_confirmation_rule was not a dict.")
+                assert isinstance(received_rule_features, dict), "Features argument to _validate_confirmation_rule was not a dict."
 
                 if "rsi_14_default" in received_rule_features:
                     found_rsi = True
-                    self.assertIsInstance(received_rule_features["rsi_14_default"], float, "RSI feature is not a float.")
+                    assert isinstance(received_rule_features["rsi_14_default"], float), "RSI feature is not a float."
                 if "macd_default_MACD_12_26_9" in received_rule_features:
                     found_macd = True
-                    self.assertIsInstance(received_rule_features["macd_default_MACD_12_26_9"], float, "MACD feature is not a float.")
+                    assert isinstance(received_rule_features["macd_default_MACD_12_26_9"], float), "MACD feature is not a float."
 
-            self.assertTrue(found_rsi, "RSI feature was not found in features passed to _validate_confirmation_rule.")
-            self.assertTrue(found_macd, "MACD feature was not found in features passed to _validate_confirmation_rule.")
+            assert found_rsi, "RSI feature was not found in features passed to _validate_confirmation_rule."
+            assert found_macd, "MACD feature was not found in features passed to _validate_confirmation_rule."
 
             # Additional check: FeatureEngine's own capture within BacktestingEngine
             # This ensures FeatureEngine produced something sensible.
             # backtesting_engine.current_features would hold the *last* set of features.
-            self.assertIsNotNone(backtesting_engine.current_features, "BacktestingEngine did not capture any features.")
+            assert backtesting_engine.current_features is not None, "BacktestingEngine did not capture any features."
             if backtesting_engine.current_features: # Check if not None
-                self.assertIn("rsi_14_default", backtesting_engine.current_features)
-                self.assertIsInstance(backtesting_engine.current_features["rsi_14_default"], float)
-                self.assertIn("macd_default_MACD_12_26_9", backtesting_engine.current_features)
-                self.assertIsInstance(backtesting_engine.current_features["macd_default_MACD_12_26_9"], float)
-                self.assertIn("macd_default_MACDh_12_26_9", backtesting_engine.current_features)
-                self.assertIsInstance(backtesting_engine.current_features["macd_default_MACDh_12_26_9"], float)
-                self.assertIn("macd_default_MACDs_12_26_9", backtesting_engine.current_features)
-                self.assertIsInstance(backtesting_engine.current_features["macd_default_MACDs_12_26_9"], float)
+                assert "rsi_14_default" in backtesting_engine.current_features
+                assert isinstance(backtesting_engine.current_features["rsi_14_default"], float)
+                assert "macd_default_MACD_12_26_9" in backtesting_engine.current_features
+                assert isinstance(backtesting_engine.current_features["macd_default_MACD_12_26_9"], float)
+                assert "macd_default_MACDh_12_26_9" in backtesting_engine.current_features
+                assert isinstance(backtesting_engine.current_features["macd_default_MACDh_12_26_9"], float)
+                assert "macd_default_MACDs_12_26_9" in backtesting_engine.current_features
+                assert isinstance(backtesting_engine.current_features["macd_default_MACDs_12_26_9"], float)
 
                 # Basic sanity check for RSI value (MinMax scaled 0-100)
                 rsi_val = backtesting_engine.current_features["rsi_14_default"]
-                self.assertTrue(0.0 <= rsi_val <= 100.0, f"RSI value {rsi_val} out of expected 0-100 range.")
+                assert 0.0 <= rsi_val <= 100.0, f"RSI value {rsi_val} out of expected 0-100 range."
 
 if __name__ == "__main__":
     unittest.main()

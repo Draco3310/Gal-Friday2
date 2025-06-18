@@ -1,11 +1,15 @@
-import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING  # For relationship type hints
+import uuid
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship  # Added Mapped, mapped_column
+from sqlalchemy.orm import (  # Added Mapped, mapped_column
+    Mapped,
+    mapped_column,
+    relationship,
+)
 
 from gal_friday.core.events import MarketDataTradeEvent
 
@@ -79,10 +83,10 @@ class Trade(Base):
         # A more complete system might generate two MarketDataTradeEvents (one for entry, one for exit)
         # or use a different event type for completed round-trip trades.
 
-        event_data = {
+        {
             "source_module": self.__class__.__name__,
             "event_id": uuid.uuid4(), # New event ID for this specific event
-            "timestamp": datetime.utcnow(), # Event creation time
+            "timestamp": datetime.now(UTC), # Event creation time
             "trading_pair": self.trading_pair,
             "exchange": self.exchange,
             "timestamp_exchange": self.entry_timestamp, # Timestamp of the entry
@@ -95,7 +99,7 @@ class Trade(Base):
         return MarketDataTradeEvent(
             source_module=self.__class__.__name__,
             event_id=uuid.uuid4(), # New event ID for this specific event
-            timestamp=datetime.utcnow(), # Event creation time
+            timestamp=datetime.now(UTC), # Event creation time
             trading_pair=self.trading_pair,
             exchange=self.exchange,
             timestamp_exchange=self.entry_timestamp, # Timestamp of the entry

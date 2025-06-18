@@ -1,10 +1,10 @@
-import asyncio
 import logging
+from logging.config import fileConfig
 import os
 import sys
-from logging.config import fileConfig
 
 from alembic import context
+import asyncio
 from sqlalchemy.engine import Connection
 
 # Ensure the application's root directory is in the Python path
@@ -13,11 +13,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 # Imports for Alembic hook type hints
 from typing import Any, Literal, cast
 
-from alembic.autogenerate.api import (  # type: ignore
-    AutogenContext,
-    CompareTypeContext)
+from alembic.autogenerate.api import AutogenContext  # type: ignore
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import Column as SAColumn  # Alias to avoid clash
 from sqlalchemy.sql.schema import SchemaItem
 
 # this is the Alembic Config object, which provides
@@ -94,14 +91,14 @@ def get_db_url() -> str:
         else:
             logger.info(f"Using DB URL from ConfigManager: {db_url}")
         return cast("str", db_url)
-    except Exception as e:
-        logger.error(f"Error getting DB URL from ConfigManager: {e}. Falling back to alembic.ini.")
+    except Exception:
+        logger.exception("Error getting DB URL from ConfigManager: . Falling back to alembic.ini.")
         return cast("str", config.get_main_option("sqlalchemy.url"))
 
 
 def run_migrations_offline() -> None:
     url = get_db_url()
-    
+
     # Standard Alembic hooks
     standard_hooks = {
         "url": url,
@@ -114,10 +111,10 @@ def run_migrations_offline() -> None:
         "include_name": include_name,
         "compare_type": compare_type,
     }
-    
+
     # Note: include_symbol is not a standard hook and will be ignored
     # by Alembic unless using a custom extension
-    
+
     context.configure(**standard_hooks)  # type: ignore[arg-type]
     context.run_migrations()
 
@@ -134,7 +131,7 @@ def do_run_migrations(connection: Connection) -> None:
         "include_name": include_name,
         "compare_type": compare_type,
     }
-    
+
     context.configure(**standard_hooks)  # type: ignore[arg-type]
     with context.begin_transaction():
         context.run_migrations()
@@ -143,7 +140,7 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     db_url = get_db_url()
     logger.info("Configuring context for metadata-only autogeneration (no actual DB connection attempt).")
-    
+
     # Standard Alembic hooks for async/metadata-only mode
     standard_hooks = {
         "connection": None,
@@ -157,7 +154,7 @@ async def run_async_migrations() -> None:
         "include_name": include_name,
         "compare_type": compare_type,
     }
-    
+
     context.configure(**standard_hooks)  # type: ignore[arg-type]
     context.run_migrations()
 

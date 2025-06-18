@@ -1,9 +1,11 @@
-import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
+import uuid
 
 from sqlalchemy import JSON, BigInteger, DateTime, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID  # Added JSONB for potential use
+from sqlalchemy.dialects.postgresql import (
+    UUID as PG_UUID,  # Added JSONB for potential use
+)
 from sqlalchemy.orm import Mapped, mapped_column  # Added Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -62,7 +64,7 @@ class SystemLog(Base):
         return LogEvent(
             source_module=self.source_module,
             event_id=uuid.uuid4(),  # Generate a new UUID for this event instance
-            timestamp=self.log_timestamp or datetime.utcnow(), # Use the log's timestamp if available
+            timestamp=self.log_timestamp or datetime.now(UTC), # Use the log's timestamp if available
             level=self.log_level.upper(),
             message=self.message,
             context=event_context)

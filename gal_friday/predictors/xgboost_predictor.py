@@ -20,7 +20,7 @@ else:
     except ImportError:
         xgb = None  # type: ignore[assignment]
 
-from ..interfaces.predictor_interface import PredictorInterface
+from gal_friday.interfaces.predictor_interface import PredictorInterface
 
 
 class ModelLoadError(Exception):
@@ -165,10 +165,10 @@ class XGBoostPredictor(PredictorInterface):
         """Load XGBoost model from file."""
         if not Path(model_path).exists():
             return None, {"error": f"Model file not found: {model_path}", "model_id": model_id}
-        
+
         if xgb is None:
             return None, {"error": "XGBoost library not available", "model_id": model_id}
-        
+
         try:
             model = xgb.Booster()
             model.load_model(model_path)
@@ -244,7 +244,7 @@ class XGBoostPredictor(PredictorInterface):
         """Make prediction using the loaded model."""
         if xgb is None:
             return {"error": "XGBoost library not available", "model_id": model_id}
-        
+
         try:
             dmatrix = xgb.DMatrix(features, feature_names=feature_names)
             prediction_val = model.predict(dmatrix)

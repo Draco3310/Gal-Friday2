@@ -1,15 +1,15 @@
 """Unit tests for Position-Order relationship functionality."""
 
-import pytest
-import uuid
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from decimal import Decimal
+import uuid
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from gal_friday.dal.models.position import Position
 from gal_friday.dal.models.order import Order
+from gal_friday.dal.models.position import Position
 from gal_friday.dal.models.trade_signal import TradeSignal
 
 
@@ -27,7 +27,7 @@ class TestPositionOrderRelationship:
                 strategy_id="test_strategy",
                 side="BUY",
                 entry_price=Decimal("50000.00"),
-                status="ACTIVE"
+                status="ACTIVE",
             )
             session.add(signal)
             await session.flush()
@@ -41,7 +41,7 @@ class TestPositionOrderRelationship:
                 entry_price=Decimal("50000.00"),
                 current_price=Decimal("50000.00"),
                 opened_at=datetime.now(UTC),
-                is_active=True
+                is_active=True,
             )
             session.add(position)
             await session.flush()
@@ -57,9 +57,9 @@ class TestPositionOrderRelationship:
                 order_type="LIMIT",
                 quantity=Decimal("0.5"),
                 limit_price=Decimal("49500.00"),
-                status="FILLED"
+                status="FILLED",
             )
-            
+
             order2 = Order(
                 id=uuid.uuid4(),
                 signal_id=signal.id,
@@ -69,9 +69,9 @@ class TestPositionOrderRelationship:
                 side="BUY",
                 order_type="MARKET",
                 quantity=Decimal("0.5"),
-                status="FILLED"
+                status="FILLED",
             )
-            
+
             session.add_all([order1, order2])
             await session.commit()
 
@@ -80,7 +80,7 @@ class TestPositionOrderRelationship:
             assert len(position.orders) == 2
             assert order1 in position.orders
             assert order2 in position.orders
-            
+
             # Verify back-reference
             await session.refresh(order1)
             await session.refresh(order2)
@@ -98,7 +98,7 @@ class TestPositionOrderRelationship:
                 strategy_id="test_strategy",
                 side="SELL",
                 entry_price=Decimal("3000.00"),
-                status="ACTIVE"
+                status="ACTIVE",
             )
             session.add(signal)
             await session.flush()
@@ -114,9 +114,9 @@ class TestPositionOrderRelationship:
                 order_type="LIMIT",
                 quantity=Decimal("2.0"),
                 limit_price=Decimal("3100.00"),
-                status="PENDING"
+                status="PENDING",
             )
-            
+
             session.add(order)
             await session.commit()
 
@@ -136,7 +136,7 @@ class TestPositionOrderRelationship:
                 strategy_id="test_strategy",
                 side="BUY",
                 entry_price=Decimal("1.50"),
-                status="ACTIVE"
+                status="ACTIVE",
             )
             session.add(signal)
             await session.flush()
@@ -150,7 +150,7 @@ class TestPositionOrderRelationship:
                 entry_price=Decimal("1.50"),
                 current_price=Decimal("1.55"),
                 opened_at=datetime.now(UTC),
-                is_active=True
+                is_active=True,
             )
             session.add(position)
             await session.flush()
@@ -165,7 +165,7 @@ class TestPositionOrderRelationship:
                 side="BUY",
                 order_type="MARKET",
                 quantity=Decimal("1000.0"),
-                status="FILLED"
+                status="FILLED",
             )
             session.add(order)
             await session.commit()
@@ -195,7 +195,7 @@ class TestPositionOrderRelationship:
                 strategy_id="test_strategy",
                 side="BUY",
                 entry_price=Decimal("100.00"),
-                status="ACTIVE"
+                status="ACTIVE",
             )
             session.add(signal)
             await session.flush()
@@ -212,11 +212,11 @@ class TestPositionOrderRelationship:
                 order_type="LIMIT",
                 quantity=Decimal("10.0"),
                 limit_price=Decimal("99.00"),
-                status="PENDING"
+                status="PENDING",
             )
-            
+
             session.add(order)
-            
+
             # This should raise an IntegrityError due to foreign key constraint
             with pytest.raises(IntegrityError):
                 await session.commit()
@@ -232,7 +232,7 @@ class TestPositionOrderRelationship:
                 strategy_id="test_strategy",
                 side="BUY",
                 entry_price=Decimal("0.80"),
-                status="ACTIVE"
+                status="ACTIVE",
             )
             session.add(signal)
             await session.flush()
@@ -246,7 +246,7 @@ class TestPositionOrderRelationship:
                 entry_price=Decimal("0.80"),
                 current_price=Decimal("0.82"),
                 opened_at=datetime.now(UTC),
-                is_active=True
+                is_active=True,
             )
             session.add(position)
             await session.flush()
@@ -268,7 +268,7 @@ class TestPositionOrderRelationship:
                     side=order_data["side"],
                     order_type="MARKET",
                     quantity=order_data["quantity"],
-                    status=order_data["status"]
+                    status=order_data["status"],
                 )
                 session.add(order)
 
@@ -295,7 +295,7 @@ class TestPositionOrderRelationship:
                 strategy_id="test_strategy",
                 side="BUY",
                 entry_price=Decimal("25.00"),
-                status="ACTIVE"
+                status="ACTIVE",
             )
             session.add(signal)
             await session.flush()
@@ -309,9 +309,9 @@ class TestPositionOrderRelationship:
                 entry_price=Decimal("25.00"),
                 current_price=Decimal("25.50"),
                 opened_at=datetime.now(UTC),
-                is_active=True
+                is_active=True,
             )
-            
+
             position2 = Position(
                 id=uuid.uuid4(),
                 trading_pair="DOT/USD",
@@ -320,9 +320,9 @@ class TestPositionOrderRelationship:
                 entry_price=Decimal("24.50"),
                 current_price=Decimal("25.50"),
                 opened_at=datetime.now(UTC),
-                is_active=True
+                is_active=True,
             )
-            
+
             session.add_all([position1, position2])
             await session.flush()
 
@@ -337,7 +337,7 @@ class TestPositionOrderRelationship:
                 order_type="LIMIT",
                 quantity=Decimal("50.0"),
                 limit_price=Decimal("24.00"),
-                status="PENDING"
+                status="PENDING",
             )
             session.add(order)
             await session.commit()
@@ -355,8 +355,8 @@ class TestPositionOrderRelationship:
             await session.refresh(position1)
             await session.refresh(position2)
             await session.refresh(order)
-            
+
             assert len(position1.orders) == 0
             assert len(position2.orders) == 1
             assert order in position2.orders
-            assert order.position.id == position2.id 
+            assert order.position.id == position2.id

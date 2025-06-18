@@ -105,7 +105,7 @@ allow_incomplete_defs = true
 # Target Python version
 target-version = "py311"
 # Line length adjusted for better readability
-line-length = 88  # Changed from 99 to standard Black formatting
+line-length = 120  # Temporarily increased for enterprise code
 # Exclude directories
 exclude = [
     ".venv", 
@@ -231,14 +231,6 @@ allow-dict-calls-with-keyword-arguments = true
 fixture-parentheses = false
 mark-parentheses = false
 
-# Return statement settings
-[tool.ruff.lint.flake8-return]
-max-returns = 6
-
-# Simplify settings
-[tool.ruff.lint.flake8-simplify]
-max-members = 10
-
 # Type checking settings
 [tool.ruff.lint.flake8-type-checking]
 runtime-evaluated-base-classes = ["pydantic.BaseModel"]
@@ -282,7 +274,6 @@ ignore-decorators = ["typing.overload"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-skip-source-first-line = false
 line-ending = "auto"
 docstring-code-format = true
 docstring-code-line-length = 72

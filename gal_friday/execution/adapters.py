@@ -7,19 +7,21 @@ different trading venues.
 
 from __future__ import annotations
 
-import asyncio
-import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from decimal import Decimal
-from typing import Any, Optional
+import time
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
+import asyncio
 
-from gal_friday.config_manager import ConfigManager
-from gal_friday.logger_service import LoggerService
-from gal_friday.utils.kraken_api import generate_kraken_signature
 from gal_friday.exceptions import ExecutionError as ExchangeError
+from gal_friday.utils.kraken_api import generate_kraken_signature
+
+if TYPE_CHECKING:
+    from gal_friday.config_manager import ConfigManager
+    from gal_friday.logger_service import LoggerService
 
 
 @dataclass
@@ -182,23 +184,23 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         # Rate limiting
         self._last_api_call_time = 0.0
         self._api_call_delay = 1.0  # Minimum delay between API calls
-        
+
         # Optional enhanced components
-        self._error_classifier: Optional[Any] = None
-        self._batch_processor: Optional[Any] = None
-        
+        self._error_classifier: Any | None = None
+        self._batch_processor: Any | None = None
+
         # Initialize enhanced components
         try:
             from gal_friday.execution_handler_enhancements import (
                 KrakenErrorClassifier,
-                OptimizedBatchProcessor
+                OptimizedBatchProcessor,
             )
             self._error_classifier = KrakenErrorClassifier(logger)
             self._batch_processor = OptimizedBatchProcessor(self, logger, config)
         except ImportError:
             self.logger.warning(
                 "Enhanced execution components not available, using basic functionality",
-                source_module=self.__class__.__name__
+                source_module=self.__class__.__name__,
             )
             self._error_classifier = None
             self._batch_processor = None
@@ -276,7 +278,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             if self.kraken_api is None:
                 raise ExchangeError("Kraken API not initialized")
             batch_results = await self.kraken_api.add_order_batch(payloads)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.logger.exception(
                 "Error placing batch orders on Kraken: %s",
                 str(e),
@@ -286,7 +288,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         if not isinstance(batch_results, list):
             raise ExchangeError("Unexpected response format from add_order_batch")
 
-        for order_idx, result in zip(pending_indices, batch_results):
+        for order_idx, result in zip(pending_indices, batch_results, strict=False):
             parsed = self._parse_add_order_response(
                 result,
                 str(orders[order_idx].client_order_id))
@@ -582,32 +584,32 @@ class KrakenExecutionAdapter(ExecutionAdapter):
     async def _place_orders_individually(self, batch_request: BatchOrderRequest) -> BatchOrderResponse:
         """Place orders individually when batch placement is not available."""
         # Try to use OptimizedBatchProcessor if available
-        if hasattr(self, '_batch_processor') and self._batch_processor is not None:
+        if hasattr(self, "_batch_processor") and self._batch_processor is not None:
             from gal_friday.execution_handler_enhancements import BatchStrategy
-            
+
             # Use smart routing strategy for optimal performance
             batch_result = await self._batch_processor.process_batch_orders(
                 batch_request.orders,
-                BatchStrategy.SMART_ROUTING
+                BatchStrategy.SMART_ROUTING,
             )
-            
+
             # Convert to BatchOrderResponse format
             order_results = []
-            if hasattr(batch_result, 'successful_orders') and hasattr(batch_result, 'failed_orders'):
+            if hasattr(batch_result, "successful_orders") and hasattr(batch_result, "failed_orders"):
                 for order_result in batch_result.successful_orders + batch_result.failed_orders:
                     order_results.append(OrderResponse(
-                        success=order_result.get('success', False),
-                        exchange_order_ids=order_result.get('exchange_order_ids', []),
-                        client_order_id=order_result.get('client_order_id'),
-                        error_message=order_result.get('error')
+                        success=order_result.get("success", False),
+                        exchange_order_ids=order_result.get("exchange_order_ids", []),
+                        client_order_id=order_result.get("client_order_id"),
+                        error_message=order_result.get("error"),
                     ))
-                
-                success_rate = getattr(batch_result, 'success_rate', 0.0)
+
+                success_rate = getattr(batch_result, "success_rate", 0.0)
                 return BatchOrderResponse(
                     success=success_rate >= 0.5,  # Consider batch successful if at least 50% succeed
                     order_results=order_results,
                     error_message=f"Batch execution completed with {success_rate:.1%} success rate" if success_rate < 1.0 else None)
-        
+
         # Fallback to original individual placement
         results = []
         overall_success = True

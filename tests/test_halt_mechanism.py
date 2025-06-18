@@ -4,9 +4,9 @@ This module tests the HALT coordinator, monitoring service integration,
 and emergency position closure capabilities.
 """
 
-import asyncio
 from decimal import Decimal
 
+import asyncio
 import pytest
 
 from gal_friday.core.events import ClosePositionCommand, EventType, SystemStateEvent
@@ -150,7 +150,7 @@ class TestMonitoringServiceHALT:
         # Should have close command for XRP position
         assert len(close_commands) == 1
         assert close_commands[0].trading_pair == "XRP/USD"
-        assert close_commands[0].quantity == Decimal("1000")
+        assert close_commands[0].quantity == Decimal(1000)
         assert close_commands[0].side == "SELL"  # Opposite of BUY position
 
     @pytest.mark.asyncio
@@ -195,12 +195,12 @@ class TestEmergencyPositionClosure:
         cmd = ClosePositionCommand.create(
             source_module="TEST",
             trading_pair="XRP/USD",
-            quantity=Decimal("1000"),
+            quantity=Decimal(1000),
             side="SELL",
         )
 
         assert cmd.trading_pair == "XRP/USD"
-        assert cmd.quantity == Decimal("1000")
+        assert cmd.quantity == Decimal(1000)
         assert cmd.side == "SELL"
         assert cmd.order_type == "MARKET"
         assert cmd.event_type == EventType.TRADE_SIGNAL_APPROVED
@@ -214,11 +214,11 @@ class TestEmergencyPositionClosure:
             "total_drawdown_pct": Decimal("1.0"),
             "positions": {
                 "XRP/USD": {
-                    "quantity": Decimal("1000"),
+                    "quantity": Decimal(1000),
                     "side": "BUY",
                 },
                 "DOGE/USD": {
-                    "quantity": Decimal("5000"),
+                    "quantity": Decimal(5000),
                     "side": "SELL",
                 },
             },
@@ -251,10 +251,10 @@ class TestEmergencyPositionClosure:
 
         # Check XRP position closure
         xrp_cmd = next(c for c in close_commands if c.trading_pair == "XRP/USD")
-        assert xrp_cmd.quantity == Decimal("1000")
+        assert xrp_cmd.quantity == Decimal(1000)
         assert xrp_cmd.side == "SELL"  # Opposite of BUY
 
         # Check DOGE position closure
         doge_cmd = next(c for c in close_commands if c.trading_pair == "DOGE/USD")
-        assert doge_cmd.quantity == Decimal("5000")
+        assert doge_cmd.quantity == Decimal(5000)
         assert doge_cmd.side == "BUY"  # Opposite of SELL

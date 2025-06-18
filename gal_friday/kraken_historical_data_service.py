@@ -2,22 +2,27 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, ParamSpec, TypeVar, cast
+import logging
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, cast
 
 import aiohttp
-import pandas as pd
-import pandas_ta as ta
+import asyncio
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
+import pandas as pd
+import pandas_ta as ta
 
 from gal_friday.data_ingestion.gap_detector import GapDetector
-from gal_friday.interfaces.historical_data_service_interface import HistoricalDataService
-from gal_friday.logger_service import LoggerService
+from gal_friday.interfaces.historical_data_service_interface import (
+    HistoricalDataService,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
+    from gal_friday.logger_service import LoggerService
 
 
 class CircuitBreakerError(Exception):
@@ -299,7 +304,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
         start_time: datetime,
         end_time: datetime) -> pd.DataFrame | None:
         """Get historical trade data for a given pair and time range.
-        
+
         This method first checks InfluxDB for stored data, then fetches any missing
         data from the Kraken API using the self.fetch_trades() method.
         """
@@ -723,10 +728,10 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
     def _interval_str_to_timedelta(self, interval_str: str) -> timedelta | None:
         """Convert an interval string (e.g., "1m", "1h", "1d") to a timedelta object.
-        
+
         Args:
             interval_str: Human-readable interval string
-            
+
         Returns:
             timedelta object or None if invalid format
         """
@@ -740,7 +745,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
         try:
             value = int(interval_str[:-1])
         except ValueError:
-            self.logger.error(
+            self.logger.exception(
                 f"Invalid interval value in: {interval_str}",
                 source_module=self._source_module)
             return None
@@ -856,11 +861,11 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
     async def _store_trades_data_in_influxdb(self, df: pd.DataFrame, trading_pair: str) -> bool:
         """Store trade data in InfluxDB.
-        
+
         Args:
             df: DataFrame with trades data containing price, volume, and side columns
             trading_pair: Trading pair identifier
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -1031,13 +1036,13 @@ class KrakenHistoricalDataService(HistoricalDataService):
         end_time: datetime,
         expected_interval_str: str | None = None) -> list[tuple[datetime, datetime]]:
         """Determine what date ranges are missing from the data, including intra-range gaps.
-        
+
         Args:
             df: DataFrame with time series data (index should be datetime)
             start_time: Start of the requested range
-            end_time: End of the requested range  
+            end_time: End of the requested range
             expected_interval_str: Expected interval between data points (e.g., "1m", "5m")
-            
+
         Returns:
             List of tuples (start, end) representing missing data ranges
         """
@@ -1067,12 +1072,11 @@ class KrakenHistoricalDataService(HistoricalDataService):
                     exc_info=True,
                     source_module=self._source_module)
                 return [(start_time, end_time)]
-        else:
-            # At this point we know df.index is a DatetimeIndex
-            if df.index.tz is None:
-                df.index = df.index.tz_localize(UTC)
-            elif df.index.tz != UTC:
-                df.index = df.index.tz_convert(UTC)
+        # At this point we know df.index is a DatetimeIndex
+        elif df.index.tz is None:
+            df.index = df.index.tz_localize(UTC)
+        elif df.index.tz != UTC:
+            df.index = df.index.tz_convert(UTC)
 
         # Sort DataFrame by timestamp index
         df = df.sort_index()
@@ -1240,13 +1244,13 @@ class KrakenHistoricalDataService(HistoricalDataService):
         until: datetime | None = None,
         limit: int | None = None) -> list[dict[str, Any]] | None:
         """Fetch historical trade data from Kraken.
-        
+
         Args:
             trading_pair: Trading pair (e.g., "XRP/USD")
             since: Start time (inclusive)
             until: End time (exclusive)
             limit: Maximum number of trades to fetch
-            
+
         Returns:
             List of trade dictionaries or None on error
         """
@@ -1343,27 +1347,26 @@ class KrakenHistoricalDataService(HistoricalDataService):
         endpoint: str,
         params: dict[str, Any] | None = None) -> dict[str, Any] | None:
         """Make a public API request to Kraken.
-        
+
         Args:
             endpoint: API endpoint
             params: Request parameters
-            
+
         Returns:
             API response or None on error
         """
         try:
             url = f"{self.api_base_url}{endpoint}"
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as response:
-                    if response.status != 200:
-                        self.logger.error(
-                            f"API request failed with status {response.status}",
-                            source_module=self._source_module,
-                            context={"endpoint": endpoint})
-                        return None
+            async with aiohttp.ClientSession() as session, session.get(url, params=params) as response:
+                if response.status != 200:
+                    self.logger.error(
+                        f"API request failed with status {response.status}",
+                        source_module=self._source_module,
+                        context={"endpoint": endpoint})
+                    return None
 
-                    return cast("dict[str, Any]", await response.json())
+                return cast("dict[str, Any]", await response.json())
 
         except Exception:
             self.logger.exception(
@@ -1373,10 +1376,10 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
     def _get_kraken_pair_name(self, trading_pair: str) -> str | None:
         """Convert internal pair format to Kraken format.
-        
+
         Args:
             trading_pair: Internal format (e.g., "XRP/USD")
-            
+
         Returns:
             Kraken format (e.g., "XXRPZUSD") or None if not found
         """

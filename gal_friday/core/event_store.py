@@ -1,12 +1,12 @@
 """Enterprise-grade event store with persistence and caching."""
 
-import asyncio
-import contextlib  # For SIM105
 from collections import deque
+import contextlib  # For SIM105
 from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
 from uuid import UUID
 
+import asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -406,7 +406,8 @@ class EventStore:
             SystemStateEvent,
             TradeSignalApprovedEvent,
             TradeSignalProposedEvent,
-            TradeSignalRejectedEvent)
+            TradeSignalRejectedEvent,
+        )
 
         event_types = [
             MarketDataOHLCVEvent,

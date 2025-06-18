@@ -1,20 +1,15 @@
 """SQLAlchemy model for the 'retraining_jobs' table."""
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID as PythonUUID
 
-from sqlalchemy import (
-    DateTime,
-    ForeignKey,
-    Index,
-    String,
-    Text)
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .models_base import Base
-from typing import Any
 
 
 class RetrainingJob(Base):

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 class ServiceProtocol(Protocol):
@@ -18,6 +20,7 @@ class ServiceOrchestrator:
     """Manage initialization and startup for a collection of services."""
 
     def __init__(self, services: Sequence[ServiceProtocol]) -> None:
+        """Initialize the instance."""
         self.services = list[Any](services)
 
     async def initialize_all(self, *args: Any, **kwargs: Any) -> None:

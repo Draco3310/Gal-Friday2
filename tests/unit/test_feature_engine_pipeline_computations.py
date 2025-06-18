@@ -302,7 +302,7 @@ class TestPipelineL2Features:
         # Check valid book calculation
         valid_book = sample_l2_book_valid
         expected_abs = float(valid_book["asks"][0][0] - valid_book["bids"][0][0])
-        expected_pct = float((expected_abs / float(valid_book["bids"][0][0] + valid_book["asks"][0][0])*Decimal("2")) * 100)
+        expected_pct = float((expected_abs / float(valid_book["bids"][0][0] + valid_book["asks"][0][0])*Decimal(2)) * 100)
         assert np.isclose(actual_df["abs_spread"].iloc[0], expected_abs)
         assert np.isclose(actual_df["pct_spread"].iloc[0], expected_pct)
         assert actual_df["abs_spread"].iloc[1:].isna().all() # None and empty book

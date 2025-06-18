@@ -1,13 +1,13 @@
 """Performance tests for Gal-Friday system."""
 
-import asyncio
+from datetime import UTC, datetime
+from decimal import Decimal
 import random
 import statistics
 import time
-from datetime import UTC, datetime
-from decimal import Decimal
 from typing import Any
 
+import asyncio
 import numpy as np
 import psutil
 from rich import print as rich_print
@@ -198,7 +198,7 @@ class PerformanceTestRunner:
         async def generate_load():
             while time.time() - start_time < duration_seconds:
                 # Create various objects to stress memory
-                data = {
+                {
                     "features": np.random.rand(1000, 50),  # 1000 samples, 50 features
                     "predictions": [random.random() for _ in range(1000)],
                     "events": [

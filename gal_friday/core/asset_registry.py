@@ -53,7 +53,7 @@ class AssetSpecification:
     min_order_size: Decimal = Decimal("0.001")
     max_order_size: Decimal | None = None
     tick_size: Decimal = Decimal("0.01")
-    lot_size: Decimal = Decimal("1")
+    lot_size: Decimal = Decimal(1)
 
     # Market characteristics
     typical_spread_bps: Decimal | None = None
@@ -86,8 +86,8 @@ class ExchangeSpecification:
     supports_margin: bool = False
 
     # Fee structure
-    maker_fee_bps: Decimal = Decimal("0")
-    taker_fee_bps: Decimal = Decimal("0")
+    maker_fee_bps: Decimal = Decimal(0)
+    taker_fee_bps: Decimal = Decimal(0)
     fee_currency: str = "USD"
 
     # Market data capabilities
@@ -241,8 +241,8 @@ def initialize_default_assets() -> None:
         exchange_type=ExchangeType.CRYPTO_EXCHANGE,
         name="Kraken",
         supports_stop_orders=True,
-        maker_fee_bps=Decimal("16"),  # 0.16%
-        taker_fee_bps=Decimal("26"),  # 0.26%
+        maker_fee_bps=Decimal(16),  # 0.16%
+        taker_fee_bps=Decimal(26),  # 0.26%
         trading_sessions=kraken_sessions,
         max_orders_per_second=10,
         typical_latency_ms=50.0)
@@ -255,7 +255,7 @@ def initialize_default_assets() -> None:
         asset_type=AssetType.CRYPTO,
         base_asset="XRP",
         quote_asset="USD",
-        min_order_size=Decimal("1"),
+        min_order_size=Decimal(1),
         tick_size=Decimal("0.0001"),
         exchange_symbol="XRPUSD")
 
@@ -264,7 +264,7 @@ def initialize_default_assets() -> None:
         asset_type=AssetType.CRYPTO,
         base_asset="DOGE",
         quote_asset="USD",
-        min_order_size=Decimal("1"),
+        min_order_size=Decimal(1),
         tick_size=Decimal("0.00001"),
         exchange_symbol="DOGEUSD")
 

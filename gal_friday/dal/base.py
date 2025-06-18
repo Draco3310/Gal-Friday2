@@ -2,17 +2,16 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from sqlalchemy import asc, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from typing import Any
 
 if TYPE_CHECKING:
-    from gal_friday.dal.models import Base  # Move import to TYPE_CHECKING block
+    from gal_friday.dal.models import Base
     from gal_friday.logger_service import LoggerService
 else:
-    from gal_friday.dal.models import Base
+    pass
 
 # Define a TypeVar bound to the SQLAlchemy Base model
 T = TypeVar("T", bound="Base")  # Use string literal for forward reference
@@ -53,10 +52,7 @@ class BaseRepository(Generic[T]):
         """
         try:
             async with self.session_maker() as session:
-                if isinstance(data, dict):
-                    instance = self.model_class(**data)
-                else:
-                    instance = data
+                instance = self.model_class(**data) if isinstance(data, dict) else data
 
                 session.add(instance)
                 await session.commit()  # Commit flushes and expires objects
@@ -65,9 +61,9 @@ class BaseRepository(Generic[T]):
                     f"Created new {self.model_class.__name__} with ID {getattr(instance, 'id', None)}",
                     source_module=self._source_module)
                 return instance
-        except Exception as e: # Catch generic Exception for logging, re-raise specific if needed
+        except Exception: # Catch generic Exception for logging, re-raise specific if needed
             self.logger.exception(
-                f"Error creating in {self.model_class.__name__}: {e}",
+                f"Error creating in {self.model_class.__name__}: ",
                 source_module=self._source_module)
             raise
 
@@ -95,9 +91,9 @@ class BaseRepository(Generic[T]):
                         f"{self.model_class.__name__} with ID {entity_id} not found",
                         source_module=self._source_module)
                 return instance
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error getting {self.model_class.__name__} by ID {entity_id}: {e}",
+                f"Error getting {self.model_class.__name__} by ID {entity_id}: ",
                 source_module=self._source_module)
             raise
 
@@ -144,9 +140,9 @@ class BaseRepository(Generic[T]):
                     f"Attempted to update non-existent {self.model_class.__name__} with ID {entity_id}",
                     source_module=self._source_module)
                 return None
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error updating {self.model_class.__name__} with ID {entity_id}: {e}",
+                f"Error updating {self.model_class.__name__} with ID {entity_id}: ",
                 source_module=self._source_module)
             raise
 
@@ -208,13 +204,13 @@ class BaseRepository(Generic[T]):
                     source_module=self._source_module)
                 return entities
         except ValueError as ve: # Catch specific ValueError for logging
-            self.logger.error(
+            self.logger.exception(
                 f"Invalid order_by clause for {self.model_class.__name__}: {ve}",
                 source_module=self._source_module)
             raise
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error finding all {self.model_class.__name__}: {e}",
+                f"Error finding all {self.model_class.__name__}: ",
                 source_module=self._source_module)
             raise
 
@@ -244,9 +240,9 @@ class BaseRepository(Generic[T]):
                     f"Attempted to delete non-existent {self.model_class.__name__} with ID {entity_id}",
                     source_module=self._source_module)
                 return False
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error deleting {self.model_class.__name__} with ID {entity_id}: {e}",
+                f"Error deleting {self.model_class.__name__} with ID {entity_id}: ",
                 source_module=self._source_module)
             raise
 

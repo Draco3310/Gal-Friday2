@@ -12,12 +12,11 @@ These mocks are designed to be:
 """
 
 import builtins
-import threading
-import time
-from datetime import datetime, timezone
+from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Callable, Coroutine, Optional
-from unittest.mock import MagicMock
+import threading
+from typing import Any
 
 from rich import print as rich_print
 
@@ -35,15 +34,15 @@ class Console:
     def print(self, *args: str, style: str | None = None, **kwargs: Any) -> None:
         """Print to console with optional styling."""
         message = " ".join(str(arg) for arg in args)
-        
+
         # Thread-safe output history tracking
         with self._lock:
             self._output_history.append(message)
-        
+
         # Apply basic styling if provided
         if style:
             message = f"[{style}]{message}[/{style}]"
-        
+
         builtins.print(message, **kwargs)  # noqa: T201
 
     def get_output_history(self) -> list[str]:
@@ -66,17 +65,17 @@ class Table:
         self.columns: list[dict[str, Any]] = []
         self.rows: list[list[str]] = []
         self._lock = threading.Lock()
-        
+
         if title:
             rich_print(f"TABLE: {title}")
 
     def add_column(
-        self, 
-        header: str, 
-        *, 
-        style: str | None = None, 
+        self,
+        header: str,
+        *,
+        style: str | None = None,
         width: int | None = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> None:
         """Add a column to the table."""
         with self._lock:
@@ -84,7 +83,7 @@ class Table:
                 "header": header,
                 "style": style,
                 "width": width,
-                **kwargs
+                **kwargs,
             })
 
     def add_row(self, *cells: str, **kwargs: Any) -> None:
@@ -99,7 +98,7 @@ class Table:
             return {
                 "title": self.title,
                 "columns": self.columns.copy(),
-                "rows": [row.copy() for row in self.rows]
+                "rows": [row.copy() for row in self.rows],
             }
 
 
@@ -108,7 +107,7 @@ class MonitoringService:
 
     def __init__(self, *, initial_halt_state: bool = False) -> None:
         """Initialize monitoring service mock.
-        
+
         Args:
             initial_halt_state: Whether system should start in halted state
         """
@@ -130,16 +129,16 @@ class MonitoringService:
             if not self._is_halted:
                 self._is_halted = True
                 self._halt_reason = reason
-                self._halt_timestamp = datetime.now(timezone.utc)
-                
+                self._halt_timestamp = datetime.now(UTC)
+
                 # Record halt event
                 self._halt_history.append({
                     "action": "halt",
                     "reason": reason,
                     "source": source,
-                    "timestamp": self._halt_timestamp
+                    "timestamp": self._halt_timestamp,
                 })
-                
+
                 rich_print(f"HALT triggered by {source}: {reason}")
             else:
                 rich_print(f"System already halted. Current reason: {self._halt_reason}")
@@ -149,15 +148,15 @@ class MonitoringService:
         with self._lock:
             if self._is_halted:
                 self._is_halted = False
-                self._resume_timestamp = datetime.now(timezone.utc)
-                
+                self._resume_timestamp = datetime.now(UTC)
+
                 # Record resume event
                 self._halt_history.append({
                     "action": "resume",
                     "source": source,
-                    "timestamp": self._resume_timestamp
+                    "timestamp": self._resume_timestamp,
                 })
-                
+
                 rich_print(f"RESUME triggered by {source}")
             else:
                 rich_print("System is not currently halted")
@@ -174,7 +173,7 @@ class MonitoringService:
                 "is_halted": self._is_halted,
                 "halt_reason": self._halt_reason,
                 "halt_timestamp": self._halt_timestamp,
-                "resume_timestamp": self._resume_timestamp
+                "resume_timestamp": self._resume_timestamp,
             }
 
 
@@ -193,9 +192,9 @@ class MainAppController:
         with self._lock:
             if self._running:
                 self._running = False
-                self._shutdown_timestamp = datetime.now(timezone.utc)
+                self._shutdown_timestamp = datetime.now(UTC)
                 rich_print("SHUTDOWN requested - Main application stopping")
-                
+
                 # Execute shutdown callbacks
                 for callback in self._shutdown_callbacks:
                     try:
@@ -220,7 +219,7 @@ class MainAppController:
         with self._lock:
             return {
                 "running": self._running,
-                "shutdown_timestamp": self._shutdown_timestamp
+                "shutdown_timestamp": self._shutdown_timestamp,
             }
 
 
@@ -229,7 +228,7 @@ class PortfolioManager:
 
     def __init__(self, *, initial_state: dict[str, Any] | None = None) -> None:
         """Initialize portfolio manager mock.
-        
+
         Args:
             initial_state: Initial portfolio state data
         """
@@ -243,12 +242,12 @@ class PortfolioManager:
             "winning_trades": 15,
             "losing_trades": 5,
             "total_trades": 20,
-            "last_updated": datetime.now(timezone.utc)
+            "last_updated": datetime.now(UTC),
         }
-        
+
         if initial_state:
             self._default_state.update(initial_state)
-        
+
         self._current_state = self._default_state.copy()
         self._lock = threading.Lock()
 
@@ -256,14 +255,14 @@ class PortfolioManager:
         """Return the current state of the portfolio."""
         with self._lock:
             # Update timestamp on each call
-            self._current_state["last_updated"] = datetime.now(timezone.utc)
+            self._current_state["last_updated"] = datetime.now(UTC)
             return self._current_state.copy()
 
     def update_state(self, updates: dict[str, Any]) -> None:
         """Update portfolio state (useful for testing scenarios)."""
         with self._lock:
             self._current_state.update(updates)
-            self._current_state["last_updated"] = datetime.now(timezone.utc)
+            self._current_state["last_updated"] = datetime.now(UTC)
 
     def reset_to_default(self) -> None:
         """Reset portfolio to default state."""
@@ -273,14 +272,14 @@ class PortfolioManager:
     def simulate_trade_result(self, profit_loss: Decimal, symbol: str = "BTC/USD") -> None:
         """Simulate a trade result for testing."""
         with self._lock:
-            current_pnl_raw = self._current_state.get("unrealized_pnl", Decimal("0"))
+            current_pnl_raw = self._current_state.get("unrealized_pnl", Decimal(0))
             current_pnl = current_pnl_raw if isinstance(current_pnl_raw, Decimal) else Decimal(str(current_pnl_raw))
             self._current_state["unrealized_pnl"] = current_pnl + profit_loss
-            
+
             current_total_raw = self._current_state.get("total_trades", 0)
             current_total = current_total_raw if isinstance(current_total_raw, int) else int(str(current_total_raw))
             self._current_state["total_trades"] = current_total + 1
-            
+
             if profit_loss > 0:
                 current_winning_raw = self._current_state.get("winning_trades", 0)
                 current_winning = current_winning_raw if isinstance(current_winning_raw, int) else int(str(current_winning_raw))
@@ -296,7 +295,7 @@ class LoggerService:
 
     def __init__(self, *, log_level: str = "INFO", capture_logs: bool = True) -> None:
         """Initialize logger service mock.
-        
+
         Args:
             log_level: Minimum log level to process
             capture_logs: Whether to capture logs for testing
@@ -305,14 +304,14 @@ class LoggerService:
         self.capture_logs = capture_logs
         self._captured_logs: list[dict[str, Any]] = []
         self._lock = threading.Lock()
-        
+
         # Log level hierarchy
         self._log_levels = {
             "DEBUG": 0,
             "INFO": 1,
             "WARNING": 2,
             "ERROR": 3,
-            "CRITICAL": 4
+            "CRITICAL": 4,
         }
 
     def _should_log(self, level: str) -> bool:
@@ -320,24 +319,24 @@ class LoggerService:
         return self._log_levels.get(level, 0) >= self._log_levels.get(self.log_level, 1)
 
     def _log(
-        self, 
-        level: str, 
-        message: str, 
+        self,
+        level: str,
+        message: str,
         *args: Any,
         source_module: str | None = None,
         context: dict[str, Any] | None = None,
-        exc_info: BaseException | None = None
+        exc_info: BaseException | None = None,
     ) -> None:
         """Internal logging method."""
         if not self._should_log(level):
             return
-            
+
         # Format message with args
         try:
             formatted_message = message % args if args else message
         except (TypeError, ValueError):
             formatted_message = f"{message} {args}" if args else message
-        
+
         # Create log entry
         log_entry = {
             "level": level,
@@ -345,21 +344,21 @@ class LoggerService:
             "source_module": source_module,
             "context": context,
             "exc_info": exc_info,
-            "timestamp": datetime.now(timezone.utc)
+            "timestamp": datetime.now(UTC),
         }
-        
+
         # Capture logs if enabled
         if self.capture_logs:
             with self._lock:
                 self._captured_logs.append(log_entry)
-        
+
         # Print to console
         prefix = f"[{source_module}]" if source_module else ""
         rich_print(f"{level} {prefix}: {formatted_message}")
-        
+
         if exc_info:
             rich_print(f"Exception: {exc_info}")
-        
+
         if context:
             rich_print(f"Context: {context}")
 
@@ -447,7 +446,7 @@ class ConfigManager:
 
     def __init__(self, *, config_data: dict[str, Any] | None = None) -> None:
         """Initialize config manager mock.
-        
+
         Args:
             config_data: Initial configuration data
         """
@@ -455,20 +454,20 @@ class ConfigManager:
             "cli": {
                 "port": 8080,
                 "host": "localhost",
-                "timeout": 30
+                "timeout": 30,
             },
             "portfolio": {
                 "valuation_currency": "USD",
-                "max_positions": 10
+                "max_positions": 10,
             },
             "risk_manager": {
                 "max_drawdown_pct": 10.0,
-                "position_size_pct": 2.0
+                "position_size_pct": 2.0,
             },
             "monitoring": {
                 "check_interval_seconds": 60,
-                "halt_on_errors": True
-            }
+                "halt_on_errors": True,
+            },
         }
         self._lock = threading.Lock()
 
@@ -476,7 +475,7 @@ class ConfigManager:
         """Get a configuration value using dot notation."""
         with self._lock:
             try:
-                keys = key.split('.')
+                keys = key.split(".")
                 value = self._config
                 for k in keys:
                     value = value[k]
@@ -512,7 +511,7 @@ class ConfigManager:
     def set(self, key: str, value: Any) -> None:
         """Set a configuration value (useful for testing)."""
         with self._lock:
-            keys = key.split('.')
+            keys = key.split(".")
             config = self._config
             for k in keys[:-1]:
                 if k not in config:
@@ -542,24 +541,24 @@ class PubSubManager:
 
     async def publish(self, event: Any) -> None:
         """Publish an event to subscribers."""
-        event_type = getattr(event, 'event_type', str(type(event).__name__))
-        
+        event_type = getattr(event, "event_type", str(type(event).__name__))
+
         # Record published event
         with self._lock:
             self._published_events.append({
                 "event_type": event_type,
                 "event": event,
-                "timestamp": datetime.now(timezone.utc)
+                "timestamp": datetime.now(UTC),
             })
-            
+
             subscribers = self._subscribers.get(event_type, [])
-        
+
         # Call subscribers
         for handler in subscribers:
             try:
-                if hasattr(handler, '__call__'):
+                if callable(handler):
                     result = handler(event)
-                    if hasattr(result, '__await__'):
+                    if hasattr(result, "__await__"):
                         await result
             except Exception as e:
                 rich_print(f"Error in event handler: {e}")
@@ -618,13 +617,13 @@ class HaltRecoveryManager:
         with self._lock:
             total_items = len(self._recovery_items)
             completed_items = len(self._completed_items)
-            
+
             return {
                 "total_items": total_items,
                 "completed_items": completed_items,
                 "pending_items": total_items - completed_items,
                 "recovery_items": list[Any](self._recovery_items.values()),
-                "completed_items": list[Any](self._completed_items.values())
+                "completed_items": list[Any](self._completed_items.values()),
             }
 
     def complete_item(self, item_id: str, completed_by: str) -> bool:
@@ -634,17 +633,17 @@ class HaltRecoveryManager:
                 item = self._recovery_items.pop(item_id)
                 item.update({
                     "completed_by": completed_by,
-                    "completed_at": datetime.now(timezone.utc)
+                    "completed_at": datetime.now(UTC),
                 })
                 self._completed_items[item_id] = item
                 return True
             return False
 
     def add_recovery_item(
-        self, 
-        item_id: str, 
-        description: str, 
-        priority: str = "medium"
+        self,
+        item_id: str,
+        description: str,
+        priority: str = "medium",
     ) -> None:
         """Add a recovery item (useful for testing)."""
         with self._lock:
@@ -652,7 +651,7 @@ class HaltRecoveryManager:
                 "id": item_id,
                 "description": description,
                 "priority": priority,
-                "created_at": datetime.now(timezone.utc)
+                "created_at": datetime.now(UTC),
             }
 
     def reset_recovery_state(self) -> None:

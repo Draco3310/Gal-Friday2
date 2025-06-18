@@ -32,7 +32,6 @@ Predictors downstream expect features to be pre-scaled and numerical, as handled
 
 from __future__ import annotations
 
-import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field  # Added for InternalFeatureSpec
 from datetime import datetime
@@ -40,38 +39,41 @@ from decimal import Decimal
 from enum import Enum  # Added for _LocalFeatureCategory
 from pathlib import Path  # Added for feature registry
 from typing import TYPE_CHECKING, Any, TypedDict, Union, cast
-from uuid import UUID
-
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from gal_friday.dal.models import DataQualityIssue
+import uuid
 
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
-import yaml  # Added for feature registry
-from sklearn.base import clone  # For cloning pipelines to modify params at runtime
-from sklearn.impute import SimpleImputer, KNNImputer
+from sklearn.base import (
+    clone,  # For cloning pipelines to modify params at runtime
+)
+from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, RobustScaler, StandardScaler
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.preprocessing import (
+    FunctionTransformer,
+    MinMaxScaler,
+    RobustScaler,
+    StandardScaler,
+)
+import yaml  # Added for feature registry
 
-from .model_registry import ImputationModelRegistry, build_ml_features
+from gal_friday.core.events import EventType
+from gal_friday.core.feature_models import (
+    PublishedFeaturesV1,  # Added for Pydantic model
+)
+from gal_friday.dal.models import DataQualityIssue
 
 # Advanced imputation system for crypto trading data
 from .feature_imputation import (
-    ImputationManager,
+    DataType,
     ImputationConfig,
     ImputationMethod,
-    DataType,
     ImputationQuality,
-    create_imputation_manager
+    create_imputation_manager,
 )
 from .feature_repo import fetch_latest_features
+from .model_registry import ImputationModelRegistry, build_ml_features
 from .utils.correlation_utils import compute_correlations
-
-from gal_friday.core.events import EventType
-from gal_friday.core.feature_models import PublishedFeaturesV1  # Added for Pydantic model
-from typing import Any
 
 # Attempt to import FeatureCategory, handle potential circularity if it arises
 try:
@@ -92,17 +94,21 @@ except ImportError:
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from gal_friday.core.pubsub import PubSubManager
-    from gal_friday.interfaces.historical_data_service_interface import HistoricalDataService
-    from gal_friday.logger_service import LoggerService
     from gal_friday.dal.repositories.history_repository import HistoryRepository
+    from gal_friday.interfaces.historical_data_service_interface import (
+        HistoricalDataService,
+    )
+    from gal_friday.logger_service import LoggerService
 
 # Type definitions for L2 order book data
 
 class L2BookSnapshot(TypedDict):
     """Type definition for L2 order book snapshot."""
-    bids: list[list[Union[float, str, Decimal]]]  # List of [price, volume] pairs
-    asks: list[list[Union[float, str, Decimal]]]  # List of [price, volume] pairs
+    bids: list[list[float | str | Decimal]]  # List of [price, volume] pairs
+    asks: list[list[float | str | Decimal]]  # List of [price, volume] pairs
     timestamp: Any  # Can be datetime, pd.Timestamp, etc.
 
 # L2 book series can contain either book snapshots or other values (e.g., float for fallback)
@@ -125,7 +131,7 @@ class InternalFeatureSpec:
     output_properties: dict[str, Any] = field(default_factory=dict[str, Any]) # Dictionary describing expected output characteristics (e.g., `{"value_type": "float", "range": [0, 1]}`).
 
     # Enhanced fields for comprehensive output handling and multiple outputs
-    output_specs: list["OutputSpec"] = field(default_factory=list[Any]) # Detailed specifications for each output
+    output_specs: list[OutputSpec] = field(default_factory=list[Any]) # Detailed specifications for each output
     output_naming_pattern: str | None = None # Pattern for naming outputs (e.g., '{feature_name}_{output_name}')
     dependencies: list[str] = field(default_factory=list[Any]) # Other features this depends on
     required_lookback_periods: int = 1 # Minimum data points required
@@ -146,7 +152,7 @@ class InternalFeatureSpec:
             return [
                 self.output_naming_pattern.format(
                     feature_name=self.key,
-                    output_name=spec.name
+                    output_name=spec.name,
                 )
                 for spec in self.output_specs
             ]
@@ -180,24 +186,22 @@ class OutputSpec:
 
 class FeatureValidationError(Exception):
     """Exception raised for feature validation errors."""
-    pass
 
 
 class FeatureProcessingError(Exception):
     """Exception raised for feature processing errors."""
-    pass
 
 
 class FeatureOutputHandler:
     """Enhanced handler for processing multiple feature outputs according to specifications."""
 
     def __init__(self, feature_spec: InternalFeatureSpec) -> None:
+        """Initialize the instance."""
         self.spec = feature_spec
         self.logger: LoggerService | None = None  # Will be set by FeatureEngine if available
 
     def process_feature_outputs(self, raw_outputs: Any) -> pd.DataFrame:
-        """
-        Process raw feature computation outputs according to specification.
+        """Process raw feature computation outputs according to specification.
         Handles multiple output formats and applies validation, type conversion, and naming.
 
         Args:
@@ -227,14 +231,14 @@ class FeatureOutputHandler:
 
             if self.logger:
                 self.logger.debug(
-                    f"Successfully processed {len(final_outputs.columns)} outputs for feature {self.spec.key}"
+                    f"Successfully processed {len(final_outputs.columns)} outputs for feature {self.spec.key}",
                 )
 
             return final_outputs
 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error processing outputs for feature {self.spec.key}: {e}")
+                self.logger.exception(f"Error processing outputs for feature {self.spec.key}: ")
             raise FeatureProcessingError(f"Failed to process feature outputs: {e}")
 
     def _standardize_raw_outputs(self, raw_outputs: Any) -> pd.DataFrame:
@@ -242,46 +246,43 @@ class FeatureOutputHandler:
         if isinstance(raw_outputs, pd.DataFrame):
             return raw_outputs
 
-        elif isinstance(raw_outputs, pd.Series):
+        if isinstance(raw_outputs, pd.Series):
             # Single series output
             output_name = self.spec.output_specs[0].name if self.spec.output_specs else "value"
             return pd.DataFrame({output_name: raw_outputs})
 
-        elif isinstance(raw_outputs, np.ndarray):
+        if isinstance(raw_outputs, np.ndarray):
             # NumPy array - could be 1D or 2D
             if raw_outputs.ndim == 1:
                 output_name = self.spec.output_specs[0].name if self.spec.output_specs else "value"
                 return pd.DataFrame({output_name: raw_outputs})
-            else:
-                # Multi-dimensional array
-                columns = [spec.name for spec in self.spec.output_specs[:raw_outputs.shape[1]]]
-                if len(columns) < raw_outputs.shape[1]:
-                    # Generate default names for additional columns
-                    for i in range(len(columns), raw_outputs.shape[1]):
-                        columns.append(f"output_{i}")
-                return pd.DataFrame(raw_outputs, columns=columns)
+            # Multi-dimensional array
+            columns = [spec.name for spec in self.spec.output_specs[:raw_outputs.shape[1]]]
+            if len(columns) < raw_outputs.shape[1]:
+                # Generate default names for additional columns
+                for i in range(len(columns), raw_outputs.shape[1]):
+                    columns.append(f"output_{i}")
+            return pd.DataFrame(raw_outputs, columns=columns)
 
-        elif isinstance(raw_outputs, dict):
+        if isinstance(raw_outputs, dict):
             # Dictionary of outputs
             return pd.DataFrame(raw_outputs)
 
-        elif isinstance(raw_outputs, list):
+        if isinstance(raw_outputs, list):
             # List of values
             if len(self.spec.output_specs) == 1:
                 output_name = self.spec.output_specs[0].name
                 return pd.DataFrame({output_name: raw_outputs})
-            else:
-                # Multiple outputs - map to specs
-                output_dict = {}
-                for i, spec in enumerate(self.spec.output_specs):
-                    if i < len(raw_outputs):
-                        output_dict[spec.name] = raw_outputs[i] if isinstance(raw_outputs[i], (list, np.ndarray)) else [raw_outputs[i]]
-                return pd.DataFrame(output_dict)
+            # Multiple outputs - map to specs
+            output_dict = {}
+            for i, spec in enumerate(self.spec.output_specs):
+                if i < len(raw_outputs):
+                    output_dict[spec.name] = raw_outputs[i] if isinstance(raw_outputs[i], list | np.ndarray) else [raw_outputs[i]]
+            return pd.DataFrame(output_dict)
 
-        else:
-            # Single scalar value
-            output_name = self.spec.output_specs[0].name if self.spec.output_specs else "value"
-            return pd.DataFrame({output_name: [raw_outputs]})
+        # Single scalar value
+        output_name = self.spec.output_specs[0].name if self.spec.output_specs else "value"
+        return pd.DataFrame({output_name: [raw_outputs]})
 
     def _validate_output_structure(self, outputs: pd.DataFrame) -> None:
         """Validate that outputs match expected structure."""
@@ -296,7 +297,7 @@ class FeatureOutputHandler:
                 if self.logger:
                     self.logger.warning(
                         f"Feature {self.spec.key} produced {actual_count} outputs, "
-                        f"expected {expected_count}. Adding default values."
+                        f"expected {expected_count}. Adding default values.",
                     )
                 # Add missing columns with default values
                 for i in range(actual_count, expected_count):
@@ -308,7 +309,7 @@ class FeatureOutputHandler:
                 if self.logger:
                     self.logger.warning(
                         f"Feature {self.spec.key} produced {actual_count} outputs, "
-                        f"expected {expected_count}. Truncating to expected count."
+                        f"expected {expected_count}. Truncating to expected count.",
                     )
                 # Keep only expected columns
                 expected_columns = [spec.name for spec in self.spec.output_specs]
@@ -329,13 +330,13 @@ class FeatureOutputHandler:
 
             # Apply type conversion
             if spec.output_type == OutputType.NUMERIC:
-                processed[spec.name] = pd.to_numeric(column, errors='coerce')
+                processed[spec.name] = pd.to_numeric(column, errors="coerce")
             elif spec.output_type == OutputType.CATEGORICAL:
-                processed[spec.name] = column.astype('category')
+                processed[spec.name] = column.astype("category")
             elif spec.output_type == OutputType.BOOLEAN:
                 processed[spec.name] = column.astype(bool)
             elif spec.output_type == OutputType.TIMESTAMP:
-                processed[spec.name] = pd.to_datetime(column, errors='coerce')
+                processed[spec.name] = pd.to_datetime(column, errors="coerce")
             elif spec.output_type == OutputType.STRING:
                 processed[spec.name] = column.astype(str)
 
@@ -347,7 +348,7 @@ class FeatureOutputHandler:
                     if self.logger:
                         self.logger.warning(
                             f"Feature {self.spec.key} output {spec.name} has "
-                            f"{out_of_range.sum()} values outside range [{min_val}, {max_val}]"
+                            f"{out_of_range.sum()} values outside range [{min_val}, {max_val}]",
                         )
                     # Clip values to range
                     processed[spec.name] = column.clip(min_val, max_val)
@@ -359,7 +360,7 @@ class FeatureOutputHandler:
                 else:
                     raise FeatureValidationError(
                         f"Feature {self.spec.key} output {spec.name} contains null values "
-                        f"but nullability is disabled"
+                        f"but nullability is disabled",
                     )
 
         return processed
@@ -377,7 +378,7 @@ class FeatureOutputHandler:
                 new_name = self.spec.output_naming_pattern.format(
                     feature_name=self.spec.key,
                     output_name=spec.name,
-                    index=i
+                    index=i,
                 )
                 old_to_new_names[spec.name] = new_name
 
@@ -386,13 +387,13 @@ class FeatureOutputHandler:
     def _add_output_metadata(self, outputs: pd.DataFrame) -> pd.DataFrame:
         """Add metadata attributes to output DataFrame."""
         # Add feature metadata as DataFrame attributes
-        outputs.attrs['feature_name'] = self.spec.key
-        outputs.attrs['feature_version'] = self.spec.version
-        outputs.attrs['output_count'] = len(outputs.columns)
-        outputs.attrs['computation_timestamp'] = pd.Timestamp.now()
+        outputs.attrs["feature_name"] = self.spec.key
+        outputs.attrs["feature_version"] = self.spec.version
+        outputs.attrs["output_count"] = len(outputs.columns)
+        outputs.attrs["computation_timestamp"] = pd.Timestamp.now()
 
         if self.spec.tags:
-            outputs.attrs['tags'] = self.spec.tags
+            outputs.attrs["tags"] = self.spec.tags
 
         return outputs
 
@@ -412,29 +413,30 @@ class AdvancedFeatureExtractor:
     """Enterprise-grade advanced feature extraction with technical indicators and market microstructure."""
 
     def __init__(self, config: dict[str, Any], logger_service: Any = None) -> None:
+        """Initialize the instance."""
         self.config = config
         self.logger = logger_service
 
         # Feature registry and cache
         self.feature_registry: dict[str, InternalFeatureSpec] = {}
         self.feature_cache: dict[str, pd.DataFrame] = {}
-        
+
         # Advanced indicators mapping
         self.advanced_indicators: dict[str, Callable[..., pd.DataFrame | pd.Series[Any] | None]] = {}
 
         # Performance tracking
         self.extraction_stats = {
-            'features_extracted': 0,
-            'extraction_time_total': 0.0,
-            'cache_hits': 0,
-            'cache_misses': 0
+            "features_extracted": 0,
+            "extraction_time_total": 0.0,
+            "cache_hits": 0,
+            "cache_misses": 0,
         }
 
         # Quality thresholds
         self.quality_thresholds = config.get("feature_quality", {
             "min_completeness": 0.8,
             "max_correlation": 0.95,
-            "min_variance": 1e-6
+            "min_variance": 1e-6,
         })
 
         self._initialize_advanced_indicators()
@@ -444,35 +446,35 @@ class AdvancedFeatureExtractor:
         # Enhanced technical indicators
         self.advanced_indicators = {
             # Momentum indicators
-            'momentum': self._calculate_momentum,
-            'rate_of_change': self._calculate_rate_of_change,
-            'williams_percent_r': self._calculate_williams_r,
-            'commodity_channel_index': self._calculate_cci,
+            "momentum": self._calculate_momentum,
+            "rate_of_change": self._calculate_rate_of_change,
+            "williams_percent_r": self._calculate_williams_r,
+            "commodity_channel_index": self._calculate_cci,
 
             # Volatility indicators
-            'bollinger_width': self._calculate_bollinger_width,
-            'true_range': self._calculate_true_range,
-            'average_true_range': self._calculate_atr_advanced,
-            'volatility_ratio': self._calculate_volatility_ratio,
+            "bollinger_width": self._calculate_bollinger_width,
+            "true_range": self._calculate_true_range,
+            "average_true_range": self._calculate_atr_advanced,
+            "volatility_ratio": self._calculate_volatility_ratio,
 
             # Volume indicators
-            'on_balance_volume': self._calculate_obv,
-            'accumulation_distribution': self._calculate_ad_line,
-            'money_flow_index': self._calculate_mfi,
-            'volume_oscillator': self._calculate_volume_oscillator,
+            "on_balance_volume": self._calculate_obv,
+            "accumulation_distribution": self._calculate_ad_line,
+            "money_flow_index": self._calculate_mfi,
+            "volume_oscillator": self._calculate_volume_oscillator,
 
             # Market microstructure
-            'effective_spread': self._calculate_effective_spread,
-            'quoted_spread': self._calculate_quoted_spread,
-            'depth_imbalance': self._calculate_depth_imbalance,
-            'order_flow_imbalance': self._calculate_order_flow_imbalance,
-            'market_impact': self._calculate_market_impact,
+            "effective_spread": self._calculate_effective_spread,
+            "quoted_spread": self._calculate_quoted_spread,
+            "depth_imbalance": self._calculate_depth_imbalance,
+            "order_flow_imbalance": self._calculate_order_flow_imbalance,
+            "market_impact": self._calculate_market_impact,
 
             # Statistical features
-            'price_momentum_oscillator': self._calculate_pmo,
-            'adaptive_moving_average': self._calculate_ama,
-            'fractal_dimension': self._calculate_fractal_dimension,
-            'hurst_exponent': self._calculate_hurst_exponent,
+            "price_momentum_oscillator": self._calculate_pmo,
+            "adaptive_moving_average": self._calculate_ama,
+            "fractal_dimension": self._calculate_fractal_dimension,
+            "hurst_exponent": self._calculate_hurst_exponent,
         }
 
     async def extract_advanced_features(
@@ -480,10 +482,9 @@ class AdvancedFeatureExtractor:
         data: pd.DataFrame,
         feature_specs: list[InternalFeatureSpec],
         l2_data: dict[str, Any] | None = None,
-        trade_data: list[dict[str, Any]] | None = None
+        trade_data: list[dict[str, Any]] | None = None,
     ) -> FeatureExtractionResult:
-        """
-        Extract advanced features with technical indicators and market microstructure.
+        """Extract advanced features with technical indicators and market microstructure.
 
         Args:
             data: OHLCV DataFrame
@@ -513,7 +514,7 @@ class AdvancedFeatureExtractor:
                 category_specs = [spec for spec in feature_specs if spec.category == category]
                 if category_specs:
                     category_features = await self._extract_category_features(
-                        data, category_specs, l2_data, trade_data
+                        data, category_specs, l2_data, trade_data,
                     )
                     features_df = pd.concat([features_df, category_features], axis=1)
 
@@ -524,16 +525,16 @@ class AdvancedFeatureExtractor:
             features_df = self._clean_features(features_df)
 
             extraction_time = time.time() - start_time
-            self.extraction_stats['features_extracted'] += len(feature_specs)
-            self.extraction_stats['extraction_time_total'] += extraction_time
+            self.extraction_stats["features_extracted"] += len(feature_specs)
+            self.extraction_stats["extraction_time_total"] += extraction_time
 
             result = FeatureExtractionResult(
                 features=features_df,
                 feature_specs=feature_specs,
                 extraction_time=extraction_time,
                 quality_metrics=quality_metrics,
-                cache_hits=int(self.extraction_stats['cache_hits']),
-                cache_misses=int(self.extraction_stats['cache_misses'])
+                cache_hits=int(self.extraction_stats["cache_hits"]),
+                cache_misses=int(self.extraction_stats["cache_misses"]),
             )
 
             if self.logger:
@@ -543,7 +544,7 @@ class AdvancedFeatureExtractor:
 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Advanced feature extraction failed: {e}")
+                self.logger.exception("Advanced feature extraction failed: ")
             raise FeatureProcessingError(f"Advanced feature extraction failed: {e}")
 
     async def _extract_category_features(
@@ -551,7 +552,7 @@ class AdvancedFeatureExtractor:
         data: pd.DataFrame,
         category_specs: list[InternalFeatureSpec],
         l2_data: dict[str, Any] | None = None,
-        trade_data: list[dict[str, Any]] | None = None
+        trade_data: list[dict[str, Any]] | None = None,
     ) -> pd.DataFrame:
         """Extract features for a specific category."""
         category_features = pd.DataFrame(index=data.index)
@@ -562,7 +563,7 @@ class AdvancedFeatureExtractor:
                 cache_key = self._generate_cache_key(spec, data)
                 if spec.cache_enabled and cache_key in self.feature_cache:
                     feature_result: pd.DataFrame | None = self.feature_cache[cache_key]
-                    self.extraction_stats['cache_hits'] += 1
+                    self.extraction_stats["cache_hits"] += 1
                 else:
                     # Compute feature
                     feature_result = await self._compute_advanced_feature(spec, data, l2_data, trade_data)
@@ -571,7 +572,7 @@ class AdvancedFeatureExtractor:
                     if spec.cache_enabled and feature_result is not None:
                         self.feature_cache[cache_key] = feature_result
 
-                    self.extraction_stats['cache_misses'] += 1
+                    self.extraction_stats["cache_misses"] += 1
 
                 # Add to category features
                 if feature_result is not None and not feature_result.empty:
@@ -589,7 +590,7 @@ class AdvancedFeatureExtractor:
         spec: InternalFeatureSpec,
         data: pd.DataFrame,
         l2_data: dict[str, Any] | None = None,
-        trade_data: list[dict[str, Any]] | None = None
+        trade_data: list[dict[str, Any]] | None = None,
     ) -> pd.DataFrame | None:
         """Compute a single advanced feature."""
         if spec.calculator_type in self.advanced_indicators:
@@ -604,7 +605,7 @@ class AdvancedFeatureExtractor:
                 result = calculator_func(data, **spec.parameters)
 
             # Process through output handler if available
-            if hasattr(spec, 'output_specs') and spec.output_specs:
+            if hasattr(spec, "output_specs") and spec.output_specs:
                 handler = FeatureOutputHandler(spec)
                 handler.logger = self.logger
                 return handler.process_feature_outputs(result)
@@ -612,14 +613,14 @@ class AdvancedFeatureExtractor:
             # Convert result to DataFrame if needed
             if isinstance(result, pd.Series):
                 return pd.DataFrame({spec.key: result})
-            elif isinstance(result, pd.DataFrame):
+            if isinstance(result, pd.DataFrame):
                 return result
 
         return None
 
     def _validate_input_data(self, data: pd.DataFrame) -> None:
         """Validate input OHLCV data."""
-        required_columns = ['open', 'high', 'low', 'close', 'volume']
+        required_columns = ["open", "high", "low", "close", "volume"]
         missing_columns = [col for col in required_columns if col not in data.columns]
 
         if missing_columns:
@@ -629,14 +630,14 @@ class AdvancedFeatureExtractor:
             raise ValueError("Input data is empty")
 
         # Check for sufficient data
-        min_periods = max(20, max(spec.required_lookback_periods for spec in self.feature_registry.values() if hasattr(spec, 'required_lookback_periods')))
+        min_periods = max(20, *(spec.required_lookback_periods for spec in self.feature_registry.values() if hasattr(spec, "required_lookback_periods")))
         if len(data) < min_periods:
             raise ValueError(f"Insufficient data: need at least {min_periods} periods, got {len(data)}")
 
     def _calculate_feature_quality(self, features_df: pd.DataFrame) -> dict[str, float]:
         """Calculate quality metrics for extracted features."""
         if features_df.empty:
-            return {'completeness': 0.0, 'variance_ratio': 0.0, 'correlation_max': 0.0}
+            return {"completeness": 0.0, "variance_ratio": 0.0, "correlation_max": 0.0}
 
         # Completeness (non-null ratio)
         completeness = 1.0 - features_df.isnull().sum().sum() / (len(features_df) * len(features_df.columns))
@@ -645,7 +646,7 @@ class AdvancedFeatureExtractor:
         numeric_features = features_df.select_dtypes(include=[np.number])
         if not numeric_features.empty:
             variances = numeric_features.var()
-            high_variance_ratio = (variances > self.quality_thresholds['min_variance']).mean()
+            high_variance_ratio = (variances > self.quality_thresholds["min_variance"]).mean()
         else:
             high_variance_ratio = 0.0
 
@@ -655,20 +656,20 @@ class AdvancedFeatureExtractor:
             corr_matrix = numeric_features.corr().abs()
             # Get upper triangle excluding diagonal
             upper_triangle = corr_matrix.where(
-                np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+                np.triu(np.ones(corr_matrix.shape), k=1).astype(bool),
             )
             max_correlation = upper_triangle.max().max() if not upper_triangle.isna().all().all() else 0.0
 
         return {
-            'completeness': float(completeness),
-            'variance_ratio': float(high_variance_ratio),
-            'correlation_max': float(max_correlation)
+            "completeness": float(completeness),
+            "variance_ratio": float(high_variance_ratio),
+            "correlation_max": float(max_correlation),
         }
 
     def _clean_features(self, features_df: pd.DataFrame) -> pd.DataFrame:
         """Clean and validate features."""
         # Remove features with too many NaNs
-        threshold = self.quality_thresholds['min_completeness']
+        threshold = self.quality_thresholds["min_completeness"]
         features_df = features_df.dropna(thresh=int(len(features_df) * threshold), axis=1)
 
         # Remove highly correlated features
@@ -676,12 +677,12 @@ class AdvancedFeatureExtractor:
         if len(numeric_features.columns) > 1:
             corr_matrix = numeric_features.corr().abs()
             upper_triangle = corr_matrix.where(
-                np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+                np.triu(np.ones(corr_matrix.shape), k=1).astype(bool),
             )
 
             # Find features to drop
             to_drop = [column for column in upper_triangle.columns
-                      if any(upper_triangle[column] > self.quality_thresholds['max_correlation'])]
+                      if any(upper_triangle[column] > self.quality_thresholds["max_correlation"])]
 
             features_df = features_df.drop(columns=to_drop)
 
@@ -696,43 +697,43 @@ class AdvancedFeatureExtractor:
     # Advanced indicator calculations
     def _calculate_momentum(self, data: pd.DataFrame, period: int = 10) -> pd.Series[Any]:
         """Calculate momentum indicator."""
-        return data['close'] - data['close'].shift(period)
+        return data["close"] - data["close"].shift(period)
 
     def _calculate_rate_of_change(self, data: pd.DataFrame, period: int = 10) -> pd.Series[Any]:
         """Calculate rate of change."""
-        return ((data['close'] - data['close'].shift(period)) / data['close'].shift(period)) * 100
+        return ((data["close"] - data["close"].shift(period)) / data["close"].shift(period)) * 100
 
     def _calculate_williams_r(self, data: pd.DataFrame, period: int = 14) -> pd.Series[Any]:
         """Calculate Williams %R."""
-        high_max = data['high'].rolling(window=period).max()
-        low_min = data['low'].rolling(window=period).min()
-        return -100 * ((high_max - data['close']) / (high_max - low_min))
+        high_max = data["high"].rolling(window=period).max()
+        low_min = data["low"].rolling(window=period).min()
+        return -100 * ((high_max - data["close"]) / (high_max - low_min))
 
     def _calculate_cci(self, data: pd.DataFrame, period: int = 20) -> pd.Series[Any]:
         """Calculate Commodity Channel Index."""
-        typical_price = (data['high'] + data['low'] + data['close']) / 3
+        typical_price = (data["high"] + data["low"] + data["close"]) / 3
         sma_tp = typical_price.rolling(window=period).mean()
         mad = typical_price.rolling(window=period).apply(lambda x: np.mean(np.abs(x - x.mean())))
         return (typical_price - sma_tp) / (0.015 * mad)
 
     def _calculate_bollinger_width(self, data: pd.DataFrame, period: int = 20, std_dev: float = 2) -> pd.Series[Any]:
         """Calculate Bollinger Band width."""
-        sma = data['close'].rolling(window=period).mean()
-        std = data['close'].rolling(window=period).std()
+        sma = data["close"].rolling(window=period).mean()
+        std = data["close"].rolling(window=period).std()
         upper_band = sma + (std * std_dev)
         lower_band = sma - (std * std_dev)
         return (upper_band - lower_band) / sma * 100
 
     def _calculate_true_range(self, data: pd.DataFrame) -> pd.Series[Any]:
         """Calculate True Range."""
-        high_low = data['high'] - data['low']
-        high_close_prev = np.abs(data['high'] - data['close'].shift(1))
-        low_close_prev = np.abs(data['low'] - data['close'].shift(1))
+        high_low = data["high"] - data["low"]
+        high_close_prev = np.abs(data["high"] - data["close"].shift(1))
+        low_close_prev = np.abs(data["low"] - data["close"].shift(1))
         # Create DataFrame from Series to avoid concat type issues
         tr_df = pd.DataFrame({
-            'hl': high_low,
-            'hc': high_close_prev,
-            'lc': low_close_prev
+            "hl": high_low,
+            "hc": high_close_prev,
+            "lc": low_close_prev,
         })
         return tr_df.max(axis=1)
 
@@ -743,27 +744,27 @@ class AdvancedFeatureExtractor:
 
     def _calculate_volatility_ratio(self, data: pd.DataFrame, short_period: int = 10, long_period: int = 30) -> pd.Series[Any]:
         """Calculate volatility ratio."""
-        short_vol = data['close'].pct_change().rolling(window=short_period).std()
-        long_vol = data['close'].pct_change().rolling(window=long_period).std()
+        short_vol = data["close"].pct_change().rolling(window=short_period).std()
+        long_vol = data["close"].pct_change().rolling(window=long_period).std()
         return short_vol / long_vol
 
     def _calculate_obv(self, data: pd.DataFrame) -> pd.Series[Any]:
         """Calculate On-Balance Volume."""
-        price_change = data['close'].diff()
-        obv = np.where(price_change > 0, data['volume'],  # type: ignore[operator]
-                      np.where(price_change < 0, -data['volume'], 0))  # type: ignore[operator]
+        price_change = data["close"].diff()
+        obv = np.where(price_change > 0, data["volume"],  # type: ignore[operator]
+                      np.where(price_change < 0, -data["volume"], 0))  # type: ignore[operator]
         return pd.Series(obv, index=data.index).cumsum()
 
     def _calculate_ad_line(self, data: pd.DataFrame) -> pd.Series[Any]:
         """Calculate Accumulation/Distribution Line."""
-        mfm = ((data['close'] - data['low']) - (data['high'] - data['close'])) / (data['high'] - data['low'])
+        mfm = ((data["close"] - data["low"]) - (data["high"] - data["close"])) / (data["high"] - data["low"])
         mfm = mfm.fillna(0)  # Handle division by zero
-        return (mfm * data['volume']).cumsum()
+        return (mfm * data["volume"]).cumsum()
 
     def _calculate_mfi(self, data: pd.DataFrame, period: int = 14) -> pd.Series[Any]:
         """Calculate Money Flow Index."""
-        typical_price = (data['high'] + data['low'] + data['close']) / 3
-        money_flow = typical_price * data['volume']
+        typical_price = (data["high"] + data["low"] + data["close"]) / 3
+        money_flow = typical_price * data["volume"]
 
         positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0)
         negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0)
@@ -776,8 +777,8 @@ class AdvancedFeatureExtractor:
 
     def _calculate_volume_oscillator(self, data: pd.DataFrame, short_period: int = 14, long_period: int = 28) -> pd.Series[Any]:
         """Calculate Volume Oscillator."""
-        short_vol_avg = data['volume'].rolling(window=short_period).mean()
-        long_vol_avg = data['volume'].rolling(window=long_period).mean()
+        short_vol_avg = data["volume"].rolling(window=short_period).mean()
+        long_vol_avg = data["volume"].rolling(window=long_period).mean()
         return ((short_vol_avg - long_vol_avg) / long_vol_avg) * 100
 
     # Market microstructure features
@@ -786,42 +787,41 @@ class AdvancedFeatureExtractor:
         try:
             # Import enhanced spread calculator if available
             from .feature_engine_enhancements import (
-                AdvancedSpreadCalculator, 
-                MarketMicrostructureData
+                AdvancedSpreadCalculator,
+                MarketMicrostructureData,
             )
-            
+
             # Convert l2_data to MarketMicrostructureData
-            bids = [(float(p), float(s)) for p, s in l2_data.get('bids', [])]
-            asks = [(float(p), float(s)) for p, s in l2_data.get('asks', [])]
-            trades = l2_data.get('trades', [])
-            
+            bids = [(float(p), float(s)) for p, s in l2_data.get("bids", [])]
+            asks = [(float(p), float(s)) for p, s in l2_data.get("asks", [])]
+            trades = l2_data.get("trades", [])
+
             microstructure_data = MarketMicrostructureData(
                 timestamp=data.index[-1] if len(data) > 0 else pd.Timestamp.now(),
                 bids=bids,
                 asks=asks,
-                trades=trades
+                trades=trades,
             )
-            
+
             # Use advanced calculator
             spread_calculator = AdvancedSpreadCalculator(self.logger)
             spread_metrics = spread_calculator.calculate_effective_spread(
-                microstructure_data, 
-                trades
+                microstructure_data,
+                trades,
             )
-            
+
             # Return effective spread in basis points
-            if 'effective_spread_bps_mean' in spread_metrics:
-                return pd.Series([spread_metrics['effective_spread_bps_mean']], index=[data.index[-1]])
-            elif 'quoted_spread_bps' in spread_metrics:
-                return pd.Series([spread_metrics['quoted_spread_bps']], index=[data.index[-1]])
-            else:
-                return pd.Series([], dtype=float)
-                
+            if "effective_spread_bps_mean" in spread_metrics:
+                return pd.Series([spread_metrics["effective_spread_bps_mean"]], index=[data.index[-1]])
+            if "quoted_spread_bps" in spread_metrics:
+                return pd.Series([spread_metrics["quoted_spread_bps"]], index=[data.index[-1]])
+            return pd.Series([], dtype=float)
+
         except ImportError:
             # Fallback to original implementation
-            if 'bids' in l2_data and 'asks' in l2_data and l2_data['bids'] and l2_data['asks']:
-                bid_price = float(l2_data['bids'][0][0])
-                ask_price = float(l2_data['asks'][0][0])
+            if "bids" in l2_data and "asks" in l2_data and l2_data["bids"] and l2_data["asks"]:
+                bid_price = float(l2_data["bids"][0][0])
+                ask_price = float(l2_data["asks"][0][0])
                 midpoint = (bid_price + ask_price) / 2
                 spread = ask_price - bid_price
                 return pd.Series([spread / midpoint * 10000], index=[data.index[-1]])  # in basis points
@@ -829,17 +829,17 @@ class AdvancedFeatureExtractor:
 
     def _calculate_quoted_spread(self, data: pd.DataFrame, l2_data: dict[str, Any]) -> pd.Series[Any]:
         """Calculate quoted spread."""
-        if 'bids' in l2_data and 'asks' in l2_data and l2_data['bids'] and l2_data['asks']:
-            bid_price = float(l2_data['bids'][0][0])
-            ask_price = float(l2_data['asks'][0][0])
+        if "bids" in l2_data and "asks" in l2_data and l2_data["bids"] and l2_data["asks"]:
+            bid_price = float(l2_data["bids"][0][0])
+            ask_price = float(l2_data["asks"][0][0])
             return pd.Series([ask_price - bid_price], index=[data.index[-1]])
         return pd.Series([], dtype=float)
 
     def _calculate_depth_imbalance(self, data: pd.DataFrame, l2_data: dict[str, Any], levels: int = 5) -> pd.Series[Any]:
         """Calculate order book depth imbalance."""
-        if 'bids' in l2_data and 'asks' in l2_data:
-            bid_depth = sum(float(level[1]) for level in l2_data['bids'][:levels])
-            ask_depth = sum(float(level[1]) for level in l2_data['asks'][:levels])
+        if "bids" in l2_data and "asks" in l2_data:
+            bid_depth = sum(float(level[1]) for level in l2_data["bids"][:levels])
+            ask_depth = sum(float(level[1]) for level in l2_data["asks"][:levels])
             total_depth = bid_depth + ask_depth
             if total_depth > 0:
                 imbalance = (bid_depth - ask_depth) / total_depth
@@ -851,8 +851,8 @@ class AdvancedFeatureExtractor:
         if not trade_data:
             return pd.Series([], dtype=float)
 
-        buy_volume = sum(float(trade['volume']) for trade in trade_data if trade.get('side') == 'buy')
-        sell_volume = sum(float(trade['volume']) for trade in trade_data if trade.get('side') == 'sell')
+        buy_volume = sum(float(trade["volume"]) for trade in trade_data if trade.get("side") == "buy")
+        sell_volume = sum(float(trade["volume"]) for trade in trade_data if trade.get("side") == "sell")
         total_volume = buy_volume + sell_volume
 
         if total_volume > 0:
@@ -866,8 +866,8 @@ class AdvancedFeatureExtractor:
             return pd.Series([], dtype=float)
 
         # Simple market impact as price change per unit volume
-        recent_volume = sum(float(trade['volume']) for trade in trade_data)
-        price_change = float(data['close'].iloc[-1] - data['close'].iloc[-2])
+        recent_volume = sum(float(trade["volume"]) for trade in trade_data)
+        price_change = float(data["close"].iloc[-1] - data["close"].iloc[-2])
 
         if recent_volume > 0:
             impact = abs(price_change) / recent_volume
@@ -877,14 +877,14 @@ class AdvancedFeatureExtractor:
     # Statistical and advanced features
     def _calculate_pmo(self, data: pd.DataFrame, period1: int = 35, period2: int = 20) -> pd.Series[Any]:
         """Calculate Price Momentum Oscillator."""
-        roc = data['close'].pct_change(period1) * 100
+        roc = data["close"].pct_change(period1) * 100
         pmo = roc.ewm(span=period2).mean()
         return pmo.ewm(span=10).mean()  # Signal line
 
     def _calculate_ama(self, data: pd.DataFrame, period: int = 14) -> pd.Series[Any]:
         """Calculate Adaptive Moving Average."""
-        change = abs(data['close'] - data['close'].shift(period))
-        volatility = data['close'].diff().abs().rolling(window=period).sum()
+        change = abs(data["close"] - data["close"].shift(period))
+        volatility = data["close"].diff().abs().rolling(window=period).sum()
         efficiency_ratio = change / volatility
 
         # Smoothing constants
@@ -893,10 +893,10 @@ class AdvancedFeatureExtractor:
         smoothing_constant = (efficiency_ratio * (fast_sc - slow_sc) + slow_sc) ** 2
 
         ama = pd.Series(index=data.index, dtype=float)
-        ama.iloc[0] = data['close'].iloc[0]
+        ama.iloc[0] = data["close"].iloc[0]
 
         for i in range(1, len(data)):
-            ama.iloc[i] = ama.iloc[i-1] + smoothing_constant.iloc[i] * (data['close'].iloc[i] - ama.iloc[i-1])
+            ama.iloc[i] = ama.iloc[i-1] + smoothing_constant.iloc[i] * (data["close"].iloc[i] - ama.iloc[i-1])
 
         return ama
 
@@ -924,7 +924,7 @@ class AdvancedFeatureExtractor:
             # Fractal dimension
             return float(2 - hurst)
 
-        return data['close'].rolling(window=period).apply(fd_single)
+        return data["close"].rolling(window=period).apply(fd_single)
 
     def _calculate_hurst_exponent(self, data: pd.DataFrame, period: int = 100) -> pd.Series[Any]:
         """Calculate Hurst exponent."""
@@ -981,7 +981,7 @@ class AdvancedFeatureExtractor:
             except Exception:
                 return np.nan
 
-        return data['close'].rolling(window=period).apply(hurst_single)
+        return data["close"].rolling(window=period).apply(hurst_single)
 
 
 DEFAULT_FEATURE_REGISTRY_PATH = Path("config/feature_registry.yaml")
@@ -1072,7 +1072,7 @@ class FeatureEngine:
         pubsub_manager: PubSubManager,
         logger_service: LoggerService,
         historical_data_service: HistoricalDataService | None = None,
-        history_repo: "HistoryRepository | None" = None) -> None:
+        history_repo: HistoryRepository | None = None) -> None:
         """Initialize the FeatureEngine with configuration and required services.
 
         Args:
@@ -1164,12 +1164,12 @@ class FeatureEngine:
         imputation_config = config.get("feature_imputation", {})
         self.imputation_manager = create_imputation_manager(
             logger=logger_service,
-            config=imputation_config
+            config=imputation_config,
         )
         self.logger.info(
             "Initialized advanced imputation system with %d configured strategies",
             len(imputation_config),
-            source_module=self._source_module
+            source_module=self._source_module,
         )
 
         # Registry for ML-based imputation models
@@ -1510,11 +1510,11 @@ class FeatureEngine:
         try:
             with registry_path.open("r") as f:
                 registry_data = yaml.safe_load(f)
-        except yaml.YAMLError as e:
-            self.logger.exception(f"Error parsing YAML in feature registry {registry_path}: {e}")
+        except yaml.YAMLError:
+            self.logger.exception(f"Error parsing YAML in feature registry {registry_path}: ")
             return {}
-        except Exception as e:
-            self.logger.exception(f"Unexpected error loading feature registry {registry_path}: {e}")
+        except Exception:
+            self.logger.exception(f"Unexpected error loading feature registry {registry_path}: ")
             return {}
 
         if not isinstance(registry_data, dict):
@@ -1575,16 +1575,20 @@ class FeatureEngine:
 
             if strategy == "constant":
                 step_name_suffix = f"const_{fill_value}"
-                transform_func = lambda x: x.fillna(fill_value)
+                def transform_func(x):
+                    return x.fillna(fill_value)
             elif strategy == "mean":
                 step_name_suffix = "mean"
-                transform_func = lambda x: x.fillna(x.mean())
+                def transform_func(x):
+                    return x.fillna(x.mean())
             elif strategy == "median":
                 step_name_suffix = "median"
-                transform_func = lambda x: x.fillna(x.median())
+                def transform_func(x):
+                    return x.fillna(x.median())
             elif strategy == "default": # Use the passed default_fill_value
                 step_name_suffix = f"default_fill_{default_fill_value}"
-                transform_func = lambda x: x.fillna(default_fill_value)
+                def transform_func(x):
+                    return x.fillna(default_fill_value)
             else: # Should not be reached if checks are exhaustive
                 self.logger.warning("Unknown imputation strategy '%s' for %s. No imputer added.", strategy, spec_key)
                 return None
@@ -1627,7 +1631,7 @@ class FeatureEngine:
             return (f"{spec_key}_output_scaler_{scaler_name_suffix}", PandasScalerTransformer(scaler_instance))
 
 
-        for feature_key, spec in self._feature_configs.items(): # Now iterates over InternalFeatureSpec
+        for spec in self._feature_configs.values(): # Now iterates over InternalFeatureSpec
             pipeline_steps = []
             pipeline_name = f"{spec.key}_pipeline" # Use spec.key for consistency
 
@@ -1689,7 +1693,7 @@ class FeatureEngine:
                     calc_kw_args["levels"] = spec.parameters.get("levels", default_levels)
                     if "levels" not in spec.parameters: self.logger.debug("Using default levels %s for %s ('%s')", calc_kw_args["levels"], spec.calculator_type, spec.key)
 
-            elif spec.calculator_type == "vwap_trades" or spec.calculator_type == "volume_delta":
+            elif spec.calculator_type in {"vwap_trades", "volume_delta"}:
                 # `ohlcv_close_prices` is NOT included here; it's passed dynamically.
                 # `bar_start_times` is also dynamic, passed at runtime.
                 # `trade_history_deque` is the `X` input to fit_transform.
@@ -1856,7 +1860,7 @@ class FeatureEngine:
             processed_bids = []
             for i, bid_level in enumerate(raw_bids):
                 if (
-                    isinstance(bid_level, (list, tuple))
+                    isinstance(bid_level, list | tuple)
                     and len(bid_level) == self._EXPECTED_L2_LEVEL_LENGTH
                 ):
                     try:
@@ -1882,7 +1886,7 @@ class FeatureEngine:
             processed_asks = []
             for i, ask_level in enumerate(raw_asks):
                 if (
-                    isinstance(ask_level, (list, tuple))
+                    isinstance(ask_level, list | tuple)
                     and len(ask_level) == self._EXPECTED_L2_LEVEL_LENGTH
                 ):
                     try:
@@ -1910,7 +1914,7 @@ class FeatureEngine:
                 "bids": processed_bids,  # Already sorted highest bid first from source
                 "asks": processed_asks,  # Already sorted lowest ask first from source
                 "timestamp": pd.to_datetime(
-                    l2_payload.get("timestamp_exchange") or datetime.utcnow(),
+                    l2_payload.get("timestamp_exchange") or datetime.now(UTC),
                     utc=True),
             }
 
@@ -1921,7 +1925,7 @@ class FeatureEngine:
                     timestamp = pd.to_datetime(timestamp_str, utc=True)
                     self.l2_books_history[trading_pair].append({
                         "timestamp": timestamp,
-                        "book": {"bids": processed_bids, "asks": processed_asks}
+                        "book": {"bids": processed_bids, "asks": processed_asks},
                     })
                 except Exception as e:
                     self.logger.warning(
@@ -1953,7 +1957,7 @@ class FeatureEngine:
         self,
         trading_pair: str,
         l2_payload: dict[str, Any],
-        error_type: str
+        error_type: str,
     ) -> None:
         """Enterprise-grade error handling for malformed L2 order book data.
 
@@ -1971,7 +1975,7 @@ class FeatureEngine:
             "trading_pair": trading_pair,
             "error_type": error_type,
             "payload_keys": list[Any](l2_payload.keys()) if isinstance(l2_payload, dict) else None,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.now(UTC).isoformat() + "Z",
         }
 
         self.logger.error(
@@ -1979,7 +1983,7 @@ class FeatureEngine:
             trading_pair,
             error_type,
             source_module=self._source_module,
-            context=error_context
+            context=error_context,
         )
 
         # Strategy 1: Attempt data reconstruction from recent history
@@ -1990,17 +1994,17 @@ class FeatureEngine:
                 latest_book = recent_books[-1]
                 # Extract timestamp and ensure it's a datetime object
                 book_timestamp = latest_book["timestamp"]
-                if hasattr(book_timestamp, 'to_pydatetime'):
+                if hasattr(book_timestamp, "to_pydatetime"):
                     # It's a pandas Timestamp
                     book_timestamp = book_timestamp.to_pydatetime()
-                book_age = datetime.utcnow() - book_timestamp.replace(tzinfo=None)
+                book_age = datetime.now(UTC) - book_timestamp.replace(tzinfo=None)
 
                 if book_age < timedelta(seconds=30):
                     self.logger.info(
                         "Using recent valid L2 book for %s (age: %s seconds)",
                         trading_pair,
                         book_age.total_seconds(),
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
 
                     # Update current book with aged data (mark as stale)
@@ -2011,10 +2015,10 @@ class FeatureEngine:
                     self.l2_books[trading_pair] = {
                         "bids": stale_book.get("bids", []),
                         "asks": stale_book.get("asks", []),
-                        "timestamp": pd.to_datetime(datetime.utcnow(), utc=True),
+                        "timestamp": pd.to_datetime(datetime.now(UTC), utc=True),
                         "is_stale": True,
                         "stale_age_seconds": book_age.total_seconds(),
-                        "fallback_reason": f"malformed_data_{error_type}"
+                        "fallback_reason": f"malformed_data_{error_type}",
                     }
                     return
 
@@ -2023,10 +2027,10 @@ class FeatureEngine:
         if current_book:
             # Extract timestamp and ensure it's a datetime object
             current_timestamp = current_book["timestamp"]
-            if hasattr(current_timestamp, 'to_pydatetime'):
+            if hasattr(current_timestamp, "to_pydatetime"):
                 # It's a pandas Timestamp
                 current_timestamp = current_timestamp.to_pydatetime()
-            current_age = datetime.utcnow() - current_timestamp.replace(tzinfo=None)
+            current_age = datetime.now(UTC) - current_timestamp.replace(tzinfo=None)
 
             # Clear if data is older than 5 minutes
             if current_age > timedelta(minutes=5):
@@ -2034,22 +2038,22 @@ class FeatureEngine:
                     "Clearing stale L2 book for %s (age: %s minutes) due to malformed update",
                     trading_pair,
                     current_age.total_seconds() / 60,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
 
                 # Initialize empty book structure
                 self.l2_books[trading_pair] = {
                     "bids": [],
                     "asks": [],
-                    "timestamp": pd.to_datetime(datetime.utcnow(), utc=True),
+                    "timestamp": pd.to_datetime(datetime.now(UTC), utc=True),
                     "is_empty": True,
-                    "empty_reason": f"cleared_due_to_{error_type}"
+                    "empty_reason": f"cleared_due_to_{error_type}",
                 }
             else:
                 # Mark existing data as potentially unreliable
                 current_book["has_recent_errors"] = True
                 current_book["last_error_type"] = error_type
-                current_book["last_error_timestamp"] = datetime.utcnow().isoformat() + "Z"
+                current_book["last_error_timestamp"] = datetime.now(UTC).isoformat() + "Z"
 
         # Strategy 3: Attempt basic data sanitization for partially valid payloads
         if error_type == "invalid_format" and isinstance(l2_payload, dict):
@@ -2058,20 +2062,20 @@ class FeatureEngine:
                 self.logger.info(
                     "Successfully sanitized partial L2 data for %s",
                     trading_pair,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
 
                 self.l2_books[trading_pair] = {
                     **sanitized_book,
-                    "timestamp": pd.to_datetime(datetime.utcnow(), utc=True),
+                    "timestamp": pd.to_datetime(datetime.now(UTC), utc=True),
                     "is_sanitized": True,
-                    "sanitization_reason": error_type
+                    "sanitization_reason": error_type,
                 }
 
                 # Store in history for future fallback
                 self.l2_books_history[trading_pair].append({
-                    "timestamp": pd.to_datetime(datetime.utcnow(), utc=True),
-                    "book": sanitized_book
+                    "timestamp": pd.to_datetime(datetime.now(UTC), utc=True),
+                    "book": sanitized_book,
                 })
                 return
 
@@ -2092,7 +2096,7 @@ class FeatureEngine:
         try:
             # Try to extract and validate bids
             raw_bids = l2_payload.get("bids", [])
-            if isinstance(raw_bids, (list, tuple)):
+            if isinstance(raw_bids, list | tuple):
                 for bid_level in raw_bids:
                     if self._is_valid_l2_level(bid_level):
                         try:
@@ -2105,7 +2109,7 @@ class FeatureEngine:
 
             # Try to extract and validate asks
             raw_asks = l2_payload.get("asks", [])
-            if isinstance(raw_asks, (list, tuple)):
+            if isinstance(raw_asks, list | tuple):
                 for ask_level in raw_asks:
                     if self._is_valid_l2_level(ask_level):
                         try:
@@ -2115,7 +2119,7 @@ class FeatureEngine:
                                 sanitized_asks.append([price, volume])
                         except (ValueError, TypeError, IndexError):
                             continue
-            
+
             if sanitized_bids or sanitized_asks:
                 return {"bids": sanitized_bids, "asks": sanitized_asks}
 
@@ -2127,7 +2131,7 @@ class FeatureEngine:
     def _is_valid_l2_level(self, level: Any) -> bool:
         """Check if an L2 level has valid structure."""
         return (
-            isinstance(level, (list, tuple)) and
+            isinstance(level, list | tuple) and
             len(level) >= 2 and
             level[0] is not None and
             level[1] is not None
@@ -2137,13 +2141,13 @@ class FeatureEngine:
         self,
         trading_pair: str,
         error_type: str,
-        context: dict[str, Any]
+        context: dict[str, Any],
     ) -> None:
         """Publishes a data quality alert to the pubsub system."""
         try:
             # Import event class
             from gal_friday.core.events import APIErrorEvent
-            
+
             # Create a proper event object
             alert_event = APIErrorEvent.create(
                 source_module=self._source_module,
@@ -2154,32 +2158,32 @@ class FeatureEngine:
                     "alert_type": "L2_DATA_ERROR",
                     "severity": "warning",
                     "error_type": error_type,
-                    "context": context
-                }
+                    "context": context,
+                },
             )
 
             # Enterprise-grade async data quality alert system
-            if hasattr(self, 'pubsub_manager') and self.pubsub_manager:
+            if hasattr(self, "pubsub_manager") and self.pubsub_manager:
                 # Use async task to publish alert without blocking
                 import asyncio
-                
+
                 async def publish_alert_async() -> None:
                     """Async helper to publish data quality alerts."""
                     try:
                         await self.pubsub_manager.publish(
-                            alert_event  # PubSubManager.publish() takes only the event
+                            alert_event,  # PubSubManager.publish() takes only the event
                         )
                         self.logger.info(
                             "Published DATA_QUALITY_ALERT for %s",
                             trading_pair,
-                            source_module=self._source_module
+                            source_module=self._source_module,
                         )
                     except Exception as e:
-                        self.logger.error(
+                        self.logger.exception(
                             "Failed to publish DATA_QUALITY_ALERT: %s",
                             e,
                             source_module=self._source_module,
-                            context={"alert_event": alert_event}
+                            context={"alert_event": alert_event},
                         )
                         # Fallback: Log locally with enhanced context
                         await self._log_data_quality_issue_locally(alert_event.to_dict(), e)
@@ -2195,23 +2199,22 @@ class FeatureEngine:
                 "Failed to create or publish data quality alert for %s",
                 trading_pair,
                 source_module=self._source_module,
-                context={"error_type": error_type, "error": e}
+                context={"error_type": error_type, "error": e},
             )
 
     async def _log_data_quality_issue_locally(
         self,
         alert_event: dict[str, Any],
-        error_context: Any
+        error_context: Any,
     ) -> None:
         """Enhanced local logging for data quality issues with structured information."""
-        
         try:
             # Extract alert details
             payload = alert_event.get("payload", {})
             alert_type = payload.get("alert_type", "unknown")
             trading_pair = payload.get("trading_pair", "unknown")
             severity = payload.get("severity", "info")
-            
+
             # Create enhanced log entry with structured data
             enhanced_log_data = {
                 "event_type": "DATA_QUALITY_ISSUE",
@@ -2220,7 +2223,7 @@ class FeatureEngine:
                 "severity": severity,
                 "details": payload.get("details", "No details provided."),
                 "error_context": str(error_context),
-                "timestamp": alert_event.get("timestamp")
+                "timestamp": alert_event.get("timestamp"),
             }
 
             log_message = f"DATA_QUALITY_ISSUE: {alert_type} for {trading_pair}"
@@ -2241,7 +2244,7 @@ class FeatureEngine:
             self.logger.exception(
                 "Error during local logging of data quality issue",
                 source_module=self._source_module,
-                context={"original_event": alert_event, "logging_error": e}
+                context={"original_event": alert_event, "logging_error": e},
             )
 
     async def _persist_critical_data_quality_issue(self, issue_data: dict[str, Any]) -> None:
@@ -2250,7 +2253,7 @@ class FeatureEngine:
         if not db_session_factory:
             self.logger.error(
                 "db_session_factory not available, cannot persist critical data quality issue.",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return
 
@@ -2263,7 +2266,7 @@ class FeatureEngine:
                     severity=issue_data.get("severity", "critical"),
                     details=issue_data.get("details", "No details provided."),
                     context=issue_data,
-                    reported_at=datetime.fromisoformat(issue_data["timestamp"].replace("Z", "+00:00"))
+                    reported_at=datetime.fromisoformat(issue_data["timestamp"]),
                 )
                 session.add(issue)
                 await session.commit()
@@ -2687,7 +2690,7 @@ class FeatureEngine:
             current_sum_vol = sum_vol.get(idx) # Use .get for safety if index alignment isn't perfect
             current_vwap_val = vwap_series_decimal.get(idx)
 
-            if current_sum_vol == Decimal("0") or pd.isna(current_sum_vol) or pd.isna(current_vwap_val):
+            if current_sum_vol == Decimal(0) or pd.isna(current_sum_vol) or pd.isna(current_vwap_val):
                 # Ensure we access original Decimal values for typical price calculation if ohlcv_df was float
                 # However, ohlcv_df input to this function is already converted to Decimal for H,L,C,V
                 # So, high_d, low_d, close_d can be used with .loc[idx]
@@ -2718,11 +2721,10 @@ class FeatureEngine:
         vwap_series_float.name = f"vwap_ohlcv_{length}"
 
         # Enterprise-grade VWAP NaN handling: Multi-strategy approach for robust VWAP calculation
-        vwap_series_float = FeatureEngine._apply_enterprise_vwap_nan_handling(
-            vwap_series_float, ohlcv_df, length
+        return FeatureEngine._apply_enterprise_vwap_nan_handling(
+            vwap_series_float, ohlcv_df, length,
         )
 
-        return vwap_series_float  # type: ignore[no-any-return]
 
     @staticmethod
     def _pipeline_compute_vwap_trades(
@@ -2742,7 +2744,7 @@ class FeatureEngine:
             # trade_history_deque validation is implicitly handled by checking if trades_df is None/empty
             # Early return for invalid input
             return pd.Series(dtype="float64", index=None, name=series_name)
-        
+
         output_index = bar_start_times.index
 
         vwap_results = []
@@ -2781,7 +2783,7 @@ class FeatureEngine:
                     sum_price_volume = (relevant_trades["price"] * relevant_trades["volume"]).sum()
                     sum_volume = relevant_trades["volume"].sum()
 
-                    if sum_volume > Decimal("0"):
+                    if sum_volume > Decimal(0):
                         vwap_decimal = sum_price_volume / sum_volume
                         calculated_vwap = float(vwap_decimal)
 
@@ -2810,10 +2812,9 @@ class FeatureEngine:
     def _apply_enterprise_vwap_nan_handling(
         vwap_series: pd.Series[Any],
         ohlcv_df: pd.DataFrame,
-        length: int
+        length: int,
     ) -> pd.Series[Any]:
-        """
-        Enterprise-grade VWAP NaN handling with intelligent fallback strategies.
+        """Enterprise-grade VWAP NaN handling with intelligent fallback strategies.
 
         Implements a hierarchical approach to handle missing VWAP values:
         1. Smart interpolation based on market microstructure
@@ -2837,31 +2838,30 @@ class FeatureEngine:
 
         # Strategy 1: Intelligent interpolation for short gaps
         result_series = FeatureEngine._apply_intelligent_vwap_interpolation(
-            result_series, ohlcv_df, max_gap_length=min(3, length // 5)
+            result_series, ohlcv_df, max_gap_length=min(3, length // 5),
         )
 
         # Strategy 2: Volume-weighted estimates for medium gaps
         result_series = FeatureEngine._apply_volume_weighted_estimates(
-            result_series, ohlcv_df, length
+            result_series, ohlcv_df, length,
         )
 
         # Strategy 3: Context-aware typical price fallback
         result_series = FeatureEngine._apply_context_aware_fallback(
-            result_series, ohlcv_df
+            result_series, ohlcv_df,
         )
 
         # Strategy 4: Final safety net with market-hours aware filling
-        result_series = FeatureEngine._apply_market_aware_final_fill(
-            result_series, ohlcv_df
+        return FeatureEngine._apply_market_aware_final_fill(
+            result_series, ohlcv_df,
         )
 
-        return result_series
 
     @staticmethod
     def _apply_intelligent_vwap_interpolation(
         vwap_series: pd.Series[Any],
         ohlcv_df: pd.DataFrame,
-        max_gap_length: int = 3
+        max_gap_length: int = 3,
     ) -> pd.Series[Any]:
         """Apply intelligent interpolation for short VWAP gaps based on volume patterns."""
         result = vwap_series.copy()
@@ -2909,7 +2909,7 @@ class FeatureEngine:
                 gap_volumes = []
                 for idx in gap_indices:
                     if idx in ohlcv_df.index:
-                        volume = float(ohlcv_df.loc[idx, 'volume'])
+                        volume = float(ohlcv_df.loc[idx, "volume"])
                         gap_volumes.append(volume)
                     else:
                         gap_volumes.append(0.0)
@@ -2937,7 +2937,7 @@ class FeatureEngine:
     def _apply_volume_weighted_estimates(
         vwap_series: pd.Series[Any],
         ohlcv_df: pd.DataFrame,
-        length: int
+        length: int,
     ) -> pd.Series[Any]:
         """Apply volume-weighted price estimates for remaining NaN values."""
         result = vwap_series.copy()
@@ -2947,14 +2947,14 @@ class FeatureEngine:
             return result
 
         # Calculate rolling volume-weighted typical price for estimation
-        if all(col in ohlcv_df.columns for col in ['high', 'low', 'close', 'volume']):
+        if all(col in ohlcv_df.columns for col in ["high", "low", "close", "volume"]):
             typical_price = (
-                ohlcv_df['high'].astype(float) +
-                ohlcv_df['low'].astype(float) +
-                ohlcv_df['close'].astype(float)
+                ohlcv_df["high"].astype(float) +
+                ohlcv_df["low"].astype(float) +
+                ohlcv_df["close"].astype(float)
             ) / 3.0
 
-            volume = ohlcv_df['volume'].astype(float)
+            volume = ohlcv_df["volume"].astype(float)
 
             # Calculate shorter-window VWAP estimate for missing values
             estimate_length = max(1, length // 3)  # Use shorter window for estimates
@@ -2976,7 +2976,7 @@ class FeatureEngine:
     @staticmethod
     def _apply_context_aware_fallback(
         vwap_series: pd.Series[Any],
-        ohlcv_df: pd.DataFrame
+        ohlcv_df: pd.DataFrame,
     ) -> pd.Series[Any]:
         """Apply context-aware fallback using typical price and market conditions."""
         result = vwap_series.copy()
@@ -2986,14 +2986,14 @@ class FeatureEngine:
             return result
 
         # Calculate context-aware typical price
-        if all(col in ohlcv_df.columns for col in ['high', 'low', 'close', 'open']):
+        if all(col in ohlcv_df.columns for col in ["high", "low", "close", "open"]):
             # Use mid-price when possible (better than just typical price)
-            mid_price = (ohlcv_df['high'].astype(float) + ohlcv_df['low'].astype(float)) / 2.0
+            mid_price = (ohlcv_df["high"].astype(float) + ohlcv_df["low"].astype(float)) / 2.0
 
             # For high volatility periods, weight close price more heavily
-            price_range = (ohlcv_df['high'].astype(float) - ohlcv_df['low'].astype(float))
-            close_price = ohlcv_df['close'].astype(float)
-            open_price = ohlcv_df['open'].astype(float)
+            price_range = (ohlcv_df["high"].astype(float) - ohlcv_df["low"].astype(float))
+            close_price = ohlcv_df["close"].astype(float)
+            ohlcv_df["open"].astype(float)
 
             # Detect volatility regime
             rolling_volatility = price_range.rolling(window=10, min_periods=1).std()
@@ -3018,7 +3018,7 @@ class FeatureEngine:
     @staticmethod
     def _apply_market_aware_final_fill(
         vwap_series: pd.Series[Any],
-        ohlcv_df: pd.DataFrame
+        ohlcv_df: pd.DataFrame,
     ) -> pd.Series[Any]:
         """Apply final market-aware filling strategy as ultimate fallback."""
         result = vwap_series.copy()
@@ -3035,8 +3035,8 @@ class FeatureEngine:
         backward_filled = forward_filled.bfill()
 
         # Strategy 3: Use typical price as absolute last resort
-        if backward_filled.isna().any() and 'close' in ohlcv_df.columns:
-            close_fallback = ohlcv_df['close'].astype(float)
+        if backward_filled.isna().any() and "close" in ohlcv_df.columns:
+            close_fallback = ohlcv_df["close"].astype(float)
             final_filled = backward_filled.fillna(close_fallback)
         else:
             final_filled = backward_filled
@@ -3080,9 +3080,9 @@ class FeatureEngine:
                 # Ensure book and its bids/asks are valid and non-empty before attempting access
                 if book and \
                    isinstance(book.get("bids"), list) and len(book["bids"]) > 0 and \
-                   isinstance(book["bids"][0], (list, tuple)) and len(book["bids"][0]) == 2 and \
+                   isinstance(book["bids"][0], list | tuple) and len(book["bids"][0]) == 2 and \
                    isinstance(book.get("asks"), list) and len(book["asks"]) > 0 and \
-                   isinstance(book["asks"][0], (list, tuple)) and len(book["asks"][0]) == 2:
+                   isinstance(book["asks"][0], list | tuple) and len(book["asks"][0]) == 2:
 
                     best_bid_price_str = str(book["bids"][0][0])
                     best_ask_price_str = str(book["asks"][0][0])
@@ -3096,9 +3096,9 @@ class FeatureEngine:
 
                     if best_ask > best_bid:  # Ensure valid spread
                         abs_spread_val = best_ask - best_bid
-                        mid_price = (best_bid + best_ask) / Decimal("2")
-                        if mid_price != Decimal("0"):
-                            pct_spread_val = (abs_spread_val / mid_price) * Decimal("100")
+                        mid_price = (best_bid + best_ask) / Decimal(2)
+                        if mid_price != Decimal(0):
+                            pct_spread_val = (abs_spread_val / mid_price) * Decimal(100)
                         else:
                             pct_spread_val = Decimal("0.0")
 
@@ -3142,12 +3142,12 @@ class FeatureEngine:
                     # Check integrity of levels up to 'levels'
                     valid_bids = True
                     for i in range(levels):
-                        if not (isinstance(book["bids"][i], (list, tuple)) and len(book["bids"][i]) == 2 and book["bids"][i][1] is not None):
+                        if not (isinstance(book["bids"][i], list | tuple) and len(book["bids"][i]) == 2 and book["bids"][i][1] is not None):
                             valid_bids = False; break
 
                     valid_asks = True
                     for i in range(levels):
-                        if not (isinstance(book["asks"][i], (list, tuple)) and len(book["asks"][i]) == 2 and book["asks"][i][1] is not None):
+                        if not (isinstance(book["asks"][i], list | tuple) and len(book["asks"][i]) == 2 and book["asks"][i][1] is not None):
                             valid_asks = False; break
 
                     if valid_bids and valid_asks:
@@ -3155,7 +3155,7 @@ class FeatureEngine:
                         ask_vol_at_levels = sum(Decimal(str(book["asks"][i][1])) for i in range(levels))
 
                         total_vol = bid_vol_at_levels + ask_vol_at_levels
-                        if total_vol > Decimal("0"):
+                        if total_vol > Decimal(0):
                             imbalance_val = (bid_vol_at_levels - ask_vol_at_levels) / total_vol
                             current_imbalance = float(imbalance_val)
                 # else: conditions for invalid book structure lead to default 0.0
@@ -3184,31 +3184,31 @@ class FeatureEngine:
         if not isinstance(l2_books_series, pd.Series):
             # Early return for invalid input
             return pd.Series(dtype="float64", name=series_name, index=None)
-        
+
         output_index = l2_books_series.index
 
         # Cast to pandas Series to work with the data
-        series = cast(pd.Series[Any], l2_books_series)
-        
+        series = cast("pd.Series[Any]", l2_books_series)
+
         waps: list[float] = []
-        
+
         # Process each book in the series
         for idx, value in enumerate(series):
             book_idx = series.index[idx]
             calculated_wap: float
-            
+
             # Try to calculate WAP from book data
             wap_from_book = FeatureEngine._try_calculate_wap_from_value(value, levels)
-            
+
             # Use numpy's isnan for clearer type checking
             if not np.isnan(wap_from_book):
                 calculated_wap = wap_from_book
             else:
                 # Apply fallback logic
                 calculated_wap = FeatureEngine._get_fallback_wap(
-                    book_idx, ohlcv_close_prices
+                    book_idx, ohlcv_close_prices,
                 )
-            
+
             waps.append(calculated_wap)
 
         return pd.Series(waps, index=output_index, dtype="float64", name=series_name)
@@ -3216,49 +3216,49 @@ class FeatureEngine:
     @staticmethod
     def _try_calculate_wap_from_value(value: Any, levels: int) -> float:
         """Try to calculate WAP from a single value in the series.
-        
+
         Args:
             value: The value from the series (could be dict, float, None, etc.)
             levels: The price level to use for WAP calculation
-            
+
         Returns:
             Calculated WAP or np.nan if calculation is not possible
         """
         if not isinstance(value, dict):
             return np.nan
-            
+
         try:
             # Validate book structure
             if not ("bids" in value and "asks" in value and
                     isinstance(value["bids"], list) and isinstance(value["asks"], list) and
                     len(value["bids"]) >= levels and len(value["asks"]) >= levels):
                 return np.nan
-                
+
             # Extract bid/ask data for the specified level
             bid_data = value["bids"][levels-1]
             ask_data = value["asks"][levels-1]
-            
-            if not (isinstance(bid_data, (list, tuple)) and len(bid_data) >= 2 and
-                    isinstance(ask_data, (list, tuple)) and len(ask_data) >= 2):
+
+            if not (isinstance(bid_data, list | tuple) and len(bid_data) >= 2 and
+                    isinstance(ask_data, list | tuple) and len(ask_data) >= 2):
                 return np.nan
-                
+
             # Calculate and return WAP
             return FeatureEngine._calculate_wap_from_book_data(bid_data, ask_data)
-            
+
         except (TypeError, IndexError, ValueError, AttributeError):
             return np.nan
 
     @staticmethod
     def _calculate_wap_from_book_data(
-        bid_data: Union[list[Any], tuple[Any, ...]], 
-        ask_data: Union[list[Any], tuple[Any, ...]]
+        bid_data: list[Any] | tuple[Any, ...],
+        ask_data: list[Any] | tuple[Any, ...],
     ) -> float:
         """Calculate weighted average price from bid/ask data.
-        
+
         Args:
             bid_data: [price, volume] for best bid
             ask_data: [price, volume] for best ask
-            
+
         Returns:
             Calculated WAP or np.nan if calculation fails
         """
@@ -3268,9 +3268,9 @@ class FeatureEngine:
             best_bid_vol = Decimal(str(bid_data[1]))
             best_ask_price = Decimal(str(ask_data[0]))
             best_ask_vol = Decimal(str(ask_data[1]))
-            
+
             total_vol = best_bid_vol + best_ask_vol
-            if total_vol > Decimal("0"):
+            if total_vol > Decimal(0):
                 wap_decimal = (best_bid_price * best_ask_vol + best_ask_price * best_bid_vol) / total_vol
                 return float(wap_decimal)
         except (ValueError, TypeError, IndexError):
@@ -3280,14 +3280,14 @@ class FeatureEngine:
     @staticmethod
     def _get_fallback_wap(
         book_idx: Any,
-        ohlcv_close_prices: pd.Series[Any] | None
+        ohlcv_close_prices: pd.Series[Any] | None,
     ) -> float:
         """Get fallback WAP value from close prices or default.
-        
+
         Args:
             book_idx: Index in the series
             ohlcv_close_prices: Optional close prices series for fallback
-            
+
         Returns:
             Fallback WAP value (close price or 0.0)
         """
@@ -3327,12 +3327,12 @@ class FeatureEngine:
 
                     valid_bids = True
                     for i in range(levels):
-                        if not (isinstance(book["bids"][i], (list, tuple)) and len(book["bids"][i]) == 2 and book["bids"][i][1] is not None):
+                        if not (isinstance(book["bids"][i], list | tuple) and len(book["bids"][i]) == 2 and book["bids"][i][1] is not None):
                             valid_bids = False; break
 
                     valid_asks = True
                     for i in range(levels):
-                        if not (isinstance(book["asks"][i], (list, tuple)) and len(book["asks"][i]) == 2 and book["asks"][i][1] is not None):
+                        if not (isinstance(book["asks"][i], list | tuple) and len(book["asks"][i]) == 2 and book["asks"][i][1] is not None):
                             valid_asks = False; break
 
                     if valid_bids and valid_asks:
@@ -3348,11 +3348,10 @@ class FeatureEngine:
             bid_depths.append(current_bid_depth)
             ask_depths.append(current_ask_depth)
 
-        df = pd.DataFrame({
+        return pd.DataFrame({
             col_name_bid: bid_depths,
             col_name_ask: ask_depths,
         }, index=output_index, dtype="float64")
-        return df
 
     @staticmethod
     def _pipeline_compute_volume_delta(
@@ -3370,8 +3369,7 @@ class FeatureEngine:
         series_name = f"volume_delta_{bar_interval_seconds}s"
         if not isinstance(bar_start_times, pd.Series) or not isinstance(trade_history_deque, deque):
             # Early return for invalid input
-            empty_series = pd.Series(dtype="float64", index=bar_start_times.index if isinstance(bar_start_times, pd.Series) else None, name=series_name)  # type: ignore[unreachable]
-            return empty_series
+            return pd.Series(dtype="float64", index=bar_start_times.index if isinstance(bar_start_times, pd.Series) else None, name=series_name)  # type: ignore[unreachable]
 
         if not trade_history_deque: # No trades in entire history
             return pd.Series(0.0, index=bar_start_times.index, dtype="float64", name=series_name)
@@ -3598,12 +3596,12 @@ class FeatureEngine:
                         feature_output_name = pipeline_name.replace("_pipeline","")
                         all_generated_features[feature_output_name] = latest_features_values
 
-            except Exception as e:
-                self.logger.error(f"Error processing outputs for feature {spec.key}: {e}")
+            except Exception:
+                self.logger.exception(f"Error processing outputs for feature {spec.key}: ")
                 # Fall back to simple processing
                 if pd.notna(raw_pipeline_output):
                     feature_output_name = pipeline_name.replace("_pipeline","")
-                    all_generated_features[feature_output_name] = float(raw_pipeline_output) if hasattr(raw_pipeline_output, '__float__') else 0.0
+                    all_generated_features[feature_output_name] = float(raw_pipeline_output) if hasattr(raw_pipeline_output, "__float__") else 0.0
 
         # Extract advanced features if configured
         try:
@@ -3620,7 +3618,7 @@ class FeatureEngine:
                     ohlcv_df_for_pipelines,
                     advanced_feature_specs,
                     l2_data=l2_data,
-                    trade_data=trade_data
+                    trade_data=trade_data,
                 )
 
                 # Add advanced features to the main feature set
@@ -3634,7 +3632,7 @@ class FeatureEngine:
 
                     self.logger.debug(
                         f"Added {len(latest_advanced)} advanced features for {trading_pair}. "
-                        f"Quality metrics: {advanced_result.quality_metrics}"
+                        f"Quality metrics: {advanced_result.quality_metrics}",
                     )
 
         except Exception as e:
@@ -3646,7 +3644,7 @@ class FeatureEngine:
             validated_features = await self._apply_enterprise_feature_validation(
                 all_generated_features,
                 trading_pair,
-                timestamp_features_for
+                timestamp_features_for,
             )
 
             if validated_features is None:
@@ -3655,7 +3653,7 @@ class FeatureEngine:
             features_for_payload = validated_features
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Unexpected error in enterprise feature validation for %s at %s: %s",
                 trading_pair,
                 timestamp_features_for,
@@ -3688,7 +3686,7 @@ class FeatureEngine:
         full_feature_event = {
             "event_id": str(uuid.uuid4()),
             "event_type": EventType.FEATURES_CALCULATED.name,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(UTC).isoformat() + "Z",
             "source_module": self._source_module,
             "payload": event_payload,
         }
@@ -3718,10 +3716,9 @@ class FeatureEngine:
         self,
         raw_features: dict[str, float],
         trading_pair: str,
-        timestamp: str
+        timestamp: str,
     ) -> dict[str, Any] | None:
-        """
-        Enterprise-grade feature validation with comprehensive quality checks and normalization.
+        """Enterprise-grade feature validation with comprehensive quality checks and normalization.
 
         Implements a multi-stage validation process:
         1. Data type normalization and safety checks
@@ -3749,7 +3746,7 @@ class FeatureEngine:
             "validation_stages": [],
             "quality_metrics": {},
             "issues_detected": [],
-            "fallbacks_applied": []
+            "fallbacks_applied": [],
         }
 
         self.logger.debug(
@@ -3757,7 +3754,7 @@ class FeatureEngine:
             len(raw_features),
             trading_pair,
             timestamp,
-            source_module=self._source_module
+            source_module=self._source_module,
         )
 
         try:
@@ -3768,22 +3765,22 @@ class FeatureEngine:
 
             # Stage 2: Feature Completeness Analysis and Intelligent Imputation
             complete_features = await self._ensure_feature_completeness(
-                normalized_features, trading_pair, validation_context
+                normalized_features, trading_pair, validation_context,
             )
 
             # Stage 3: Quality Metrics and Outlier Detection
             quality_checked_features = self._apply_quality_checks(
-                complete_features, trading_pair, validation_context
+                complete_features, trading_pair, validation_context,
             )
 
             # Stage 4: Business Rule Validation
             business_validated_features = self._apply_business_validation(
-                quality_checked_features, trading_pair, validation_context
+                quality_checked_features, trading_pair, validation_context,
             )
 
             # Stage 5: Schema Compliance with Fallback
             schema_compliant_features = self._ensure_schema_compliance(
-                business_validated_features, validation_context
+                business_validated_features, validation_context,
             )
 
             # schema_compliant_features is now always a dict (possibly empty), never None
@@ -3791,26 +3788,25 @@ class FeatureEngine:
                 return None
 
             # Stage 6: Final Quality Assessment and Reporting
-            final_features = self._finalize_and_report_validation(
-                schema_compliant_features, validation_context, validation_start_time
+            return self._finalize_and_report_validation(
+                schema_compliant_features, validation_context, validation_start_time,
             )
 
-            return final_features
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Enterprise feature validation failed for %s: %s",
                 trading_pair,
                 e,
                 source_module=self._source_module,
-                context=validation_context
+                context=validation_context,
             )
             return None
 
     def _normalize_feature_types(
         self,
         raw_features: dict[str, Any],
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Normalize feature data types and perform safety checks."""
         normalized: dict[str, Any] = {}
@@ -3819,7 +3815,7 @@ class FeatureEngine:
         for feature_name, value in raw_features.items():
             try:
                 # Handle different input types
-                if isinstance(value, (int, float, np.integer, np.floating)):
+                if isinstance(value, int | float | np.integer | np.floating):
                     # Check for special float values
                     if np.isnan(value):
                         normalized[feature_name] = None  # Will be handled in completeness stage
@@ -3827,7 +3823,7 @@ class FeatureEngine:
                         self.logger.warning(
                             "Infinite value detected for feature %s, converting to None",
                             feature_name,
-                            source_module=self._source_module
+                            source_module=self._source_module,
                         )
                         normalized[feature_name] = None
                         validation_context["issues_detected"].append(f"infinite_value_{feature_name}")
@@ -3862,7 +3858,7 @@ class FeatureEngine:
                             "Could not convert string feature %s='%s' to float",
                             feature_name,
                             value,
-                            source_module=self._source_module
+                            source_module=self._source_module,
                         )
                         normalized[feature_name] = None
                         type_conversion_errors.append(feature_name)
@@ -3884,7 +3880,7 @@ class FeatureEngine:
                     "Error normalizing feature %s: %s",
                     feature_name,
                     e,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
                 normalized[feature_name] = None
                 type_conversion_errors.append(feature_name)
@@ -3895,7 +3891,7 @@ class FeatureEngine:
             "success": True,
             "features_processed": len(raw_features),
             "type_errors": len(type_conversion_errors),
-            "error_features": type_conversion_errors
+            "error_features": type_conversion_errors,
         })
 
         if type_conversion_errors:
@@ -3903,7 +3899,7 @@ class FeatureEngine:
                 "Type[Any] conversion errors for %d features: %s",
                 len(type_conversion_errors),
                 type_conversion_errors,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
         return normalized
@@ -3912,7 +3908,7 @@ class FeatureEngine:
         self,
         features: dict[str, float],
         trading_pair: str,
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> dict[str, Any]:
         """Ensure feature completeness using intelligent imputation strategies."""
         complete_features = features.copy()
@@ -3923,7 +3919,7 @@ class FeatureEngine:
                 "stage": "completeness_check",
                 "success": True,
                 "missing_count": 0,
-                "imputation_applied": False
+                "imputation_applied": False,
             })
             return complete_features
 
@@ -3932,7 +3928,7 @@ class FeatureEngine:
             try:
                 # Determine feature category for appropriate imputation
                 imputed_value = await self._impute_missing_feature(
-                    feature_name, trading_pair, validation_context
+                    feature_name, trading_pair, validation_context,
                 )
 
                 if imputed_value is not None:
@@ -3949,7 +3945,7 @@ class FeatureEngine:
                     "Failed to impute feature %s: %s",
                     feature_name,
                     e,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
                 # Final fallback
                 complete_features[feature_name] = self._get_feature_default_value(feature_name)
@@ -3960,7 +3956,7 @@ class FeatureEngine:
             "success": True,
             "missing_count": len(missing_features),
             "imputation_applied": True,
-            "imputed_features": missing_features
+            "imputed_features": missing_features,
         })
 
         return complete_features
@@ -3969,17 +3965,17 @@ class FeatureEngine:
         self,
         feature_name: str,
         trading_pair: str,
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> float | None:
         """Apply intelligent imputation for a specific missing feature."""
         try:
             # Check if we have historical feature values for this feature
             # This would use the imputation manager if configured
-            if hasattr(self, 'imputation_manager'):
+            if hasattr(self, "imputation_manager"):
                 # Use the advanced imputation system
                 feature_spec = next(
                     (spec for spec in self._feature_configs.values() if spec.key in feature_name),
-                    None
+                    None,
                 )
 
                 if feature_spec:
@@ -3987,24 +3983,24 @@ class FeatureEngine:
 
                     # Create synthetic series for imputation
                     synthetic_series = pd.Series([None], index=[pd.Timestamp.now()])
-                    context = self._prepare_imputation_context(feature_spec, synthetic_series)
+                    self._prepare_imputation_context(feature_spec, synthetic_series)
 
-                    imputation_config = ImputationConfig(
+                    ImputationConfig(
                         feature_key=f"{feature_spec.key}_missing",
                         data_type=data_type,
                         primary_method=ImputationMethod.FORWARD_FILL,
                         fallback_method=ImputationMethod.MEAN,
-                        quality_level=ImputationQuality.FAST
+                        quality_level=ImputationQuality.FAST,
                     )
 
                     # Enterprise-grade advanced imputation using comprehensive strategies
                     return await self._execute_advanced_feature_imputation(
-                        feature_name, trading_pair, feature_spec, data_type, validation_context
+                        feature_name, trading_pair, feature_spec, data_type, validation_context,
                     )
 
             # Fallback to enhanced contextual analysis
             return await self._execute_enhanced_contextual_imputation(
-                feature_name, trading_pair, validation_context
+                feature_name, trading_pair, validation_context,
             )
 
         except Exception as e:
@@ -4012,7 +4008,7 @@ class FeatureEngine:
                 "Imputation failed for %s: %s",
                 feature_name,
                 e,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return None
 
@@ -4022,10 +4018,9 @@ class FeatureEngine:
         trading_pair: str,
         feature_spec: InternalFeatureSpec,
         data_type: DataType,
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> float:
-        """
-        Execute enterprise-grade advanced feature imputation using multiple strategies.
+        """Execute enterprise-grade advanced feature imputation using multiple strategies.
 
         Implements a comprehensive imputation framework:
         1. Historical feature analysis and trend extraction
@@ -4049,57 +4044,57 @@ class FeatureEngine:
         try:
             # Strategy 1: Historical Feature Analysis
             historical_value = await self._impute_from_historical_analysis(
-                feature_name, trading_pair, feature_spec, validation_context
+                feature_name, trading_pair, feature_spec, validation_context,
             )
 
             if historical_value is not None:
                 confidence_score = self._calculate_imputation_confidence(
-                    "historical_analysis", historical_value, feature_name
+                    "historical_analysis", historical_value, feature_name,
                 )
                 if confidence_score > 0.8:  # High confidence threshold
                     validation_context["fallbacks_applied"].append(
-                        f"advanced_historical_{feature_name}"
+                        f"advanced_historical_{feature_name}",
                     )
                     return historical_value
 
             # Strategy 2: Cross-Asset Correlation Analysis
             correlation_value = await self._impute_from_correlation_analysis(
-                feature_name, trading_pair, data_type, validation_context
+                feature_name, trading_pair, data_type, validation_context,
             )
 
             if correlation_value is not None:
                 confidence_score = self._calculate_imputation_confidence(
-                    "correlation_analysis", correlation_value, feature_name
+                    "correlation_analysis", correlation_value, feature_name,
                 )
                 if confidence_score > 0.7:  # Medium-high confidence
                     validation_context["fallbacks_applied"].append(
-                        f"advanced_correlation_{feature_name}"
+                        f"advanced_correlation_{feature_name}",
                     )
                     return correlation_value
 
             # Strategy 3: Market Regime-Aware Imputation
             regime_value = await self._impute_from_market_regime_analysis(
-                feature_name, trading_pair, data_type, validation_context
+                feature_name, trading_pair, data_type, validation_context,
             )
 
             if regime_value is not None:
                 confidence_score = self._calculate_imputation_confidence(
-                    "market_regime", regime_value, feature_name
+                    "market_regime", regime_value, feature_name,
                 )
                 if confidence_score > 0.6:  # Medium confidence
                     validation_context["fallbacks_applied"].append(
-                        f"advanced_regime_{feature_name}"
+                        f"advanced_regime_{feature_name}",
                     )
                     return regime_value
 
             # Strategy 4: ML-Based Pattern Imputation
             ml_value = await self._impute_from_ml_patterns(
-                feature_name, trading_pair, feature_spec, validation_context
+                feature_name, trading_pair, feature_spec, validation_context,
             )
 
             if ml_value is not None:
                 validation_context["fallbacks_applied"].append(
-                    f"advanced_ml_{feature_name}"
+                    f"advanced_ml_{feature_name}",
                 )
                 return ml_value
 
@@ -4110,7 +4105,7 @@ class FeatureEngine:
             self.logger.debug(
                 "Advanced feature imputation failed for %s: %s",
                 feature_name, e,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return self._get_contextual_default(feature_name, data_type)
 
@@ -4120,17 +4115,16 @@ class FeatureEngine:
             self.logger.debug(
                 "Advanced imputation for %s completed in %.1fms",
                 feature_name, duration,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
     async def _execute_enhanced_contextual_imputation(
         self,
         feature_name: str,
         trading_pair: str,
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> float:
-        """
-        Execute enhanced contextual imputation with market awareness.
+        """Execute enhanced contextual imputation with market awareness.
 
         Args:
             feature_name: Feature name to impute
@@ -4147,11 +4141,11 @@ class FeatureEngine:
             # Apply context-aware adjustments
             base_value = self._get_contextual_default(feature_name)
             adjusted_value = self._apply_market_context_adjustment(
-                base_value, feature_name, market_conditions
+                base_value, feature_name, market_conditions,
             )
 
             validation_context["fallbacks_applied"].append(
-                f"enhanced_contextual_{feature_name}"
+                f"enhanced_contextual_{feature_name}",
             )
 
             return adjusted_value
@@ -4160,7 +4154,7 @@ class FeatureEngine:
             self.logger.debug(
                 "Enhanced contextual imputation failed for %s: %s",
                 feature_name, e,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return self._get_contextual_default(feature_name)
 
@@ -4169,7 +4163,7 @@ class FeatureEngine:
         feature_name: str,
         trading_pair: str,
         feature_spec: InternalFeatureSpec,
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> float | None:
         """Impute based on historical feature patterns and trends."""
         try:
@@ -4183,84 +4177,87 @@ class FeatureEngine:
             historical_data = None
             try:
                 # Check if the method exists
-                if hasattr(self.history_repo, 'get_feature_history'):
+                if hasattr(self.history_repo, "get_feature_history"):
                     historical_data = await self.history_repo.get_feature_history(
                         trading_pair=trading_pair,
                         feature_name=feature_name,
                         lookback=lookback,
-                        interval=interval
+                        interval=interval,
                     )
                 else:
                     self.logger.debug(
                         "get_feature_history method not available in HistoryRepository",
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
                     return None
             except AttributeError:
                 # Method doesn't exist yet
                 self.logger.debug(
                     "get_feature_history not implemented in HistoryRepository",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
                 return None
             except Exception as e:
                 self.logger.debug(
                     f"Error fetching historical data for {feature_name}: {e}",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
                 return None
-            
+
             if historical_data is None or historical_data.empty:
                 return None
 
             # Use enhanced imputation if available
             try:
-                from .feature_engine_enhancements import IntelligentImputationEngine, ImputationStrategy
-                
+                from .feature_engine_enhancements import (
+                    ImputationStrategy,
+                    IntelligentImputationEngine,
+                )
+
                 # Create pandas series from historical data
                 hist_series = pd.Series(
                     historical_data["value"].values,
-                    index=pd.to_datetime(historical_data["timestamp"])
+                    index=pd.to_datetime(historical_data["timestamp"]),
                 )
-                
+
                 # Use intelligent imputation engine
                 imputation_engine = IntelligentImputationEngine(self.logger)
                 feature_metadata = {
                     feature_name: {
-                        'type': 'technical' if any(ind in feature_name.lower() for ind in ['rsi', 'macd', 'bb', 'sma', 'ema']) else 'volume' if 'volume' in feature_name.lower() else 'unknown',
-                        'category': 'indicator'
-                    }
+                        "type": "technical" if any(ind in feature_name.lower() for ind in ["rsi", "macd", "bb", "sma", "ema"]) else "volume" if "volume" in feature_name.lower() else "unknown",
+                        "category": "indicator",
+                    },
                 }
-                
+
                 # Impute using regime-aware strategy
                 imputed_df = pd.DataFrame({feature_name: hist_series})
                 imputed_data, report = imputation_engine.impute_features(
                     imputed_df,
                     feature_metadata,
-                    ImputationStrategy.REGIME_AWARE
+                    ImputationStrategy.REGIME_AWARE,
                 )
-                
+
                 if feature_name in imputed_data.columns:
                     last_value = imputed_data[feature_name].iloc[-1]
                     self.logger.debug(
-                        "Imputed %s using intelligent regime-aware method: %.4f", 
-                        feature_name, 
+                        "Imputed %s using intelligent regime-aware method: %.4f",
+                        feature_name,
                         last_value,
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
                     return float(last_value) if pd.notna(last_value) else None
-                    
+
             except ImportError:
                 pass  # Fall back to simple implementation
-            
+
             # Fallback: Simple imputation using moving average
             if "rsi" in feature_name.lower() or "macd" in feature_name.lower():
                 ma = historical_data["value"].rolling(window=5, min_periods=1).mean().iloc[-1]
                 self.logger.debug(
-                    "Imputed %s from historical MA: %.4f", 
-                    feature_name, 
+                    "Imputed %s from historical MA: %.4f",
+                    feature_name,
                     ma,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
                 return float(ma) if pd.notna(ma) else None
 
@@ -4268,10 +4265,10 @@ class FeatureEngine:
             if "volume" in feature_name.lower():
                 vol_ma = historical_data["value"].mean()
                 self.logger.debug(
-                    "Imputed %s from historical mean: %.4f", 
-                    feature_name, 
+                    "Imputed %s from historical mean: %.4f",
+                    feature_name,
                     vol_ma,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
                 return float(vol_ma) if pd.notna(vol_ma) else None
 
@@ -4285,7 +4282,7 @@ class FeatureEngine:
         feature_name: str,
         trading_pair: str,
         data_type: DataType,
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> float | None:
         """Impute based on correlation with other available features."""
         try:
@@ -4301,12 +4298,12 @@ class FeatureEngine:
 
             # Use the most correlated feature for imputation
             best_corr = correlations.iloc[0]
-            correlated_feature_name = best_corr['correlated_feature']
-            correlation_value = best_corr['correlation']
-            
+            correlated_feature_name = best_corr["correlated_feature"]
+            correlation_value = best_corr["correlation"]
+
             # Fetch the value of the correlated feature at the current timestamp
             # This assumes validation_context might have access to currently computed features
-            correlated_value = validation_context.get('features', {}).get(correlated_feature_name)
+            correlated_value = validation_context.get("features", {}).get(correlated_feature_name)
 
             if correlated_value is not None and abs(correlation_value) > 0.5:
                 # Simple linear scaling based on correlation
@@ -4333,39 +4330,38 @@ class FeatureEngine:
         feature_name: str,
         trading_pair: str,
         data_type: DataType,
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> float | None:
         """Impute based on current market regime (trending, ranging, volatile)."""
         try:
             market_conditions = await self._analyze_current_market_conditions(trading_pair)
-            regime = market_conditions.get('regime', 'unknown')
-            volatility_level = market_conditions.get('volatility', 'medium')
+            regime = market_conditions.get("regime", "unknown")
+            volatility_level = market_conditions.get("volatility", "medium")
 
             # Regime-specific feature defaults
-            if 'rsi' in feature_name.lower():
-                if regime == 'trending_up':
+            if "rsi" in feature_name.lower():
+                if regime == "trending_up":
                     return 65.0  # Bullish trending
-                elif regime == 'trending_down':
+                if regime == "trending_down":
                     return 35.0  # Bearish trending
-                elif regime == 'ranging':
+                if regime == "ranging":
                     return 50.0  # Neutral ranging
-                elif regime == 'volatile':
-                    return 55.0 if volatility_level == 'high' else 45.0
+                if regime == "volatile":
+                    return 55.0 if volatility_level == "high" else 45.0
 
-            elif 'volume' in feature_name.lower():
-                if regime == 'volatile':
+            elif "volume" in feature_name.lower():
+                if regime == "volatile":
                     return 1500.0  # Higher volume in volatile markets
-                elif regime in ['trending_up', 'trending_down']:
+                if regime in ["trending_up", "trending_down"]:
                     return 1200.0  # Moderate volume in trends
-                else:
-                    return 800.0  # Lower volume in ranging markets
+                return 800.0  # Lower volume in ranging markets
 
             return None
 
         except Exception as e:
             self.logger.debug(
                 "Market regime analysis failed: %s",
-                e, source_module=self._source_module
+                e, source_module=self._source_module,
             )
             return None
 
@@ -4374,7 +4370,7 @@ class FeatureEngine:
         feature_name: str,
         trading_pair: str,
         feature_spec: InternalFeatureSpec,
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> float | None:
         """Impute missing values using a trained ML model."""
         try:
@@ -4434,10 +4430,10 @@ class FeatureEngine:
             recent_data = ohlcv_data.tail(20).astype(float)
 
             # Calculate market metrics
-            price_changes = recent_data['close'].pct_change().dropna()
+            price_changes = recent_data["close"].pct_change().dropna()
             volatility = price_changes.std()
             trend_strength = abs(price_changes.mean())
-            volume_trend = recent_data['volume'].pct_change().mean()
+            volume_trend = recent_data["volume"].pct_change().mean()
 
             # Determine market regime
             if trend_strength > 0.01 and price_changes.mean() > 0:
@@ -4462,13 +4458,13 @@ class FeatureEngine:
                 "volatility": vol_level,
                 "trend_strength": float(trend_strength),
                 "volume_trend": float(volume_trend) if pd.notna(volume_trend) else 0.0,
-                "confidence": min(1.0, len(recent_data) / 20.0)
+                "confidence": min(1.0, len(recent_data) / 20.0),
             }
 
         except Exception as e:
             self.logger.debug(
                 "Market condition analysis failed: %s",
-                e, source_module=self._source_module
+                e, source_module=self._source_module,
             )
             return {"regime": "unknown", "volatility": "medium", "confidence": 0.0}
 
@@ -4476,7 +4472,7 @@ class FeatureEngine:
         self,
         base_value: float,
         feature_name: str,
-        market_conditions: dict[str, Any]
+        market_conditions: dict[str, Any],
     ) -> float:
         """Apply market context adjustments to base imputed values."""
         try:
@@ -4487,24 +4483,24 @@ class FeatureEngine:
             # Apply confidence-weighted adjustments
             adjustment_factor = confidence * 0.2  # Max 20% adjustment
 
-            if 'rsi' in feature_name.lower():
+            if "rsi" in feature_name.lower():
                 if regime == "trending_up":
                     return min(100.0, base_value + (adjustment_factor * 20))  # type: ignore[no-any-return]
-                elif regime == "trending_down":
+                if regime == "trending_down":
                     return max(0.0, base_value - (adjustment_factor * 20))  # type: ignore[no-any-return]
-                elif volatility == "high":
+                if volatility == "high":
                     return base_value + (adjustment_factor * 10) if base_value > 50 else base_value - (adjustment_factor * 10)  # type: ignore[no-any-return]
 
-            elif 'spread' in feature_name.lower():
+            elif "spread" in feature_name.lower():
                 if volatility == "high":
                     return base_value * (1 + adjustment_factor)  # type: ignore[no-any-return]
-                elif volatility == "low":
+                if volatility == "low":
                     return base_value * (1 - adjustment_factor * 0.5)  # type: ignore[no-any-return]
 
-            elif 'volume' in feature_name.lower():
+            elif "volume" in feature_name.lower():
                 if regime in ["trending_up", "trending_down"]:
                     return base_value * (1 + adjustment_factor)  # type: ignore[no-any-return]
-                elif volatility == "high":
+                if volatility == "high":
                     return base_value * (1 + adjustment_factor * 1.5)  # type: ignore[no-any-return]
 
             return base_value
@@ -4512,7 +4508,7 @@ class FeatureEngine:
         except Exception as e:
             self.logger.debug(
                 "Market context adjustment failed: %s",
-                e, source_module=self._source_module
+                e, source_module=self._source_module,
             )
             return base_value
 
@@ -4520,7 +4516,7 @@ class FeatureEngine:
         self,
         method: str,
         value: float,
-        feature_name: str
+        feature_name: str,
     ) -> float:
         """Calculate confidence score for imputed values."""
         try:
@@ -4530,12 +4526,12 @@ class FeatureEngine:
                 "correlation_analysis": 0.7,
                 "market_regime": 0.6,
                 "ml_patterns": 0.75,
-                "contextual": 0.5
+                "contextual": 0.5,
             }.get(method, 0.5)
 
             # Value reasonableness check
             value_confidence = 1.0
-            if 'rsi' in feature_name.lower():
+            if "rsi" in feature_name.lower():
                 if 0 <= value <= 100:
                     value_confidence = 1.0
                 elif -10 <= value <= 110:
@@ -4543,7 +4539,7 @@ class FeatureEngine:
                 else:
                     value_confidence = 0.3
 
-            elif 'percentage' in feature_name.lower() or 'pct' in feature_name.lower():
+            elif "percentage" in feature_name.lower() or "pct" in feature_name.lower():
                 if abs(value) <= 100:
                     value_confidence = 1.0
                 elif abs(value) <= 200:
@@ -4559,42 +4555,41 @@ class FeatureEngine:
     def _get_contextual_default(
         self,
         feature_name: str,
-        data_type: DataType | None = None
+        data_type: DataType | None = None,
     ) -> float:
         """Get contextual default value for a feature based on its name and type."""
         feature_lower = feature_name.lower()
 
         # RSI-related features
-        if 'rsi' in feature_lower:
+        if "rsi" in feature_lower:
             return 50.0  # Neutral RSI
 
         # MACD-related features
-        elif 'macd' in feature_lower:
+        if "macd" in feature_lower:
             return 0.0  # Neutral MACD
 
         # Volume-related features
-        elif any(vol_term in feature_lower for vol_term in ['volume', 'vol', 'vwap']):
+        if any(vol_term in feature_lower for vol_term in ["volume", "vol", "vwap"]):
             return 0.0  # No volume/VWAP
 
         # Price-related features
-        elif any(price_term in feature_lower for price_term in ['price', 'spread', 'wap']):
+        if any(price_term in feature_lower for price_term in ["price", "spread", "wap"]):
             return 0.0  # No spread/price difference
 
         # Volatility features
-        elif any(vol_term in feature_lower for vol_term in ['atr', 'volatility', 'stdev']):
+        if any(vol_term in feature_lower for vol_term in ["atr", "volatility", "stdev"]):
             return 0.0  # No volatility
 
         # Percentage features
-        elif 'pct' in feature_lower or 'percent' in feature_lower:
+        if "pct" in feature_lower or "percent" in feature_lower:
             return 0.0  # No percentage change
 
         # Imbalance features
-        elif 'imbalance' in feature_lower:
+        if "imbalance" in feature_lower:
             return 0.0  # Balanced
 
         # Default for unknown features
-        else:
-            return 0.0
+        return 0.0
 
     def _get_feature_default_value(self, feature_name: str) -> float:
         """Get the default value for a feature when all else fails."""
@@ -4604,7 +4599,7 @@ class FeatureEngine:
         self,
         features: dict[str, Any],  # Values can be float or None
         trading_pair: str,
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> dict[str, Any]:
         """Apply quality checks and outlier detection."""
         quality_checked = features.copy()
@@ -4621,7 +4616,7 @@ class FeatureEngine:
                         "Extreme outlier detected for %s: %s, capping to reasonable range",
                         feature_name,
                         value,
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
                     quality_checked[feature_name] = self._cap_outlier_value(feature_name, value)
                     outliers_detected.append(feature_name)
@@ -4632,14 +4627,14 @@ class FeatureEngine:
                     "Quality check failed for %s: %s",
                     feature_name,
                     e,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
 
         validation_context["validation_stages"].append({
             "stage": "quality_checks",
             "success": True,
             "outliers_detected": len(outliers_detected),
-            "outlier_features": outliers_detected
+            "outlier_features": outliers_detected,
         })
 
         return quality_checked
@@ -4649,45 +4644,42 @@ class FeatureEngine:
         feature_lower = feature_name.lower()
 
         # RSI should be between 0 and 100
-        if 'rsi' in feature_lower:
+        if "rsi" in feature_lower:
             return value < -10 or value > 110
 
         # Percentage features should generally be reasonable
-        elif 'pct' in feature_lower or 'percent' in feature_lower:
+        if "pct" in feature_lower or "percent" in feature_lower:
             return abs(value) > 1000  # 1000% change is extreme
 
         # General extreme value check
-        else:
-            return abs(value) > 1e6 or abs(value) < 1e-10
+        return abs(value) > 1e6 or abs(value) < 1e-10
 
     def _cap_outlier_value(self, feature_name: str, value: float) -> float:
         """Cap an outlier value to a reasonable range."""
         feature_lower = feature_name.lower()
 
         # RSI capping
-        if 'rsi' in feature_lower:
+        if "rsi" in feature_lower:
             return max(0.0, min(100.0, value))
 
         # Percentage capping
-        elif 'pct' in feature_lower or 'percent' in feature_lower:
+        if "pct" in feature_lower or "percent" in feature_lower:
             return max(-100.0, min(100.0, value))
 
         # General capping
-        else:
-            if value > 1e6:
-                return 1e6
-            elif value < -1e6:
-                return -1e6
-            elif 0 < abs(value) < 1e-10:
-                return 0.0
-            else:
-                return value
+        if value > 1e6:
+            return 1e6
+        if value < -1e6:
+            return -1e6
+        if 0 < abs(value) < 1e-10:
+            return 0.0
+        return value
 
     def _apply_business_validation(
         self,
         features: dict[str, float],
         trading_pair: str,
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> dict[str, Any]:
         """Apply business logic validation rules."""
         validated = features.copy()
@@ -4696,13 +4688,13 @@ class FeatureEngine:
         # Use enhanced validation if available
         try:
             from .feature_engine_enhancements import ComprehensiveFeatureValidator
-            
+
             # Create feature validator
             validator = ComprehensiveFeatureValidator(self.logger)
-            
+
             # Get historical data if available
             historical_data = None
-            if hasattr(self, 'history_repo') and self.history_repo:
+            if hasattr(self, "history_repo") and self.history_repo:
                 try:
                     # TODO: get_feature_history method not implemented in HistoryRepository
                     # When implemented, uncomment the code below:
@@ -4713,56 +4705,56 @@ class FeatureEngine:
                     # )
                     # if hist_features is not None and not hist_features.empty:
                     #     historical_data = hist_features.pivot(
-                    #         index='timestamp', 
-                    #         columns='feature_name', 
+                    #         index='timestamp',
+                    #         columns='feature_name',
                     #         values='value'
                     #     )
                     pass  # Method not implemented yet
                 except Exception:
                     pass  # Continue without historical data
-            
+
             # Comprehensive validation
             validated_features, validation_report = validator.validate_features(
                 features,
                 {},  # Feature metadata would be populated in production
-                historical_data
+                historical_data,
             )
-            
+
             # Extract violations from report
-            if 'statistical_tests' in validation_report:
-                consistency = validation_report['statistical_tests'].get('consistency', {})
-                
+            if "statistical_tests" in validation_report:
+                consistency = validation_report["statistical_tests"].get("consistency", {})
+
                 # Check spread consistency
-                if 'spread_consistency' in consistency and not consistency['spread_consistency'].get('consistent', True):
+                if "spread_consistency" in consistency and not consistency["spread_consistency"].get("consistent", True):
                     business_violations.append("inconsistent_spreads")
-                
+
                 # Check RSI bounds
-                if 'rsi_bounds' in consistency and not consistency['rsi_bounds'].get('within_bounds', True):
+                if "rsi_bounds" in consistency and not consistency["rsi_bounds"].get("within_bounds", True):
                     business_violations.append("rsi_out_of_bounds")
-                
+
                 # Check for outliers
-                outliers = validation_report['statistical_tests'].get('outliers', {})
+                outliers = validation_report["statistical_tests"].get("outliers", {})
                 for feature_name, outlier_info in outliers.items():
-                    if outlier_info.get('is_outlier', False):
+                    if outlier_info.get("is_outlier", False):
                         business_violations.append(f"outlier_{feature_name}")
-            
+
             # Apply corrections
-            if 'corrections_applied' in validation_report:
-                for feature_name, correction in validation_report['corrections_applied'].items():
+            if "corrections_applied" in validation_report:
+                for feature_name, correction in validation_report["corrections_applied"].items():
                     self.logger.info(
                         f"Applied correction to {feature_name}: {correction['reason']}",
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
-            
+
             # Update validated features
             validated.update(validated_features)
-            
+
         except ImportError:
             # Fallback to simple business rules
             # Check for logical consistency in spread features
-            if 'abs_spread' in features and 'pct_spread' in features:
-                abs_spread = features.get('abs_spread', 0)
-                pct_spread = features.get('pct_spread', 0)
+            if "abs_spread" in features and "pct_spread" in features:
+                abs_spread = features.get("abs_spread", 0)
+                pct_spread = features.get("pct_spread", 0)
 
                 # Spreads should both be positive or both be zero
                 if (abs_spread > 0) != (pct_spread > 0):
@@ -4770,15 +4762,15 @@ class FeatureEngine:
                         "Inconsistent spread values: abs=%s, pct=%s",
                         abs_spread,
                         pct_spread,
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
                     business_violations.append("inconsistent_spreads")
                     # Apply correction
                     if abs_spread > 0:
-                        validated['pct_spread'] = max(0.01, abs(pct_spread))
+                        validated["pct_spread"] = max(0.01, abs(pct_spread))
                     else:
-                        validated['abs_spread'] = 0.0
-                        validated['pct_spread'] = 0.0
+                        validated["abs_spread"] = 0.0
+                        validated["pct_spread"] = 0.0
 
             # Add more business rules as needed
 
@@ -4786,14 +4778,14 @@ class FeatureEngine:
             self.logger.debug(
                 "Business validation error: %s",
                 e,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
         validation_context["validation_stages"].append({
             "stage": "business_validation",
             "success": True,
             "violations_detected": len(business_violations),
-            "violations": business_violations
+            "violations": business_violations,
         })
 
         return validated
@@ -4801,7 +4793,7 @@ class FeatureEngine:
     def _ensure_schema_compliance(
         self,
         features: dict[str, float],
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> dict[str, Any]:
         """Ensure features comply with the expected schema."""
         try:
@@ -4812,7 +4804,7 @@ class FeatureEngine:
             validation_context["validation_stages"].append({
                 "stage": "schema_compliance",
                 "success": True,
-                "validation_method": "pydantic_strict"
+                "validation_method": "pydantic_strict",
             })
 
             return schema_compliant
@@ -4821,7 +4813,7 @@ class FeatureEngine:
             self.logger.warning(
                 "Strict Pydantic validation failed, applying intelligent schema adaptation: %s",
                 pydantic_error,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
             # Intelligent schema adaptation
@@ -4836,32 +4828,31 @@ class FeatureEngine:
                         "stage": "schema_compliance",
                         "success": True,
                         "validation_method": "adaptive",
-                        "adaptations_applied": True
+                        "adaptations_applied": True,
                     })
 
                     return schema_compliant
-                else:
-                    # If no adaptation was possible, return empty dict
-                    validation_context["validation_stages"].append({
-                        "stage": "schema_compliance",
-                        "success": False,
-                        "error": "No adaptation possible",
-                        "original_error": str(pydantic_error)
-                    })
-                    return {}
+                # If no adaptation was possible, return empty dict
+                validation_context["validation_stages"].append({
+                    "stage": "schema_compliance",
+                    "success": False,
+                    "error": "No adaptation possible",
+                    "original_error": str(pydantic_error),
+                })
+                return {}
 
             except Exception as adaptation_error:
-                self.logger.error(
+                self.logger.exception(
                     "Schema adaptation also failed: %s",
                     adaptation_error,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
 
                 validation_context["validation_stages"].append({
                     "stage": "schema_compliance",
                     "success": False,
                     "error": str(adaptation_error),
-                    "original_error": str(pydantic_error)
+                    "original_error": str(pydantic_error),
                 })
 
                 # Return empty dict as a last resort to satisfy return type
@@ -4870,19 +4861,18 @@ class FeatureEngine:
     def _adapt_to_schema(
         self,
         features: dict[str, float],
-        validation_context: dict[str, Any]
+        validation_context: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Adapt features to match expected schema by adding missing required fields."""
         try:
             # Get the Pydantic model fields
-            from pydantic import BaseModel
 
             # Inspect PublishedFeaturesV1 to understand required fields
             model_fields = PublishedFeaturesV1.model_fields
             adapted = features.copy()
 
             # Add missing required fields with appropriate defaults
-            for field_name, field_info in model_fields.items():
+            for field_name in model_fields:
                 if field_name not in adapted:
                     # Determine appropriate default based on field type and name
                     default_val = self._get_contextual_default(field_name)
@@ -4892,10 +4882,10 @@ class FeatureEngine:
             return adapted
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Schema adaptation failed: %s",
                 e,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return None
 
@@ -4903,7 +4893,7 @@ class FeatureEngine:
         self,
         features: dict[str, float],
         validation_context: dict[str, Any],
-        start_time: pd.Timestamp
+        start_time: pd.Timestamp,
     ) -> dict[str, Any]:
         """Finalize validation and report quality metrics."""
         end_time = pd.Timestamp.now()
@@ -4916,7 +4906,7 @@ class FeatureEngine:
             "stages_completed": len(validation_context["validation_stages"]),
             "issues_detected": len(validation_context["issues_detected"]),
             "fallbacks_applied": len(validation_context["fallbacks_applied"]),
-            "overall_quality_score": self._calculate_quality_score(validation_context)
+            "overall_quality_score": self._calculate_quality_score(validation_context),
         }
 
         validation_context["quality_metrics"] = quality_metrics
@@ -4933,9 +4923,9 @@ class FeatureEngine:
                 "validation_summary": {
                     "stages": [stage["stage"] for stage in validation_context["validation_stages"]],
                     "issues": validation_context["issues_detected"],
-                    "fallbacks": validation_context["fallbacks_applied"]
-                }
-            }
+                    "fallbacks": validation_context["fallbacks_applied"],
+                },
+            },
         )
 
         return features
@@ -4953,8 +4943,7 @@ class FeatureEngine:
         issue_penalty = min(0.8, issues_count / total_features)
         fallback_penalty = min(0.2, fallbacks_count / total_features)
 
-        quality_score = max(0.0, 1.0 - issue_penalty - fallback_penalty)
-        return quality_score  # type: ignore[no-any-return]
+        return max(0.0, 1.0 - issue_penalty - fallback_penalty)
 
     def _format_feature_value(self, value: Decimal | float | object) -> str:
         """Format a feature value to string. Decimal/float to 8 decimal places."""
@@ -4976,7 +4965,7 @@ class FeatureEngine:
         self,
         trading_pair: str,
         target_timestamp: datetime,
-        max_age_seconds: int = 300  # 5 minutes default
+        max_age_seconds: int = 300,  # 5 minutes default
     ) -> dict[str, Any] | None:
         """Get the L2 book snapshot closest to the target timestamp.
 
@@ -5065,7 +5054,7 @@ class FeatureEngine:
                 cache_results=True,
                 consider_market_session=False,  # Crypto trades 24/7
                 consider_volatility_regime=True,  # Important for crypto
-                use_cross_asset_correlation=input_imputation_config.get("use_cross_correlation", False)
+                use_cross_asset_correlation=input_imputation_config.get("use_cross_correlation", False),
             )
 
             # Register this configuration with the imputation manager
@@ -5074,12 +5063,12 @@ class FeatureEngine:
             # Create custom transformer that uses our advanced imputation system
             def advanced_imputation_transform(X: Any) -> Any:
                 """Advanced imputation transformer for cryptocurrency data."""
-                if hasattr(X, 'iloc'):  # DataFrame
+                if hasattr(X, "iloc"):  # DataFrame
                     if len(X.columns) == 1:
                         series_data = X.iloc[:, 0]
                     else:
                         # For multi-column input, use close price if available
-                        close_col = next((col for col in X.columns if 'close' in col.lower()), X.columns[0])
+                        close_col = next((col for col in X.columns if "close" in col.lower()), X.columns[0])
                         series_data = X[close_col]
                 else:  # Series[Any] or array
                     series_data = pd.Series(X) if not isinstance(X, pd.Series) else X
@@ -5102,8 +5091,8 @@ class FeatureEngine:
                             self.imputation_manager.impute_feature(
                                 imputation_config.feature_key,
                                 series_data,
-                                context
-                            )
+                                context,
+                            ),
                         )
                         imputed_series = result.imputed_values
 
@@ -5115,7 +5104,7 @@ class FeatureEngine:
                             result.confidence_score,
                             result.computation_time_ms,
                             result.missing_count,
-                            source_module=self._source_module
+                            source_module=self._source_module,
                         )
 
                     finally:
@@ -5126,26 +5115,25 @@ class FeatureEngine:
                     self.logger.warning(
                         "Advanced imputation failed for %s, using fallback: %s",
                         spec.key, e,
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
-                    imputed_series = series_data.fillna(method='ffill').fillna(series_data.mean())
+                    imputed_series = series_data.fillna(method="ffill").fillna(series_data.mean())
 
                 # Return in same format as input
-                if hasattr(X, 'iloc'):  # DataFrame
+                if hasattr(X, "iloc"):  # DataFrame
                     result_df = X.copy()
                     if len(X.columns) == 1:
                         result_df.iloc[:, 0] = imputed_series
                     else:
                         result_df[result_df.columns[0]] = imputed_series
                     return result_df
-                else:
-                    return imputed_series
+                return imputed_series
 
             step_name = f"{spec.key}_advanced_input_imputer"
             transformer = FunctionTransformer(
                 func=advanced_imputation_transform,
                 validate=False,
-                check_inverse=False
+                check_inverse=False,
             )
 
             self.logger.info(
@@ -5153,16 +5141,16 @@ class FeatureEngine:
                 spec.key,
                 primary_method.value,
                 data_type.value,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
             return (step_name, transformer)
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Error creating advanced input imputation step for %s: %s. Using simple fallback.",
                 spec.key, e,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             # Fallback to simple mean imputation
             return (f"{spec.key}_simple_input_imputer", SimpleImputer(strategy="mean"))
@@ -5172,25 +5160,23 @@ class FeatureEngine:
         # Map feature calculator types to appropriate data types
         calculator_type = spec.calculator_type.lower()
 
-        if any(price_indicator in calculator_type for price_indicator in ['rsi', 'macd', 'bbands', 'roc']):
+        if any(price_indicator in calculator_type for price_indicator in ["rsi", "macd", "bbands", "roc"]):
             return DataType.PRICE
-        elif any(vol_indicator in calculator_type for vol_indicator in ['atr', 'stdev', 'volatility']):
+        if any(vol_indicator in calculator_type for vol_indicator in ["atr", "stdev", "volatility"]):
             return DataType.VOLATILITY
-        elif any(vol_indicator in calculator_type for vol_indicator in ['volume', 'vwap']):
+        if any(vol_indicator in calculator_type for vol_indicator in ["volume", "vwap"]):
             return DataType.VOLUME
-        elif 'l2' in calculator_type:
+        if "l2" in calculator_type:
             return DataType.PRICE  # L2 order book data is price-related
-        else:
-            return DataType.INDICATOR  # Generic technical indicator
+        return DataType.INDICATOR  # Generic technical indicator
 
     def _select_optimal_imputation_method(
         self,
         spec: InternalFeatureSpec,
         input_config: dict[str, Any],
-        data_type: DataType
+        data_type: DataType,
     ) -> ImputationMethod:
         """Select optimal imputation method based on feature type and crypto market characteristics."""
-
         # Check for explicit method override
         if "method" in input_config:
             try:
@@ -5199,7 +5185,7 @@ class FeatureEngine:
                 self.logger.warning(
                     "Invalid imputation method '%s' for %s. Using auto-selection.",
                     input_config["method"], spec.key,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
 
         # Auto-select based on data type and crypto market characteristics
@@ -5208,22 +5194,21 @@ class FeatureEngine:
             # as it preserves the last known price when there are brief data gaps
             return ImputationMethod.FORWARD_FILL
 
-        elif data_type == DataType.VOLUME:
+        if data_type == DataType.VOLUME:
             # Volume can have more variability, forward fill is still appropriate
             # but we might consider mean for longer gaps
             return ImputationMethod.FORWARD_FILL
 
-        elif data_type == DataType.VOLATILITY:
+        if data_type == DataType.VOLATILITY:
             # Volatility measures benefit from interpolation to smooth transitions
             return ImputationMethod.LINEAR_INTERPOLATION
 
-        elif data_type == DataType.INDICATOR:
+        if data_type == DataType.INDICATOR:
             # Technical indicators often benefit from interpolation or forward fill
             return ImputationMethod.LINEAR_INTERPOLATION
 
-        else:
-            # Default fallback
-            return ImputationMethod.FORWARD_FILL
+        # Default fallback
+        return ImputationMethod.FORWARD_FILL
 
     def _get_fallback_method(self, primary_method: ImputationMethod) -> ImputationMethod:
         """Get appropriate fallback method for the given primary method."""
@@ -5245,7 +5230,7 @@ class FeatureEngine:
 
         try:
             # Add related market data if available
-            if hasattr(series_data, 'index') and len(series_data.index) > 0:
+            if hasattr(series_data, "index") and len(series_data.index) > 0:
                 # Try to get the trading pair from feature configuration or naming
                 trading_pair = self._extract_trading_pair_from_spec(spec)
 
@@ -5253,33 +5238,33 @@ class FeatureEngine:
                     ohlcv_df = self.ohlcv_history[trading_pair]
                     if not ohlcv_df.empty:
                         # Add related price series for correlation-based imputation
-                        context['related_series'] = {}
+                        context["related_series"] = {}
 
                         # Add OHLC data if different from target series
-                        for col in ['open', 'high', 'low', 'close', 'volume']:
+                        for col in ["open", "high", "low", "close", "volume"]:
                             if col in ohlcv_df.columns:
                                 # Convert to float for imputation (from Decimal)
-                                series_values = pd.to_numeric(ohlcv_df[col], errors='coerce')
+                                series_values = pd.to_numeric(ohlcv_df[col], errors="coerce")
                                 if len(series_values) == len(series_data):
-                                    context['related_series'][f'ohlcv_{col}'] = series_values
+                                    context["related_series"][f"ohlcv_{col}"] = series_values
 
                 # Add volume data if available for VWAP-based imputation
                 if trading_pair and trading_pair in self.ohlcv_history:
-                    volume_data = self.ohlcv_history[trading_pair].get('volume')
+                    volume_data = self.ohlcv_history[trading_pair].get("volume")
                     if volume_data is not None and len(volume_data) == len(series_data):
-                        context['volume'] = pd.to_numeric(volume_data, errors='coerce')
+                        context["volume"] = pd.to_numeric(volume_data, errors="coerce")
 
                 # Add L2 book data for market microstructure context
                 if trading_pair and trading_pair in self.l2_books:
                     l2_book = self.l2_books[trading_pair]
-                    if l2_book and 'bids' in l2_book and 'asks' in l2_book:
-                        context['l2_book'] = l2_book
+                    if l2_book and "bids" in l2_book and "asks" in l2_book:
+                        context["l2_book"] = l2_book
 
         except Exception as e:
             self.logger.debug(
                 "Error preparing imputation context for %s: %s",
                 spec.key, e,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
         return context
@@ -5290,15 +5275,15 @@ class FeatureEngine:
         feature_key = spec.key.upper()
 
         # Common crypto trading pairs
-        common_pairs = ['XRPUSD', 'DOGEUSD', 'BTCUSD', 'ETHUSD', 'ADAUSD', 'SOLUSD']
+        common_pairs = ["XRPUSD", "DOGEUSD", "BTCUSD", "ETHUSD", "ADAUSD", "SOLUSD"]
 
         for pair in common_pairs:
             if pair in feature_key:
                 return pair
 
         # Try to extract from parameters
-        if 'trading_pair' in spec.parameters:
-            return spec.parameters['trading_pair']  # type: ignore[no-any-return]
+        if "trading_pair" in spec.parameters:
+            return spec.parameters["trading_pair"]  # type: ignore[no-any-return]
 
         # Fallback: try to get the first configured trading pair
         if self.ohlcv_history:

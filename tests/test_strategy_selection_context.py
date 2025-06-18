@@ -1,13 +1,14 @@
-import pytest
-from decimal import Decimal
 from datetime import datetime
+from decimal import Decimal
+
+import pytest
 
 from gal_friday.strategy_selection import (
-    StrategySelectionSystem,
+    LiquidityCondition,
     MarketConditionSnapshot,
     MarketRegime,
+    StrategySelectionSystem,
     TrendState,
-    LiquidityCondition,
 )
 
 
@@ -64,7 +65,7 @@ async def test_create_selection_context_dynamic_data(mock_logger):
         liquidity_condition=LiquidityCondition.NORMAL,
         average_spread_bps=1.0,
         order_book_depth_score=0.9,
-        volume_24h_usd=Decimal("1000000"),
+        volume_24h_usd=Decimal(1000000),
         volume_percentile=70.0,
         active_sessions=["us"],
         correlation_matrix={},
@@ -79,5 +80,5 @@ async def test_create_selection_context_dynamic_data(mock_logger):
     context = await system._create_selection_context()
 
     assert context.portfolio_state == portfolio_state
-    assert context.risk_budget_available == Decimal("15000")
+    assert context.risk_budget_available == Decimal(15000)
     assert context.current_strategy_id == "s1"

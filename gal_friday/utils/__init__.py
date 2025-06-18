@@ -1,8 +1,8 @@
 """Utility functions for the Gal Friday application."""
 
-import logging
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+import logging
 from typing import Any, Generic, Optional, TypeVar
 
 # Import Kraken API utilities for convenience
@@ -10,7 +10,8 @@ from .kraken_api import (
     InvalidAPISecretError,
     KrakenAPIError,
     generate_kraken_signature,
-    prepare_kraken_request_data)
+    prepare_kraken_request_data,
+)
 
 T = TypeVar("T")
 

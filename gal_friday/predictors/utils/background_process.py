@@ -1,13 +1,16 @@
 """Module for managing background processes using ProcessPoolExecutor."""
-import asyncio
-import logging
 from collections.abc import Callable
-from concurrent.futures import Future, ProcessPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import Enum
+import logging
 from types import TracebackType
-from typing import Generic, Optional, TypeVar, cast, Any
-from typing import Any
+from typing import Any, Generic, Optional, TypeVar, cast
+
+import asyncio
+from concurrent.futures import (
+    Future,
+    ProcessPoolExecutor,
+    TimeoutError as FutureTimeoutError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +197,7 @@ class BackgroundProcess(Generic[T]):
 
     def __repr__(self) -> str:
         """Return a string representation of the BackgroundProcess instance."""
-        return f"<BackgroundProcess target='{self._target_name}' " f"status='{self.status.value}'>"
+        return f"<BackgroundProcess target='{self._target_name}' status='{self.status.value}'>"
 
 
 class BackgroundProcessManager:

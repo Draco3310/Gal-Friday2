@@ -29,10 +29,10 @@ class AuditRepository(BaseRepository[AuditEntry]):
 
     async def create_audit_entry(self, audit_data: dict[str, Any]) -> AuditEntry:
         """Create a new audit entry.
-        
+
         Args:
             audit_data: Dictionary containing audit entry data
-            
+
         Returns:
             Created AuditEntry instance
         """
@@ -59,25 +59,25 @@ class AuditRepository(BaseRepository[AuditEntry]):
                     audit_schema_version=audit_data.get("audit_schema_version", "1.0"),
                     instance_id=audit_data.get("instance_id", "unknown"),
                 )
-                
+
                 session.add(audit_entry)
                 await session.commit()
                 await session.refresh(audit_entry)
-                
+
                 return audit_entry
-                
-        except Exception as e:
+
+        except Exception:
             self.logger.exception(
-                f"Error creating audit entry: {e}",
+                "Error creating audit entry: ",
                 source_module=self._source_module)
             raise
 
     async def get_audit_entries_by_order(self, order_id: str) -> Sequence[AuditEntry]:
         """Get all audit entries for a specific order.
-        
+
         Args:
             order_id: The order ID to search for
-            
+
         Returns:
             List of AuditEntry instances
         """
@@ -90,58 +90,58 @@ class AuditRepository(BaseRepository[AuditEntry]):
                 )
                 result = await session.execute(stmt)
                 return result.scalars().all()
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error fetching audit entries for order {order_id}: {e}",
+                f"Error fetching audit entries for order {order_id}: ",
                 source_module=self._source_module)
             raise
 
     async def get_audit_entries_by_symbol(
-        self, 
-        symbol: str, 
+        self,
+        symbol: str,
         start_time: datetime | None = None,
-        end_time: datetime | None = None
+        end_time: datetime | None = None,
     ) -> Sequence[AuditEntry]:
         """Get audit entries for a specific symbol within a time range.
-        
+
         Args:
             symbol: The trading symbol
             start_time: Start of time range (optional)
             end_time: End of time range (optional)
-            
+
         Returns:
             List of AuditEntry instances
         """
         try:
             async with self.session_maker() as session:
                 stmt = select(AuditEntry).where(AuditEntry.symbol == symbol)
-                
+
                 if start_time:
                     stmt = stmt.where(AuditEntry.timestamp >= start_time)
                 if end_time:
                     stmt = stmt.where(AuditEntry.timestamp <= end_time)
-                    
+
                 stmt = stmt.order_by(AuditEntry.timestamp.desc())
-                
+
                 result = await session.execute(stmt)
                 return result.scalars().all()
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error fetching audit entries for symbol {symbol}: {e}",
+                f"Error fetching audit entries for symbol {symbol}: ",
                 source_module=self._source_module)
             raise
 
     async def get_risk_event_entries(
         self,
         risk_event_type: str | None = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> Sequence[AuditEntry]:
         """Get audit entries that contain risk events.
-        
+
         Args:
             risk_event_type: Specific risk event type to filter (optional)
             limit: Maximum number of entries to return
-            
+
         Returns:
             List of AuditEntry instances with risk events
         """
@@ -155,10 +155,10 @@ class AuditRepository(BaseRepository[AuditEntry]):
                     .order_by(AuditEntry.timestamp.desc())
                     .limit(limit)
                 )
-                
+
                 result = await session.execute(stmt)
                 entries = result.scalars().all()
-                
+
                 # Filter by specific risk event type if provided
                 if risk_event_type:
                     filtered_entries = []
@@ -166,18 +166,18 @@ class AuditRepository(BaseRepository[AuditEntry]):
                         if risk_event_type in entry.risk_events:
                             filtered_entries.append(entry)
                     return filtered_entries
-                    
+
                 return entries
-                
-        except Exception as e:
+
+        except Exception:
             self.logger.exception(
-                f"Error fetching risk event entries: {e}",
+                "Error fetching risk event entries: ",
                 source_module=self._source_module)
             raise
 
     async def health_check(self) -> bool:
         """Check if the repository is healthy and can connect to database.
-        
+
         Returns:
             True if healthy, False otherwise
         """
@@ -187,24 +187,24 @@ class AuditRepository(BaseRepository[AuditEntry]):
                 stmt = select(1)
                 await session.execute(stmt)
                 return True
-        except Exception as e:
-            self.logger.error(
-                f"Audit repository health check failed: {e}",
+        except Exception:
+            self.logger.exception(
+                "Audit repository health check failed: ",
                 source_module=self._source_module)
             return False
 
     async def cleanup_old_entries(self, days_to_keep: int = 90) -> int:
         """Clean up audit entries older than specified days.
-        
+
         Args:
             days_to_keep: Number of days of entries to keep
-            
+
         Returns:
             Number of entries deleted
         """
         try:
             cutoff_date = datetime.now(UTC) - timedelta(days=days_to_keep)
-            
+
             async with self.session_maker() as session:
                 stmt = (
                     select(AuditEntry)
@@ -212,21 +212,21 @@ class AuditRepository(BaseRepository[AuditEntry]):
                 )
                 result = await session.execute(stmt)
                 old_entries = result.scalars().all()
-                
+
                 count = len(old_entries)
                 for entry in old_entries:
                     await session.delete(entry)
-                    
+
                 await session.commit()
-                
+
                 self.logger.info(
                     f"Deleted {count} audit entries older than {days_to_keep} days",
                     source_module=self._source_module)
-                
+
                 return count
-                
-        except Exception as e:
+
+        except Exception:
             self.logger.exception(
-                f"Error cleaning up old audit entries: {e}",
+                "Error cleaning up old audit entries: ",
                 source_module=self._source_module)
             raise

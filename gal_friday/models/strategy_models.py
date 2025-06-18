@@ -4,92 +4,98 @@ This module defines SQLAlchemy models for persisting strategy configurations,
 performance metrics, selection decisions, and backtest results.
 """
 
-from datetime import datetime, UTC
+from datetime import datetime
 from decimal import Decimal
-from typing import Dict, Any, Optional, List
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    DateTime, Numeric, String, Text, Boolean, Integer, 
-    Index, ForeignKey, JSON, UniqueConstraint
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .base import Base
-from typing import Any
 
 
 class StrategyConfig(Base):
     """Strategy configuration and metadata model."""
-    
+
     __tablename__ = "strategy_configs"
-    
+
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), 
-        primary_key=True, 
-        default=uuid4
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
     )
     strategy_id: Mapped[str] = mapped_column(
-        String(100), 
-        nullable=False, 
-        unique=True, 
-        index=True
+        String(100),
+        nullable=False,
+        unique=True,
+        index=True,
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True)
-    
+
     # Strategy Classification
     strategy_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    trading_pairs: Mapped[List[str]] = mapped_column(JSON, nullable=False)
-    timeframes: Mapped[List[str]] = mapped_column(JSON, nullable=False)
-    
+    trading_pairs: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    timeframes: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+
     # Configuration Parameters
-    parameters: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
-    risk_parameters: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
-    
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    risk_parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
     # Operational Settings
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     is_paper_trading: Mapped[bool] = mapped_column(Boolean, default=True)
     max_position_size: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     max_daily_trades: Mapped[int] = mapped_column(Integer, nullable=False)
-    
+
     # Metadata
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=False, 
-        server_default=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=False, 
+        DateTime(timezone=True),
+        nullable=False,
         server_default=func.now(),
-        onupdate=func.now()
+        onupdate=func.now(),
     )
     created_by: Mapped[str] = mapped_column(String(100), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    
+
     # Relationships
     performance_snapshots = relationship(
-        "StrategyPerformanceSnapshot", 
+        "StrategyPerformanceSnapshot",
         back_populates="strategy_config",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
     selection_events = relationship(
-        "StrategySelectionEvent", 
-        back_populates="strategy_config"
+        "StrategySelectionEvent",
+        back_populates="strategy_config",
     )
     backtest_results = relationship(
-        "StrategyBacktestResult", 
-        back_populates="strategy_config"
+        "StrategyBacktestResult",
+        back_populates="strategy_config",
     )
-    
+
     __table_args__ = (
         Index("idx_strategy_configs_type_active", "strategy_type", "is_active"),
         Index("idx_strategy_configs_updated_at", "updated_at"))
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "id": str(self.id),
@@ -108,42 +114,42 @@ class StrategyConfig(Base):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "created_by": self.created_by,
-            "version": self.version
+            "version": self.version,
         }
 
 
 class StrategyPerformanceSnapshot(Base):
     """Strategy performance metrics snapshot model."""
-    
+
     __tablename__ = "strategy_performance_snapshots"
-    
+
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), 
-        primary_key=True, 
-        default=uuid4
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
     )
     strategy_config_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), 
+        PGUUID(as_uuid=True),
         ForeignKey("strategy_configs.id"),
         nullable=False,
-        index=True
+        index=True,
     )
-    
+
     # Snapshot Metadata
     snapshot_date: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
+        DateTime(timezone=True),
         nullable=False,
-        index=True
+        index=True,
     )
     evaluation_period_start: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=False
+        DateTime(timezone=True),
+        nullable=False,
     )
     evaluation_period_end: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=False
+        DateTime(timezone=True),
+        nullable=False,
     )
-    
+
     # Financial Performance Metrics
     total_return: Mapped[Decimal] = mapped_column(Numeric(15, 8), nullable=False)
     annualized_return: Mapped[Decimal] = mapped_column(Numeric(15, 8), nullable=False)
@@ -152,7 +158,7 @@ class StrategyPerformanceSnapshot(Base):
     calmar_ratio: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=True)
     max_drawdown: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
     current_drawdown: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
-    
+
     # Trading Metrics
     total_trades: Mapped[int] = mapped_column(Integer, nullable=False)
     win_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
@@ -161,45 +167,45 @@ class StrategyPerformanceSnapshot(Base):
     average_loss: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=True)
     largest_win: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=True)
     largest_loss: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=True)
-    
+
     # Risk Metrics
     volatility: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
     downside_deviation: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=True)
     var_95: Mapped[Decimal] = mapped_column(Numeric(15, 8), nullable=True)
     cvar_95: Mapped[Decimal] = mapped_column(Numeric(15, 8), nullable=True)
     max_drawdown_duration_days: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=True)
-    
+
     # Execution Metrics
     average_slippage_bps: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=True)
     fill_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
     average_latency_ms: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=True)
     api_error_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
-    
+
     # Operational Metrics
     cpu_usage_avg: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=True)
     memory_usage_avg_mb: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=True)
     signal_generation_rate: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=True)
     halt_frequency: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
-    
+
     # Additional Metrics (JSON for flexibility)
-    extended_metrics: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=True)
-    
+    extended_metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=True)
+
     # Metadata
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=False, 
-        server_default=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
-    
+
     # Relationships
     strategy_config = relationship("StrategyConfig", back_populates="performance_snapshots")
-    
+
     __table_args__ = (
         Index("idx_perf_snapshots_strategy_date", "strategy_config_id", "snapshot_date"),
         Index("idx_perf_snapshots_sharpe", "sharpe_ratio"),
         Index("idx_perf_snapshots_return", "total_return"))
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "id": str(self.id),
@@ -222,81 +228,81 @@ class StrategyPerformanceSnapshot(Base):
             "api_error_rate": float(self.api_error_rate),
             "halt_frequency": float(self.halt_frequency),
             "extended_metrics": self.extended_metrics,
-            "created_at": self.created_at.isoformat()
+            "created_at": self.created_at.isoformat(),
         }
 
 
 class StrategySelectionEvent(Base):
     """Strategy selection decision and reasoning model."""
-    
+
     __tablename__ = "strategy_selection_events"
-    
+
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), 
-        primary_key=True, 
-        default=uuid4
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
     )
-    
+
     # Selection Context
     selection_timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
+        DateTime(timezone=True),
         nullable=False,
-        index=True
+        index=True,
     )
     selection_type: Mapped[str] = mapped_column(
-        String(50), 
+        String(50),
         nullable=False,
-        index=True
+        index=True,
     )  # "automatic", "manual", "emergency", "scheduled"
-    
+
     # Selected Strategy
     selected_strategy_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), 
+        PGUUID(as_uuid=True),
         ForeignKey("strategy_configs.id"),
         nullable=False,
-        index=True
+        index=True,
     )
     previous_strategy_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), 
+        PGUUID(as_uuid=True),
         ForeignKey("strategy_configs.id"),
-        nullable=True
+        nullable=True,
     )
-    
+
     # Selection Reasoning
-    selection_criteria: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
-    candidate_strategies: Mapped[List[Dict[str, Any]]] = mapped_column(JSON, nullable=False)
-    selection_scores: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
-    market_conditions: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
-    
+    selection_criteria: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    candidate_strategies: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    selection_scores: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    market_conditions: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
     # Transition Details
     transition_phase: Mapped[str] = mapped_column(String(50), nullable=False)
     transition_completed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=True
+        DateTime(timezone=True),
+        nullable=True,
     )
     allocation_percentage: Mapped[Decimal] = mapped_column(
-        Numeric(5, 2), 
-        nullable=False
+        Numeric(5, 2),
+        nullable=False,
     )
-    
+
     # Metadata
     triggered_by: Mapped[str] = mapped_column(String(100), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=True)
     risk_override: Mapped[bool] = mapped_column(Boolean, default=False)
-    
+
     # Relationships
     strategy_config = relationship(
-        "StrategyConfig", 
+        "StrategyConfig",
         foreign_keys=[selected_strategy_id],
-        back_populates="selection_events"
+        back_populates="selection_events",
     )
-    
+
     __table_args__ = (
         Index("idx_selection_events_timestamp", "selection_timestamp"),
         Index("idx_selection_events_type", "selection_type"),
         Index("idx_selection_events_strategy", "selected_strategy_id"))
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "id": str(self.id),
@@ -313,38 +319,38 @@ class StrategySelectionEvent(Base):
             "allocation_percentage": float(self.allocation_percentage),
             "triggered_by": self.triggered_by,
             "reason": self.reason,
-            "risk_override": self.risk_override
+            "risk_override": self.risk_override,
         }
 
 
 class StrategyBacktestResult(Base):
     """Strategy backtest validation results model."""
-    
+
     __tablename__ = "strategy_backtest_results"
-    
+
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), 
-        primary_key=True, 
-        default=uuid4
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
     )
     strategy_config_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), 
+        PGUUID(as_uuid=True),
         ForeignKey("strategy_configs.id"),
         nullable=False,
-        index=True
+        index=True,
     )
-    
+
     # Backtest Parameters
     backtest_start_date: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=False
+        DateTime(timezone=True),
+        nullable=False,
     )
     backtest_end_date: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=False
+        DateTime(timezone=True),
+        nullable=False,
     )
     initial_capital: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
-    
+
     # Results Summary
     final_value: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     total_return: Mapped[Decimal] = mapped_column(Numeric(15, 8), nullable=False)
@@ -352,35 +358,35 @@ class StrategyBacktestResult(Base):
     sharpe_ratio: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=True)
     total_trades: Mapped[int] = mapped_column(Integer, nullable=False)
     win_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
-    
+
     # Detailed Results
-    detailed_metrics: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
-    trade_history: Mapped[List[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    
+    detailed_metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    trade_history: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+
     # Validation Status
     validation_status: Mapped[str] = mapped_column(
-        String(50), 
+        String(50),
         nullable=False,
-        index=True
+        index=True,
     )  # "passed", "failed", "warning"
     validation_notes: Mapped[str] = mapped_column(Text, nullable=True)
-    
+
     # Metadata
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=False, 
-        server_default=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
     created_by: Mapped[str] = mapped_column(String(100), nullable=False)
-    
+
     # Relationships
     strategy_config = relationship("StrategyConfig", back_populates="backtest_results")
-    
+
     __table_args__ = (
         Index("idx_backtest_results_strategy_date", "strategy_config_id", "created_at"),
         Index("idx_backtest_results_status", "validation_status"))
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "id": str(self.id),
@@ -399,5 +405,5 @@ class StrategyBacktestResult(Base):
             "validation_status": self.validation_status,
             "validation_notes": self.validation_notes,
             "created_at": self.created_at.isoformat(),
-            "created_by": self.created_by
+            "created_by": self.created_by,
         }

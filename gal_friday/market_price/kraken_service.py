@@ -10,9 +10,9 @@ from typing import Any, cast  # Added cast
 
 import aiohttp
 
-from ..config_manager import ConfigManager
-from ..logger_service import LoggerService
-from ..market_price_service import MarketPriceService
+from gal_friday.config_manager import ConfigManager
+from gal_friday.logger_service import LoggerService
+from gal_friday.market_price_service import MarketPriceService
 
 
 class KrakenMarketPriceService(MarketPriceService):
@@ -106,7 +106,7 @@ class KrakenMarketPriceService(MarketPriceService):
                         elif "result" in data and kraken_pair in data["result"]:
                             # c[0] is the last trade closed price
                             price_str = data["result"][kraken_pair]["c"][0]
-                            self._price_timestamps[kraken_pair] = datetime.utcnow()
+                            self._price_timestamps[kraken_pair] = datetime.now(UTC)
                             price_to_return = Decimal(price_str)
                         else:
                             self.logger.error(
@@ -172,7 +172,7 @@ class KrakenMarketPriceService(MarketPriceService):
                             # b[0] is the best bid price, a[0] is the best ask price
                             bid_str = data["result"][kraken_pair]["b"][0]
                             ask_str = data["result"][kraken_pair]["a"][0]
-                            self._price_timestamps[kraken_pair] = datetime.utcnow()
+                            self._price_timestamps[kraken_pair] = datetime.now(UTC)
                             spread_to_return = (Decimal(bid_str), Decimal(ask_str))
                         else:
                             self.logger.error(
@@ -238,7 +238,7 @@ class KrakenMarketPriceService(MarketPriceService):
         if timestamp is None:
             return False
 
-        is_fresh = (datetime.utcnow() - timestamp) < timedelta(seconds=max_age_seconds)
+        is_fresh = (datetime.now(UTC) - timestamp) < timedelta(seconds=max_age_seconds)
         if not is_fresh:
             self.logger.debug(
                 "Price data for %s (timestamp: %s) is older than %ss.",
@@ -465,7 +465,7 @@ class KrakenMarketPriceService(MarketPriceService):
             mapped_base = kraken_ohlc_pair_map.get(base.upper(), base.upper())
             return mapped_base + quote.upper()
         except ValueError:
-            self.logger.error(
+            self.logger.exception(
                 f"Invalid trading pair format: {trading_pair}",
                 source_module=self._source_module)
             return None
@@ -493,9 +493,9 @@ class KrakenMarketPriceService(MarketPriceService):
                 f"HTTP Client error fetching OHLC for {trading_pair} "
                 f"({kraken_pair}): {e}",
                 source_module=self._source_module)
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error fetching OHLC data: {e}",
+                "Error fetching OHLC data: ",
                 source_module=self._source_module)
         return None
 
@@ -572,42 +572,42 @@ class KrakenMarketPriceService(MarketPriceService):
         try:
             # Calculate appropriate timeframe based on lookback hours
             timeframe = "1H" if lookback_hours <= 24 else "4H"
-            
+
             # Get OHLC data for the lookback period
             since = datetime.now(UTC) - timedelta(hours=lookback_hours)
             candles = await self.get_historical_ohlcv(
                 trading_pair=trading_pair,
                 timeframe=timeframe,
-                since=since
+                since=since,
             )
-            
+
             if not candles or len(candles) < 2:
                 self.logger.warning(
                     f"Insufficient data for volatility calculation: {trading_pair}",
                     source_module=self._source_module)
                 return None
-            
+
             # Calculate returns from close prices
             import numpy as np
             closes = [float(candle["close"]) for candle in candles]
             returns = np.diff(np.log(closes))
-            
+
             # Calculate standard deviation of returns (volatility)
             if len(returns) > 0:
                 volatility = float(np.std(returns) * 100)  # Convert to percentage
-                
+
                 # Annualize the volatility based on timeframe
                 periods_per_year = 8760 if timeframe == "1H" else 2190  # Hours in a year / timeframe
                 annualized_volatility = volatility * np.sqrt(periods_per_year / len(returns))
-                
+
                 self.logger.debug(
                     f"Calculated volatility for {trading_pair}: {annualized_volatility:.2f}%",
                     source_module=self._source_module)
-                
+
                 return float(annualized_volatility)
-            
+
             return None
-            
+
         except Exception as e:
             self.logger.error(
                 f"Failed to calculate volatility for {trading_pair}: {e}",

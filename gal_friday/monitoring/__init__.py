@@ -7,6 +7,6 @@ from .dashboard_backend import initialize_dashboard
 from .live_data_collector import LiveDataCollector
 
 __all__ = [
-    "initialize_dashboard",
     "LiveDataCollector",
+    "initialize_dashboard",
 ]

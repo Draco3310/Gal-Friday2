@@ -2,28 +2,28 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import shutil
-import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+import hashlib
+import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
+import shutil
+from typing import TYPE_CHECKING, Any, Protocol, Self, TypeVar, runtime_checkable
+import uuid
 
 import joblib
 import numpy as np
 import numpy.typing as npt
 from sklearn.base import BaseEstimator
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker  # Added
 
 # from gal_friday.dal.base import BaseEntity # BaseEntity is removed
-from gal_friday.dal.models.model_version import ModelVersion as ModelVersionModel
+
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from gal_friday.config_manager import ConfigManager
-    from gal_friday.dal.repositories.model_repository import ModelRepository
+    from gal_friday.dal.models.model_version import ModelVersion as ModelVersionModel
     from gal_friday.logger_service import LoggerService
     from gal_friday.utils.secrets_manager import SecretsManager
 
@@ -78,7 +78,7 @@ class Predictor(Protocol):
         ...
 
 
-    def set_params(self: T, **params: object) -> T:
+    def set_params(self, **params: object) -> Self:
         """Set the parameters of this estimator.
 
         Args:
@@ -97,8 +97,9 @@ class ModelValidationError(Exception):
 
 
 # Import enums from separate module to avoid circular dependencies
-from .enums import ModelStage, ModelStatus
 from typing import Any
+
+from .enums import ModelStage, ModelStatus
 
 
 @dataclass
@@ -377,11 +378,11 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         """
         self.config_manager = config_manager
         self.session_maker = session_maker # Store session_maker
-        
+
         # Import ModelRepository at runtime to avoid circular dependency
         from gal_friday.dal.repositories.model_repository import ModelRepository
         self.model_repo = ModelRepository(session_maker, logger_service) # Instantiate repo
-        
+
         self.logger = logger_service
         self.secrets = secrets_manager
         self._source_module = self.__class__.__name__
@@ -483,7 +484,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                 await self._upload_to_cloud(artifact_path, model_name, version)
 
             model_id_uuid = created_model_version.model_id
-            
+
             self.logger.info(
                 f"Model registered: {model_name} v{version}",
                 source_module=self._source_module,
@@ -637,8 +638,8 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                     try:
                         shutil.rmtree(artifact_path)
                         self.logger.info(f"Deleted local artifacts for archived model {model_id} at {artifact_path}", source_module=self._source_module)
-                    except OSError as e:
-                        self.logger.error(f"Error deleting artifacts for model {model_id} at {artifact_path}: {e}", source_module=self._source_module)
+                    except OSError:
+                        self.logger.exception(f"Error deleting artifacts for model {model_id} at {artifact_path}: ", source_module=self._source_module)
             return True
         except Exception:
             self.logger.exception(
@@ -701,7 +702,7 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
 
     def _model_version_to_metadata_dto(self, model_version: ModelVersionModel) -> ModelMetadata:
         model_id_uuid = model_version.model_id
-        
+
         # Ensure created_at and training_completed_at are timezone-aware (UTC)
         created_at_utc = model_version.created_at.replace(tzinfo=UTC if model_version.created_at.tzinfo is None else None)
         training_completed_at_utc = None

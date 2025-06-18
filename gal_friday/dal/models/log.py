@@ -1,6 +1,7 @@
 """SQLAlchemy model for the 'logs' table."""
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import BigInteger, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -8,7 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func  # For server_default=func.now()
 
 from .models_base import Base
-from typing import Any
 
 
 class Log(Base):

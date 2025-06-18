@@ -1,12 +1,12 @@
+from datetime import UTC, timedelta
 import importlib.util
+from pathlib import Path
 import sys
 import types
-from datetime import UTC, timedelta
-from pathlib import Path
-import pytest
 
 import numpy as np
 import pandas as pd
+import pytest
 
 stub_logger = types.ModuleType("gal_friday.logger_service")
 
@@ -48,7 +48,7 @@ def _sample_data(start, periods, slope=1.0, vol=0.5):
     """Create simple OHLCV test data with configurable volatility."""
     times = pd.date_range(start, periods=periods, freq="1min", tz=UTC)
     base = np.arange(periods, dtype=float) * slope + 100
-    data = pd.DataFrame(
+    return pd.DataFrame(
         {
             "open": base,
             "high": base + vol,
@@ -57,7 +57,6 @@ def _sample_data(start, periods, slope=1.0, vol=0.5):
         },
         index=times,
     )
-    return data
 
 
 def test_spline_interpolation_non_linear_small_gap(mock_logger):

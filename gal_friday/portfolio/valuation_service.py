@@ -1,13 +1,14 @@
 """Portfolio valuation and drawdown calculation functionality."""
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol, TypeGuard
 
-from ..exceptions import PriceNotAvailableError
-from ..interfaces import MarketPriceService
-from ..logger_service import LoggerService
+import asyncio
+
+from gal_friday.exceptions import PriceNotAvailableError
+from gal_friday.interfaces import MarketPriceService
+from gal_friday.logger_service import LoggerService
 
 # Constants for magic numbers
 MAX_HOURS_IN_DAY = 23
@@ -183,10 +184,10 @@ class ValuationService:
         try:
             inverse_pair = f"{to_currency}/{from_currency}"
             inverse_rate = await self.market_price_service.get_latest_price(inverse_pair)
-            if inverse_rate is not None and inverse_rate > Decimal("0"):
+            if inverse_rate is not None and inverse_rate > Decimal(0):
                 # Ensure we're working with Decimal values
                 decimal_inverse_rate = Decimal(str(inverse_rate))
-                rate = Decimal("1") / decimal_inverse_rate
+                rate = Decimal(1) / decimal_inverse_rate
                 now = datetime.now(UTC)
                 cache_key = f"{from_currency}/{to_currency}"
                 self._price_cache[cache_key] = (rate, now)
@@ -271,7 +272,7 @@ class ValuationService:
 
             if age_seconds < self._price_cache_ttl_seconds:
                 # Ensure we always return a Decimal type from cache
-                return Decimal(str(rate)) if rate is not None else Decimal("0")
+                return Decimal(str(rate)) if rate is not None else Decimal(0)
 
         # Try different conversion methods in sequence
         direct_rate = await self._try_direct_conversion(from_currency, to_currency)
@@ -294,11 +295,11 @@ class ValuationService:
     def _is_position_like(self, obj: Any) -> TypeGuard[PositionLike]:
         """Type guard to check if object implements PositionLike protocol."""
         return (
-            hasattr(obj, "quantity") 
-            and hasattr(obj, "base_asset") 
+            hasattr(obj, "quantity")
+            and hasattr(obj, "base_asset")
             and hasattr(obj, "quote_asset")
         )
-    
+
     def _extract_from_dict(self, pos_dict: dict[str, Any], pair: str) -> tuple[Decimal, str, str] | None:
         """Extract position details from dictionary."""
         try:
@@ -307,22 +308,21 @@ class ValuationService:
                 base_asset = str(pos_dict["base_asset"])
                 quote_asset = str(pos_dict["quote_asset"])
                 return quantity, base_asset, quote_asset
-            else:
-                self.logger.warning(
-                    "Cannot determine base/quote for position %s from dict - missing required keys.",
-                    pair,
-                    source_module=self._source_module
-                )
-                return None
+            self.logger.warning(
+                "Cannot determine base/quote for position %s from dict - missing required keys.",
+                pair,
+                source_module=self._source_module,
+            )
+            return None
         except (ValueError, TypeError) as e:
             self.logger.warning(
                 "Invalid data types in position dict for %s: %s",
                 pair,
                 e,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return None
-    
+
     def _extract_from_object(self, pos_obj: PositionLike) -> tuple[Decimal, str, str] | None:
         """Extract position details from PositionLike object."""
         try:
@@ -334,7 +334,7 @@ class ValuationService:
             self.logger.warning(
                 "Failed to extract position details from object: %s",
                 e,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             return None
 
@@ -346,20 +346,19 @@ class ValuationService:
         # Handle PositionLike objects
         if self._is_position_like(pos_data_any):
             return self._extract_from_object(pos_data_any)
-        
+
         # Handle dictionaries
-        elif isinstance(pos_data_any, dict):
+        if isinstance(pos_data_any, dict):
             return self._extract_from_dict(pos_data_any, pair)
-        
+
         # Handle unexpected types
-        else:
-            self.logger.warning(
-                "Unsupported position data type for %s: %s (expected PositionLike or dict)",
-                pair,
-                type(pos_data_any).__name__,
-                source_module=self._source_module
-            )
-            return None
+        self.logger.warning(
+            "Unsupported position data type for %s: %s (expected PositionLike or dict)",
+            pair,
+            type(pos_data_any).__name__,
+            source_module=self._source_module,
+        )
+        return None
 
     async def calculate_position_value(
         self,
@@ -503,7 +502,7 @@ class ValuationService:
             self._peak_equity = max(self._peak_equity, self._total_equity)
             self._total_drawdown_pct = (
                 (self._peak_equity - self._total_equity) / self._peak_equity
-            ) * Decimal("100")
+            ) * Decimal(100)
 
             # Update daily and weekly drawdown metrics
             await self._update_drawdown_metrics(self._total_equity, current_time)
@@ -574,9 +573,9 @@ class ValuationService:
         return price_base_in_quote * conversion_to_valuation_curr
 
     def _extract_quantity_and_base_asset(
-        self, 
-        pos_data_any: PositionInput, 
-        pair: str
+        self,
+        pos_data_any: PositionInput,
+        pair: str,
     ) -> tuple[Decimal, str] | None:
         """Extract just quantity and base asset for valuation calculations."""
         # Try object attributes first
@@ -590,9 +589,9 @@ class ValuationService:
                     "Failed to extract from object attributes for %s: %s",
                     pair,
                     e,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
-        
+
         # Try dictionary
         if isinstance(pos_data_any, dict):
             try:
@@ -601,10 +600,10 @@ class ValuationService:
                     self.logger.debug(
                         "Skipping value calculation for %s, missing 'base_asset' in dict.",
                         pair,
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
                     return None
-                
+
                 raw_quantity = pos_data_any.get("quantity", 0)
                 quantity = Decimal(str(raw_quantity))
                 base_asset = str(raw_base_asset)
@@ -614,15 +613,15 @@ class ValuationService:
                     "Failed to extract from dict for %s: %s",
                     pair,
                     e,
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
-        
+
         # Unsupported type
         self.logger.debug(
             "Unsupported position data type for %s: %s",
             pair,
             type(pos_data_any).__name__,
-            source_module=self._source_module
+            source_module=self._source_module,
         )
         return None
 
@@ -636,9 +635,9 @@ class ValuationService:
         position_data = self._extract_quantity_and_base_asset(pos_data_any, pair)
         if position_data is None:
             return None
-        
+
         quantity, base_asset = position_data
-        
+
         if quantity == Decimal(0):
             return Decimal(0)
 
@@ -652,11 +651,11 @@ class ValuationService:
                 "Direct valuation failed for %s. Trying via pair %s.",
                 base_asset,
                 pair,
-                source_module=self._source_module
+                source_module=self._source_module,
             )
             rate_in_valuation_currency = await self._get_rate_via_pair_quote_asset(
                 base_asset,
-                pair
+                pair,
             )
 
         # Calculate final value if rate was found
@@ -668,7 +667,7 @@ class ValuationService:
             base_asset,
             pair,
             self.valuation_currency,
-            source_module=self._source_module
+            source_module=self._source_module,
         )
         return None
 
@@ -747,7 +746,7 @@ class ValuationService:
         if self._daily_peak_equity > 0:
             self._daily_drawdown_pct = (
                 (self._daily_peak_equity - current_total_equity) / self._daily_peak_equity
-            ) * Decimal("100")  # Ensure percentage is calculated correctly
+            ) * Decimal(100)  # Ensure percentage is calculated correctly
         else:
             self._daily_drawdown_pct = Decimal(0)
 
@@ -797,7 +796,7 @@ class ValuationService:
         if self._weekly_peak_equity > 0:
             self._weekly_drawdown_pct = (
                 (self._weekly_peak_equity - current_total_equity) / self._weekly_peak_equity
-            ) * Decimal("100")  # Ensure percentage is calculated correctly
+            ) * Decimal(100)  # Ensure percentage is calculated correctly
         else:
             self._weekly_drawdown_pct = Decimal(0)
 
@@ -820,6 +819,6 @@ class ValuationService:
         if self._peak_equity > 0:
             self._total_drawdown_pct = (
                 (self._peak_equity - current_total_equity) / self._peak_equity
-            ) * Decimal("100")  # Ensure percentage is calculated correctly
+            ) * Decimal(100)  # Ensure percentage is calculated correctly
         else:
             self._total_drawdown_pct = Decimal(0)

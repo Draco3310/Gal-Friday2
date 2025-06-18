@@ -4,11 +4,11 @@ This module tests the complete signal lifecycle from market data ingestion
 through prediction, signal generation, approval, and execution.
 """
 
-import asyncio
-import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+import uuid
 
+import asyncio
 import pytest
 
 from gal_friday.core.events import (
@@ -41,7 +41,7 @@ class TestFullSignalLifecycle:
 
         # Set up event capture
         async def capture_market_data(event):
-            if isinstance(event, (MarketDataL2Event, MarketDataOHLCVEvent)):
+            if isinstance(event, MarketDataL2Event | MarketDataOHLCVEvent):
                 events_captured["market_data"].append(event)
 
         async def capture_predictions(event):
@@ -74,8 +74,8 @@ class TestFullSignalLifecycle:
             timestamp=datetime.now(UTC),
             trading_pair="XRP/USD",
             exchange="kraken",
-            bids=[[Decimal("0.5000"), Decimal("10000")]],
-            asks=[[Decimal("0.5001"), Decimal("10000")]],
+            bids=[[Decimal("0.5000"), Decimal(10000)]],
+            asks=[[Decimal("0.5001"), Decimal(10000)]],
             timestamp_exchange=datetime.now(UTC),
             sequence_number=1000,
         )
@@ -130,7 +130,7 @@ class TestFullSignalLifecycle:
             trading_pair="XRP/USD",
             exchange="kraken",
             side="BUY",
-            quantity=Decimal("1000"),  # Risk-adjusted size
+            quantity=Decimal(1000),  # Risk-adjusted size
             order_type="LIMIT",
             limit_price=Decimal("0.4999"),
             sl_price=Decimal("0.4900"),
@@ -150,7 +150,7 @@ class TestFullSignalLifecycle:
         # Verify execution report
         exec_report = events_captured["execution_reports"][0]
         assert exec_report.order_status in ["NEW", "OPEN"]
-        assert exec_report.quantity_ordered == Decimal("1000")
+        assert exec_report.quantity_ordered == Decimal(1000)
 
     @pytest.mark.asyncio
     async def test_signal_rejection_flow(self, integrated_system):
@@ -305,8 +305,8 @@ class TestPerformanceIntegration:
                 timestamp=datetime.now(UTC),
                 trading_pair="XRP/USD" if i % 2 == 0 else "DOGE/USD",
                 exchange="kraken",
-                bids=[[Decimal("0.5000") + Decimal(f"0.000{i%10}"), Decimal("1000")]],
-                asks=[[Decimal("0.5001") + Decimal(f"0.000{i%10}"), Decimal("1000")]],
+                bids=[[Decimal("0.5000") + Decimal(f"0.000{i%10}"), Decimal(1000)]],
+                asks=[[Decimal("0.5001") + Decimal(f"0.000{i%10}"), Decimal(1000)]],
                 timestamp_exchange=datetime.now(UTC),
                 sequence_number=1000 + i,
             )
@@ -338,8 +338,8 @@ class TestPerformanceIntegration:
             timestamp=start_time,
             trading_pair="XRP/USD",
             exchange="kraken",
-            bids=[[Decimal("0.5000"), Decimal("10000")]],
-            asks=[[Decimal("0.5001"), Decimal("10000")]],
+            bids=[[Decimal("0.5000"), Decimal(10000)]],
+            asks=[[Decimal("0.5001"), Decimal(10000)]],
             timestamp_exchange=start_time,
             sequence_number=9999,
             metadata={"correlation_id": str(correlation_id)},
@@ -381,7 +381,7 @@ class TestStressScenarios:
         signals_processed = []
 
         async def track_signals(event):
-            if isinstance(event, (TradeSignalApprovedEvent, TradeSignalRejectedEvent)):
+            if isinstance(event, TradeSignalApprovedEvent | TradeSignalRejectedEvent):
                 signals_processed.append(event)
 
         integrated_system.pubsub.subscribe(EventType.TRADE_SIGNAL_APPROVED, track_signals)
@@ -420,7 +420,7 @@ class TestStressScenarios:
                 trading_pair=signal.trading_pair,
                 exchange=signal.exchange,
                 side=signal.side,
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
                 order_type=signal.entry_type,
                 limit_price=signal.proposed_entry_price,
                 sl_price=signal.proposed_sl_price,
@@ -466,8 +466,8 @@ class TestStressScenarios:
                 timestamp=datetime.now(UTC),
                 trading_pair="XRP/USD",
                 exchange="kraken",
-                bids=[[new_price - Decimal("0.0001"), Decimal("10000")]],
-                asks=[[new_price + Decimal("0.0001"), Decimal("10000")]],
+                bids=[[new_price - Decimal("0.0001"), Decimal(10000)]],
+                asks=[[new_price + Decimal("0.0001"), Decimal(10000)]],
                 timestamp_exchange=datetime.now(UTC),
                 sequence_number=2000 + i,
             )

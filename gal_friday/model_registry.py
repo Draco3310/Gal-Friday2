@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import joblib
 
@@ -22,8 +22,9 @@ class ImputationModelRegistry:
     """
 
     def __init__(self, models_dir: str | Path) -> None:
+        """Initialize the instance."""
         self.models_dir = Path(models_dir)
-        self._cache: Dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
 
     async def get(self, model_key: str) -> Any:
         """Load a model artifact by key.
@@ -42,7 +43,7 @@ class ImputationModelRegistry:
         return model
 
 
-def build_ml_features(ohlcv_history: "pd.DataFrame") -> "pd.DataFrame":
+def build_ml_features(ohlcv_history: pd.DataFrame) -> pd.DataFrame:
     """Convert OHLCV history into features for imputation models.
 
     This routine computes a small set of technical features suitable for

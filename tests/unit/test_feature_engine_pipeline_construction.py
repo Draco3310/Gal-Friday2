@@ -30,8 +30,7 @@ def create_feature_engine_with_config(
         "feature_engine": {"trade_history_maxlen": 100},
         "features": feature_config,
     }
-    engine = FeatureEngine(config=base_config, pubsub_manager=pubsub_manager, logger_service=logger)
-    return engine
+    return FeatureEngine(config=base_config, pubsub_manager=pubsub_manager, logger_service=logger)
 
 # --- Test Cases ---
 

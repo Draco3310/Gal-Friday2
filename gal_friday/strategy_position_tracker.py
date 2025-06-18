@@ -5,7 +5,7 @@ trading strategies, enabling strategy-specific risk management.
 """
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -35,15 +35,15 @@ class StrategyPositionTracker:
         # Define the type of performance metrics
         self._strategy_performance: dict[str, dict[str, Decimal | int | datetime]] = defaultdict(
             lambda: {
-                "peak_equity": Decimal("0"),
-                "current_equity": Decimal("0"),
-                "drawdown_pct": Decimal("0"),
-                "total_exposure_value": Decimal("0"),
-                "exposure_pct": Decimal("0"),
+                "peak_equity": Decimal(0),
+                "current_equity": Decimal(0),
+                "drawdown_pct": Decimal(0),
+                "total_exposure_value": Decimal(0),
+                "exposure_pct": Decimal(0),
                 "position_count": 0,
-                "last_updated": datetime.utcnow(),
+                "last_updated": datetime.now(UTC),
             })
-        self._portfolio_equity = Decimal("0")  # Total portfolio equity for reference
+        self._portfolio_equity = Decimal(0)  # Total portfolio equity for reference
 
     def add_position(
         self,
@@ -142,11 +142,11 @@ class StrategyPositionTracker:
         # Calculate drawdown
         peak_equity = metrics["peak_equity"]
         # Ensure peak_equity is a Decimal before comparison
-        if isinstance(peak_equity, Decimal) and peak_equity > Decimal("0"):
+        if isinstance(peak_equity, Decimal) and peak_equity > Decimal(0):
             drawdown = (peak_equity - current_equity) / peak_equity * 100
             metrics["drawdown_pct"] = drawdown
 
-        metrics["last_updated"] = datetime.utcnow()
+        metrics["last_updated"] = datetime.now(UTC)
         self.logger.debug(
             "Strategy %s P&L recorded: %s, current equity: %s, drawdown: %.2f%%",
             strategy_id,
@@ -179,13 +179,13 @@ class StrategyPositionTracker:
             strategy_id: Identifier for the strategy
         """
         self._strategy_performance[strategy_id] = {
-            "peak_equity": Decimal("0"),
-            "current_equity": Decimal("0"),
-            "drawdown_pct": Decimal("0"),
-            "total_exposure_value": Decimal("0"),
-            "exposure_pct": Decimal("0"),
+            "peak_equity": Decimal(0),
+            "current_equity": Decimal(0),
+            "drawdown_pct": Decimal(0),
+            "total_exposure_value": Decimal(0),
+            "exposure_pct": Decimal(0),
             "position_count": 0,
-            "last_updated": datetime.utcnow(),
+            "last_updated": datetime.now(UTC),
         }
 
     def _update_strategy_metrics(self, strategy_id: str) -> None:
@@ -201,7 +201,7 @@ class StrategyPositionTracker:
         positions = self._strategy_positions.get(strategy_id, {})
 
         # Calculate total position value
-        total_exposure_value = Decimal("0")
+        total_exposure_value = Decimal(0)
         for position in positions.values():
             # Position value might be stored directly or calculated from qty * price
             position_value = position.get("position_value")
@@ -218,11 +218,11 @@ class StrategyPositionTracker:
         metrics["position_count"] = len(positions)
 
         # Calculate exposure percentage if we have portfolio equity
-        if self._portfolio_equity > Decimal("0"):
+        if self._portfolio_equity > Decimal(0):
             exposure_pct = (total_exposure_value / self._portfolio_equity) * 100
             metrics["exposure_pct"] = exposure_pct
 
-        metrics["last_updated"] = datetime.utcnow()
+        metrics["last_updated"] = datetime.now(UTC)
 
     def get_strategy_exposure_details(self, strategy_id: str) -> dict[str, Any]:
         """Get detailed exposure information for a strategy.
@@ -240,11 +240,11 @@ class StrategyPositionTracker:
         # Create a summary dictionary
         return {
             "strategy_id": strategy_id,
-            "total_exposure_value": metrics.get("total_exposure_value", Decimal("0")),
-            "exposure_pct": metrics.get("exposure_pct", Decimal("0")),
+            "total_exposure_value": metrics.get("total_exposure_value", Decimal(0)),
+            "exposure_pct": metrics.get("exposure_pct", Decimal(0)),
             "position_count": metrics.get("position_count", 0),
             "positions": positions,
-            "drawdown_pct": metrics.get("drawdown_pct", Decimal("0")),
-            "current_equity": metrics.get("current_equity", Decimal("0")),
-            "peak_equity": metrics.get("peak_equity", Decimal("0")),
+            "drawdown_pct": metrics.get("drawdown_pct", Decimal(0)),
+            "current_equity": metrics.get("current_equity", Decimal(0)),
+            "peak_equity": metrics.get("peak_equity", Decimal(0)),
         }

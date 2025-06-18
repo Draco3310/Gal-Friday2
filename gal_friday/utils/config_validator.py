@@ -7,16 +7,16 @@ Supports NFR-804 requirements for configuration management.
 Enhanced with formal validation error framework and configuration guidance.
 """
 
-import json
-import logging
-import os
-import re
-import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
+import json
+import logging
+import os
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Union
+import re
+import time
+from typing import Any, ClassVar
 
 
 class ValidationSeverity(str, Enum):
@@ -47,53 +47,53 @@ class ValidationError:
     category: ValidationCategory
     title: str
     message: str
-    field_path: Optional[str] = None
-    current_value: Optional[Any] = None
-    expected_value: Optional[Any] = None
-    remediation: Optional[str] = None
-    documentation_url: Optional[str] = None
-    examples: List[Dict[str, Any]] = field(default_factory=list[Any])
-    related_errors: List[str] = field(default_factory=list[Any])
+    field_path: str | None = None
+    current_value: Any | None = None
+    expected_value: Any | None = None
+    remediation: str | None = None
+    documentation_url: str | None = None
+    examples: list[dict[str, Any]] = field(default_factory=list[Any])
+    related_errors: list[str] = field(default_factory=list[Any])
 
 
 @dataclass
 class ValidationResult:
     """Result of configuration validation."""
     is_valid: bool = False
-    errors: List[ValidationError] = field(default_factory=list[Any])
-    warnings: List[ValidationError] = field(default_factory=list[Any])
-    suggestions: List[ValidationError] = field(default_factory=list[Any])
+    errors: list[ValidationError] = field(default_factory=list[Any])
+    warnings: list[ValidationError] = field(default_factory=list[Any])
+    suggestions: list[ValidationError] = field(default_factory=list[Any])
     validation_time: float = 0.0
-    config_version: Optional[str] = None
+    config_version: str | None = None
     validator_version: str = "1.0.0"
 
 
 class ConfigValidationErrorCodes:
     """Standard error codes for configuration validation."""
-    
+
     # Critical errors
     MISSING_REQUIRED_FIELD = "CV001"
     INVALID_DATA_TYPE = "CV002"
     INVALID_ENUM_VALUE = "CV003"
     CIRCULAR_DEPENDENCY = "CV004"
-    
+
     # Configuration errors
     INVALID_URL_FORMAT = "CV101"
     INVALID_PORT_NUMBER = "CV102"
     INVALID_FILE_PATH = "CV103"
     MISSING_DEPENDENCY = "CV104"
     CONFLICTING_SETTINGS = "CV105"
-    
+
     # Security warnings
     WEAK_CREDENTIALS = "CV201"
     INSECURE_PROTOCOL = "CV202"
     EXPOSED_SECRETS = "CV203"
     PLACEHOLDER_CREDENTIALS = "CV204"
-    
+
     # Performance warnings
     SUBOPTIMAL_SETTINGS = "CV301"
     RESOURCE_LIMITS = "CV302"
-    
+
     # Best practice suggestions
     DEPRECATED_SETTING = "CV401"
     MISSING_OPTIONAL_FIELD = "CV402"
@@ -106,14 +106,14 @@ class ConfigValidationError(ValueError):
 
 class ConfigurationGuidance:
     """Provides guidance for configuration validation errors."""
-    
+
     def __init__(self) -> None:
+        """Initialize the instance."""
         self.error_guidance = self._initialize_error_guidance()
         self.field_documentation = self._initialize_field_documentation()
-    
-    def _initialize_error_guidance(self) -> Dict[str, Dict[str, Any]]:
+
+    def _initialize_error_guidance(self) -> dict[str, dict[str, Any]]:
         """Initialize error code guidance."""
-        
         return {
             ConfigValidationErrorCodes.PLACEHOLDER_CREDENTIALS: {
                 "title": "Placeholder Credentials Detected",
@@ -121,79 +121,78 @@ class ConfigurationGuidance:
                 "remediation_template": "Replace placeholder value for '{field}' with actual credentials or environment variable reference",
                 "examples": [
                     {"field": "api_key", "placeholder": "YOUR_API_KEY", "correct": "${API_KEY}"},
-                    {"field": "database_password", "placeholder": "YOUR_DB_PASSWORD", "correct": "${DB_PASSWORD}"}
+                    {"field": "database_password", "placeholder": "YOUR_DB_PASSWORD", "correct": "${DB_PASSWORD}"},
                 ],
-                "documentation_url": "https://docs.gal-friday.com/config/credentials"
+                "documentation_url": "https://docs.gal-friday.com/config/credentials",
             },
-            
+
             ConfigValidationErrorCodes.EXPOSED_SECRETS: {
                 "title": "Hardcoded Secrets Detected",
                 "description": "Sensitive values appear to be hardcoded instead of using environment variables",
                 "remediation_template": "Move sensitive value '{field}' to environment variable ${env_var}",
                 "examples": [
                     {"field": "api_secret", "wrong": "hardcoded-secret", "correct": "${API_SECRET}"},
-                    {"field": "kraken.api_key", "wrong": "actual-key", "correct": "${KRAKEN_API_KEY}"}
+                    {"field": "kraken.api_key", "wrong": "actual-key", "correct": "${KRAKEN_API_KEY}"},
                 ],
-                "documentation_url": "https://docs.gal-friday.com/security/environment-variables"
+                "documentation_url": "https://docs.gal-friday.com/security/environment-variables",
             },
-            
+
             ConfigValidationErrorCodes.INVALID_URL_FORMAT: {
                 "title": "Invalid URL Format",
                 "description": "The URL format is incorrect or malformed",
                 "remediation_template": "Correct the URL format for '{field}'. Expected format: {expected_format}",
                 "examples": [
                     {"field": "kraken.api_url", "correct": "https://api.kraken.com", "incorrect": "api.kraken.com"},
-                    {"field": "influx.url", "correct": "http://localhost:8086", "incorrect": "localhost:8086"}
+                    {"field": "influx.url", "correct": "http://localhost:8086", "incorrect": "localhost:8086"},
                 ],
-                "documentation_url": "https://docs.gal-friday.com/config/url-format"
+                "documentation_url": "https://docs.gal-friday.com/config/url-format",
             },
-            
+
             ConfigValidationErrorCodes.MISSING_REQUIRED_FIELD: {
                 "title": "Missing Required Configuration Field",
                 "description": "A required configuration field is missing",
                 "remediation_template": "Add the required field '{field}' to your configuration",
                 "examples": [
                     {"field": "exchange.kraken.api_url", "value": "https://api.kraken.com"},
-                    {"field": "trading.pairs", "value": ["BTC/USD", "ETH/USD"]}
+                    {"field": "trading.pairs", "value": ["BTC/USD", "ETH/USD"]},
                 ],
-                "documentation_url": "https://docs.gal-friday.com/config/required-fields"
-            }
+                "documentation_url": "https://docs.gal-friday.com/config/required-fields",
+            },
         }
-    
-    def _initialize_field_documentation(self) -> Dict[str, Dict[str, Any]]:
+
+    def _initialize_field_documentation(self) -> dict[str, dict[str, Any]]:
         """Initialize field-specific documentation."""
-        
         return {
             "kraken.api_key": {
                 "description": "Kraken API key for trading operations",
                 "type": "string",
                 "sensitive": True,
                 "env_var": "KRAKEN_API_KEY",
-                "examples": ["${KRAKEN_API_KEY}"]
+                "examples": ["${KRAKEN_API_KEY}"],
             },
-            
+
             "kraken.api_secret": {
                 "description": "Kraken API secret for authentication",
-                "type": "string", 
+                "type": "string",
                 "sensitive": True,
                 "env_var": "KRAKEN_API_SECRET",
-                "examples": ["${KRAKEN_API_SECRET}"]
+                "examples": ["${KRAKEN_API_SECRET}"],
             },
-            
+
             "database.password": {
                 "description": "Database connection password",
                 "type": "string",
                 "sensitive": True,
-                "env_var": "DB_PASSWORD", 
-                "examples": ["${DB_PASSWORD}"]
-            }
+                "env_var": "DB_PASSWORD",
+                "examples": ["${DB_PASSWORD}"],
+            },
         }
-    
-    def get_error_guidance(self, error_code: str) -> Optional[Dict[str, Any]]:
+
+    def get_error_guidance(self, error_code: str) -> dict[str, Any] | None:
         """Get guidance for specific error code."""
         return self.error_guidance.get(error_code)
-    
-    def get_field_documentation(self, field_name: str) -> Optional[Dict[str, Any]]:
+
+    def get_field_documentation(self, field_name: str) -> dict[str, Any] | None:
         """Get documentation for specific field."""
         return self.field_documentation.get(field_name)
 
@@ -238,14 +237,14 @@ class ConfigValidator:
         self.warnings: list[str] = []
         self.logger = logging.getLogger(__name__)
         self.guidance = ConfigurationGuidance()
-        
+
         # Validation statistics
-        self.validation_stats: Dict[str, Any] = {
-            'total_validations': 0,
-            'successful_validations': 0,
-            'failed_validations': 0,
-            'error_counts': {},
-            'most_common_errors': []
+        self.validation_stats: dict[str, Any] = {
+            "total_validations": 0,
+            "successful_validations": 0,
+            "failed_validations": 0,
+            "error_counts": {},
+            "most_common_errors": [],
         }
 
     def validate_all(self) -> bool:
@@ -268,18 +267,16 @@ class ConfigValidator:
         return len(self.errors) == 0
 
     def validate_with_formal_errors(self) -> ValidationResult:
-        """
-        Enhanced validation with formal error reporting and guidance.
+        """Enhanced validation with formal error reporting and guidance.
         Replaces placeholder warnings with structured validation.
         """
-        
         start_time = time.time()
-        
+
         try:
-            self.validation_stats['total_validations'] += 1
-            
+            self.validation_stats["total_validations"] += 1
+
             result = ValidationResult()
-            
+
             # Perform various validation checks with structured errors
             self._validate_required_fields_enhanced(result)
             self._validate_url_configuration_enhanced(result)
@@ -288,33 +285,33 @@ class ConfigValidator:
             self._validate_trading_parameters_enhanced(result)
             self._validate_logging_configuration_enhanced(result)
             self._validate_prediction_service_config_enhanced(result)
-            
+
             # Calculate validation time
             result.validation_time = time.time() - start_time
-            
+
             # Determine overall validation status
             result.is_valid = len(result.errors) == 0
-            
+
             # Update statistics
             if result.is_valid:
-                self.validation_stats['successful_validations'] += 1
+                self.validation_stats["successful_validations"] += 1
             else:
-                self.validation_stats['failed_validations'] += 1
-                
+                self.validation_stats["failed_validations"] += 1
+
                 # Track error frequencies
                 for error in result.errors:
-                    self.validation_stats['error_counts'][error.code] = \
-                        self.validation_stats['error_counts'].get(error.code, 0) + 1
-            
+                    self.validation_stats["error_counts"][error.code] = \
+                        self.validation_stats["error_counts"].get(error.code, 0) + 1
+
             self.logger.info(f"Configuration validation completed in {result.validation_time:.3f}s")
-            
+
             return result
-            
+
         except Exception as e:
-            self.logger.error(f"Configuration validation failed: {e}")
+            self.logger.exception("Configuration validation failed: ")
             return ValidationResult(
                 is_valid=False,
-                errors=[self._create_critical_error("CV999", "Validation system error", str(e))]
+                errors=[self._create_critical_error("CV999", "Validation system error", str(e))],
             )
 
     def get_errors(self) -> list[str]:
@@ -553,10 +550,9 @@ class ConfigValidator:
         return bool(url_pattern.match(url))
 
     # Enhanced validation methods with formal error reporting
-    
+
     def _validate_sensitive_values_enhanced(self, result: ValidationResult) -> None:
         """Enhanced validation of sensitive values with structured errors."""
-        
         for key_path in self.SENSITIVE_KEYS:
             sections = key_path.split(".")
             current = self.config
@@ -576,10 +572,10 @@ class ConfigValidator:
                             category=ValidationCategory.SECURITY,
                             field_path=key_path,
                             current_value="[PLACEHOLDER]",
-                            expected_value="environment variable reference"
+                            expected_value="environment variable reference",
                         )
                         result.warnings.append(error)
-                        
+
                     elif isinstance(value, str) and not value.startswith("${"):
                         env_var = f"{key_path.upper().replace('.', '_')}"
                         if env_var not in os.environ:
@@ -590,7 +586,7 @@ class ConfigValidator:
                                 category=ValidationCategory.SECURITY,
                                 field_path=key_path,
                                 current_value="[REDACTED]",
-                                expected_value=f"${{{env_var}}}"
+                                expected_value=f"${{{env_var}}}",
                             )
                             result.warnings.append(error)
 
@@ -600,7 +596,6 @@ class ConfigValidator:
 
     def _validate_required_fields_enhanced(self, result: ValidationResult) -> None:
         """Enhanced validation of required fields with structured errors."""
-        
         for section in self.REQUIRED_SECTIONS:
             if section not in self.config:
                 error = self._create_validation_error(
@@ -609,7 +604,7 @@ class ConfigValidator:
                     category=ValidationCategory.SCHEMA,
                     field_path=section,
                     current_value=None,
-                    expected_value="configuration section"
+                    expected_value="configuration section",
                 )
                 result.errors.append(error)
             elif not isinstance(self.config[section], dict):
@@ -619,13 +614,12 @@ class ConfigValidator:
                     category=ValidationCategory.SCHEMA,
                     field_path=section,
                     current_value=type(self.config[section]).__name__,
-                    expected_value="dictionary"
+                    expected_value="dictionary",
                 )
                 result.errors.append(error)
 
     def _validate_url_configuration_enhanced(self, result: ValidationResult) -> None:
         """Enhanced URL validation with structured errors."""
-        
         for key_path, default_url in self.CONFIGURABLE_URLS.items():
             sections = key_path.split(".")
             current = self.config
@@ -645,7 +639,7 @@ class ConfigValidator:
                         field_path=key_path,
                         current_value=None,
                         expected_value=default_url,
-                        remediation=f"Add '{key_path}: {default_url}' to your configuration for explicit control"
+                        remediation=f"Add '{key_path}: {default_url}' to your configuration for explicit control",
                     )
                     result.suggestions.append(suggestion)
                 else:
@@ -657,7 +651,7 @@ class ConfigValidator:
                             category=ValidationCategory.SCHEMA,
                             field_path=key_path,
                             current_value=type(configured_url).__name__,
-                            expected_value="string"
+                            expected_value="string",
                         )
                         result.errors.append(error)
                     elif not self._is_valid_url(configured_url):
@@ -667,7 +661,7 @@ class ConfigValidator:
                             category=ValidationCategory.SYNTAX,
                             field_path=key_path,
                             current_value=configured_url,
-                            expected_value="valid URL format"
+                            expected_value="valid URL format",
                         )
                         result.errors.append(error)
 
@@ -678,16 +672,15 @@ class ConfigValidator:
                     category=ValidationCategory.BEST_PRACTICE,
                     title="Configuration Section Missing for URL",
                     message=f"Section missing for URL configuration '{key_path}'",
-                    field_path=key_path.split('.')[0],
+                    field_path=key_path.split(".")[0],
                     current_value=None,
                     expected_value=f"section with {key_path}",
-                    remediation=f"Add configuration section for {key_path} with value {default_url}"
+                    remediation=f"Add configuration section for {key_path} with value {default_url}",
                 )
                 result.suggestions.append(suggestion)
 
     def _validate_risk_parameters_enhanced(self, result: ValidationResult) -> None:
         """Enhanced risk parameter validation with structured errors."""
-        
         if "risk" not in self.config:
             return
 
@@ -696,7 +689,7 @@ class ConfigValidator:
             limits = risk_config["limits"]
             percentage_keys = [
                 "max_total_drawdown_pct",
-                "max_daily_drawdown_pct", 
+                "max_daily_drawdown_pct",
                 "max_weekly_drawdown_pct",
                 "risk_per_trade_pct",
                 "max_position_size_pct_equity",
@@ -714,7 +707,7 @@ class ConfigValidator:
                                 category=ValidationCategory.SYNTAX,
                                 field_path=f"risk.limits.{key}",
                                 current_value=value,
-                                expected_value="positive number"
+                                expected_value="positive number",
                             )
                             result.errors.append(error)
                         elif value > 100:
@@ -724,7 +717,7 @@ class ConfigValidator:
                                 category=ValidationCategory.PERFORMANCE,
                                 field_path=f"risk.limits.{key}",
                                 current_value=f"{value}%",
-                                expected_value="< 100%"
+                                expected_value="< 100%",
                             )
                             result.warnings.append(warning)
                     except (ValueError, TypeError):
@@ -734,13 +727,12 @@ class ConfigValidator:
                             category=ValidationCategory.SCHEMA,
                             field_path=f"risk.limits.{key}",
                             current_value=limits[key],
-                            expected_value="numeric value"
+                            expected_value="numeric value",
                         )
                         result.errors.append(error)
 
     def _validate_trading_parameters_enhanced(self, result: ValidationResult) -> None:
         """Enhanced trading parameter validation with structured errors."""
-        
         if "trading" not in self.config:
             return
 
@@ -754,7 +746,7 @@ class ConfigValidator:
                     category=ValidationCategory.SCHEMA,
                     field_path="trading.pairs",
                     current_value=type(pairs).__name__,
-                    expected_value="list[Any]"
+                    expected_value="list[Any]",
                 )
                 result.errors.append(error)
             elif len(pairs) == 0:
@@ -764,13 +756,12 @@ class ConfigValidator:
                     category=ValidationCategory.SCHEMA,
                     field_path="trading.pairs",
                     current_value="empty list[Any]",
-                    expected_value="at least one trading pair"
+                    expected_value="at least one trading pair",
                 )
                 result.errors.append(error)
 
     def _validate_logging_configuration_enhanced(self, result: ValidationResult) -> None:
         """Enhanced logging configuration validation with structured errors."""
-        
         if "logging" not in self.config:
             return
 
@@ -785,13 +776,12 @@ class ConfigValidator:
                     category=ValidationCategory.SYNTAX,
                     field_path="logging.level",
                     current_value=level,
-                    expected_value=f"one of {valid_levels}"
+                    expected_value=f"one of {valid_levels}",
                 )
                 result.errors.append(error)
 
     def _validate_prediction_service_config_enhanced(self, result: ValidationResult) -> None:
         """Enhanced prediction service validation with structured errors."""
-        
         if "prediction_service" not in self.config:
             return
 
@@ -806,18 +796,17 @@ class ConfigValidator:
                     category=ValidationCategory.SYNTAX,
                     field_path="prediction_service.ensemble_strategy",
                     current_value=strategy,
-                    expected_value=f"one of {valid_strategies}"
+                    expected_value=f"one of {valid_strategies}",
                 )
                 result.errors.append(error)
 
-    def _create_validation_error(self, code: str, severity: ValidationSeverity, 
+    def _create_validation_error(self, code: str, severity: ValidationSeverity,
                                category: ValidationCategory, field_path: str,
                                current_value: Any, expected_value: Any) -> ValidationError:
         """Create structured validation error with guidance."""
-        
         # Get guidance for this error code
         guidance = self.guidance.get_error_guidance(code)
-        
+
         if guidance:
             title = guidance["title"]
             description = guidance["description"]
@@ -827,7 +816,7 @@ class ConfigValidator:
                 current_value=current_value,
                 expected_value=expected_value,
                 env_var=env_var,
-                expected_format=expected_value
+                expected_format=expected_value,
             )
             documentation_url = guidance.get("documentation_url")
             examples = guidance.get("examples", [])
@@ -837,7 +826,7 @@ class ConfigValidator:
             remediation = f"Please correct the value for '{field_path}'"
             documentation_url = None
             examples = []
-        
+
         return ValidationError(
             code=code,
             severity=severity,
@@ -849,41 +838,37 @@ class ConfigValidator:
             expected_value=expected_value,
             remediation=remediation,
             documentation_url=documentation_url,
-            examples=examples
+            examples=examples,
         )
 
     def _create_critical_error(self, code: str, title: str, message: str) -> ValidationError:
         """Create a critical validation error."""
-        
         return ValidationError(
             code=code,
             severity=ValidationSeverity.CRITICAL,
             category=ValidationCategory.SCHEMA,
             title=title,
             message=message,
-            remediation="Check configuration syntax and structure"
+            remediation="Check configuration syntax and structure",
         )
 
     def generate_validation_report(self, result: ValidationResult, format: str = "text") -> str:
         """Generate formatted validation report."""
-        
         if format == "json":
             return self._generate_json_report(result)
-        elif format == "markdown":
+        if format == "markdown":
             return self._generate_markdown_report(result)
-        else:
-            return self._generate_text_report(result)
-    
+        return self._generate_text_report(result)
+
     def _generate_text_report(self, result: ValidationResult) -> str:
         """Generate text format validation report."""
-        
         lines = []
         lines.append("Configuration Validation Report")
         lines.append("=" * 40)
         lines.append(f"Status: {'PASSED' if result.is_valid else 'FAILED'}")
         lines.append(f"Validation Time: {result.validation_time:.3f}s")
         lines.append("")
-        
+
         if result.errors:
             lines.append("ERRORS:")
             for error in result.errors:
@@ -894,7 +879,7 @@ class ConfigValidator:
                 if error.documentation_url:
                     lines.append(f"    Docs: {error.documentation_url}")
                 lines.append("")
-        
+
         if result.warnings:
             lines.append("WARNINGS:")
             for warning in result.warnings:
@@ -903,7 +888,7 @@ class ConfigValidator:
                 lines.append(f"    Issue: {warning.message}")
                 lines.append(f"    Recommendation: {warning.remediation}")
                 lines.append("")
-        
+
         if result.suggestions:
             lines.append("SUGGESTIONS:")
             for suggestion in result.suggestions:
@@ -911,12 +896,12 @@ class ConfigValidator:
                 lines.append(f"    Field: {suggestion.field_path}")
                 lines.append(f"    Suggestion: {suggestion.remediation}")
                 lines.append("")
-        
+
         return "\n".join(lines)
 
     def _generate_json_report(self, result: ValidationResult) -> str:
         """Generate JSON format validation report."""
-        
+
         def error_to_dict(error: ValidationError) -> dict[str, Any]:
             return {
                 "code": error.code,
@@ -929,9 +914,9 @@ class ConfigValidator:
                 "expected_value": str(error.expected_value) if error.expected_value is not None else None,
                 "remediation": error.remediation,
                 "documentation_url": error.documentation_url,
-                "examples": error.examples
+                "examples": error.examples,
             }
-        
+
         report = {
             "validation_result": {
                 "is_valid": result.is_valid,
@@ -939,22 +924,21 @@ class ConfigValidator:
                 "validator_version": result.validator_version,
                 "errors": [error_to_dict(e) for e in result.errors],
                 "warnings": [error_to_dict(w) for w in result.warnings],
-                "suggestions": [error_to_dict(s) for s in result.suggestions]
-            }
+                "suggestions": [error_to_dict(s) for s in result.suggestions],
+            },
         }
-        
+
         return json.dumps(report, indent=2)
 
     def _generate_markdown_report(self, result: ValidationResult) -> str:
         """Generate Markdown format validation report."""
-        
         lines = []
         lines.append("# Configuration Validation Report")
         lines.append("")
         lines.append(f"**Status:** {'✅ PASSED' if result.is_valid else '❌ FAILED'}")
         lines.append(f"**Validation Time:** {result.validation_time:.3f}s")
         lines.append("")
-        
+
         if result.errors:
             lines.append("## ❌ Errors")
             lines.append("")
@@ -966,7 +950,7 @@ class ConfigValidator:
                 if error.documentation_url:
                     lines.append(f"- **Documentation:** [{error.documentation_url}]({error.documentation_url})")
                 lines.append("")
-        
+
         if result.warnings:
             lines.append("## ⚠️ Warnings")
             lines.append("")
@@ -976,7 +960,7 @@ class ConfigValidator:
                 lines.append(f"- **Issue:** {warning.message}")
                 lines.append(f"- **Recommendation:** {warning.remediation}")
                 lines.append("")
-        
+
         if result.suggestions:
             lines.append("## 💡 Suggestions")
             lines.append("")
@@ -985,7 +969,7 @@ class ConfigValidator:
                 lines.append(f"- **Field:** `{suggestion.field_path}`")
                 lines.append(f"- **Suggestion:** {suggestion.remediation}")
                 lines.append("")
-        
+
         return "\n".join(lines)
 
 
@@ -1005,7 +989,7 @@ def validate_config(config: dict[str, Any]) -> tuple[bool, list[str], list[str]]
 
 def validate_config_enhanced(config: dict[str, Any]) -> ValidationResult:
     """Enhanced validation with structured error reporting and guidance.
-    
+
     This function replaces placeholder warnings with formal validation errors
     and provides comprehensive configuration guidance.
 

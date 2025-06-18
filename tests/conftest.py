@@ -4,11 +4,11 @@ This module defines the complete test fixtures used for testing, including
 market data events, trading signals, and mock services.
 """
 
-import asyncio
-import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+import uuid
 
+import asyncio
 import pytest
 
 from gal_friday.core.pubsub import PubSubManager
@@ -125,27 +125,27 @@ def sample_market_data():
     return {
         "XRP/USD": {
             "bids": [
-                (Decimal("0.5000"), Decimal("1000")),
-                (Decimal("0.4999"), Decimal("2000")),
-                (Decimal("0.4998"), Decimal("1500")),
+                (Decimal("0.5000"), Decimal(1000)),
+                (Decimal("0.4999"), Decimal(2000)),
+                (Decimal("0.4998"), Decimal(1500)),
             ],
             "asks": [
-                (Decimal("0.5001"), Decimal("1000")),
-                (Decimal("0.5002"), Decimal("2000")),
-                (Decimal("0.5003"), Decimal("1500")),
+                (Decimal("0.5001"), Decimal(1000)),
+                (Decimal("0.5002"), Decimal(2000)),
+                (Decimal("0.5003"), Decimal(1500)),
             ],
             "timestamp": datetime.now(UTC),
         },
         "DOGE/USD": {
             "bids": [
-                (Decimal("0.0800"), Decimal("10000")),
-                (Decimal("0.0799"), Decimal("20000")),
-                (Decimal("0.0798"), Decimal("15000")),
+                (Decimal("0.0800"), Decimal(10000)),
+                (Decimal("0.0799"), Decimal(20000)),
+                (Decimal("0.0798"), Decimal(15000)),
             ],
             "asks": [
-                (Decimal("0.0801"), Decimal("10000")),
-                (Decimal("0.0802"), Decimal("20000")),
-                (Decimal("0.0803"), Decimal("15000")),
+                (Decimal("0.0801"), Decimal(10000)),
+                (Decimal("0.0802"), Decimal(20000)),
+                (Decimal("0.0803"), Decimal(15000)),
             ],
             "timestamp": datetime.now(UTC),
         },
@@ -199,11 +199,11 @@ def mock_portfolio_state():
     return {
         "total_drawdown_pct": Decimal("1.5"),
         "daily_drawdown_pct": Decimal("0.5"),
-        "current_equity": Decimal("98500"),
-        "initial_equity": Decimal("100000"),
+        "current_equity": Decimal(98500),
+        "initial_equity": Decimal(100000),
         "positions": {
             "XRP/USD": {
-                "quantity": Decimal("1000"),
+                "quantity": Decimal(1000),
                 "side": "BUY",
                 "entry_price": Decimal("0.5000"),
                 "current_price": Decimal("0.5050"),
@@ -241,9 +241,9 @@ def mock_exchange_api():
         def __init__(self):
             self.orders = {}
             self.balances = {
-                "USD": Decimal("100000"),
-                "XRP": Decimal("0"),
-                "DOGE": Decimal("0"),
+                "USD": Decimal(100000),
+                "XRP": Decimal(0),
+                "DOGE": Decimal(0),
             }
             self.order_counter = 0
 

@@ -64,6 +64,7 @@ class PositionNotFoundError(OperationalError):
     """Exception raised when a trading position is not found."""
 
     def __init__(self, trading_pair: str | None = None, position_id: str | None = None, message: str | None = None) -> None:
+        """Initialize the instance."""
         if message is None:
             if trading_pair:
                 message = f"Position not found for trading pair: {trading_pair}"
@@ -345,7 +346,7 @@ class MarketPriceServiceCriticalFailureExit(CriticalExit):
             _original_exception: Optional original exception that caused the failure
         """
         super().__init__(
-            "MarketPriceService instantiation failed critically. " "Application exiting.")
+            "MarketPriceService instantiation failed critically. Application exiting.")
 
 
 class PortfolioManagerInstantiationFailedExit(CriticalExit):

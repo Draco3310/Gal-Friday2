@@ -1,31 +1,30 @@
 """Tests for HistoricalDataLoader provider selection and error handling."""
 
 from datetime import datetime
-from typing import List
 
 import pytest
 
 from gal_friday.simulated_market_price_service import (
+    DataLoadingError,
     DataRequest,
     DataSource,
     HistoricalDataLoader,
     HistoricalDataPoint,
     HistoricalDataProvider,
-    DataLoadingError,
 )
 
 
 class MockProvider(HistoricalDataProvider):
     """Simple provider used for testing."""
 
-    def __init__(self, symbols: list[str], result: List[HistoricalDataPoint], *, raise_error: bool = False) -> None:
+    def __init__(self, symbols: list[str], result: list[HistoricalDataPoint], *, raise_error: bool = False) -> None:
         self.symbols = symbols
         self.result = result
         self.raise_error = raise_error
         self.fetch_called = 0
         self.validate_called = 0
 
-    async def fetch_data(self, request: DataRequest) -> List[HistoricalDataPoint]:
+    async def fetch_data(self, request: DataRequest) -> list[HistoricalDataPoint]:
         self.fetch_called += 1
         if self.raise_error:
             raise ValueError("failed")
@@ -36,7 +35,7 @@ class MockProvider(HistoricalDataProvider):
         return symbol in self.symbols
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_select_by_data_source() -> None:
     """Provider is chosen based on request.data_source."""
     data = [HistoricalDataPoint(datetime.utcnow(), "BTC", 1, 1, 1, 1, 1)]
@@ -62,7 +61,7 @@ async def test_select_by_data_source() -> None:
     assert p1.fetch_called == 0
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_auto_provider_selection() -> None:
     """First provider validating the symbol is used when data_source is None."""
     data = [HistoricalDataPoint(datetime.utcnow(), "BTC", 1, 1, 1, 1, 1)]
@@ -88,7 +87,7 @@ async def test_auto_provider_selection() -> None:
     assert loader.cache_stats["provider_requests"] == 1
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_missing_provider_raises() -> None:
     """DataLoadingError is raised when no provider is found."""
     loader = HistoricalDataLoader({})
@@ -108,7 +107,7 @@ async def test_missing_provider_raises() -> None:
     assert loader.cache_stats["provider_requests"] == 0
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_fetch_error_wrapped() -> None:
     """Errors from provider.fetch_data are wrapped in DataLoadingError."""
     p = MockProvider(["BTC"], [], raise_error=True)

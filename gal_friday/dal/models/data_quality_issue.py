@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
-from uuid import UUID as PythonUUID
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -9,7 +8,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from .models_base import Base
-from typing import Any
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID as PythonUUID
 
 
 class DataQualityIssue(Base):

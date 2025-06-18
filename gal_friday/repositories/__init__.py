@@ -4,14 +4,15 @@ This module provides repository classes for database operations.
 """
 
 from .strategy_repositories import (
-    StrategyRepository,
     PerformanceMetricsRepository,
     SelectionHistoryRepository,
-    StrategyBacktestRepository)
+    StrategyBacktestRepository,
+    StrategyRepository,
+)
 
 __all__ = [
-    "StrategyRepository",
     "PerformanceMetricsRepository",
     "SelectionHistoryRepository",
     "StrategyBacktestRepository",
+    "StrategyRepository",
 ]

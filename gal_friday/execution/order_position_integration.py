@@ -5,33 +5,32 @@ and position management, automatically establishing relationships when orders
 affect positions.
 """
 
-import asyncio
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ..dal.models import Order
+    from gal_friday.dal.models import Order
 from uuid import UUID
 
-from ..core.events import ExecutionReportEvent
-from ..dal.repositories.order_repository import OrderRepository
-from ..dal.repositories.position_repository import PositionRepository
-from ..logger_service import LoggerService
-from ..portfolio.position_manager import PositionManager
+from gal_friday.core.events import ExecutionReportEvent
+from gal_friday.dal.repositories.order_repository import OrderRepository
+from gal_friday.dal.repositories.position_repository import PositionRepository
+from gal_friday.logger_service import LoggerService
+from gal_friday.portfolio.position_manager import PositionManager
 
 
 class OrderPositionIntegrationService:
     """Service for integrating order processing with position management."""
-    
+
     def __init__(
         self,
         order_repository: OrderRepository,
         position_repository: PositionRepository,
         position_manager: PositionManager,
-        logger: LoggerService):
+        logger: LoggerService) -> None:
         """Initialize the integration service.
-        
+
         Args:
             order_repository: Repository for order data
             position_repository: Repository for position data
@@ -46,13 +45,13 @@ class OrderPositionIntegrationService:
 
     async def process_execution_report(self, execution_report: ExecutionReportEvent) -> bool:
         """Process execution report and establish position-order relationships.
-        
+
         This method is called when an execution report is received to automatically
         link orders to positions and update position data.
-        
+
         Args:
             execution_report: The execution report to process
-            
+
         Returns:
             True if processing was successful, False otherwise
         """
@@ -86,7 +85,7 @@ class OrderPositionIntegrationService:
                     f"Execution report for order {order_id} missing average fill price",
                     source_module=self._source_module)
                 return False
-            
+
             # Ensure trade_id is not None
             trade_id = execution_report.exchange_order_id or execution_report.client_order_id
             if not trade_id:
@@ -94,7 +93,7 @@ class OrderPositionIntegrationService:
                     f"Execution report for order {order_id} missing trade ID",
                     source_module=self._source_module)
                 return False
-            
+
             realized_pnl, updated_position = await self.position_manager.update_position_for_trade(
                 trading_pair=execution_report.trading_pair,
                 side=execution_report.side,
@@ -112,11 +111,10 @@ class OrderPositionIntegrationService:
                     f"position {updated_position.id}, realized PnL: {realized_pnl}",
                     source_module=self._source_module)
                 return True
-            else:
-                self.logger.error(
-                    f"Failed to update position for order {order_id}",
-                    source_module=self._source_module)
-                return False
+            self.logger.error(
+                f"Failed to update position for order {order_id}",
+                source_module=self._source_module)
+            return False
 
         except Exception as e:
             self.logger.exception(
@@ -126,20 +124,20 @@ class OrderPositionIntegrationService:
             return False
 
     async def link_existing_order_to_position(
-        self, 
-        order_id: str | UUID, 
+        self,
+        order_id: str | UUID,
         position_id: str | UUID,
-        verify_consistency: bool = True
+        verify_consistency: bool = True,
     ) -> bool:
         """Manually link an existing order to a position.
-        
+
         This method can be used for data migration or manual corrections.
-        
+
         Args:
             order_id: The ID of the order to link
             position_id: The ID of the position to link to
             verify_consistency: Whether to verify the link makes sense
-            
+
         Returns:
             True if linking was successful, False otherwise
         """
@@ -154,7 +152,7 @@ class OrderPositionIntegrationService:
 
             # Establish the link
             updated_order = await self.order_repository.link_order_to_position(
-                order_id_str, position_id_str
+                order_id_str, position_id_str,
             )
 
             if updated_order:
@@ -162,63 +160,61 @@ class OrderPositionIntegrationService:
                     f"Successfully linked order {order_id_str} to position {position_id_str}",
                     source_module=self._source_module)
                 return True
-            else:
-                self.logger.error(
-                    f"Failed to link order {order_id_str} to position {position_id_str}",
-                    source_module=self._source_module)
-                return False
+            self.logger.error(
+                f"Failed to link order {order_id_str} to position {position_id_str}",
+                source_module=self._source_module)
+            return False
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error linking order {order_id} to position {position_id}: {e}",
+                f"Error linking order {order_id} to position {position_id}: ",
                 source_module=self._source_module)
             return False
 
     async def unlink_order_from_position(self, order_id: str | UUID) -> bool:
         """Remove position link from an order.
-        
+
         Args:
             order_id: The ID of the order to unlink
-            
+
         Returns:
             True if unlinking was successful, False otherwise
         """
         try:
             order_id_str = str(order_id)
-            
+
             updated_order = await self.order_repository.unlink_order_from_position(order_id_str)
-            
+
             if updated_order:
                 self.logger.info(
                     f"Successfully unlinked order {order_id_str} from position",
                     source_module=self._source_module)
                 return True
-            else:
-                self.logger.warning(
-                    f"Order {order_id_str} not found or already unlinked",
-                    source_module=self._source_module)
-                return False
+            self.logger.warning(
+                f"Order {order_id_str} not found or already unlinked",
+                source_module=self._source_module)
+            return False
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error unlinking order {order_id} from position: {e}",
+                f"Error unlinking order {order_id} from position: ",
                 source_module=self._source_module)
             return False
 
     async def reconcile_order_position_relationships(
-        self, 
+        self,
         hours_back: int = 24,
-        auto_fix: bool = False
+        auto_fix: bool = False,
     ) -> dict[str, Any]:
         """Reconcile order-position relationships for recent data.
-        
+
         This method identifies and optionally fixes inconsistencies in
         order-position relationships.
-        
+
         Args:
             hours_back: Number of hours to look back for reconciliation
             auto_fix: Whether to automatically fix safe issues
-            
+
         Returns:
             Dictionary containing reconciliation results
         """
@@ -269,16 +265,16 @@ class OrderPositionIntegrationService:
 
         except Exception as e:
             self.logger.exception(
-                f"Error during order-position reconciliation: {e}",
+                "Error during order-position reconciliation: ",
                 source_module=self._source_module)
             return {"error": str(e)}
 
     async def get_position_audit_trail(self, position_id: str | UUID) -> dict[str, Any]:
         """Get complete audit trail for a position.
-        
+
         Args:
             position_id: The ID of the position
-            
+
         Returns:
             Dictionary containing position audit trail
         """
@@ -304,7 +300,7 @@ class OrderPositionIntegrationService:
                 "is_active": position.is_active,
                 "opened_at": position.opened_at.isoformat() if position.opened_at else None,
                 "closed_at": position.closed_at.isoformat() if position.closed_at else None,
-                "contributing_orders": []
+                "contributing_orders": [],
             }
 
             # Add order details
@@ -320,7 +316,7 @@ class OrderPositionIntegrationService:
                     "created_at": order.created_at.isoformat() if order.created_at else None,
                 }
                 audit_trail["contributing_orders"].append(order_info)
-                
+
                 if order.filled_quantity:
                     total_order_quantity += order.filled_quantity
 
@@ -328,14 +324,14 @@ class OrderPositionIntegrationService:
             audit_trail["summary"] = {
                 "total_contributing_orders": len(orders),
                 "total_order_quantity": str(total_order_quantity),
-                "quantity_consistency": abs(position.quantity - total_order_quantity) < Decimal('0.00000001'),
+                "quantity_consistency": abs(position.quantity - total_order_quantity) < Decimal("0.00000001"),
             }
 
             return audit_trail
 
         except Exception as e:
             self.logger.exception(
-                f"Error generating audit trail for position {position_id}: {e}",
+                f"Error generating audit trail for position {position_id}: ",
                 source_module=self._source_module)
             return {"error": str(e)}
 
@@ -367,9 +363,9 @@ class OrderPositionIntegrationService:
 
             return True
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error verifying order-position consistency: {e}",
+                "Error verifying order-position consistency: ",
                 source_module=self._source_module)
             return False
 
@@ -378,16 +374,16 @@ class OrderPositionIntegrationService:
         # Only auto-fix orders that are clearly filled and recent
         if order.status not in ["FILLED", "PARTIALLY_FILLED"]:
             return False
-        
+
         if not order.filled_quantity or order.filled_quantity <= 0:
             return False
-        
+
         # Check if order is recent enough (within last 7 days)
         if order.created_at:
             age_days = (datetime.now(UTC) - order.created_at).days
             if age_days > 7:
                 return False
-        
+
         return True
 
     async def _auto_fix_unlinked_order(self, order: "Order") -> bool:
@@ -395,47 +391,47 @@ class OrderPositionIntegrationService:
         try:
             # Look for an existing active position for the same trading pair
             position = await self.position_repository.get_position_by_pair(order.trading_pair)
-            
+
             if position:
                 # Link to existing position
                 updated_order = await self.order_repository.link_order_to_position(
-                    str(order.id), str(position.id)
+                    str(order.id), str(position.id),
                 )
-                
+
                 if updated_order:
                     self.logger.info(
                         f"Auto-fixed: Linked order {order.id} to existing position {position.id}",
                         source_module=self._source_module)
                     return True
-            
+
             # If no position exists, we could create one, but that's more complex
             # For now, just log that manual intervention is needed
             self.logger.warning(
                 f"Cannot auto-fix order {order.id} - no suitable position found",
                 source_module=self._source_module)
             return False
-            
-        except Exception as e:
+
+        except Exception:
             self.logger.exception(
-                f"Error auto-fixing unlinked order {order.id}: {e}",
+                f"Error auto-fixing unlinked order {order.id}: ",
                 source_module=self._source_module)
             return False
 
     async def _check_orphaned_position_references(self, results: dict[str, Any], auto_fix: bool) -> int:
         """Check for and optionally fix orphaned position references."""
         fixed_count = 0
-        
+
         try:
             # This would use a more complex query to find orphaned references
             # For now, placeholder implementation
             self.logger.debug("Checking for orphaned position references")
-            
+
             # Implementation would go here to find orders referencing non-existent positions
             # and auto-fix them if requested
-            
-        except Exception as e:
+
+        except Exception:
             self.logger.exception(
-                f"Error checking orphaned position references: {e}",
+                "Error checking orphaned position references: ",
                 source_module=self._source_module)
-        
-        return fixed_count 
+
+        return fixed_count

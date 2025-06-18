@@ -7,45 +7,47 @@ It also supports volatility-adjusted spread calculation and market depth simulat
 
 """
 
-import logging
+from abc import ABC, abstractmethod
+from collections import deque
+from collections.abc import Callable
+import contextlib
 import dataclasses
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, AsyncIterator, Callable, cast
 from enum import Enum
-from abc import ABC, abstractmethod
-import asyncio
-import time
 import heapq
-from collections import deque
+import logging
+import time
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    cast,
+)
 
-import pandas as pd
+import asyncio
 import numpy as np
-
-# Provider implementations
-from .providers import (
-    APIDataProvider,
-    DatabaseDataProvider,
-    LocalFileDataProvider)
+import pandas as pd
 
 # Import the base class
 from .market_price_service import MarketPriceService
-from typing import Any
+
+# Provider implementations
+from .providers import APIDataProvider, DatabaseDataProvider, LocalFileDataProvider
 
 # Import enhanced components
 try:
     from .market_price_service_enhancements import (
-        EnterpriseConfigurationManager,
         AdvancedPriceGenerator,
-        RealisticHistoricalDataGenerator,
-        MarketRegime,
-        PriceModelType,
+        EnterpriseConfigurationManager,
+        MarketEvent,
         MarketEventType,
         MarketParameters,
-        MarketEvent,
+        MarketRegime,
+        PriceModelType,
         PricePoint,
-        create_enterprise_market_service
+        RealisticHistoricalDataGenerator,
+        create_enterprise_market_service,
     )
     ENHANCEMENTS_AVAILABLE = True
 except ImportError:
@@ -53,7 +55,7 @@ except ImportError:
     log_temp = logging.getLogger(__name__)
     log_temp.info(
         "Enhanced market price components not available. "
-        "Using basic implementation."
+        "Using basic implementation.",
     )
 
 # Attempt to import the actual ConfigManager
@@ -66,22 +68,22 @@ else:
         # For backward compatibility, define a minimal interface
         class ConfigManager:
             """Minimal placeholder for ConfigManager."""
-            
+
             def get(self, _key: str, default: object | None = None) -> object | None:
                 """Get a value from config."""
                 return default
-            
+
             def get_decimal(self, _key: str, default: Decimal) -> Decimal:
                 """Get a decimal value from config."""
                 return default
-            
+
             def get_int(self, _key: str, default: int) -> int:
                 """Get an integer value from config."""
                 return default
 
 # Attempt to import pandas_ta for ATR calculation
 try:
-    import pandas_ta as ta  
+    import pandas_ta as ta
 except ImportError:
     ta = None
     log_temp = logging.getLogger(__name__)
@@ -95,7 +97,7 @@ _SOURCE_MODULE = "SimulatedMarketPriceService"
 # === ENTERPRISE-GRADE HISTORICAL DATA LOADING & CACHING SYSTEM ===
 
 class DataSource(str, Enum):
-    """Supported historical data sources"""
+    """Supported historical data sources."""
     YAHOO_FINANCE = "yahoo_finance"
     ALPHA_VANTAGE = "alpha_vantage"
     BINANCE = "binance"
@@ -106,12 +108,12 @@ class DataSource(str, Enum):
 
 @dataclass
 class DataRequest:
-    """Historical data request specification"""
+    """Historical data request specification."""
     symbol: str
     start_date: datetime
     end_date: datetime
     frequency: str
-    data_source: Optional[DataSource] = None
+    data_source: DataSource | None = None
     include_volume: bool = True
     validate_data: bool = True
     cache_result: bool = True
@@ -119,7 +121,7 @@ class DataRequest:
 
 @dataclass
 class HistoricalDataPoint:
-    """Single historical data point"""
+    """Single historical data point."""
     timestamp: datetime
     symbol: str
     open: float
@@ -127,53 +129,50 @@ class HistoricalDataPoint:
     low: float
     close: float
     volume: float
-    metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 class HistoricalDataProvider(ABC):
-    """Abstract base class for historical data providers"""
+    """Abstract base class for historical data providers."""
 
     @abstractmethod
-    async def fetch_data(self, request: DataRequest) -> List[HistoricalDataPoint]:
-        """Fetch historical data for the given request"""
-        pass
+    async def fetch_data(self, request: DataRequest) -> list[HistoricalDataPoint]:
+        """Fetch historical data for the given request."""
 
     @abstractmethod
     async def validate_symbol(self, symbol: str) -> bool:
-        """Validate if symbol is supported by this provider"""
-        pass
+        """Validate if symbol is supported by this provider."""
 
 
 class CacheLayer(ABC):
-    """Abstract base class for cache layers"""
+    """Abstract base class for cache layers."""
 
     @abstractmethod
-    async def get(self, key: str) -> Optional[List[HistoricalDataPoint]]:
-        """Get data from cache"""
-        pass
+    async def get(self, key: str) -> list[HistoricalDataPoint] | None:
+        """Get data from cache."""
 
     @abstractmethod
-    async def set(self, key: str, data: List[HistoricalDataPoint], ttl: int = 3600) -> None:
-        """Store data in cache with TTL"""
-        pass
+    async def set(self, key: str, data: list[HistoricalDataPoint], ttl: int = 3600) -> None:
+        """Store data in cache with TTL."""
 
 
 class MemoryCache(CacheLayer):
-    """In-memory cache implementation with LRU eviction"""
+    """In-memory cache implementation with LRU eviction."""
 
     def __init__(self, max_size: int = 1000) -> None:
+        """Initialize the instance."""
         self.max_size = max_size
-        self.cache: Dict[str, tuple[List[HistoricalDataPoint], float]] = {}
-        self.access_order: Dict[str, float] = {}
+        self.cache: dict[str, tuple[list[HistoricalDataPoint], float]] = {}
+        self.access_order: dict[str, float] = {}
 
-    async def get(self, key: str) -> Optional[List[HistoricalDataPoint]]:
+    async def get(self, key: str) -> list[HistoricalDataPoint] | None:
         if key in self.cache:
             data, timestamp = self.cache[key]
             self.access_order[key] = time.time()
             return data
         return None
 
-    async def set(self, key: str, data: List[HistoricalDataPoint], ttl: int = 3600) -> None:
+    async def set(self, key: str, data: list[HistoricalDataPoint], ttl: int = 3600) -> None:
         # Evict LRU items if cache is full
         while len(self.cache) >= self.max_size:
             lru_key = min(self.access_order.keys(), key=lambda k: self.access_order[k])
@@ -185,46 +184,47 @@ class MemoryCache(CacheLayer):
 
 
 class DiskCache(CacheLayer):
-    """Disk-based cache implementation"""
+    """Disk-based cache implementation."""
 
     def __init__(self, cache_path: str = "./cache") -> None:
+        """Initialize the instance."""
         self.cache_path = cache_path
         # In a real implementation, this would use file-based storage
-        self._disk_cache: Dict[str, List[HistoricalDataPoint]] = {}
+        self._disk_cache: dict[str, list[HistoricalDataPoint]] = {}
 
-    async def get(self, key: str) -> Optional[List[HistoricalDataPoint]]:
+    async def get(self, key: str) -> list[HistoricalDataPoint] | None:
         return self._disk_cache.get(key)
 
-    async def set(self, key: str, data: List[HistoricalDataPoint], ttl: int = 3600) -> None:
+    async def set(self, key: str, data: list[HistoricalDataPoint], ttl: int = 3600) -> None:
         self._disk_cache[key] = data
 
 
 class DataLoadingError(Exception):
-    """Exception raised for data loading errors"""
-    pass
+    """Exception raised for data loading errors."""
 
 
 class HistoricalDataLoader:
-    """Enterprise-grade historical data loading and caching system"""
+    """Enterprise-grade historical data loading and caching system."""
 
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any]) -> None:
+        """Initialize the instance."""
         self.config = config
         self.logger = logging.getLogger(__name__)
 
         # Initialize data providers
-        self.providers: Dict[DataSource, HistoricalDataProvider] = {}
+        self.providers: dict[DataSource, HistoricalDataProvider] = {}
         self._initialize_providers()
 
         # Initialize cache layers
-        self.memory_cache = MemoryCache(config.get('memory_cache_size', 1000))
-        self.disk_cache = DiskCache(config.get('disk_cache_path', './cache'))
+        self.memory_cache = MemoryCache(config.get("memory_cache_size", 1000))
+        self.disk_cache = DiskCache(config.get("disk_cache_path", "./cache"))
 
         # Performance tracking
         self.cache_stats = {
-            'memory_hits': 0,
-            'disk_hits': 0,
-            'provider_requests': 0,
-            'total_requests': 0
+            "memory_hits": 0,
+            "disk_hits": 0,
+            "provider_requests": 0,
+            "total_requests": 0,
         }
 
     def _initialize_providers(self) -> None:
@@ -235,15 +235,15 @@ class HistoricalDataLoader:
             try:
                 if name == "local_files":
                     self.providers[DataSource.LOCAL_FILES] = LocalFileDataProvider(
-                        self.config, self.logger
+                        self.config, self.logger,
                     )
                 elif name == "database":
                     self.providers[DataSource.DATABASE] = DatabaseDataProvider(
-                        self.config, self.logger
+                        self.config, self.logger,
                     )
                 elif name == "api":
                     self.providers[DataSource.YAHOO_FINANCE] = APIDataProvider(
-                        self.config, self.logger
+                        self.config, self.logger,
                     )
                 else:
                     self.logger.warning("Unknown provider name: %s", name)
@@ -251,20 +251,19 @@ class HistoricalDataLoader:
 
                 self.logger.info("Initialized data provider: %s", name)
             except Exception as exc:  # pragma: no cover - initialization best effort
-                self.logger.error("Failed to initialize provider %s: %s", name, exc)
+                self.logger.exception("Failed to initialize provider %s: %s", name, exc)
 
-    async def load_historical_data(self, request: DataRequest) -> List[HistoricalDataPoint]:
-        """
-        Load historical data with intelligent caching
-        Enterprise-grade historical data loading implementation
+    async def load_historical_data(self, request: DataRequest) -> list[HistoricalDataPoint]:
+        """Load historical data with intelligent caching
+        Enterprise-grade historical data loading implementation.
         """
         try:
             self.logger.info(
                 f"Loading historical data for {request.symbol}: "
-                f"{request.start_date} to {request.end_date}"
+                f"{request.start_date} to {request.end_date}",
             )
 
-            self.cache_stats['total_requests'] += 1
+            self.cache_stats["total_requests"] += 1
 
             # Generate cache key
             cache_key = self._generate_cache_key(request)
@@ -272,14 +271,14 @@ class HistoricalDataLoader:
             # Try memory cache first
             data = await self.memory_cache.get(cache_key)
             if data:
-                self.cache_stats['memory_hits'] += 1
+                self.cache_stats["memory_hits"] += 1
                 self.logger.debug("Data found in memory cache")
                 return data
 
             # Try disk cache
             data = await self.disk_cache.get(cache_key)
             if data:
-                self.cache_stats['disk_hits'] += 1
+                self.cache_stats["disk_hits"] += 1
                 self.logger.debug("Data found in disk cache")
 
                 # Store in memory cache for faster future access
@@ -308,18 +307,18 @@ class HistoricalDataLoader:
             return data
 
         except Exception as e:
-            self.logger.error(f"Error loading historical data for {request.symbol}: {e}")
+            self.logger.exception(f"Error loading historical data for {request.symbol}: ")
             raise DataLoadingError(f"Failed to load historical data: {e}")
 
-    async def _load_from_provider(self, request: DataRequest) -> List[HistoricalDataPoint]:
-        """Load data from appropriate provider"""
+    async def _load_from_provider(self, request: DataRequest) -> list[HistoricalDataPoint]:
+        """Load data from appropriate provider."""
         provider: HistoricalDataProvider | None = None
 
         if request.data_source is not None:
             provider = self.providers.get(request.data_source)
             if provider is None:
                 raise DataLoadingError(
-                    f"No provider configured for data source: {request.data_source}"
+                    f"No provider configured for data source: {request.data_source}",
                 )
         else:
             for candidate in self.providers.values():
@@ -328,11 +327,11 @@ class HistoricalDataLoader:
                         provider = candidate
                         break
                 except Exception as exc:  # pragma: no cover - defensive
-                    self.logger.error("Provider validation failed: %s", exc)
+                    self.logger.exception("Provider validation failed: ", exc)
 
         if provider is None:
             raise DataLoadingError(
-                f"No provider available for symbol: {request.symbol}"
+                f"No provider available for symbol: {request.symbol}",
             )
 
         self.cache_stats["provider_requests"] += 1
@@ -342,47 +341,47 @@ class HistoricalDataLoader:
         except Exception as exc:  # pragma: no cover - wrap and rethrow
             raise DataLoadingError(str(exc)) from exc
     def _generate_cache_key(self, request: DataRequest) -> str:
-        """Generate unique cache key for request"""
+        """Generate unique cache key for request."""
         key_parts = [
             request.symbol,
             request.start_date.isoformat(),
             request.end_date.isoformat(),
             request.frequency,
-            str(request.data_source.value if request.data_source else 'auto'),
-            str(request.include_volume)
+            str(request.data_source.value if request.data_source else "auto"),
+            str(request.include_volume),
         ]
         return "_".join(key_parts)
 
-    async def _validate_data_quality(self, data: List[HistoricalDataPoint],
+    async def _validate_data_quality(self, data: list[HistoricalDataPoint],
                                    request: DataRequest) -> float:
-        """Validate data quality and completeness"""
+        """Validate data quality and completeness."""
         if not data:
             return 0.0
 
         # Simple quality calculation - in real implementation would be more sophisticated
         return 1.0 if len(data) > 0 else 0.0
 
-    def get_cache_statistics(self) -> Dict[str, Any]:
-        """Get cache performance statistics"""
-        total_requests = self.cache_stats['total_requests']
+    def get_cache_statistics(self) -> dict[str, Any]:
+        """Get cache performance statistics."""
+        total_requests = self.cache_stats["total_requests"]
         cache_hit_rate = 0.0
 
         if total_requests > 0:
-            total_hits = self.cache_stats['memory_hits'] + self.cache_stats['disk_hits']
+            total_hits = self.cache_stats["memory_hits"] + self.cache_stats["disk_hits"]
             cache_hit_rate = total_hits / total_requests
 
         return {
             **self.cache_stats,
-            'cache_hit_rate': cache_hit_rate,
-            'memory_hit_rate': self.cache_stats['memory_hits'] / total_requests if total_requests > 0 else 0,
-            'disk_hit_rate': self.cache_stats['disk_hits'] / total_requests if total_requests > 0 else 0
+            "cache_hit_rate": cache_hit_rate,
+            "memory_hit_rate": self.cache_stats["memory_hits"] / total_requests if total_requests > 0 else 0,
+            "disk_hit_rate": self.cache_stats["disk_hits"] / total_requests if total_requests > 0 else 0,
         }
 
 
 # === PRICE INTERPOLATION & MISSING DATA HANDLING SYSTEM ===
 
 class InterpolationMethod(str, Enum):
-    """Available interpolation methods"""
+    """Available interpolation methods."""
     LINEAR = "linear"
     SPLINE = "spline"
     VOLATILITY_ADJUSTED = "volatility_adjusted"
@@ -392,34 +391,34 @@ class InterpolationMethod(str, Enum):
 
 @dataclass
 class DataGap:
-    """Information about a data gap"""
+    """Information about a data gap."""
     start_time: datetime
     end_time: datetime
     gap_type: str
     duration_minutes: int
-    before_price: Optional[float] = None
-    after_price: Optional[float] = None
+    before_price: float | None = None
+    after_price: float | None = None
 
 
 @dataclass
 class InterpolationResult:
-    """Result of price interpolation"""
-    interpolated_data: List[dict[str, Any]]
+    """Result of price interpolation."""
+    interpolated_data: list[dict[str, Any]]
     quality_score: float
     method_used: InterpolationMethod
-    gaps_filled: List[DataGap]
-    warnings: List[str]
+    gaps_filled: list[DataGap]
+    warnings: list[str]
 
 
 class InterpolationError(Exception):
-    """Exception raised for interpolation errors"""
-    pass
+    """Exception raised for interpolation errors."""
 
 
 class PriceInterpolator:
-    """Enterprise-grade price interpolation and missing data handling"""
+    """Enterprise-grade price interpolation and missing data handling."""
 
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any]) -> None:
+        """Initialize the instance."""
         self.config = config
         self.logger = logging.getLogger(__name__)
         self._source_module = self.__class__.__name__
@@ -432,14 +431,13 @@ class PriceInterpolator:
             InterpolationMethod.SPLINE: self._spline_interpolation,
             InterpolationMethod.VOLATILITY_ADJUSTED: self._volatility_adjusted_interpolation,
             InterpolationMethod.FORWARD_FILL: self._forward_fill,
-            InterpolationMethod.BACKWARD_FILL: self._backward_fill
+            InterpolationMethod.BACKWARD_FILL: self._backward_fill,
         }
 
-    async def interpolate_missing_data(self, data: List[dict[str, Any]], symbol: str,
+    async def interpolate_missing_data(self, data: list[dict[str, Any]], symbol: str,
                                      frequency: str) -> InterpolationResult:
-        """
-        Interpolate missing data points using intelligent algorithms
-        Enterprise-grade price interpolation implementation
+        """Interpolate missing data points using intelligent algorithms
+        Enterprise-grade price interpolation implementation.
         """
         try:
             self.logger.info(f"Starting interpolation for {symbol} with {len(data)} data points")
@@ -450,7 +448,7 @@ class PriceInterpolator:
                     quality_score=0.0,
                     method_used=InterpolationMethod.LINEAR,
                     gaps_filled=[],
-                    warnings=["No data provided for interpolation"]
+                    warnings=["No data provided for interpolation"],
                 )
 
             # Convert to DataFrame for easier manipulation
@@ -466,7 +464,7 @@ class PriceInterpolator:
                     quality_score=1.0,
                     method_used=InterpolationMethod.LINEAR,
                     gaps_filled=[],
-                    warnings=[]
+                    warnings=[],
                 )
 
             self.logger.info(f"Detected {len(gaps)} gaps to interpolate")
@@ -478,7 +476,7 @@ class PriceInterpolator:
             interpolated_df = await self._perform_interpolation(df, gaps, method)
 
             # Convert back to list[Any] of dictionaries
-            interpolated_data = cast(List[Dict[str, Any]], interpolated_df.to_dict('records'))
+            interpolated_data = cast("list[dict[str, Any]]", interpolated_df.to_dict("records"))
 
             # Calculate quality score
             quality_score = self._calculate_interpolation_quality(df, interpolated_df, gaps)
@@ -488,23 +486,23 @@ class PriceInterpolator:
                 quality_score=quality_score,
                 method_used=method,
                 gaps_filled=gaps,
-                warnings=[]
+                warnings=[],
             )
 
             self.logger.info(
                 f"Interpolation complete: {len(interpolated_data)} points, "
-                f"quality={quality_score:.2f}, filled {len(gaps)} gaps"
+                f"quality={quality_score:.2f}, filled {len(gaps)} gaps",
             )
 
             return result
 
         except Exception as e:
-            self.logger.error(f"Error during interpolation for {symbol}: {e}")
+            self.logger.exception(f"Error during interpolation for {symbol}: ")
             raise InterpolationError(f"Interpolation failed: {e}")
 
-    async def _detect_gaps(self, df: pd.DataFrame, symbol: str, frequency: str) -> List[DataGap]:
-        """Detect gaps in price data"""
-        gaps: List[DataGap] = []
+    async def _detect_gaps(self, df: pd.DataFrame, symbol: str, frequency: str) -> list[DataGap]:
+        """Detect gaps in price data."""
+        gaps: list[DataGap] = []
 
         if len(df) < 2:
             return gaps
@@ -515,8 +513,8 @@ class PriceInterpolator:
 
         # Check for gaps between consecutive data points
         for i in range(1, len(df)):
-            prev_time = pd.to_datetime(df.iloc[i-1]['timestamp'])
-            curr_time = pd.to_datetime(df.iloc[i]['timestamp'])
+            prev_time = pd.to_datetime(df.iloc[i-1]["timestamp"])
+            curr_time = pd.to_datetime(df.iloc[i]["timestamp"])
 
             time_diff = curr_time - prev_time
 
@@ -527,8 +525,8 @@ class PriceInterpolator:
                     end_time=curr_time,
                     gap_type="data_gap",
                     duration_minutes=int(time_diff.total_seconds() / 60),
-                    before_price=df.iloc[i-1]['close'],
-                    after_price=df.iloc[i]['open']
+                    before_price=df.iloc[i-1]["close"],
+                    after_price=df.iloc[i]["open"],
                 )
                 gaps.append(gap)
 
@@ -536,77 +534,77 @@ class PriceInterpolator:
 
     def _frequency_to_minutes(self, frequency: str) -> int:
         """Convert frequency string to minutes with comprehensive support.
-        
+
         Supports various frequency formats:
         - Standard: 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w
         - Extended: 2h, 3h, 6h, 8h, 12h, 2d, 3d
         - Custom: Any number followed by m/h/d/w (e.g., 45m, 90m, 36h)
         """
         import re
-        
+
         # Extended frequency map for common intervals
         standard_freq_map = {
             # Minutes
-            '1m': 1, '2m': 2, '3m': 3, '5m': 5, '10m': 10, '15m': 15, 
-            '20m': 20, '30m': 30, '45m': 45,
+            "1m": 1, "2m": 2, "3m": 3, "5m": 5, "10m": 10, "15m": 15,
+            "20m": 20, "30m": 30, "45m": 45,
             # Hours
-            '1h': 60, '2h': 120, '3h': 180, '4h': 240, '6h': 360, 
-            '8h': 480, '12h': 720,
+            "1h": 60, "2h": 120, "3h": 180, "4h": 240, "6h": 360,
+            "8h": 480, "12h": 720,
             # Days
-            '1d': 1440, '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080,
+            "1d": 1440, "2d": 2880, "3d": 4320, "5d": 7200, "7d": 10080,
             # Weeks
-            '1w': 10080, '2w': 20160, '4w': 40320,
+            "1w": 10080, "2w": 20160, "4w": 40320,
             # Special
-            'tick': 0,  # Real-time tick data
-            'monthly': 43200,  # Approximate 30 days
-            'quarterly': 129600  # Approximate 90 days
+            "tick": 0,  # Real-time tick data
+            "monthly": 43200,  # Approximate 30 days
+            "quarterly": 129600,  # Approximate 90 days
         }
-        
+
         # Check standard map first
         if frequency.lower() in standard_freq_map:
             return standard_freq_map[frequency.lower()]
-        
+
         # Parse custom format (e.g., "90m", "36h", "14d")
-        pattern = r'^(\d+)([mhdw])$'
+        pattern = r"^(\d+)([mhdw])$"
         match = re.match(pattern, frequency.lower())
-        
+
         if match:
             value = int(match.group(1))
             unit = match.group(2)
-            
+
             unit_multipliers = {
-                'm': 1,        # minutes
-                'h': 60,       # hours to minutes
-                'd': 1440,     # days to minutes
-                'w': 10080     # weeks to minutes
+                "m": 1,        # minutes
+                "h": 60,       # hours to minutes
+                "d": 1440,     # days to minutes
+                "w": 10080,     # weeks to minutes
             }
-            
+
             if unit in unit_multipliers:
                 return value * unit_multipliers[unit]
-        
+
         # If using enhanced features, get from config
         if self._use_enhanced_features and self._enterprise_config_manager:
             # This code is actually reachable
             try:  # type: ignore[unreachable]
                 custom_frequencies = self.config.get(
-                    "market_simulation.custom_frequencies", {}
+                    "market_simulation.custom_frequencies", {},
                 )
                 if frequency in custom_frequencies:
-                    return cast(int, custom_frequencies[frequency])
+                    return cast("int", custom_frequencies[frequency])
             except Exception:
                 pass
-        
+
         # Log warning for unrecognized format
-        if hasattr(self, 'logger'):
+        if hasattr(self, "logger"):
             self.logger.warning(
                 f"Unrecognized frequency format: {frequency}. Defaulting to 60 minutes.",
-                extra={"source_module": self._source_module}
+                extra={"source_module": self._source_module},
             )
-        
+
         return 60  # Default to 1 hour
 
-    def _select_interpolation_method(self, gaps: List[DataGap], symbol: str) -> InterpolationMethod:
-        """Select best interpolation method based on gap characteristics"""
+    def _select_interpolation_method(self, gaps: list[DataGap], symbol: str) -> InterpolationMethod:
+        """Select best interpolation method based on gap characteristics."""
         if not gaps:
             return InterpolationMethod.LINEAR
 
@@ -615,21 +613,20 @@ class PriceInterpolator:
 
         if avg_gap_duration < 60:  # Less than 1 hour
             return InterpolationMethod.LINEAR
-        elif avg_gap_duration < 240:  # Less than 4 hours
+        if avg_gap_duration < 240:  # Less than 4 hours
             return InterpolationMethod.VOLATILITY_ADJUSTED
-        else:
-            return InterpolationMethod.FORWARD_FILL
+        return InterpolationMethod.FORWARD_FILL
 
-    async def _perform_interpolation(self, df: pd.DataFrame, gaps: List[DataGap],
+    async def _perform_interpolation(self, df: pd.DataFrame, gaps: list[DataGap],
                                    method: InterpolationMethod) -> pd.DataFrame:
-        """Perform actual interpolation to fill gaps"""
+        """Perform actual interpolation to fill gaps."""
         interpolated_df = df.copy()
 
         for gap in gaps:
             try:
                 # Find the indices around the gap
-                before_idx = df[pd.to_datetime(df['timestamp']) <= gap.start_time].index[-1]
-                after_idx = df[pd.to_datetime(df['timestamp']) >= gap.end_time].index[0]
+                before_idx = df[pd.to_datetime(df["timestamp"]) <= gap.start_time].index[-1]
+                after_idx = df[pd.to_datetime(df["timestamp"]) >= gap.end_time].index[0]
 
                 # Generate timestamps for the gap
                 gap_timestamps = self._generate_gap_timestamps(gap.start_time, gap.end_time)
@@ -646,11 +643,10 @@ class PriceInterpolator:
                 self.logger.warning(f"Failed to interpolate gap {gap.start_time} to {gap.end_time}: {e}")
 
         # Sort by timestamp
-        interpolated_df = interpolated_df.sort_values('timestamp').reset_index(drop=True)
-        return interpolated_df
+        return interpolated_df.sort_values("timestamp").reset_index(drop=True)
 
-    def _generate_gap_timestamps(self, start_time: datetime, end_time: datetime) -> List[datetime]:
-        """Generate timestamps for gap filling"""
+    def _generate_gap_timestamps(self, start_time: datetime, end_time: datetime) -> list[datetime]:
+        """Generate timestamps for gap filling."""
         timestamps = []
         current = start_time + timedelta(minutes=1)  # Start 1 minute after gap start
 
@@ -661,30 +657,30 @@ class PriceInterpolator:
         return timestamps
 
     async def _linear_interpolation(self, df: pd.DataFrame, before_idx: int, after_idx: int,
-                                  timestamps: List[datetime], gap: DataGap) -> List[Dict[str, Any]]:
-        """Linear interpolation between two points"""
+                                  timestamps: list[datetime], gap: DataGap) -> list[dict[str, Any]]:
+        """Linear interpolation between two points."""
         before_point = df.iloc[before_idx]
         after_point = df.iloc[after_idx]
 
         interpolated_points = []
 
-        for i, timestamp in enumerate(timestamps):
+        for _i, timestamp in enumerate(timestamps):
             # Calculate interpolation factor
             total_duration = (gap.end_time - gap.start_time).total_seconds()
             current_duration = (timestamp - gap.start_time).total_seconds()
             factor = current_duration / total_duration if total_duration > 0 else 0
 
             # Linear interpolation for price
-            interpolated_price = before_point['close'] + factor * (after_point['open'] - before_point['close'])
+            interpolated_price = before_point["close"] + factor * (after_point["open"] - before_point["close"])
 
             point = {
-                'timestamp': timestamp,
-                'open': interpolated_price,
-                'high': interpolated_price,
-                'low': interpolated_price,
-                'close': interpolated_price,
-                'volume': self._interpolate_volume(before_point, after_point, factor),
-                'interpolated': True
+                "timestamp": timestamp,
+                "open": interpolated_price,
+                "high": interpolated_price,
+                "low": interpolated_price,
+                "close": interpolated_price,
+                "volume": self._interpolate_volume(before_point, after_point, factor),
+                "interpolated": True,
             }
 
             interpolated_points.append(point)
@@ -692,8 +688,8 @@ class PriceInterpolator:
         return interpolated_points
 
     def _interpolate_volume(self, before_point: pd.Series[Any], after_point: pd.Series[Any], factor: float) -> float:
-        """Interpolate volume with some randomness"""
-        base_volume = before_point['volume'] + factor * (after_point['volume'] - before_point['volume'])
+        """Interpolate volume with some randomness."""
+        base_volume = before_point["volume"] + factor * (after_point["volume"] - before_point["volume"])
 
         # Add some randomness (±20%)
         random_factor = np.random.uniform(0.8, 1.2)
@@ -704,10 +700,9 @@ class PriceInterpolator:
         df: pd.DataFrame,
         before_idx: int,
         after_idx: int,
-        timestamps: List[datetime],
-        gap: DataGap) -> List[Dict[str, Any]]:
+        timestamps: list[datetime],
+        gap: DataGap) -> list[dict[str, Any]]:
         """Perform cubic spline interpolation with fallback to linear."""
-
         try:
             from scipy.interpolate import CubicSpline
         except Exception:
@@ -743,13 +738,13 @@ class PriceInterpolator:
         before_point = df.iloc[before_idx]
         after_point = df.iloc[after_idx]
 
-        interpolated_points: List[Dict[str, Any]] = []
+        interpolated_points: list[dict[str, Any]] = []
         total_duration = (gap.end_time - gap.start_time).total_seconds()
 
         for idx, ts in enumerate(timestamps):
             num_ts = numeric_timestamps[idx]
             factor = (ts - gap.start_time).total_seconds() / total_duration if total_duration > 0 else 0
-            point: Dict[str, Any] = {"timestamp": ts}
+            point: dict[str, Any] = {"timestamp": ts}
 
             for col in numeric_cols:
                 value = float(splines[col](num_ts))
@@ -768,16 +763,16 @@ class PriceInterpolator:
         return interpolated_points
 
     async def _volatility_adjusted_interpolation(self, df: pd.DataFrame, before_idx: int, after_idx: int,
-                                               timestamps: List[datetime], gap: DataGap) -> List[Dict[str, Any]]:
+                                               timestamps: list[datetime], gap: DataGap) -> list[dict[str, Any]]:
         """Volatility-adjusted interpolation."""
         # Start with spline interpolation as baseline
         base_points = await self._spline_interpolation(df, before_idx, after_idx, timestamps, gap)
 
         try:
-            import pandas_ta as ta  
+            import pandas_ta as ta
         except Exception:  # pragma: no cover - dependency missing
             self.logger.warning(
-                "pandas_ta not available, skipping volatility adjustment"
+                "pandas_ta not available, skipping volatility adjustment",
             )
             return base_points
 
@@ -824,40 +819,40 @@ class PriceInterpolator:
         return base_points
 
     async def _forward_fill(self, df: pd.DataFrame, before_idx: int, after_idx: int,
-                          timestamps: List[datetime], gap: DataGap) -> List[Dict[str, Any]]:
-        """Forward fill interpolation"""
+                          timestamps: list[datetime], gap: DataGap) -> list[dict[str, Any]]:
+        """Forward fill interpolation."""
         before_point = df.iloc[before_idx]
         interpolated_points = []
 
         for timestamp in timestamps:
             point = {
-                'timestamp': timestamp,
-                'open': before_point['close'],
-                'high': before_point['close'],
-                'low': before_point['close'],
-                'close': before_point['close'],
-                'volume': before_point['volume'] * 0.1,  # Reduced volume
-                'interpolated': True
+                "timestamp": timestamp,
+                "open": before_point["close"],
+                "high": before_point["close"],
+                "low": before_point["close"],
+                "close": before_point["close"],
+                "volume": before_point["volume"] * 0.1,  # Reduced volume
+                "interpolated": True,
             }
             interpolated_points.append(point)
 
         return interpolated_points
 
     async def _backward_fill(self, df: pd.DataFrame, before_idx: int, after_idx: int,
-                           timestamps: List[datetime], gap: DataGap) -> List[Dict[str, Any]]:
-        """Backward fill interpolation"""
+                           timestamps: list[datetime], gap: DataGap) -> list[dict[str, Any]]:
+        """Backward fill interpolation."""
         after_point = df.iloc[after_idx]
         interpolated_points = []
 
         for timestamp in timestamps:
             point = {
-                'timestamp': timestamp,
-                'open': after_point['open'],
-                'high': after_point['open'],
-                'low': after_point['open'],
-                'close': after_point['open'],
-                'volume': after_point['volume'] * 0.1,  # Reduced volume
-                'interpolated': True
+                "timestamp": timestamp,
+                "open": after_point["open"],
+                "high": after_point["open"],
+                "low": after_point["open"],
+                "close": after_point["open"],
+                "volume": after_point["volume"] * 0.1,  # Reduced volume
+                "interpolated": True,
             }
             interpolated_points.append(point)
 
@@ -865,8 +860,8 @@ class PriceInterpolator:
 
     def _calculate_interpolation_quality(self, original_df: pd.DataFrame,
                                        interpolated_df: pd.DataFrame,
-                                       gaps: List[DataGap]) -> float:
-        """Calculate quality score for interpolation"""
+                                       gaps: list[DataGap]) -> float:
+        """Calculate quality score for interpolation."""
         if not gaps:
             return 1.0
 
@@ -880,7 +875,7 @@ class PriceInterpolator:
 # === REAL-TIME SIMULATION ENGINE ===
 
 class SimulationSpeed(str, Enum):
-    """Simulation replay speeds"""
+    """Simulation replay speeds."""
     REAL_TIME = "1x"
     FAST_2X = "2x"
     FAST_5X = "5x"
@@ -890,7 +885,7 @@ class SimulationSpeed(str, Enum):
 
 
 class SimulationState(str, Enum):
-    """Simulation engine states"""
+    """Simulation engine states."""
     STOPPED = "stopped"
     RUNNING = "running"
     PAUSED = "paused"
@@ -899,52 +894,51 @@ class SimulationState(str, Enum):
 
 @dataclass
 class SimulationEvent:
-    """Simulation event with timing information"""
+    """Simulation event with timing information."""
     timestamp: datetime
     event_type: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
     priority: int = 0
 
-    def __lt__(self, other: 'SimulationEvent') -> bool:
-        """Make events comparable for priority queue"""
+    def __lt__(self, other: "SimulationEvent") -> bool:
+        """Make events comparable for priority queue."""
         return self.timestamp < other.timestamp
 
 
 class SimulationError(Exception):
-    """Exception raised for simulation errors"""
-    pass
+    """Exception raised for simulation errors."""
 
 
 class RealTimeSimulationEngine:
-    """Enterprise-grade real-time price simulation engine"""
+    """Enterprise-grade real-time price simulation engine."""
 
-    def __init__(self, config: Dict[str, Any], data_loader: "HistoricalDataLoader") -> None:
+    def __init__(self, config: dict[str, Any], data_loader: "HistoricalDataLoader") -> None:
+        """Initialize the instance."""
         self.config = config
         self._data_loader = data_loader
         self.logger = logging.getLogger(__name__)
 
         # Simulation state
         self.state = SimulationState.STOPPED
-        self.current_sim_time: Optional[datetime] = None
-        self.start_real_time: Optional[float] = None
+        self.current_sim_time: datetime | None = None
+        self.start_real_time: float | None = None
 
         # Event management
-        self.event_queue: List[SimulationEvent] = []  # Priority queue for events
-        self.event_buffer: deque[Any] = deque(maxlen=config.get('buffer_size', 10000))
+        self.event_queue: list[SimulationEvent] = []  # Priority queue for events
+        self.event_buffer: deque[Any] = deque(maxlen=config.get("buffer_size", 10000))
 
         # Event handlers
-        self.event_handlers: Dict[str, List[Callable[..., Any]]] = {}
+        self.event_handlers: dict[str, list[Callable[..., Any]]] = {}
 
         # Speed multiplier calculation
         self.speed_multiplier = self._calculate_speed_multiplier()
 
         # Simulation task
-        self.simulation_task: Optional[asyncio.Task[Any]] = None
+        self.simulation_task: asyncio.Task[Any] | None = None
 
     async def start_simulation(self) -> None:
-        """
-        Start real-time simulation engine
-        Enterprise-grade real-time simulation implementation
+        """Start real-time simulation engine
+        Enterprise-grade real-time simulation implementation.
         """
         if self.state != SimulationState.STOPPED:
             raise SimulationError(f"Cannot start simulation in state: {self.state}")
@@ -957,7 +951,7 @@ class RealTimeSimulationEngine:
 
             # Initialize timing
             self.start_real_time = time.time()
-            self.current_sim_time = self.config.get('start_time')
+            self.current_sim_time = self.config.get("start_time")
 
             # Start simulation loop
             self.simulation_task = asyncio.create_task(self._simulation_loop())
@@ -967,11 +961,11 @@ class RealTimeSimulationEngine:
 
         except Exception as e:
             self.state = SimulationState.ERROR
-            self.logger.error(f"Failed to start simulation: {e}")
+            self.logger.exception("Failed to start simulation: ")
             raise SimulationError(f"Simulation start failed: {e}")
 
     async def stop_simulation(self) -> None:
-        """Stop simulation gracefully"""
+        """Stop simulation gracefully."""
         if self.state not in [SimulationState.RUNNING, SimulationState.PAUSED]:
             self.logger.warning(f"Cannot stop simulation in state: {self.state}")
             return
@@ -980,24 +974,22 @@ class RealTimeSimulationEngine:
 
         if self.simulation_task:
             self.simulation_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self.simulation_task
-            except asyncio.CancelledError:
-                pass
 
         self.state = SimulationState.STOPPED
         self.logger.info("Simulation stopped")
 
     async def set_speed(self, speed: SimulationSpeed) -> None:
-        """Change simulation speed during runtime"""
-        self.config['speed'] = speed
+        """Change simulation speed during runtime."""
+        self.config["speed"] = speed
         self.speed_multiplier = self._calculate_speed_multiplier()
         self.logger.info(f"Simulation speed changed to {speed.value} ({self.speed_multiplier}x)")
 
     async def _simulation_loop(self) -> None:
-        """Main simulation loop"""
+        """Main simulation loop."""
         try:
-            end_time = self.config.get('end_time')
+            end_time = self.config.get("end_time")
 
             while (self.state in [SimulationState.RUNNING, SimulationState.PAUSED] and
                    self.current_sim_time is not None and
@@ -1020,13 +1012,13 @@ class RealTimeSimulationEngine:
         except asyncio.CancelledError:
             self.logger.info("Simulation loop cancelled")
             raise
-        except Exception as e:
+        except Exception:
             self.state = SimulationState.ERROR
-            self.logger.error(f"Error in simulation loop: {e}")
+            self.logger.exception("Error in simulation loop: ")
             raise
 
     async def _process_current_events(self) -> None:
-        """Process all events scheduled for current simulation time"""
+        """Process all events scheduled for current simulation time."""
         events_processed = 0
 
         # Process events from queue
@@ -1040,14 +1032,14 @@ class RealTimeSimulationEngine:
                 await self._dispatch_event(event)
                 events_processed += 1
 
-            except Exception as e:
-                self.logger.error(f"Error processing event {event.event_type}: {e}")
+            except Exception:
+                self.logger.exception(f"Error processing event {event.event_type}: ")
 
         if events_processed > 0:
             self.logger.debug(f"Processed {events_processed} events at {self.current_sim_time}")
 
     async def _dispatch_event(self, event: SimulationEvent) -> None:
-        """Dispatch event to registered handlers"""
+        """Dispatch event to registered handlers."""
         event_type = event.event_type
 
         if event_type in self.event_handlers:
@@ -1058,12 +1050,12 @@ class RealTimeSimulationEngine:
                     else:
                         handler(event)
 
-                except Exception as e:
-                    self.logger.error(f"Error in event handler for {event_type}: {e}")
+                except Exception:
+                    self.logger.exception(f"Error in event handler for {event_type}: ")
 
     async def _advance_simulation_time(self) -> None:
-        """Advance simulation time with proper speed control"""
-        if self.config.get('speed') == SimulationSpeed.MAX_SPEED:
+        """Advance simulation time with proper speed control."""
+        if self.config.get("speed") == SimulationSpeed.MAX_SPEED:
             # Run as fast as possible
             if self.current_sim_time is not None:
                 self.current_sim_time += timedelta(seconds=1)
@@ -1072,13 +1064,13 @@ class RealTimeSimulationEngine:
         # Calculate time advancement
         if self.start_real_time is None or self.current_sim_time is None:
             return
-            
+
         real_time_elapsed = time.time() - self.start_real_time
-        start_time = self.config.get('start_time')
+        start_time = self.config.get("start_time")
         if start_time is None:
             return
         expected_sim_time = start_time + timedelta(
-            seconds=real_time_elapsed * self.speed_multiplier
+            seconds=real_time_elapsed * self.speed_multiplier,
         )
 
         # If we're ahead of schedule, wait
@@ -1095,14 +1087,14 @@ class RealTimeSimulationEngine:
         self.current_sim_time += time_step
 
     def _get_time_step_seconds(self) -> float:
-        """Get time step in seconds based on configuration"""
-        return cast(float, self.config.get('time_step_seconds', 1.0))
+        """Get time step in seconds based on configuration."""
+        return cast("float", self.config.get("time_step_seconds", 1.0))
 
     async def _load_simulation_data(self) -> None:
-        """Load simulation data and create events"""
+        """Load simulation data and create events."""
         self.logger.info("Loading simulation data")
 
-        symbols = self.config.get('symbols', [])
+        symbols = self.config.get("symbols", [])
 
         for symbol in symbols:
             # Load historical data for symbol
@@ -1111,20 +1103,20 @@ class RealTimeSimulationEngine:
             # Create events for each data point
             for data_point in data_points:
                 event = SimulationEvent(
-                    timestamp=data_point['timestamp'],
-                    event_type='price_update',
+                    timestamp=data_point["timestamp"],
+                    event_type="price_update",
                     data={
-                        'symbol': symbol,
-                        'price_data': data_point
-                    }
+                        "symbol": symbol,
+                        "price_data": data_point,
+                    },
                 )
 
                 heapq.heappush(self.event_queue, event)
 
         self.logger.info(f"Loaded {len(self.event_queue)} simulation events")
 
-    async def _load_historical_data(self, symbol: str) -> List[dict[str, Any]]:
-        """Load historical data for a symbol"""
+    async def _load_historical_data(self, symbol: str) -> list[dict[str, Any]]:
+        """Load historical data for a symbol."""
         try:
             request = DataRequest(
                 symbol=symbol,
@@ -1135,24 +1127,24 @@ class RealTimeSimulationEngine:
             points = await self._data_loader.load_historical_data(request)
             return [dataclasses.asdict(p) for p in points]
 
-        except Exception as e:
-            self.logger.error(f"Failed to load historical data for {symbol}: {e}")
+        except Exception:
+            self.logger.exception(f"Failed to load historical data for {symbol}: ")
             return []
     def _calculate_speed_multiplier(self) -> float:
-        """Calculate speed multiplier based on configuration"""
+        """Calculate speed multiplier based on configuration."""
         speed_map = {
             SimulationSpeed.REAL_TIME: 1.0,
             SimulationSpeed.FAST_2X: 2.0,
             SimulationSpeed.FAST_5X: 5.0,
             SimulationSpeed.FAST_10X: 10.0,
             SimulationSpeed.FAST_100X: 100.0,
-            SimulationSpeed.MAX_SPEED: float('inf')
+            SimulationSpeed.MAX_SPEED: float("inf"),
         }
 
-        return speed_map.get(self.config.get('speed', SimulationSpeed.REAL_TIME), 1.0)
+        return speed_map.get(self.config.get("speed", SimulationSpeed.REAL_TIME), 1.0)
 
     def register_event_handler(self, event_type: str, handler: Callable[..., Any]) -> None:
-        """Register event handler for specific event type"""
+        """Register event handler for specific event type."""
         if event_type not in self.event_handlers:
             self.event_handlers[event_type] = []
 
@@ -1217,31 +1209,31 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         self._source_module = _SOURCE_MODULE
 
         self._load_simulation_config()
-        
+
         # === ENHANCED COMPONENTS INITIALIZATION ===
-        if ENHANCEMENTS_AVAILABLE and False:  # Disabled due to logger type mismatch
+        if False:  # Disabled due to logger type mismatch
             # This code is unreachable due to False condition
             try:  # type: ignore[unreachable]
                 # Initialize enterprise components
                 (
                     self._enterprise_config_manager,
                     self._advanced_price_generator,
-                    self._historical_data_generator
+                    self._historical_data_generator,
                 ) = asyncio.run(create_enterprise_market_service(
                     self.config,
-                    self.logger
+                    self.logger,
                 ))
-                
+
                 self.logger.info(
                     "Enterprise market price components initialized successfully",
-                    extra={"source_module": self._source_module}
+                    extra={"source_module": self._source_module},
                 )
                 self._use_enhanced_features = True
             except Exception as e:
                 self.logger.warning(
                     f"Failed to initialize enterprise components: {e}. "
                     "Falling back to basic implementation.",
-                    extra={"source_module": self._source_module}
+                    extra={"source_module": self._source_module},
                 )
                 self._use_enhanced_features = False
                 # These are Optional types
@@ -1258,34 +1250,34 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
         # Initialize Historical Data Loader
         data_loader_config = {
-            'memory_cache_size': 1000,
-            'disk_cache_path': './cache',
-            'providers': ['local_files']  # Start with local file support
+            "memory_cache_size": 1000,
+            "disk_cache_path": "./cache",
+            "providers": ["local_files"],  # Start with local file support
         }
         self._data_loader = HistoricalDataLoader(data_loader_config)
 
         # Initialize Price Interpolator
         interpolation_config = {
-            'default_method': InterpolationMethod.LINEAR,
-            'quality_threshold': 0.8,
-            'max_gap_duration_hours': 24
+            "default_method": InterpolationMethod.LINEAR,
+            "quality_threshold": 0.8,
+            "max_gap_duration_hours": 24,
         }
         self._price_interpolator = PriceInterpolator(interpolation_config)
 
         # Initialize Real-time Simulation Engine
         simulation_config = {
-            'speed': SimulationSpeed.REAL_TIME,
-            'buffer_size': 10000,
-            'time_step_seconds': 1.0,
-            'symbols': list[Any](historical_data.keys()) if historical_data else [],
-            'start_time': datetime.now(UTC),
-            'end_time': datetime.now(UTC) + timedelta(days=1)
+            "speed": SimulationSpeed.REAL_TIME,
+            "buffer_size": 10000,
+            "time_step_seconds": 1.0,
+            "symbols": list[Any](historical_data.keys()) if historical_data else [],
+            "start_time": datetime.now(UTC),
+            "end_time": datetime.now(UTC) + timedelta(days=1),
         }
         self._simulation_engine = RealTimeSimulationEngine(
             simulation_config,
             self._data_loader)
         # Register price update handler for simulation engine
-        self._simulation_engine.register_event_handler('price_update', self._handle_price_update_event)
+        self._simulation_engine.register_event_handler("price_update", self._handle_price_update_event)
 
         # === END ENTERPRISE-GRADE ENHANCEMENTS ===
 
@@ -1314,7 +1306,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                         pair,
                         extra={"source_module": self._source_module})
                 except Exception as e:
-                    self.logger.error(
+                    self.logger.exception(
                         "Failed to convert index to DatetimeIndex for %s: %s",
                         pair,
                         str(e),
@@ -2296,7 +2288,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             normalized_atr = self._calculate_normalized_atr(trading_pair)
             if normalized_atr is not None:
                 # Convert to percentage
-                volatility_pct = float(normalized_atr * Decimal("100"))
+                volatility_pct = float(normalized_atr * Decimal(100))
                 self.logger.debug(
                     "Calculated volatility for %s: %.2f%% (lookback: %d hours)",
                     trading_pair,
@@ -2371,11 +2363,10 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         start_date: datetime,
         end_date: datetime,
         frequency: str = "1h",
-        data_source: Optional[DataSource] = None,
-        force_refresh: bool = False
-    ) -> Optional[List[HistoricalDataPoint]]:
-        """
-        Load historical data using the enterprise-grade data loading system.
+        data_source: DataSource | None = None,
+        force_refresh: bool = False,
+    ) -> list[HistoricalDataPoint] | None:
+        """Load historical data using the enterprise-grade data loading system.
 
         This method leverages the advanced caching and multi-source data loading
         capabilities to efficiently retrieve historical market data.
@@ -2400,7 +2391,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 data_source=data_source,
                 include_volume=True,
                 validate_data=True,
-                cache_result=not force_refresh
+                cache_result=not force_refresh,
             )
 
             self.logger.info(
@@ -2416,26 +2407,25 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
 
             return data_points
 
-        except DataLoadingError as e:
-            self.logger.error(
-                f"Failed to load historical data for {symbol}: {e}",
+        except DataLoadingError:
+            self.logger.exception(
+                f"Failed to load historical data for {symbol}: ",
                 extra={"source_module": self._source_module})
             return None
-        except Exception as e:
-            self.logger.error(
-                f"Unexpected error loading historical data for {symbol}: {e}",
+        except Exception:
+            self.logger.exception(
+                f"Unexpected error loading historical data for {symbol}: ",
                 extra={"source_module": self._source_module})
             return None
 
     async def interpolate_missing_prices(
         self,
         trading_pair: str,
-        data: Optional[List[dict[str, Any]]] = None,
+        data: list[dict[str, Any]] | None = None,
         frequency: str = "1h",
-        method: Optional[InterpolationMethod] = None
-    ) -> Optional[InterpolationResult]:
-        """
-        Interpolate missing price data using advanced algorithms.
+        method: InterpolationMethod | None = None,
+    ) -> InterpolationResult | None:
+        """Interpolate missing price data using advanced algorithms.
 
         This method uses sophisticated interpolation techniques to fill gaps
         in historical price data, maintaining realistic market characteristics.
@@ -2460,18 +2450,18 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     return None
 
                 # Convert DataFrame to list[Any] of dictionaries
-                data = cast(List[Dict[str, Any]], pair_data.reset_index().to_dict('records'))
+                data = cast("list[dict[str, Any]]", pair_data.reset_index().to_dict("records"))
                 # Ensure timestamp column is properly named
-                if data and 'index' in data[0] and 'timestamp' not in data[0]:
+                if data and "index" in data[0] and "timestamp" not in data[0]:
                     for row in data:
-                        row['timestamp'] = row.pop('index')
+                        row["timestamp"] = row.pop("index")
 
             self.logger.info(
                 f"Starting price interpolation for {trading_pair} with {len(data) if data else 0} data points",
                 extra={"source_module": self._source_module})
 
             result = await self._price_interpolator.interpolate_missing_data(
-                data if data else [], trading_pair, frequency
+                data if data else [], trading_pair, frequency,
             )
 
             if result.gaps_filled:
@@ -2484,31 +2474,30 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 # Update historical data with interpolated results if applicable
                 if trading_pair in self.historical_data:
                     interpolated_df = pd.DataFrame(result.interpolated_data)
-                    interpolated_df.set_index('timestamp', inplace=True)
+                    interpolated_df.set_index("timestamp", inplace=True)
                     self.historical_data[trading_pair] = interpolated_df
 
             return result
 
-        except InterpolationError as e:
-            self.logger.error(
-                f"Failed to interpolate prices for {trading_pair}: {e}",
+        except InterpolationError:
+            self.logger.exception(
+                f"Failed to interpolate prices for {trading_pair}: ",
                 extra={"source_module": self._source_module})
             return None
-        except Exception as e:
-            self.logger.error(
-                f"Unexpected error during price interpolation for {trading_pair}: {e}",
+        except Exception:
+            self.logger.exception(
+                f"Unexpected error during price interpolation for {trading_pair}: ",
                 extra={"source_module": self._source_module})
             return None
 
     async def start_real_time_simulation(
         self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
         speed: SimulationSpeed = SimulationSpeed.REAL_TIME,
-        symbols: Optional[List[str]] = None
+        symbols: list[str] | None = None,
     ) -> bool:
-        """
-        Start the real-time simulation engine.
+        """Start the real-time simulation engine.
 
         This method initiates advanced market simulation with configurable
         replay speeds and comprehensive event handling.
@@ -2525,11 +2514,11 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         try:
             # Update simulation configuration
             if start_time:
-                self._simulation_engine.config['start_time'] = start_time
+                self._simulation_engine.config["start_time"] = start_time
             if end_time:
-                self._simulation_engine.config['end_time'] = end_time
+                self._simulation_engine.config["end_time"] = end_time
             if symbols:
-                self._simulation_engine.config['symbols'] = symbols
+                self._simulation_engine.config["symbols"] = symbols
 
             # Set simulation speed
             await self._simulation_engine.set_speed(speed)
@@ -2546,20 +2535,19 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 extra={"source_module": self._source_module})
             return True
 
-        except SimulationError as e:
-            self.logger.error(
-                f"Failed to start simulation: {e}",
+        except SimulationError:
+            self.logger.exception(
+                "Failed to start simulation: ",
                 extra={"source_module": self._source_module})
             return False
-        except Exception as e:
-            self.logger.error(
-                f"Unexpected error starting simulation: {e}",
+        except Exception:
+            self.logger.exception(
+                "Unexpected error starting simulation: ",
                 extra={"source_module": self._source_module})
             return False
 
     async def stop_real_time_simulation(self) -> bool:
-        """
-        Stop the real-time simulation engine.
+        """Stop the real-time simulation engine.
 
         Returns:
             True if simulation stopped successfully, False otherwise
@@ -2572,15 +2560,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 extra={"source_module": self._source_module})
             return True
 
-        except Exception as e:
-            self.logger.error(
-                f"Error stopping simulation: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error stopping simulation: ",
                 extra={"source_module": self._source_module})
             return False
 
     async def set_simulation_speed(self, speed: SimulationSpeed) -> bool:
-        """
-        Change the simulation replay speed during runtime.
+        """Change the simulation replay speed during runtime.
 
         Args:
             speed: New simulation speed
@@ -2596,24 +2583,22 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 extra={"source_module": self._source_module})
             return True
 
-        except Exception as e:
-            self.logger.error(
-                f"Error changing simulation speed: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error changing simulation speed: ",
                 extra={"source_module": self._source_module})
             return False
 
     def get_simulation_state(self) -> SimulationState:
-        """
-        Get the current state of the simulation engine.
+        """Get the current state of the simulation engine.
 
         Returns:
             Current simulation state
         """
         return self._simulation_engine.state
 
-    def get_cache_statistics(self) -> Dict[str, Any]:
-        """
-        Get performance statistics for the data loading cache.
+    def get_cache_statistics(self) -> dict[str, Any]:
+        """Get performance statistics for the data loading cache.
 
         Returns:
             Dictionary containing cache hit rates and performance metrics
@@ -2621,8 +2606,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         return self._data_loader.get_cache_statistics()
 
     async def _handle_price_update_event(self, event: SimulationEvent) -> None:
-        """
-        Handle price update events from the simulation engine.
+        """Handle price update events from the simulation engine.
 
         This method is called when the simulation engine generates price update events
         and integrates them with the market price service.
@@ -2631,8 +2615,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             event: Price update event containing market data
         """
         try:
-            symbol = event.data.get('symbol')
-            price_data = event.data.get('price_data')
+            symbol = event.data.get("symbol")
+            price_data = event.data.get("price_data")
 
             if symbol and price_data:
                 # Update current timestamp to match simulation time
@@ -2642,18 +2626,17 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     f"Processed price update event for {symbol} at {event.timestamp}",
                     extra={"source_module": self._source_module})
 
-        except Exception as e:
-            self.logger.error(
-                f"Error handling price update event: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error handling price update event: ",
                 extra={"source_module": self._source_module})
 
     async def validate_data_quality(
         self,
         trading_pair: str,
-        quality_threshold: float = 0.8
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Validate the quality of historical data for a trading pair.
+        quality_threshold: float = 0.8,
+    ) -> dict[str, Any] | None:
+        """Validate the quality of historical data for a trading pair.
 
         This method performs comprehensive data quality analysis including
         completeness, consistency, and anomaly detection.
@@ -2669,9 +2652,9 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             pair_data = self.historical_data.get(trading_pair)
             if pair_data is None:
                 return {
-                    'quality_score': 0.0,
-                    'issues': ['No data available'],
-                    'recommendations': ['Load historical data for this trading pair']
+                    "quality_score": 0.0,
+                    "issues": ["No data available"],
+                    "recommendations": ["Load historical data for this trading pair"],
                 }
 
             # Basic quality checks
@@ -2704,20 +2687,20 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 extra={"source_module": self._source_module})
 
             return {
-                'quality_score': quality_score,
-                'completeness': completeness,
-                'uniqueness': uniqueness,
-                'total_points': total_points,
-                'missing_values': missing_values,
-                'duplicate_timestamps': duplicate_timestamps,
-                'issues': issues,
-                'recommendations': recommendations,
-                'meets_threshold': quality_score >= quality_threshold
+                "quality_score": quality_score,
+                "completeness": completeness,
+                "uniqueness": uniqueness,
+                "total_points": total_points,
+                "missing_values": missing_values,
+                "duplicate_timestamps": duplicate_timestamps,
+                "issues": issues,
+                "recommendations": recommendations,
+                "meets_threshold": quality_score >= quality_threshold,
             }
 
-        except Exception as e:
-            self.logger.error(
-                f"Error validating data quality for {trading_pair}: {e}",
+        except Exception:
+            self.logger.exception(
+                f"Error validating data quality for {trading_pair}: ",
                 extra={"source_module": self._source_module})
             return None
 

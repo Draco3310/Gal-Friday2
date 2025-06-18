@@ -7,24 +7,23 @@ This script initializes all necessary components (configuration, logging, servic
 """
 
 import argparse  # Added for command-line argument parsing
-import asyncio
-import concurrent.futures
+from dataclasses import dataclass
+from enum import Enum
 import functools
 import logging
 import logging.handlers  # Added for RotatingFileHandler
-from pythonjsonlogger import jsonlogger
 import os
+from pathlib import Path  # PTHxxx fix: Import Path
 import signal
 import sys
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from enum import Enum
-from pathlib import Path  # PTHxxx fix: Import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Optional
 
-from .interfaces.service_protocol import ServiceProtocol
-
+import asyncio
+import concurrent.futures
 from pydantic import BaseModel, Field, field_validator
+from pythonjsonlogger import jsonlogger
+
+from .cli_service import CLIService as CLIServiceType
 
 # Import exchange specification classes
 from .config_manager import ConfigManager as ConfigManagerType
@@ -42,10 +41,10 @@ from .exceptions import (
     PubSubManagerInstantiationFailedExit,
     PubSubManagerStartFailedExit,
     RiskManagerInstantiationFailedExit,
-    UnsupportedModeError)
-
+    UnsupportedModeError,
+)
 from .services.service_orchestrator import ServiceOrchestrator
-from typing import Any
+from .strategy_arbitrator import StrategyArbitrator as StrategyArbitratorType
 
 # Version information
 __version__ = "0.1.0"  # Add version tracking
@@ -100,33 +99,33 @@ class ModeValidationResult:
     is_valid: bool
     mode: OperationalMode
     environment: EnvironmentType
-    validation_checks: Dict[str, bool]
-    warnings: List[str]
-    errors: List[str]
-    missing_requirements: List[str]
+    validation_checks: dict[str, bool]
+    warnings: list[str]
+    errors: list[str]
+    missing_requirements: list[str]
 
 
 class ModeConfiguration(BaseModel):
     """Configuration for operational modes."""
 
-    supported_modes: List[OperationalMode] = Field(
-        description="List of supported operational modes"
+    supported_modes: list[OperationalMode] = Field(
+        description="List of supported operational modes",
     )
 
     default_mode: OperationalMode = Field(
-        default=OperationalMode.PAPER_TRADING, description="Default mode if none specified"
+        default=OperationalMode.PAPER_TRADING, description="Default mode if none specified",
     )
 
-    mode_capabilities: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict[str, Any], description="Capabilities required for each mode"
+    mode_capabilities: dict[str, dict[str, Any]] = Field(
+        default_factory=dict[str, Any], description="Capabilities required for each mode",
     )
 
-    incompatible_combinations: List[List[OperationalMode]] = Field(
-        default_factory=list[Any], description="Mode combinations that are not allowed"
+    incompatible_combinations: list[list[OperationalMode]] = Field(
+        default_factory=list[Any], description="Mode combinations that are not allowed",
     )
 
-    environment_restrictions: Dict[str, List[OperationalMode]] = Field(
-        default_factory=dict[str, Any], description="Mode restrictions per environment (dev, staging, prod)"
+    environment_restrictions: dict[str, list[OperationalMode]] = Field(
+        default_factory=dict[str, Any], description="Mode restrictions per environment (dev, staging, prod)",
     )
 
     @field_validator("supported_modes")
@@ -163,8 +162,8 @@ class OperationalModeManager:
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
         self.mode_config = self._load_mode_configuration()
-        self.current_mode: Optional[OperationalMode] = None
-        self.current_environment: Optional[EnvironmentType] = None
+        self.current_mode: OperationalMode | None = None
+        self.current_environment: EnvironmentType | None = None
 
         # Define default capabilities for each mode
         self.default_capabilities = {
@@ -233,7 +232,7 @@ class OperationalModeManager:
                 description="Research and analysis mode"),
         }
 
-    def get_supported_modes(self) -> List[OperationalMode]:
+    def get_supported_modes(self) -> list[OperationalMode]:
         """Get supported modes from configuration, replacing hardcoded examples.
 
         This replaces line 709: supported_modes=["live", "paper"] with configuration-driven values.
@@ -250,13 +249,13 @@ class OperationalModeManager:
 
             self.logger.info(
                 f"Loaded {len(supported_modes)} supported modes from configuration: "
-                f"{[mode.value for mode in supported_modes]}"
+                f"{[mode.value for mode in supported_modes]}",
             )
 
             return supported_modes
 
-        except Exception as e:
-            self.logger.error(f"Error loading supported modes from configuration: {e}")
+        except Exception:
+            self.logger.exception("Error loading supported modes from configuration: ")
             # Fallback to safe default
             fallback_modes = [OperationalMode.PAPER_TRADING, OperationalMode.DATA_COLLECTION]
             self.logger.warning(f"Using fallback modes: {[mode.value for mode in fallback_modes]}")
@@ -283,15 +282,14 @@ class OperationalModeManager:
         # Auto-detect based on system characteristics
         if self._is_production_environment():
             return EnvironmentType.PRODUCTION
-        elif self._is_staging_environment():
+        if self._is_staging_environment():
             return EnvironmentType.STAGING
-        elif self._is_development_environment():
+        if self._is_development_environment():
             return EnvironmentType.DEVELOPMENT
-        else:
-            return EnvironmentType.LOCAL
+        return EnvironmentType.LOCAL
 
     async def select_and_initialize_operational_mode(
-        self, explicit_mode: Optional[str] = None
+        self, explicit_mode: str | None = None,
     ) -> OperationalMode:
         """Select and initialize the appropriate operational mode."""
         try:
@@ -322,17 +320,17 @@ class OperationalModeManager:
             self.current_environment = environment
 
             self.logger.info(
-                f"Operational mode initialization complete: {mode.value} in {environment.value} environment"
+                f"Operational mode initialization complete: {mode.value} in {environment.value} environment",
             )
 
             return mode
 
-        except Exception as e:
-            self.logger.error(f"Error in operational mode selection: {e}")
+        except Exception:
+            self.logger.exception("Error in operational mode selection: ")
             raise
 
     async def _determine_operational_mode(
-        self, environment: EnvironmentType, explicit_mode: Optional[str] = None
+        self, environment: EnvironmentType, explicit_mode: str | None = None,
     ) -> OperationalMode:
         """Determine operational mode based on environment and configuration."""
         # Check explicit mode configuration first
@@ -357,15 +355,13 @@ class OperationalModeManager:
         # Environment-based defaults
         if environment == EnvironmentType.PRODUCTION:
             return OperationalMode.LIVE_TRADING
-        elif environment == EnvironmentType.STAGING:
+        if environment in (EnvironmentType.STAGING, EnvironmentType.DEVELOPMENT):
             return OperationalMode.PAPER_TRADING
-        elif environment == EnvironmentType.DEVELOPMENT:
-            return OperationalMode.PAPER_TRADING
-        else:  # LOCAL
-            return OperationalMode.BACKTESTING
+        # LOCAL
+        return OperationalMode.BACKTESTING
 
     async def _validate_mode_compatibility(
-        self, mode: OperationalMode, environment: EnvironmentType
+        self, mode: OperationalMode, environment: EnvironmentType,
     ) -> ModeValidationResult:
         """Validate that the selected mode is compatible with current environment."""
         validation_checks: dict[str, Any] = {}
@@ -408,7 +404,7 @@ class OperationalModeManager:
             errors=errors,
             missing_requirements=missing_requirements)
 
-    def validate_mode_request(self, requested_modes: List[str]) -> List[OperationalMode]:
+    def validate_mode_request(self, requested_modes: list[str]) -> list[OperationalMode]:
         """Validate requested modes against configuration and compatibility rules."""
         if not requested_modes:
             default_mode = self.mode_config.default_mode
@@ -426,7 +422,7 @@ class OperationalModeManager:
                 # Check if mode is supported
                 if mode not in supported_modes:
                     raise ValueError(
-                        f"Mode '{mode_str}' is not supported in current configuration"
+                        f"Mode '{mode_str}' is not supported in current configuration",
                     )
 
                 validated_modes.append(mode)
@@ -434,7 +430,7 @@ class OperationalModeManager:
             except ValueError as e:
                 available_modes = [mode.value for mode in supported_modes]
                 raise ValueError(
-                    f"Invalid mode '{mode_str}'. Available modes: {available_modes}"
+                    f"Invalid mode '{mode_str}'. Available modes: {available_modes}",
                 ) from e
 
         # Check for incompatible combinations
@@ -442,7 +438,7 @@ class OperationalModeManager:
 
         return validated_modes
 
-    def _validate_mode_compatibility_rules(self, modes: List[OperationalMode]) -> None:
+    def _validate_mode_compatibility_rules(self, modes: list[OperationalMode]) -> None:
         """Check for incompatible mode combinations."""
         mode_set = set(modes)
 
@@ -451,7 +447,7 @@ class OperationalModeManager:
             if len(mode_set.intersection(set(incompatible_group))) > 1:
                 conflicting = mode_set.intersection(set(incompatible_group))
                 raise ValueError(
-                    f"Incompatible mode combination detected: {[m.value for m in conflicting]}"
+                    f"Incompatible mode combination detected: {[m.value for m in conflicting]}",
                 )
 
         # Built-in compatibility checks
@@ -461,7 +457,7 @@ class OperationalModeManager:
         if OperationalMode.LIVE_TRADING in mode_set and OperationalMode.PAPER_TRADING in mode_set:
             raise ValueError("Cannot run live trading and paper trading simultaneously")
 
-    def get_required_services(self, modes: List[OperationalMode]) -> Dict[str, bool]:
+    def get_required_services(self, modes: list[OperationalMode]) -> dict[str, bool]:
         """Determine which services are required for the given modes."""
         requirements = {
             "market_data": False,
@@ -497,8 +493,8 @@ class OperationalModeManager:
 
             return ModeConfiguration(**mode_config_dict)
 
-        except Exception as e:
-            self.logger.error(f"Error loading mode configuration: {e}")
+        except Exception:
+            self.logger.exception("Error loading mode configuration: ")
             # Return safe default configuration
             return ModeConfiguration(
                 supported_modes=[OperationalMode.PAPER_TRADING, OperationalMode.DATA_COLLECTION],
@@ -546,8 +542,8 @@ class LoggingSetup:
 
     def setup_logging(
         self,
-        log_level: Optional[str] = None,
-        log_file: Optional[str] = None,
+        log_level: str | None = None,
+        log_file: str | None = None,
         enable_json: bool = False,
         enable_console: bool = True) -> logging.Logger:
         """Setup comprehensive logging system with multiple handlers and formatters."""
@@ -556,7 +552,7 @@ class LoggingSetup:
             level = getattr(logging, log_level.upper(), logging.INFO)
         else:
             level = getattr(
-                logging, self.config.get("logging", {}).get("level", "INFO").upper(), logging.INFO
+                logging, self.config.get("logging", {}).get("level", "INFO").upper(), logging.INFO,
             )
 
         # Create formatters
@@ -586,13 +582,13 @@ class LoggingSetup:
         self.logger = logger
         return logger
 
-    def _create_formatters(self, enable_json: bool) -> Dict[str, logging.Formatter]:
+    def _create_formatters(self, enable_json: bool) -> dict[str, logging.Formatter]:
         """Create logging formatters."""
         formatters = {}
 
         # Standard formatter
         formatters["standard"] = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S",
         )
 
         # Detailed formatter
@@ -610,9 +606,9 @@ class LoggingSetup:
 
     def _create_handlers(
         self,
-        log_file: Optional[str],
+        log_file: str | None,
         enable_console: bool,
-        formatters: Dict[str, logging.Formatter]) -> List[logging.Handler]:
+        formatters: dict[str, logging.Formatter]) -> list[logging.Handler]:
         """Create logging handlers."""
         handlers: list[logging.Handler] = []
 
@@ -695,7 +691,7 @@ Examples:
             default="config/default.yaml",
             help="Path to configuration file (default: config/default.yaml)")
         config_group.add_argument(
-            "--validate-config", action="store_true", help="Validate configuration and exit"
+            "--validate-config", action="store_true", help="Validate configuration and exit",
         )
 
         # Logging arguments
@@ -707,10 +703,10 @@ Examples:
             help="Set logging level")
         log_group.add_argument("--log-file", type=str, help="Path to log file")
         log_group.add_argument(
-            "--enable-json-logs", action="store_true", help="Enable JSON structured logging"
+            "--enable-json-logs", action="store_true", help="Enable JSON structured logging",
         )
         log_group.add_argument(
-            "--disable-console-logs", action="store_true", help="Disable console logging output"
+            "--disable-console-logs", action="store_true", help="Disable console logging output",
         )
 
         # Environment and deployment
@@ -723,10 +719,10 @@ Examples:
         # Application control
         control_group = self.parser.add_argument_group("Application Control")
         control_group.add_argument(
-            "--dry-run", action="store_true", help="Perform dry run without executing trades"
+            "--dry-run", action="store_true", help="Perform dry run without executing trades",
         )
         control_group.add_argument(
-            "--health-check", action="store_true", help="Perform health check and exit"
+            "--health-check", action="store_true", help="Perform health check and exit",
         )
         control_group.add_argument(
             "--version",
@@ -809,14 +805,16 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import async_sessionmaker  # Added
 
-    from .cli_service import CLIService as CLIServiceType
     from .core.pubsub import PubSubManager as PubSubManagerType
     from .data_ingestor import DataIngestor as DataIngestorType
 
     # Ensure these are imported if they are to be used as string literals in hints
     from .execution.kraken import KrakenExecutionHandler
     from .feature_engine import FeatureEngine as FeatureEngineType
-    from .historical_data_service import HistoricalDataService as HistoricalDataServiceType
+    from .historical_data_service import (
+        HistoricalDataService as HistoricalDataServiceType,
+    )
+    from .interfaces.service_protocol import ServiceProtocol
     from .logger_service import LoggerService as LoggerServiceType
     from .market_price_service import MarketPriceService as MarketPriceServiceType
     from .monitoring_service import MonitoringService as MonitoringServiceType
@@ -824,7 +822,6 @@ if TYPE_CHECKING:
     from .prediction_service import PredictionService as PredictionServiceType
     from .risk_manager import RiskManager as RiskManagerType
     from .simulated_execution_handler import SimulatedExecutionHandler
-    from .strategy_arbitrator import StrategyArbitrator as StrategyArbitratorType
 
     class ExecutionHandlerProtocol(Protocol):
         """Protocol defining interface for execution handlers."""
@@ -894,106 +891,106 @@ startup_logger = logging.getLogger("gal_friday.startup")
 try:
     from .config_manager import ConfigManager
 except ImportError:
-    startup_logger.error("Failed to import ConfigManager")
+    startup_logger.exception("Failed to import ConfigManager")
     ConfigManager = None  # type: ignore[assignment,misc]
 
 try:
     from .core.pubsub import PubSubManager
 except ImportError:
-    startup_logger.error("Failed to import PubSubManager")
+    startup_logger.exception("Failed to import PubSubManager")
     PubSubManager = None  # type: ignore[assignment,misc]
 
 try:
     from .data_ingestor import DataIngestor
 except ImportError:
-    startup_logger.error("Failed to import DataIngestor")
+    startup_logger.exception("Failed to import DataIngestor")
     DataIngestor = None  # type: ignore[assignment,misc]
 
 try:
     from .prediction_service import PredictionService
 except ImportError:
-    startup_logger.error("Failed to import PredictionService")
+    startup_logger.exception("Failed to import PredictionService")
     PredictionService = None  # type: ignore[assignment,misc]
 
 try:
     from .strategy_arbitrator import StrategyArbitrator
 except ImportError:
-    startup_logger.error("Failed to import StrategyArbitrator")
+    startup_logger.exception("Failed to import StrategyArbitrator")
     StrategyArbitrator = None  # type: ignore[assignment,misc]
 
 try:
     from .portfolio_manager import PortfolioManager
 except ImportError:
-    startup_logger.error("Failed to import PortfolioManager")
+    startup_logger.exception("Failed to import PortfolioManager")
     PortfolioManager = None  # type: ignore[assignment,misc]
 
 try:
     from .risk_manager import RiskManager
 except ImportError:
-    startup_logger.error("Failed to import RiskManager")
+    startup_logger.exception("Failed to import RiskManager")
     RiskManager = None  # type: ignore[assignment,misc]
 
 # --- Execution Handler Imports (Runtime) --- #
 try:
     from .execution.kraken import KrakenExecutionHandler
 except ImportError as e:
-    startup_logger.error("Failed to import KrakenExecutionHandler: %s", e)
+    startup_logger.exception("Failed to import KrakenExecutionHandler: ", e)
     KrakenExecutionHandler = None  # type: ignore
 
 try:
     from .simulated_execution_handler import SimulatedExecutionHandler
 except ImportError:
-    startup_logger.error("Failed to import SimulatedExecutionHandler")
+    startup_logger.exception("Failed to import SimulatedExecutionHandler")
     SimulatedExecutionHandler = None  # type: ignore
 
 # --- Other Service Imports (Runtime) --- #
 try:
     from .logger_service import LoggerService
 except ImportError:
-    startup_logger.error("Failed to import LoggerService")
+    startup_logger.exception("Failed to import LoggerService")
     LoggerService = None  # type: ignore[assignment,misc]
 
 try:
     from .monitoring_service import MonitoringService
 except ImportError:
-    startup_logger.error("Failed to import MonitoringService")
+    startup_logger.exception("Failed to import MonitoringService")
     MonitoringService = None  # type: ignore[assignment,misc]
 
 try:
     from .cli_service import CLIService
 except ImportError:
-    startup_logger.error("Failed to import CLIService")
+    startup_logger.exception("Failed to import CLIService")
     CLIService = None  # type: ignore[assignment,misc]
 
 try:
     from .market_price_service import MarketPriceService
 except ImportError:
-    startup_logger.error("Failed to import MarketPriceService")
+    startup_logger.exception("Failed to import MarketPriceService")
     MarketPriceService = None  # type: ignore[assignment,misc]
 
 try:
     from .historical_data_service import HistoricalDataService
 except ImportError:
-    startup_logger.error("Failed to import HistoricalDataService")
+    startup_logger.exception("Failed to import HistoricalDataService")
     HistoricalDataService = None  # type: ignore[assignment,misc]
 
 try:
     from .core.feature_registry_client import FeatureRegistryClient
 except ImportError:
-    startup_logger.error("Failed to import FeatureRegistryClient")
+    startup_logger.exception("Failed to import FeatureRegistryClient")
     FeatureRegistryClient = None  # type: ignore[assignment,misc]
 
 # --- DAL Imports ---
 try:
     from .dal.connection_pool import DatabaseConnectionPool
 except ImportError:
-    startup_logger.error("Failed to import DatabaseConnectionPool")
+    startup_logger.exception("Failed to import DatabaseConnectionPool")
     DatabaseConnectionPool = None  # type: ignore[assignment,misc]
 
 try:
     from .dal.migrations.migration_manager import MigrationManager
 except ImportError:
-    startup_logger.error("Failed to import MigrationManager")
+    startup_logger.exception("Failed to import MigrationManager")
     MigrationManager = None  # type: ignore[assignment,misc]
 
 
@@ -1012,9 +1009,10 @@ except ImportError as e:
 
 try:
     from .simulated_market_price_service import (  # Restored runtime import
-        SimulatedMarketPriceService)
+        SimulatedMarketPriceService,
+    )
 except ImportError:
-    startup_logger.error("Failed to import SimulatedMarketPriceService")
+    startup_logger.exception("Failed to import SimulatedMarketPriceService")
     SimulatedMarketPriceService = None  # type: ignore # Restored fallback
 
 # --- Global Setup --- #
@@ -1317,7 +1315,7 @@ class GalFridayApp:
         else:
             # mypy doesn't understand runtime import patterns
             log.warning(  # type: ignore[unreachable]
-                "FeatureRegistryClient not available, StrategyArbitrator will operate without feature validation."
+                "FeatureRegistryClient not available, StrategyArbitrator will operate without feature validation.",
             )
             self.feature_registry_client = None
 
@@ -1353,11 +1351,10 @@ class GalFridayApp:
                 portfolio_manager=self.portfolio_manager)
             log.debug("CLIService instantiated.")
             return self.cli_service
-        else:
-            # mypy doesn't understand runtime import patterns
-            self.cli_service = None  # type: ignore[unreachable]
-            log.info("CLIService not available or not configured.")
-            return None
+        # mypy doesn't understand runtime import patterns
+        self.cli_service = None  # type: ignore[unreachable]
+        log.info("CLIService not available or not configured.")
+        return None
 
     def _ensure_class_available(
         self,
@@ -1481,8 +1478,8 @@ class GalFridayApp:
             supports_stop_orders=True,
             supports_bracket_orders=False,
             supports_margin=True,
-            maker_fee_bps=Decimal("16"),  # 0.16%
-            taker_fee_bps=Decimal("26"),  # 0.26%
+            maker_fee_bps=Decimal(16),  # 0.16%
+            taker_fee_bps=Decimal(26),  # 0.26%
             fee_currency="USD",
             provides_l2_data=True,
             provides_tick_data=False,
@@ -1525,7 +1522,7 @@ class GalFridayApp:
                 dependency="MonitoringService")
 
         # Use enterprise operational mode system
-        if run_mode == "live" or run_mode == "live_trading":
+        if run_mode in {"live", "live_trading"}:
             if KrakenExecutionHandler is None:
                 raise DependencyMissingError(
                     component="Live mode ExecutionHandler",
@@ -1538,7 +1535,7 @@ class GalFridayApp:
                 monitoring_service=self.monitoring_service)
             log.debug("KrakenExecutionHandler instantiated.")
 
-        elif run_mode == "paper" or run_mode == "paper_trading":
+        elif run_mode in {"paper", "paper_trading"}:
             if SimulatedExecutionHandler is None:
                 raise DependencyMissingError(
                     component="Paper mode ExecutionHandler",
@@ -1589,7 +1586,7 @@ class GalFridayApp:
         try:
             # Initialize enterprise logging setup
             self.logging_setup = LoggingSetup(self.config)  # type: ignore
-            logger = self.logging_setup.setup_logging(
+            self.logging_setup.setup_logging(
                 log_level=args.log_level,
                 log_file=args.log_file,
                 enable_json=args.enable_json_logs,
@@ -1609,12 +1606,12 @@ class GalFridayApp:
             # Select and validate operational mode
             self.current_operational_mode = (
                 await self.mode_manager.select_and_initialize_operational_mode(
-                    explicit_mode=args.mode
+                    explicit_mode=args.mode,
                 )
             )
             log.info(f"Operational mode initialized: {self.current_operational_mode.value}")
 
-        except Exception as e:
+        except Exception:
             log.exception("ERROR: Failed to initialize operational mode")
             # Fallback to safe default
             self.current_operational_mode = OperationalMode.PAPER_TRADING
@@ -1645,10 +1642,10 @@ class GalFridayApp:
             self.session_maker = self.db_connection_pool.get_session_maker()
             if not self.session_maker:
                 log.critical(
-                    "Failed to get session_maker from DatabaseConnectionPool. DB-dependent services will fail."
+                    "Failed to get session_maker from DatabaseConnectionPool. DB-dependent services will fail.",
                 )
                 raise DependencyMissingError(
-                    "Application", "session_maker from DatabaseConnectionPool"
+                    "Application", "session_maker from DatabaseConnectionPool",
                 )
             log.info("DatabaseConnectionPool initialized and session_maker created.")
         else:
@@ -1664,7 +1661,7 @@ class GalFridayApp:
             # Now instantiate the full LoggerService, passing the session_maker
             # Type check: pubsub must be non-None for LoggerService
             if self.pubsub is None:
-                raise PubSubManagerInstantiationFailedExit()
+                raise PubSubManagerInstantiationFailedExit
             self.logger_service = LoggerService(
                 config_manager=self.config,
                 pubsub_manager=self.pubsub,
@@ -1707,11 +1704,11 @@ class GalFridayApp:
         """Initialize and start core application services."""
         if self.session_maker is None:
             raise DependencyMissingError(
-                component="Service initialization", dependency="session_maker"
+                component="Service initialization", dependency="session_maker",
             )
 
         orchestrator = ServiceOrchestrator(
-            [svc for svc in [self._init_strategy_arbitrator(), self._init_cli_service()] if svc]
+            [svc for svc in [self._init_strategy_arbitrator(), self._init_cli_service()] if svc],
         )
         await orchestrator.initialize_all(self.session_maker)
         await orchestrator.start_all()
@@ -2014,31 +2011,25 @@ def main() -> None:
 
         # Handle configuration validation
         if args.validate_config:
-            print(f"Validating configuration file: {args.config}")
             try:
                 if not os.path.exists(args.config):
-                    print(f"❌ Configuration file not found: {args.config}")
                     sys.exit(1)
 
                 # Create temporary config manager for validation
                 temp_config = ConfigManager(
-                    config_path=args.config, logger_service=logging.getLogger("config_validator")
+                    config_path=args.config, logger_service=logging.getLogger("config_validator"),
                 )
 
                 if temp_config.is_valid():
-                    print("✅ Configuration validation successful")
                     sys.exit(0)
                 else:
-                    print("❌ Configuration validation failed")
                     sys.exit(1)
 
-            except Exception as e:
-                print(f"❌ Configuration validation error: {e}")
+            except Exception:
                 sys.exit(1)
 
         # Handle health check
         if args.health_check:
-            print("🏥 Performing system health check...")
             try:
                 # Basic health checks
                 health_status = {
@@ -2059,37 +2050,28 @@ def main() -> None:
 
                 # Report health status
                 all_healthy = all(health_status.values())
-                for check, status in health_status.items():
-                    icon = "✅" if status else "❌"
-                    print(
-                        f"   {icon} {check.replace('_', ' ').title()}: {'OK' if status else 'FAIL'}"
-                    )
+                for _check, _status in health_status.items():
+                    pass
 
                 if all_healthy:
-                    print("✅ System health check passed")
                     sys.exit(0)
                 else:
-                    print("❌ System health check failed")
                     sys.exit(1)
 
-            except Exception as e:
-                print(f"❌ Health check error: {e}")
+            except Exception:
                 sys.exit(1)
 
         # Normal application startup
-        print(f"🌟 Starting Gal Friday Trading System v{__version__}")
 
         # Use asyncio.run for proper async handling
         asyncio.run(main_async(args))
 
     except KeyboardInterrupt:
-        print("\n⏹️  Received keyboard interrupt, shutting down gracefully...")
         sys.exit(0)
     except SystemExit:
         # Let SystemExit pass through (from argparse, etc.)
         raise
-    except Exception as e:
-        print(f"💥 Fatal startup error: {e}")
+    except Exception:
         logging.exception("Fatal startup error")
         sys.exit(1)
 

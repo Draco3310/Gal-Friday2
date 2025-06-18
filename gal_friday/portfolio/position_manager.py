@@ -1,33 +1,31 @@
 """Position management functionality for the portfolio system using SQLAlchemy."""
 
-import asyncio
-import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime  # Added timezone
 from decimal import Decimal
-from typing import TypedDict, Unpack, Any
+from typing import TypedDict, Unpack
+import uuid
 
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ..config_manager import ConfigManager  # For asset splitting or other config
-from ..dal.models.position import Position as PositionModel  # SQLAlchemy model
-from ..dal.repositories.position_repository import PositionRepository
-from ..dal.repositories.order_repository import OrderRepository
-from ..exceptions import DataValidationError
-from ..logger_service import LoggerService
-from typing import Any
+from gal_friday.config_manager import ConfigManager  # For asset splitting or other config
+from gal_friday.dal.models.position import Position as PositionModel  # SQLAlchemy model
+from gal_friday.dal.repositories.order_repository import OrderRepository
+from gal_friday.dal.repositories.position_repository import PositionRepository
+from gal_friday.exceptions import DataValidationError
+from gal_friday.logger_service import LoggerService
 
 
 class PositionCreationError(Exception):
     """Error raised when position creation fails."""
-    pass
 
 
 @dataclass
 class TradeInfo:
     """Represents information about a single trade.
-    
+
     This is a business logic representation of a trade that may include
     fields not directly stored in the Position model. Trade-specific
     details like fees and commissions should ideally be stored in a
@@ -36,7 +34,7 @@ class TradeInfo:
 
     timestamp: datetime
     trade_id: str  # Could be linked to an Order ID or Exchange Trade ID
-    side: str  # "BUY" or "SELL" 
+    side: str  # "BUY" or "SELL"
     quantity: Decimal
     price: Decimal
     fee: Decimal = Decimal(0)
@@ -204,7 +202,7 @@ class PositionManager:
             qty_arg = kwargs.get("quantity")
             price_arg = kwargs.get("price")
             order_id_arg = kwargs.get("order_id")  # NEW: Required for relationship tracking
-            
+
             # Provide defaults for fee and commission if not in kwargs, matching dataclass defaults
             fee_arg = kwargs.get("fee", Decimal(0))
             commission_arg = kwargs.get("commission", Decimal(0))
@@ -212,7 +210,7 @@ class PositionManager:
             # Ensure required fields are present (those not in _UpdatePositionKwargs or without defaults in _UpdatePositionParams)
             if qty_arg is None or price_arg is None:
                 raise ValueError("Quantity and price must be provided.")
-            
+
             if order_id_arg is None:
                 raise ValueError("order_id is required for position-order relationship tracking.")
 
@@ -228,8 +226,8 @@ class PositionManager:
                 fee_currency=kwargs.get("fee_currency"),
                 commission=Decimal(str(commission_arg)) if not isinstance(commission_arg, Decimal) else commission_arg,
                 commission_asset=kwargs.get("commission_asset"))
-        except (TypeError, ValueError, KeyError) as e:
-            self.logger.error(f"Invalid parameters for update_position_for_trade: {e}", source_module=self._source_module, context=kwargs)
+        except (TypeError, ValueError, KeyError):
+            self.logger.exception("Invalid parameters for update_position_for_trade: ", source_module=self._source_module, context=kwargs)
             return Decimal(0), None
 
         return await self._update_position_for_trade_impl(params)
@@ -257,9 +255,9 @@ class PositionManager:
                 params.quantity,
                 params.price)
 
-        except DataValidationError as e:
-            self.logger.error(
-                f"Trade validation failed for {params.trading_pair}: {e}",
+        except DataValidationError:
+            self.logger.exception(
+                f"Trade validation failed for {params.trading_pair}: ",
                 source_module=self._source_module,
                 context=params.__dict__)
             return Decimal(0), None
@@ -304,8 +302,8 @@ class PositionManager:
                 self.logger.error(f"Invalid trade side: {params.side}", source_module=self._source_module)
                 return Decimal(0), None
 
-            # Update position timestamp 
-            if hasattr(position_model, 'updated_at'):
+            # Update position timestamp
+            if hasattr(position_model, "updated_at"):
                 position_model.updated_at = params.timestamp
 
             try:
@@ -316,7 +314,7 @@ class PositionManager:
                     "current_price": position_model.current_price,
                     "realized_pnl": position_model.realized_pnl,
                     "unrealized_pnl": position_model.unrealized_pnl,
-                    "is_active": position_model.is_active
+                    "is_active": position_model.is_active,
                 }
                 updated_pos = await self.position_repository.update(str(position_model.id), update_data)
                 if not updated_pos:
@@ -333,13 +331,13 @@ class PositionManager:
                     updated_pos.quantity, updated_pos.entry_price, realized_pnl_trade, params.order_id,
                     source_module=self._source_module)
                 return realized_pnl_trade, updated_pos
-            except Exception as e:
-                self.logger.exception(f"Error updating position in DB for {params.trading_pair}: {e}", source_module=self._source_module)
+            except Exception:
+                self.logger.exception(f"Error updating position in DB for {params.trading_pair}: ", source_module=self._source_module)
                 return realized_pnl_trade, None
-    
+
     async def _link_order_to_position(self, order_id: str, position_id: str) -> None:
         """Link an order to a position for audit trail purposes.
-        
+
         Args:
             order_id: The UUID of the order as string
             position_id: The UUID of the position as string
@@ -347,10 +345,10 @@ class PositionManager:
         try:
             # Update the order to reference this position
             updated_order = await self.order_repository.update(
-                order_id, 
-                {"position_id": position_id}
+                order_id,
+                {"position_id": position_id},
             )
-            
+
             if updated_order:
                 self.logger.debug(
                     f"Successfully linked order {order_id} to position {position_id}",
@@ -359,10 +357,10 @@ class PositionManager:
                 self.logger.warning(
                     f"Order {order_id} not found for position linking - may be external order",
                     source_module=self._source_module)
-        except Exception as e:
+        except Exception:
             # Don't fail position update if order linking fails
-            self.logger.error(
-                f"Failed to link order {order_id} to position {position_id}: {e}",
+            self.logger.exception(
+                f"Failed to link order {order_id} to position {position_id}: ",
                 source_module=self._source_module)
 
     # Error messages for trade validation (can remain the same)
@@ -432,9 +430,9 @@ class PositionManager:
             self.logger.info(f"Created new position in DB for {trading_pair} with ID {created_position.id}", source_module=self._source_module)
             return created_position
         except Exception as e:
-            self.logger.exception(f"Error creating new position in DB for {trading_pair}: {e}", source_module=self._source_module)
+            self.logger.exception(f"Error creating new position in DB for {trading_pair}: ", source_module=self._source_module)
             # Re-raise with additional context for proper error handling upstream
-            raise PositionCreationError(f"Failed to create position for {trading_pair}: {str(e)}") from e
+            raise PositionCreationError(f"Failed to create position for {trading_pair}: {e!s}") from e
 
     async def get_total_realized_pnl(self, trading_pair: str | None = None) -> Decimal:
         """Get total realized PnL for a specific pair or all pairs from database."""
@@ -446,8 +444,7 @@ class PositionManager:
 
         # For all pairs:
         all_positions = await self.position_repository.find_all(filters={"is_active": True}) # Or all, including closed
-        total_pnl = sum((pos.realized_pnl for pos in all_positions if pos.realized_pnl is not None), Decimal(0))
-        return total_pnl
+        return sum((pos.realized_pnl for pos in all_positions if pos.realized_pnl is not None), Decimal(0))
 
     # Internal data structures for trade record management
     # These are used to construct TradeInfo objects for position updates

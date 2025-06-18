@@ -6,60 +6,54 @@ files, databases and time-series databases. It provides thread-safety, async sup
 and context-rich logging capabilities with enterprise-grade handler implementations.
 """
 
-import asyncio
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Mapping, Sequence
 import contextlib  # Added for SIM105
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from decimal import Decimal
+from enum import Enum
 import json
 import logging
 import logging.handlers
+from pathlib import Path  # Add missing import
 import queue
+from random import SystemRandom
 import re
 import sys
 import threading
 import time
 import types  # Added for exc_info typing
-from abc import ABC, abstractmethod
-from asyncio import QueueFull  # Import QueueFull from asyncio, not asyncio.exceptions
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
-from datetime import datetime
-from decimal import Decimal
-from enum import Enum
-from pathlib import Path  # Add missing import
-from random import SystemRandom
 from typing import (
     # Add Point type for type checking
     TYPE_CHECKING,
     Any,
-    Dict,
-    List,
     Optional,
     Protocol,
-    Type,
+    TypeAlias as TypingTypeAlias,
     TypeVar,
-    Union,
-    cast)
-from typing import (
-    TypeAlias as TypingTypeAlias)
+    cast,
+)
+
+import asyncio
+from asyncio import QueueFull  # Import QueueFull from asyncio, not asyncio.exceptions
+from pythonjsonlogger import jsonlogger  # Add missing import for JSON logging
 
 from .interfaces.service_protocol import ServiceProtocol
-
-from pythonjsonlogger import jsonlogger  # Add missing import for JSON logging
 
 # Runtime imports
 # from influxdb_client import Point as InfluxDBPoint # Moved into methods
 
 if TYPE_CHECKING:
     # For type hinting InfluxDBClient and WriteApi if needed at class/method signature level
-    from asyncpg import Connection as AsyncpgConnection
-    from asyncpg import Pool as AsyncpgPool
+    from asyncpg import Connection as AsyncpgConnection, Pool as AsyncpgPool
     from asyncpg.exceptions import (
-        ConnectionDoesNotExistError as AsyncpgConnectionDoesNotExistError)
-    from asyncpg.exceptions import ConnectionIsClosedError as AsyncpgConnectionIsClosedError
-    from asyncpg.exceptions import InterfaceError as AsyncpgInterfaceError
-    from asyncpg.exceptions import PostgresError as AsyncpgPostgresError
-    from influxdb_client import InfluxDBClient
+        ConnectionDoesNotExistError as AsyncpgConnectionDoesNotExistError,
+        ConnectionIsClosedError as AsyncpgConnectionIsClosedError,
+        InterfaceError as AsyncpgInterfaceError,
+        PostgresError as AsyncpgPostgresError,
+    )
     from influxdb_client import Point as InfluxDBPoint
-    from influxdb_client.client.write_api import WriteApi
 else:
     # Define placeholders if asyncpg is not available at runtime for type checking purposes
     # This helps prevent ModuleNotFoundError if asyncpg is not installed during e.g. linting
@@ -86,8 +80,6 @@ if TYPE_CHECKING:
 # Import custom exceptions
 # SQLAlchemy imports
 from sqlalchemy.ext.asyncio import create_async_engine
-
-from .exceptions import DatabaseError
 
 # Type[Any] variables for generic protocols
 _T = TypeVar("_T")
@@ -139,10 +131,10 @@ class HandlerConfig:
     handler_type: HandlerType
     name: str
     level: LogLevel = LogLevel.INFO
-    format_string: Optional[str] = None
-    parameters: Dict[str, Any] = field(default_factory=dict[str, Any])
+    format_string: str | None = None
+    parameters: dict[str, Any] = field(default_factory=dict[str, Any])
     enabled: bool = True
-    filters: List[str] = field(default_factory=list[Any])
+    filters: list[str] = field(default_factory=list[Any])
 
 
 class LogHandlerProtocol(Protocol):
@@ -240,6 +232,7 @@ class BaseLogHandler(logging.Handler, ABC):
     """Base class for enterprise logging handlers with performance tracking."""
 
     def __init__(self, config: HandlerConfig) -> None:
+        """Initialize the instance."""
         super().__init__()
         self.config = config
         self.setLevel(getattr(logging, config.level.value))
@@ -257,7 +250,6 @@ class BaseLogHandler(logging.Handler, ABC):
     @abstractmethod
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record - must be implemented by subclasses."""
-        pass
 
     def handle_emit_error(self, record: logging.LogRecord, error: Exception) -> None:
         """Handle errors during record emission."""
@@ -269,6 +261,7 @@ class EnterpriseConsoleLogHandler(BaseLogHandler):
     """Enterprise console logging handler with color support."""
 
     def __init__(self, config: HandlerConfig) -> None:
+        """Initialize the instance."""
         super().__init__(config)
         self.stream = self.config.parameters.get("stream", "stdout")
 
@@ -314,6 +307,7 @@ class EnterpriseRotatingFileLogHandler(BaseLogHandler):
     """Enterprise rotating file logging handler."""
 
     def __init__(self, config: HandlerConfig) -> None:
+        """Initialize the instance."""
         super().__init__(config)
 
         # Extract file rotation parameters
@@ -352,6 +346,7 @@ class EnterpriseElasticsearchLogHandler(BaseLogHandler):
     """Enterprise Elasticsearch logging handler with batching."""
 
     def __init__(self, config: HandlerConfig) -> None:
+        """Initialize the instance."""
         super().__init__(config)
 
         # Elasticsearch configuration
@@ -365,7 +360,7 @@ class EnterpriseElasticsearchLogHandler(BaseLogHandler):
         # Batch processing
         self.batch_size = config.parameters.get("batch_size", 100)
         self.batch_timeout = config.parameters.get("batch_timeout", 5.0)
-        self.batch_buffer: List[Dict[str, Any]] = []
+        self.batch_buffer: list[dict[str, Any]] = []
         self.last_flush_time = time.time()
 
     def _create_es_client(self) -> Any:
@@ -376,7 +371,7 @@ class EnterpriseElasticsearchLogHandler(BaseLogHandler):
             return Elasticsearch(self.hosts)
         except ImportError:
             logging.getLogger(__name__).warning(
-                "Elasticsearch client not available. Install 'elasticsearch' package."
+                "Elasticsearch client not available. Install 'elasticsearch' package.",
             )
             return None
 
@@ -405,7 +400,7 @@ class EnterpriseElasticsearchLogHandler(BaseLogHandler):
         except Exception as e:
             self.handle_emit_error(record, e)
 
-    def _record_to_document(self, record: logging.LogRecord) -> Dict[str, Any]:
+    def _record_to_document(self, record: logging.LogRecord) -> dict[str, Any]:
         """Convert log record to Elasticsearch document."""
         doc = {
             "@timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.%fZ", time.gmtime(record.created)),
@@ -448,15 +443,16 @@ class EnterpriseElasticsearchLogHandler(BaseLogHandler):
             self.batch_buffer.clear()
             self.last_flush_time = time.time()
 
-        except Exception as e:
+        except Exception:
             self.error_count += 1
-            logging.getLogger(__name__).error(f"Failed to flush batch to Elasticsearch: {e}")
+            logging.getLogger(__name__).exception("Failed to flush batch to Elasticsearch: ")
 
 
 class EnterpriseInfluxDBLogHandler(BaseLogHandler):
     """Enterprise InfluxDB logging handler for time-series log data."""
 
     def __init__(self, config: HandlerConfig) -> None:
+        """Initialize the instance."""
         super().__init__(config)
 
         # InfluxDB configuration
@@ -470,7 +466,7 @@ class EnterpriseInfluxDBLogHandler(BaseLogHandler):
 
         # Batch processing
         self.batch_size = config.parameters.get("batch_size", 100)
-        self.batch_buffer: List[Dict[str, Any]] = []
+        self.batch_buffer: list[dict[str, Any]] = []
 
     def _create_influx_client(self) -> Any:
         """Create InfluxDB client if available."""
@@ -485,7 +481,7 @@ class EnterpriseInfluxDBLogHandler(BaseLogHandler):
                 org=org)
         except ImportError:
             logging.getLogger(__name__).warning(
-                "InfluxDB client not available. Install 'influxdb-client' package."
+                "InfluxDB client not available. Install 'influxdb-client' package.",
             )
             return None
 
@@ -511,7 +507,7 @@ class EnterpriseInfluxDBLogHandler(BaseLogHandler):
         except Exception as e:
             self.handle_emit_error(record, e)
 
-    def _record_to_point(self, record: logging.LogRecord) -> Dict[str, Any]:
+    def _record_to_point(self, record: logging.LogRecord) -> dict[str, Any]:
         """Convert log record to InfluxDB point."""
         return {
             "measurement": self.measurement,
@@ -538,14 +534,14 @@ class EnterpriseInfluxDBLogHandler(BaseLogHandler):
         try:
             write_api = self.influx_client.write_api()
             write_api.write(
-                bucket=self.config.parameters.get("bucket", "logs"), record=self.batch_buffer
+                bucket=self.config.parameters.get("bucket", "logs"), record=self.batch_buffer,
             )
 
             self.batch_buffer.clear()
 
-        except Exception as e:
+        except Exception:
             self.error_count += 1
-            logging.getLogger(__name__).error(f"Failed to flush batch to InfluxDB: {e}")
+            logging.getLogger(__name__).exception("Failed to flush batch to InfluxDB: ")
 
 
 # LogHandlerFactory will be defined after all handler classes
@@ -659,7 +655,7 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
         """Format the log record into a dictionary suitable for DB insertion."""
         context_data = None  # Changed from context_json
         if hasattr(record, "context") and record.context:
-            if isinstance(record.context, dict) or isinstance(record.context, list):
+            if isinstance(record.context, dict | list):
                 context_data = record.context  # Keep as Python dict[str, Any]/list[Any] for SQLAlchemy
             else:
                 try:
@@ -708,9 +704,8 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
             # Assuming _format_record produces keys matching Log model attributes.
             log_entry = Log(**record_data)
 
-            async with self._session_maker() as session:
-                async with session.begin():  # Start a transaction
-                    session.add(log_entry)
+            async with self._session_maker() as session, session.begin():  # Start a transaction
+                session.add(log_entry)
                 # Commit happens automatically with session.begin() context manager,
                 # or call await session.commit() if not using begin()
             return True
@@ -788,9 +783,8 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
             try:
                 if await self._attempt_db_insert(record_data):
                     return  # Success
-                else:
-                    # Non-retryable error, stop trying
-                    return
+                # Non-retryable error, stop trying
+                return
             except SQLAlchemyError as db_err:
                 # This exception is only raised for retryable errors
                 attempt += 1
@@ -801,18 +795,17 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                         str(db_err),
                         exc_info=True)
                     return
-                else:
-                    # Exponential backoff with jitter
-                    wait_time = min(base_backoff * (2 ** (attempt - 1)), 30.0)
-                    wait_time += SystemRandom().uniform(0, wait_time * 0.1)
-                    logging.getLogger(__name__).warning(
-                        "AsyncPostgresHandler: Retryable database error (Attempt %d/%d). "
-                        "Retrying in %.2fs. Error: %s",
-                        attempt,
-                        max_retries,
-                        wait_time,
-                        str(db_err))
-                    await asyncio.sleep(wait_time)
+                # Exponential backoff with jitter
+                wait_time = min(base_backoff * (2 ** (attempt - 1)), 30.0)
+                wait_time += SystemRandom().uniform(0, wait_time * 0.1)
+                logging.getLogger(__name__).warning(
+                    "AsyncPostgresHandler: Retryable database error (Attempt %d/%d). "
+                    "Retrying in %.2fs. Error: %s",
+                    attempt,
+                    max_retries,
+                    wait_time,
+                    str(db_err))
+                await asyncio.sleep(wait_time)
             except OSError as conn_err:  # Network/connection issues
                 attempt += 1
                 if attempt >= max_retries:
@@ -822,17 +815,16 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                         str(conn_err),
                         exc_info=True)
                     return
-                else:
-                    wait_time = min(base_backoff * (2 ** (attempt - 1)), 30.0)
-                    wait_time += SystemRandom().uniform(0, wait_time * 0.1)
-                    logging.getLogger(__name__).warning(
-                        "AsyncPostgresHandler: Network/OS error (Attempt %d/%d). "
-                        "Retrying in %.2fs. Error: %s",
-                        attempt,
-                        max_retries,
-                        wait_time,
-                        str(conn_err))
-                    await asyncio.sleep(wait_time)
+                wait_time = min(base_backoff * (2 ** (attempt - 1)), 30.0)
+                wait_time += SystemRandom().uniform(0, wait_time * 0.1)
+                logging.getLogger(__name__).warning(
+                    "AsyncPostgresHandler: Network/OS error (Attempt %d/%d). "
+                    "Retrying in %.2fs. Error: %s",
+                    attempt,
+                    max_retries,
+                    wait_time,
+                    str(conn_err))
+                await asyncio.sleep(wait_time)
             except (RuntimeError, ValueError, TypeError) as e:
                 # Non-database errors, likely programming errors - don't retry
                 logging.getLogger(__name__).error(
@@ -888,8 +880,8 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                 try:
                     self._queue.put_nowait(None)
                 except QueueFull:
-                    logging.getLogger(__name__).error(
-                        "AsyncPostgresHandler: Queue full while trying to add sentinel in close()."
+                    logging.getLogger(__name__).exception(
+                        "AsyncPostgresHandler: Queue full while trying to add sentinel in close().",
                     )
 
         super().close()  # Calls Handler.close()
@@ -911,7 +903,7 @@ class LogHandlerFactory:
     """Factory for creating enterprise logging handlers with proper type annotations."""
 
     # Mapping[Any, Any] of handler types to concrete classes
-    HANDLER_CLASSES: Dict[HandlerType, Type[BaseLogHandler]] = {
+    HANDLER_CLASSES: dict[HandlerType, type[BaseLogHandler]] = {
         HandlerType.CONSOLE: EnterpriseConsoleLogHandler,
         HandlerType.ROTATING_FILE: EnterpriseRotatingFileLogHandler,
         HandlerType.ELASTICSEARCH: EnterpriseElasticsearchLogHandler,
@@ -956,13 +948,13 @@ class LogHandlerFactory:
 
     @classmethod
     def register_handler_class(
-        cls, handler_type: HandlerType, handler_class: Type[BaseLogHandler]
+        cls, handler_type: HandlerType, handler_class: type[BaseLogHandler],
     ) -> None:
         """Register custom handler class for extensibility."""
         cls.HANDLER_CLASSES[handler_type] = handler_class
 
     @classmethod
-    def _create_filter(cls, filter_name: str) -> Optional[logging.Filter]:
+    def _create_filter(cls, filter_name: str) -> logging.Filter | None:
         """Create logging filter by name."""
         # Placeholder for filter creation logic - can be extended
         return None
@@ -976,8 +968,8 @@ class LoggerService(ServiceProtocol):
     and enterprise-grade handler implementations.
     """
 
-    _influx_client: Optional[Any] = None
-    _influx_write_api: Optional[Any] = None
+    _influx_client: Any | None = None
+    _influx_write_api: Any | None = None
     _sqlalchemy_engine: AsyncEngine | None = None  # Added
     _sqlalchemy_session_factory: async_sessionmaker[AsyncSession] | None = None  # Added
 
@@ -1009,9 +1001,9 @@ class LoggerService(ServiceProtocol):
             "%Y-%m-%d %H:%M:%S")
 
         # Enterprise handler registry with proper type annotations
-        self._enterprise_handlers: Dict[str, Union[BaseLogHandler, EnterpriseAsyncPostgresHandler]] = {}
-        self._handler_configs: Dict[str, HandlerConfig] = {}
-        self._handler_stats: Dict[str, Dict[str, Any]] = {}
+        self._enterprise_handlers: dict[str, BaseLogHandler | EnterpriseAsyncPostgresHandler] = {}
+        self._handler_configs: dict[str, HandlerConfig] = {}
+        self._handler_stats: dict[str, dict[str, Any]] = {}
 
         # SQLAlchemy DB Handler setup
         self._db_config: dict[str, Any] = self._config_manager.get("logging.database", {})
@@ -1038,7 +1030,7 @@ class LoggerService(ServiceProtocol):
     async def initialize(self) -> None:
         """Async initialization hook for compatibility with ServiceProtocol."""
         # No asynchronous setup currently required
-        return None
+        return
 
     def _process_log_queue(self) -> None:
         """Worker thread target to process log messages from the queue."""
@@ -1356,7 +1348,6 @@ class LoggerService(ServiceProtocol):
 
     def initialize_enterprise_handlers(self) -> None:
         """Initialize enterprise handlers from configuration."""
-
         handlers_config: list[dict[str, Any]] = self._config_manager.get("logging.enterprise_handlers", [])
 
         for handler_config_data in handlers_config:
@@ -1378,7 +1369,7 @@ class LoggerService(ServiceProtocol):
                         # Special handling for database handler
                         if self._db_session_maker:
                             handler = EnterpriseAsyncPostgresHandler(
-                                config, self._db_session_maker, asyncio.get_event_loop()
+                                config, self._db_session_maker, asyncio.get_event_loop(),
                             )
                         else:
                             self.warning(
@@ -1393,19 +1384,18 @@ class LoggerService(ServiceProtocol):
                     self._root_logger.addHandler(handler)
 
                     self.info(
-                        f"Initialized enterprise handler: {config.name} ({config.handler_type.value})"
+                        f"Initialized enterprise handler: {config.name} ({config.handler_type.value})",
                     )
 
             except Exception as e:
                 self.error(f"Failed to initialize enterprise handler: {e}")
 
-    def get_enterprise_handler(self, name: str) -> Optional[BaseLogHandler]:
+    def get_enterprise_handler(self, name: str) -> BaseLogHandler | None:
         """Get enterprise handler by name with proper type annotation."""
         return self._enterprise_handlers.get(name)
 
     def add_enterprise_handler(self, config: HandlerConfig) -> bool:
         """Add new enterprise handler at runtime."""
-
         try:
             if config.name in self._enterprise_handlers:
                 self.warning(f"Enterprise handler {config.name} already exists")
@@ -1416,7 +1406,7 @@ class LoggerService(ServiceProtocol):
                 # Special handling for database handler
                 if self._db_session_maker:
                     handler = EnterpriseAsyncPostgresHandler(
-                        config, self._db_session_maker, asyncio.get_event_loop()
+                        config, self._db_session_maker, asyncio.get_event_loop(),
                     )
                 else:
                     self.error("Database handler requested but session_maker not available")
@@ -1437,7 +1427,6 @@ class LoggerService(ServiceProtocol):
 
     def remove_enterprise_handler(self, name: str) -> bool:
         """Remove enterprise handler by name."""
-
         if name in self._enterprise_handlers:
             handler = self._enterprise_handlers[name]
             self._root_logger.removeHandler(handler)
@@ -1451,9 +1440,8 @@ class LoggerService(ServiceProtocol):
 
         return False
 
-    def get_enterprise_handler_statistics(self) -> Dict[str, Dict[str, Any]]:
+    def get_enterprise_handler_statistics(self) -> dict[str, dict[str, Any]]:
         """Get statistics for all enterprise handlers."""
-
         stats = {}
 
         for name, handler in self._enterprise_handlers.items():
@@ -1469,7 +1457,6 @@ class LoggerService(ServiceProtocol):
 
     def flush_all_enterprise_handlers(self) -> None:
         """Flush all enterprise handlers."""
-
         for handler in self._enterprise_handlers.values():
             try:
                 handler.flush()
@@ -1478,7 +1465,6 @@ class LoggerService(ServiceProtocol):
 
     def close_all_enterprise_handlers(self) -> None:
         """Close all enterprise handlers."""
-
         for handler in self._enterprise_handlers.values():
             try:
                 handler.close()
@@ -1592,11 +1578,9 @@ class LoggerService(ServiceProtocol):
             for key, value in fields.items():
                 # Explicit type guard to help mypy understand value can be Any type
                 field_value: Any = value
-                
+
                 # Handle specific types - check string last since it's the broadest type
-                if isinstance(field_value, bool):  # bool must come before int since bool is a subclass of int
-                    valid_fields[key] = field_value
-                elif isinstance(field_value, (int, float)):
+                if isinstance(field_value, bool | int | float):  # bool must come before int since bool is a subclass of int
                     valid_fields[key] = field_value
                 elif isinstance(field_value, Decimal):
                     valid_fields[key] = float(field_value)
@@ -1638,7 +1622,7 @@ class LoggerService(ServiceProtocol):
             fields: Dictionary of field keys and values
             timestamp: Optional timestamp for the data point, current time used if not provided
         """
-        log_time = timestamp if timestamp else datetime.utcnow()
+        log_time = timestamp if timestamp else datetime.now(UTC)
 
         self.debug(
             "[TimeSeries] M=%s, T=%s, F=%s, TS=%s",
@@ -1700,12 +1684,12 @@ class LoggerService(ServiceProtocol):
                 handler_type=HandlerType.DATABASE,
                 name="legacy_database",
                 level=LogLevel(
-                    str(self._config_manager.get("logging.database.level", "INFO")).upper()
+                    str(self._config_manager.get("logging.database.level", "INFO")).upper(),
                 ),
                 enabled=True)
             try:
                 self._async_handler = EnterpriseAsyncPostgresHandler(
-                    db_config, self._db_session_maker, asyncio.get_event_loop()
+                    db_config, self._db_session_maker, asyncio.get_event_loop(),
                 )
                 self._async_handler.setLevel(getattr(logging, db_config.level.value))
                 self._root_logger.addHandler(self._async_handler)
@@ -1738,7 +1722,7 @@ class LoggerService(ServiceProtocol):
         if self._async_handler:
             self._async_handler.start_processing()
             self.info(
-                "Legacy AsyncPostgresHandler processing started.", source_module="LoggerService"
+                "Legacy AsyncPostgresHandler processing started.", source_module="LoggerService",
             )
         elif self._db_enabled and not any(
             isinstance(h, EnterpriseAsyncPostgresHandler)
@@ -1796,13 +1780,13 @@ class LoggerService(ServiceProtocol):
         # Close the legacy SQLAlchemy handler
         if self._async_handler:
             self.info(
-                "Closing legacy SQLAlchemy database log handler...", source_module="LoggerService"
+                "Closing legacy SQLAlchemy database log handler...", source_module="LoggerService",
             )
             self._async_handler.close()
             try:
                 if hasattr(self._async_handler, "wait_closed"):
                     await asyncio.wait_for(
-                        self._async_handler.wait_closed(), timeout=10.0
+                        self._async_handler.wait_closed(), timeout=10.0,
                     )  # Increased timeout
                     self.info(
                         "Legacy SQLAlchemy database log handler closed gracefully.",
@@ -1849,7 +1833,7 @@ class LoggerService(ServiceProtocol):
                 context={
                     "database_url": str(db_url)[: str(db_url).find("@")] + "@********"
                     if "@" in str(db_url)
-                    else str(db_url)
+                    else str(db_url),
                 },  # Mask credentials
             )
             pool_size = self._config_manager.get_int("logging.database.pool_size", 5)

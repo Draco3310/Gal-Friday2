@@ -18,4 +18,4 @@ class ModelStatus(Enum):
     READY = "ready"
     DEPLOYED = "deployed"
     FAILED = "failed"
-    DEPRECATED = "deprecated" 
+    DEPRECATED = "deprecated"

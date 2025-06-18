@@ -1,4 +1,4 @@
-"""initial_schema_ddl_manual_v4
+"""initial_schema_ddl_manual_v4.
 
 Revision ID: 465b5ba8a9a2
 Revises: a31175f3afaa

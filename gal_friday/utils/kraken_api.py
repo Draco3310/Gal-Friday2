@@ -7,8 +7,8 @@ eliminating duplication across different Kraken-specific modules.
 import base64
 import hashlib
 import hmac
-import urllib.parse
 from typing import Any
+import urllib.parse
 
 
 class KrakenAPIError(Exception):

@@ -2,16 +2,13 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
-from typing import TYPE_CHECKING, Any
-from uuid import UUID
+from typing import TYPE_CHECKING
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gal_friday.dal.base import BaseRepository
 from gal_friday.models.fill import Fill
-from typing import Any
 
 if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
@@ -61,7 +58,7 @@ class FillRepository(BaseRepository[Fill]):
 
                 # Add ordering, pagination
                 stmt = stmt.order_by(Fill.filled_at.desc())
-                
+
                 if limit is not None:
                     stmt = stmt.limit(limit)
                 if offset is not None:
@@ -69,16 +66,16 @@ class FillRepository(BaseRepository[Fill]):
 
                 result = await session.execute(stmt)
                 fills = result.scalars().all()
-                
+
                 self.logger.debug(
                     f"Retrieved {len(fills)} fills for {trading_pair} "
                     f"(limit: {limit}, offset: {offset})",
                     source_module=self._source_module)
                 return fills
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error retrieving fills for {trading_pair}: {e}",
+                f"Error retrieving fills for {trading_pair}: ",
                 source_module=self._source_module)
             raise
 
@@ -126,7 +123,7 @@ class FillRepository(BaseRepository[Fill]):
 
                 # Add ordering, pagination
                 stmt = stmt.order_by(Fill.filled_at.desc())
-                
+
                 if limit is not None:
                     stmt = stmt.limit(limit)
                 if offset is not None:
@@ -134,16 +131,16 @@ class FillRepository(BaseRepository[Fill]):
 
                 result = await session.execute(stmt)
                 fills = result.scalars().all()
-                
+
                 self.logger.debug(
                     f"Retrieved {len(fills)} fills for strategy {strategy_id} "
                     f"(limit: {limit}, offset: {offset})",
                     source_module=self._source_module)
                 return fills
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error retrieving fills for strategy {strategy_id}: {e}",
+                f"Error retrieving fills for strategy {strategy_id}: ",
                 source_module=self._source_module)
             raise
 
@@ -163,7 +160,7 @@ class FillRepository(BaseRepository[Fill]):
             Sequence[Any] of recent Fill objects
         """
         cutoff = datetime.now(UTC) - timedelta(hours=hours)
-        
+
         try:
             async with self.session_maker() as session:
                 stmt = (
@@ -171,7 +168,7 @@ class FillRepository(BaseRepository[Fill]):
                     .where(Fill.filled_at >= cutoff)
                     .order_by(Fill.filled_at.desc())
                 )
-                
+
                 if limit is not None:
                     stmt = stmt.limit(limit)
                 if offset is not None:
@@ -179,16 +176,16 @@ class FillRepository(BaseRepository[Fill]):
 
                 result = await session.execute(stmt)
                 fills = result.scalars().all()
-                
+
                 self.logger.debug(
                     f"Retrieved {len(fills)} recent fills from last {hours} hours "
                     f"(limit: {limit}, offset: {offset})",
                     source_module=self._source_module)
                 return fills
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error retrieving recent fills: {e}",
+                "Error retrieving recent fills: ",
                 source_module=self._source_module)
             raise
 
@@ -221,15 +218,15 @@ class FillRepository(BaseRepository[Fill]):
 
                 result = await session.execute(stmt)
                 count = result.scalar() or 0
-                
+
                 self.logger.debug(
                     f"Found {count} total fills for {trading_pair}",
                     source_module=self._source_module)
                 return count
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error counting fills for {trading_pair}: {e}",
+                f"Error counting fills for {trading_pair}: ",
                 source_module=self._source_module)
             raise
 
@@ -252,14 +249,14 @@ class FillRepository(BaseRepository[Fill]):
 
                 result = await session.execute(stmt)
                 fills = result.scalars().all()
-                
+
                 self.logger.debug(
                     f"Retrieved {len(fills)} fills for order {order_pk}",
                     source_module=self._source_module)
                 return fills
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error retrieving fills for order {order_pk}: {e}",
+                f"Error retrieving fills for order {order_pk}: ",
                 source_module=self._source_module)
-            raise 
+            raise

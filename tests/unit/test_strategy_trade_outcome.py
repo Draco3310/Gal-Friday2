@@ -1,19 +1,20 @@
 """Tests for reporting trade outcomes."""
 
-import asyncio
-import uuid
 from decimal import Decimal
+from typing import TYPE_CHECKING, cast
+import uuid
 
+import asyncio
 import pytest
-
-from typing import cast
 
 from gal_friday.core.events import TradeOutcomeEvent
 from gal_friday.core.pubsub import EventType, PubSubManager
-from gal_friday.core.feature_registry_client import FeatureRegistryClient
-from gal_friday.market_price_service import MarketPriceService
 from gal_friday.strategy_arbitrator import StrategyArbitrator
-from gal_friday.strategy_selection import StrategySelectionSystem
+
+if TYPE_CHECKING:
+    from gal_friday.core.feature_registry_client import FeatureRegistryClient
+    from gal_friday.market_price_service import MarketPriceService
+    from gal_friday.strategy_selection import StrategySelectionSystem
 
 
 class DummyFeatureRegistry:
@@ -59,12 +60,12 @@ async def test_report_trade_outcome_publishes_event(
         config,
         pubsub_manager,
         mock_logger,
-        cast(MarketPriceService, DummyMarketPriceService()),
-        cast(FeatureRegistryClient, DummyFeatureRegistry()),
+        cast("MarketPriceService", DummyMarketPriceService()),
+        cast("FeatureRegistryClient", DummyFeatureRegistry()),
     )
 
     arbitrator._strategy_selection_enabled = True
-    arbitrator.strategy_selection_system = cast(StrategySelectionSystem, object())
+    arbitrator.strategy_selection_system = cast("StrategySelectionSystem", object())
 
     received: list[TradeOutcomeEvent] = []
 

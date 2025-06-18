@@ -2,19 +2,19 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Any, Protocol, Optional
 import logging
+from typing import Any, Protocol
 import warnings
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 
-from ..core.asset_registry import AssetSpecification
-from ..interfaces.feature_engine_interface import FeatureVector
+from gal_friday.core.asset_registry import AssetSpecification
+from gal_friday.interfaces.feature_engine_interface import FeatureVector
 
 
 class StrategyType(Enum):
@@ -108,8 +108,8 @@ class StrategyState:
     # Performance metrics
     total_trades: int = 0
     winning_trades: int = 0
-    total_pnl: Decimal = Decimal("0")
-    max_drawdown: Decimal = Decimal("0")
+    total_pnl: Decimal = Decimal(0)
+    max_drawdown: Decimal = Decimal(0)
 
     # MARL-specific state
     episode_number: int | None = None
@@ -133,35 +133,35 @@ class PerformanceMetrics:
     """Comprehensive statistical performance metrics for strategy evaluation."""
     strategy_id: str
     returns: np.ndarray[Any, Any]
-    
+
     # Risk-adjusted metrics
     sharpe_ratio: float
     sortino_ratio: float
     calmar_ratio: float
     information_ratio: float
-    
+
     # Risk metrics
     volatility: float
     max_drawdown: float
     value_at_risk_95: float
     conditional_var_95: float
-    
+
     # Distribution metrics
     skewness: float
     kurtosis: float
-    
+
     # Statistical significance
     t_statistic: float
     p_value: float
     confidence_interval_lower: float
     confidence_interval_upper: float
-    
+
     # Performance periods
     total_return: float
     annualized_return: float
     win_rate: float
     profit_factor: float
-    
+
     # Metadata
     observation_count: int
     calculation_timestamp: datetime = field(default_factory=datetime.utcnow)
@@ -171,47 +171,47 @@ class PerformanceMetrics:
 class EnsembleConfig:
     """Configuration for ensemble strategy decision making."""
     method: EnsembleMethod = EnsembleMethod.CONFIDENCE_WEIGHTED
-    
+
     # Weighting parameters
     performance_window: int = 252  # 1 year lookback
     min_observations: int = 30
     confidence_threshold: float = 0.6
     volatility_adjustment: bool = True
-    
+
     # Dynamic weighting
     adaptation_rate: float = 0.1
     recency_bias: float = 0.8
-    
+
     # Risk management
     max_individual_weight: float = 0.4
     min_individual_weight: float = 0.05
     diversification_penalty: float = 0.1
-    
+
     # Statistical parameters
     confidence_level: float = 0.95
     significance_threshold: float = 0.05
 
 
-@dataclass  
+@dataclass
 class ReweightingConfig:
     """Configuration for statistical performance-based reweighting."""
     method: ReweightingMethod = ReweightingMethod.SHARPE_RATIO
-    
+
     # Lookback parameters
     lookback_window: int = 252  # 1 year
     min_observations: int = 30
     rebalance_frequency: str = "monthly"  # daily, weekly, monthly, quarterly
-    
+
     # Statistical parameters
     confidence_level: float = 0.95
     significance_threshold: float = 0.05
     outlier_threshold: float = 3.0  # Standard deviations
-    
+
     # Risk parameters
-    target_volatility: Optional[float] = None
+    target_volatility: float | None = None
     max_weight: float = 0.5
     min_weight: float = 0.1
-    
+
     # Regularization
     l1_penalty: float = 0.0
     l2_penalty: float = 0.01
@@ -220,43 +220,43 @@ class ReweightingConfig:
 
 class StatisticalAnalyzer:
     """Statistical analysis utilities for strategy performance evaluation."""
-    
+
     @staticmethod
     def calculate_performance_metrics(
-        returns: pd.Series[Any], 
-        benchmark_returns: Optional[pd.Series[Any]] = None,
-        risk_free_rate: float = 0.02
+        returns: pd.Series[Any],
+        benchmark_returns: pd.Series[Any] | None = None,
+        risk_free_rate: float = 0.02,
     ) -> PerformanceMetrics:
         """Calculate comprehensive performance metrics for a strategy."""
         if len(returns) < 2:
             raise ValueError("Insufficient data for performance analysis")
-        
+
         # Ensure we have a numpy array
         returns_array = np.asarray(returns.values)
-        
+
         # Basic statistics
         total_return = float((1 + returns_array).prod() - 1)
         annualized_return = float((1 + returns.mean()) ** 252 - 1)
         volatility = float(returns.std() * np.sqrt(252))
-        
+
         # Risk-adjusted metrics
         excess_returns = returns - risk_free_rate / 252
         sharpe_ratio = excess_returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
-        
+
         # Sortino ratio (downside deviation)
         downside_returns = returns[returns < 0]
         downside_deviation = downside_returns.std() * np.sqrt(252) if len(downside_returns) > 0 else 0
         sortino_ratio = annualized_return / downside_deviation if downside_deviation > 0 else 0
-        
+
         # Maximum drawdown
         cumulative_returns = (1 + returns).cumprod()
         rolling_max = cumulative_returns.expanding().max()
         drawdowns = (cumulative_returns - rolling_max) / rolling_max
         max_drawdown = drawdowns.min()
-        
+
         # Calmar ratio
         calmar_ratio = annualized_return / abs(max_drawdown) if max_drawdown != 0 else 0
-        
+
         # Information ratio (vs benchmark if provided)
         if benchmark_returns is not None and len(benchmark_returns) == len(returns):
             active_returns = returns - benchmark_returns
@@ -264,33 +264,33 @@ class StatisticalAnalyzer:
             information_ratio = active_returns.mean() * np.sqrt(252) / tracking_error if tracking_error > 0 else 0
         else:
             information_ratio = 0
-        
+
         # VaR and CVaR
         var_95 = np.percentile(returns, 5)
         cvar_95 = returns[returns <= var_95].mean() if len(returns[returns <= var_95]) > 0 else var_95
-        
+
         # Distribution metrics
         skewness = stats.skew(returns_array)
         kurtosis = stats.kurtosis(returns_array)
-        
+
         # Statistical significance test
         t_stat, p_value = stats.ttest_1samp(returns_array, 0)
-        
+
         # Confidence interval for mean return
         confidence_interval = stats.t.interval(
-            0.95, len(returns) - 1, 
-            loc=returns.mean(), 
-            scale=stats.sem(returns)
+            0.95, len(returns) - 1,
+            loc=returns.mean(),
+            scale=stats.sem(returns),
         )
-        
+
         # Win rate and profit factor
         winning_trades = (returns > 0).sum()
         win_rate = winning_trades / len(returns)
-        
+
         positive_returns = returns[returns > 0].sum()
         negative_returns = abs(returns[returns < 0].sum())
-        profit_factor = positive_returns / negative_returns if negative_returns > 0 else float('inf')
-        
+        profit_factor = positive_returns / negative_returns if negative_returns > 0 else float("inf")
+
         return PerformanceMetrics(
             strategy_id="",  # Will be set by caller
             returns=returns_array,
@@ -312,30 +312,30 @@ class StatisticalAnalyzer:
             annualized_return=annualized_return,
             win_rate=win_rate,
             profit_factor=profit_factor,
-            observation_count=len(returns)
+            observation_count=len(returns),
         )
 
     @staticmethod
     def test_statistical_significance(
         strategy_metrics: list[PerformanceMetrics],
-        significance_level: float = 0.05
+        significance_level: float = 0.05,
     ) -> dict[str, dict[str, float]]:
         """Perform statistical significance tests between strategies."""
         if len(strategy_metrics) < 2:
             return {}
-        
+
         results = {}
-        
+
         for i, metrics_a in enumerate(strategy_metrics):
-            for j, metrics_b in enumerate(strategy_metrics[i+1:], i+1):
+            for _j, metrics_b in enumerate(strategy_metrics[i+1:], i+1):
                 # Two-sample t-test
                 t_stat, p_value = stats.ttest_ind(metrics_a.returns, metrics_b.returns)
-                
+
                 # Mann-Whitney U test (non-parametric)
                 u_stat, u_p_value = stats.mannwhitneyu(
-                    metrics_a.returns, metrics_b.returns, alternative='two-sided'
+                    metrics_a.returns, metrics_b.returns, alternative="two-sided",
                 )
-                
+
                 pair_key = f"{metrics_a.strategy_id}_vs_{metrics_b.strategy_id}"
                 results[pair_key] = {
                     "t_statistic": t_stat,
@@ -344,26 +344,27 @@ class StatisticalAnalyzer:
                     "u_statistic": u_stat,
                     "u_p_value": u_p_value,
                     "u_significant": u_p_value < significance_level,
-                    "effect_size": (metrics_a.returns.mean() - metrics_b.returns.mean()) / 
-                                  np.sqrt((metrics_a.returns.var() + metrics_b.returns.var()) / 2)
+                    "effect_size": (metrics_a.returns.mean() - metrics_b.returns.mean()) /
+                                  np.sqrt((metrics_a.returns.var() + metrics_b.returns.var()) / 2),
                 }
-        
+
         return results
 
 
 class ConfigurableEnsemble:
     """Advanced configurable ensemble strategy combiner."""
-    
+
     def __init__(self, config: EnsembleConfig) -> None:
+        """Initialize the instance."""
         self.config = config
         self.performance_history: dict[str, list[float]] = {}
         self.weights_history: dict[str, list[float]] = {}
         self.logger = logging.getLogger(__name__)
-    
+
     def combine_actions(
         self,
         actions: dict[str, StrategyAction],
-        performance_metrics: Optional[dict[str, PerformanceMetrics]] = None
+        performance_metrics: dict[str, PerformanceMetrics] | None = None,
     ) -> StrategyAction:
         """Combine multiple strategy actions using configured ensemble method."""
         if not actions:
@@ -372,29 +373,28 @@ class ConfigurableEnsemble:
                 symbol="",
                 exchange_id="",
                 confidence=0.0,
-                reasoning="No actions to combine"
+                reasoning="No actions to combine",
             )
-        
+
         try:
             if self.config.method == EnsembleMethod.SIMPLE_MAJORITY:
                 return self._simple_majority_vote(actions)
-            elif self.config.method == EnsembleMethod.WEIGHTED_AVERAGE:
+            if self.config.method == EnsembleMethod.WEIGHTED_AVERAGE:
                 return self._weighted_average(actions)
-            elif self.config.method == EnsembleMethod.CONFIDENCE_WEIGHTED:
+            if self.config.method == EnsembleMethod.CONFIDENCE_WEIGHTED:
                 return self._confidence_weighted(actions)
-            elif self.config.method == EnsembleMethod.PERFORMANCE_WEIGHTED:
+            if self.config.method == EnsembleMethod.PERFORMANCE_WEIGHTED:
                 return self._performance_weighted(actions, performance_metrics)
-            elif self.config.method == EnsembleMethod.SHARPE_WEIGHTED:
+            if self.config.method == EnsembleMethod.SHARPE_WEIGHTED:
                 return self._sharpe_weighted(actions, performance_metrics)
-            elif self.config.method == EnsembleMethod.VOLATILITY_INVERSE:
+            if self.config.method == EnsembleMethod.VOLATILITY_INVERSE:
                 return self._volatility_inverse_weighted(actions, performance_metrics)
-            else:
-                self.logger.warning(f"Unknown ensemble method: {self.config.method}")
-                return self._confidence_weighted(actions)
-        except Exception as e:
-            self.logger.error(f"Error in ensemble combination: {e}")
+            self.logger.warning(f"Unknown ensemble method: {self.config.method}")
+            return self._confidence_weighted(actions)
+        except Exception:
+            self.logger.exception("Error in ensemble combination: ")
             return self._simple_majority_vote(actions)
-    
+
     def _weighted_average(self, actions: dict[str, StrategyAction]) -> StrategyAction:
         """Simple weighted average of all actions (equal weights)."""
         if not actions:
@@ -403,31 +403,31 @@ class ConfigurableEnsemble:
                 symbol="",
                 exchange_id="",
                 confidence=0.0,
-                reasoning="No actions for weighted average"
+                reasoning="No actions for weighted average",
             )
-        
+
         # Use equal weights for each action
         weight = 1.0 / len(actions)
         equal_weights = {action.strategy_id: weight for action in actions.values()}
-        
+
         return self._apply_weights_to_actions(actions, equal_weights, "weighted_average")
-    
+
     def _simple_majority_vote(self, actions: dict[str, StrategyAction]) -> StrategyAction:
         """Simple majority voting for action types."""
         action_votes: dict[ActionType, list[StrategyAction]] = {}
-        
+
         for action in actions.values():
             if action.action_type not in action_votes:
                 action_votes[action.action_type] = []
             action_votes[action.action_type].append(action)
-        
+
         # Find the action type with most votes
         winning_action_type = max(action_votes.keys(), key=lambda x: len(action_votes[x]))
         winning_actions = action_votes[winning_action_type]
-        
+
         # Use the most confident action of the winning type
         representative_action = max(winning_actions, key=lambda x: x.confidence)
-        
+
         return StrategyAction(
             action_type=winning_action_type,
             symbol=representative_action.symbol,
@@ -436,40 +436,40 @@ class ConfigurableEnsemble:
             suggested_quantity=representative_action.suggested_quantity,
             suggested_price=representative_action.suggested_price,
             reasoning=f"Majority vote: {len(winning_actions)}/{len(actions)} strategies",
-            metadata={"ensemble_method": "simple_majority", "vote_count": len(winning_actions)}
+            metadata={"ensemble_method": "simple_majority", "vote_count": len(winning_actions)},
         )
-    
+
     def _confidence_weighted(self, actions: dict[str, StrategyAction]) -> StrategyAction:
         """Weight actions by their confidence scores."""
         total_confidence = sum(action.confidence for action in actions.values())
         if total_confidence == 0:
             return self._simple_majority_vote(actions)
-        
+
         # Weight votes by confidence
         action_weights: dict[ActionType, float] = {}
         action_details: dict[ActionType, list[tuple[StrategyAction, float]]] = {}
-        
+
         for action in actions.values():
             weight = action.confidence / total_confidence
-            
+
             if action.action_type not in action_weights:
                 action_weights[action.action_type] = 0
                 action_details[action.action_type] = []
-            
+
             action_weights[action.action_type] += weight
             action_details[action.action_type].append((action, weight))
-        
+
         # Find the action type with highest weighted vote
         winning_action_type = max(action_weights.keys(), key=lambda x: action_weights[x])
         winning_actions = action_details[winning_action_type]
-        
+
         # Calculate weighted average of parameters
         total_weight = sum(weight for _, weight in winning_actions)
         weighted_confidence = sum(action.confidence * weight for action, weight in winning_actions) / total_weight
-        
+
         # Use the highest weighted action as representative
         representative_action = max(winning_actions, key=lambda x: x[1])[0]
-        
+
         return StrategyAction(
             action_type=winning_action_type,
             symbol=representative_action.symbol,
@@ -481,63 +481,63 @@ class ConfigurableEnsemble:
             metadata={
                 "ensemble_method": "confidence_weighted",
                 "winning_weight": action_weights[winning_action_type],
-                "total_confidence": total_confidence
-            }
+                "total_confidence": total_confidence,
+            },
         )
-    
+
     def _performance_weighted(
-        self, 
+        self,
         actions: dict[str, StrategyAction],
-        performance_metrics: Optional[dict[str, PerformanceMetrics]]
+        performance_metrics: dict[str, PerformanceMetrics] | None,
     ) -> StrategyAction:
         """Weight actions by historical performance metrics."""
         if not performance_metrics:
             return self._confidence_weighted(actions)
-        
+
         # Calculate performance-based weights
         performance_weights = {}
         total_performance = 0.0
-        
+
         for strategy_id, metrics in performance_metrics.items():
             if strategy_id in [action.strategy_id for action in actions.values()]:
                 # Use annualized return adjusted by Sharpe ratio
                 performance_score = metrics.annualized_return * max(0.1, metrics.sharpe_ratio)
                 performance_weights[strategy_id] = max(0.01, performance_score)
                 total_performance += performance_weights[strategy_id]
-        
+
         if total_performance <= 0:
             return self._confidence_weighted(actions)
-        
+
         # Normalize weights
         for strategy_id in performance_weights:
             performance_weights[strategy_id] /= total_performance
-        
+
         # Apply weights to actions
         weighted_actions: dict[ActionType, list[tuple[StrategyAction, float]]] = {}
-        
+
         for action in actions.values():
             weight = performance_weights.get(action.strategy_id, 0)
             if weight > 0:
                 if action.action_type not in weighted_actions:
                     weighted_actions[action.action_type] = []
                 weighted_actions[action.action_type].append((action, weight))
-        
+
         if not weighted_actions:
             return self._confidence_weighted(actions)
-        
+
         # Calculate total weight for each action type
         action_total_weights = {
             action_type: sum(weight for _, weight in action_list)
             for action_type, action_list in weighted_actions.items()
         }
-        
+
         # Choose action type with highest total weight
         winning_action_type = max(action_total_weights.keys(), key=lambda x: action_total_weights[x])
         winning_actions = weighted_actions[winning_action_type]
-        
+
         # Use the highest weighted action as representative
         representative_action = max(winning_actions, key=lambda x: x[1])[0]
-        
+
         return StrategyAction(
             action_type=winning_action_type,
             symbol=representative_action.symbol,
@@ -549,59 +549,59 @@ class ConfigurableEnsemble:
             metadata={
                 "ensemble_method": "performance_weighted",
                 "winning_weight": action_total_weights[winning_action_type],
-                "performance_weights": performance_weights
-            }
+                "performance_weights": performance_weights,
+            },
         )
-    
+
     def _sharpe_weighted(
         self,
         actions: dict[str, StrategyAction],
-        performance_metrics: Optional[dict[str, PerformanceMetrics]]
+        performance_metrics: dict[str, PerformanceMetrics] | None,
     ) -> StrategyAction:
         """Weight actions by Sharpe ratio."""
         if not performance_metrics:
             return self._confidence_weighted(actions)
-        
+
         # Calculate Sharpe-based weights
         sharpe_weights = {}
-        min_sharpe = float('inf')
-        
+        min_sharpe = float("inf")
+
         for strategy_id, metrics in performance_metrics.items():
             if strategy_id in [action.strategy_id for action in actions.values()]:
                 min_sharpe = min(min_sharpe, metrics.sharpe_ratio)
-        
+
         # Shift Sharpe ratios to be positive
         sharpe_offset = max(0, -min_sharpe + 0.1)
         total_sharpe = 0.0
-        
+
         for strategy_id, metrics in performance_metrics.items():
             if strategy_id in [action.strategy_id for action in actions.values()]:
                 adjusted_sharpe = metrics.sharpe_ratio + sharpe_offset
                 sharpe_weights[strategy_id] = adjusted_sharpe
                 total_sharpe += adjusted_sharpe
-        
+
         if total_sharpe <= 0:
             return self._confidence_weighted(actions)
-        
+
         # Normalize weights
         for strategy_id in sharpe_weights:
             sharpe_weights[strategy_id] /= total_sharpe
-        
+
         return self._apply_weights_to_actions(actions, sharpe_weights, "sharpe_weighted")
-    
+
     def _volatility_inverse_weighted(
         self,
         actions: dict[str, StrategyAction],
-        performance_metrics: Optional[dict[str, PerformanceMetrics]]
+        performance_metrics: dict[str, PerformanceMetrics] | None,
     ) -> StrategyAction:
         """Weight actions inversely to their volatility."""
         if not performance_metrics:
             return self._confidence_weighted(actions)
-        
+
         # Calculate inverse volatility weights
         inv_vol_weights = {}
         total_inv_vol = 0.0
-        
+
         for strategy_id, metrics in performance_metrics.items():
             if strategy_id in [action.strategy_id for action in actions.values()]:
                 if metrics.volatility > 0:
@@ -611,48 +611,48 @@ class ConfigurableEnsemble:
                 else:
                     inv_vol_weights[strategy_id] = 1.0
                     total_inv_vol += 1.0
-        
+
         if total_inv_vol <= 0:
             return self._confidence_weighted(actions)
-        
+
         # Normalize weights
         for strategy_id in inv_vol_weights:
             inv_vol_weights[strategy_id] /= total_inv_vol
-        
+
         return self._apply_weights_to_actions(actions, inv_vol_weights, "volatility_inverse")
-    
+
     def _apply_weights_to_actions(
-        self, 
-        actions: dict[str, StrategyAction], 
+        self,
+        actions: dict[str, StrategyAction],
         weights: dict[str, float],
-        method_name: str
+        method_name: str,
     ) -> StrategyAction:
         """Apply calculated weights to actions and return combined result."""
         weighted_actions: dict[ActionType, list[tuple[StrategyAction, float]]] = {}
-        
+
         for action in actions.values():
             weight = weights.get(action.strategy_id, 0)
             if weight > 0:
                 if action.action_type not in weighted_actions:
                     weighted_actions[action.action_type] = []
                 weighted_actions[action.action_type].append((action, weight))
-        
+
         if not weighted_actions:
             return self._confidence_weighted(actions)
-        
+
         # Calculate total weight for each action type
         action_total_weights = {
             action_type: sum(weight for _, weight in action_list)
             for action_type, action_list in weighted_actions.items()
         }
-        
+
         # Choose action type with highest total weight
         winning_action_type = max(action_total_weights.keys(), key=lambda x: action_total_weights[x])
         winning_actions = weighted_actions[winning_action_type]
-        
+
         # Use the highest weighted action as representative
         representative_action = max(winning_actions, key=lambda x: x[1])[0]
-        
+
         return StrategyAction(
             action_type=winning_action_type,
             symbol=representative_action.symbol,
@@ -664,29 +664,30 @@ class ConfigurableEnsemble:
             metadata={
                 "ensemble_method": method_name,
                 "winning_weight": action_total_weights[winning_action_type],
-                "strategy_weights": weights
-            }
+                "strategy_weights": weights,
+            },
         )
 
 
 class StatisticalReweighting:
     """Advanced statistical reweighting system for strategy portfolios."""
-    
+
     def __init__(self, config: ReweightingConfig) -> None:
+        """Initialize the instance."""
         self.config = config
         self.performance_cache: dict[str, PerformanceMetrics] = {}
         self.weight_history: list[dict[str, float]] = []
         self.logger = logging.getLogger(__name__)
-    
+
     def calculate_optimal_weights(
         self,
         strategy_performances: dict[str, pd.Series[Any]],
-        current_weights: Optional[dict[str, float]] = None
+        current_weights: dict[str, float] | None = None,
     ) -> dict[str, float]:
         """Calculate optimal strategy weights using statistical analysis."""
         if len(strategy_performances) < 2:
             return {list[Any](strategy_performances.keys())[0]: 1.0} if strategy_performances else {}
-        
+
         try:
             # Calculate performance metrics for each strategy
             metrics = {}
@@ -694,10 +695,10 @@ class StatisticalReweighting:
                 if len(returns) >= self.config.min_observations:
                     metrics[strategy_id] = StatisticalAnalyzer.calculate_performance_metrics(returns)
                     metrics[strategy_id].strategy_id = strategy_id
-            
+
             if not metrics:
                 return self._equal_weights(list[Any](strategy_performances.keys()))
-            
+
             # Apply chosen reweighting method
             if self.config.method == ReweightingMethod.SHARPE_RATIO:
                 weights = self._sharpe_ratio_weighting(metrics)
@@ -712,71 +713,71 @@ class StatisticalReweighting:
             else:
                 self.logger.warning(f"Unknown reweighting method: {self.config.method}")
                 weights = self._sharpe_ratio_weighting(metrics)
-            
+
             # Apply constraints and regularization
             weights = self._apply_constraints(weights, current_weights)
-            
+
             # Cache performance metrics
             self.performance_cache.update(metrics)
             self.weight_history.append(weights.copy())
-            
+
             return weights
-            
-        except Exception as e:
-            self.logger.error(f"Error in weight calculation: {e}")
+
+        except Exception:
+            self.logger.exception("Error in weight calculation: ")
             return self._equal_weights(list[Any](strategy_performances.keys()))
-    
+
     def _sharpe_ratio_weighting(self, metrics: dict[str, PerformanceMetrics]) -> dict[str, float]:
         """Calculate weights based on Sharpe ratio."""
         sharpe_scores = {}
         min_sharpe = min(m.sharpe_ratio for m in metrics.values())
-        
+
         # Shift Sharpe ratios to be positive
         sharpe_offset = max(0, -min_sharpe + 0.1)
-        
+
         total_adjusted_sharpe = 0.0
         for strategy_id, m in metrics.items():
             adjusted_sharpe = m.sharpe_ratio + sharpe_offset
             # Filter out strategies with poor statistical significance
             if m.p_value > self.config.significance_threshold:
                 adjusted_sharpe *= 0.5  # Penalty for insignificant performance
-            
+
             sharpe_scores[strategy_id] = adjusted_sharpe
             total_adjusted_sharpe += adjusted_sharpe
-        
+
         if total_adjusted_sharpe <= 0:
             return self._equal_weights(list[Any](metrics.keys()))
-        
+
         return {sid: score / total_adjusted_sharpe for sid, score in sharpe_scores.items()}
-    
+
     def _sortino_ratio_weighting(self, metrics: dict[str, PerformanceMetrics]) -> dict[str, float]:
         """Calculate weights based on Sortino ratio."""
         sortino_scores = {}
         min_sortino = min(m.sortino_ratio for m in metrics.values())
-        
+
         # Shift Sortino ratios to be positive
         sortino_offset = max(0, -min_sortino + 0.1)
-        
+
         total_adjusted_sortino = 0.0
         for strategy_id, m in metrics.items():
             adjusted_sortino = m.sortino_ratio + sortino_offset
             # Apply statistical significance penalty
             if m.p_value > self.config.significance_threshold:
                 adjusted_sortino *= 0.5
-            
+
             sortino_scores[strategy_id] = adjusted_sortino
             total_adjusted_sortino += adjusted_sortino
-        
+
         if total_adjusted_sortino <= 0:
             return self._equal_weights(list[Any](metrics.keys()))
-        
+
         return {sid: score / total_adjusted_sortino for sid, score in sortino_scores.items()}
-    
+
     def _risk_parity_weighting(self, metrics: dict[str, PerformanceMetrics]) -> dict[str, float]:
         """Calculate risk parity weights (inverse volatility)."""
         inv_vol_scores = {}
         total_inv_vol = 0.0
-        
+
         for strategy_id, m in metrics.items():
             if m.volatility > 0:
                 inv_vol = 1.0 / m.volatility
@@ -785,12 +786,12 @@ class StatisticalReweighting:
             else:
                 inv_vol_scores[strategy_id] = 1.0
                 total_inv_vol += 1.0
-        
+
         if total_inv_vol <= 0:
             return self._equal_weights(list[Any](metrics.keys()))
-        
+
         return {sid: score / total_inv_vol for sid, score in inv_vol_scores.items()}
-    
+
     def _minimum_variance_weighting(self, performances: dict[str, pd.Series[Any]]) -> dict[str, float]:
         """Calculate minimum variance portfolio weights."""
         try:
@@ -798,180 +799,180 @@ class StatisticalReweighting:
             strategy_ids = list[Any](performances.keys())
             returns_matrix = pd.DataFrame({sid: performances[sid] for sid in strategy_ids})
             returns_matrix = returns_matrix.dropna()
-            
+
             if len(returns_matrix) < self.config.min_observations:
                 return self._equal_weights(strategy_ids)
-            
+
             # Calculate covariance matrix
             cov_matrix = returns_matrix.cov().values
-            
+
             # Regularize covariance matrix
             if self.config.l2_penalty > 0:
                 identity = np.eye(len(cov_matrix))
                 cov_matrix = cov_matrix + self.config.l2_penalty * identity
-            
+
             # Minimum variance optimization: w = (Σ^-1 * 1) / (1^T * Σ^-1 * 1)
             inv_cov = np.linalg.pinv(cov_matrix)
             ones = np.ones((len(strategy_ids), 1))
             weights = inv_cov @ ones
             weights = weights / (ones.T @ inv_cov @ ones)
             weights = weights.flatten()
-            
+
             # Ensure non-negative weights
             weights = np.maximum(weights, 0)
             weights = weights / weights.sum()
-            
-            return dict[str, Any](zip(strategy_ids, weights))
-            
-        except Exception as e:
-            self.logger.error(f"Error in minimum variance calculation: {e}")
+
+            return dict[str, Any](zip(strategy_ids, weights, strict=False))
+
+        except Exception:
+            self.logger.exception("Error in minimum variance calculation: ")
             return self._equal_weights(list[Any](performances.keys()))
-    
+
     def _maximum_diversification_weighting(self, performances: dict[str, pd.Series[Any]]) -> dict[str, float]:
         """Calculate maximum diversification portfolio weights."""
         try:
             strategy_ids = list[Any](performances.keys())
             returns_matrix = pd.DataFrame({sid: performances[sid] for sid in strategy_ids})
             returns_matrix = returns_matrix.dropna()
-            
+
             if len(returns_matrix) < self.config.min_observations:
                 return self._equal_weights(strategy_ids)
-            
+
             # Calculate volatilities and correlation matrix
             volatilities = np.asarray(returns_matrix.std().values)
             correlation_matrix = returns_matrix.corr().values
-            
+
             # Maximum diversification: maximize (w^T * σ) / sqrt(w^T * Σ * w)
             # This is equivalent to minimum variance with volatility scaling
             inv_corr = np.linalg.pinv(correlation_matrix)
             vol_scaled_weights = inv_corr @ (1.0 / volatilities)
             vol_scaled_weights = vol_scaled_weights / vol_scaled_weights.sum()
-            
+
             # Ensure non-negative weights
             vol_scaled_weights = np.maximum(vol_scaled_weights, 0)
             vol_scaled_weights = vol_scaled_weights / vol_scaled_weights.sum()
-            
-            return dict[str, Any](zip(strategy_ids, vol_scaled_weights))
-            
-        except Exception as e:
-            self.logger.error(f"Error in maximum diversification calculation: {e}")
+
+            return dict[str, Any](zip(strategy_ids, vol_scaled_weights, strict=False))
+
+        except Exception:
+            self.logger.exception("Error in maximum diversification calculation: ")
             return self._equal_weights(list[Any](performances.keys()))
-    
+
     def _apply_constraints(
         self,
         weights: dict[str, float],
-        current_weights: Optional[dict[str, float]] = None
+        current_weights: dict[str, float] | None = None,
     ) -> dict[str, float]:
         """Apply weight constraints and regularization."""
         if not weights:
             return weights
-        
+
         # Apply min/max weight constraints
         for strategy_id in weights:
-            weights[strategy_id] = max(self.config.min_weight, 
+            weights[strategy_id] = max(self.config.min_weight,
                                      min(self.config.max_weight, weights[strategy_id]))
-        
+
         # Renormalize after constraints
         total_weight = sum(weights.values())
         if total_weight > 0:
             weights = {sid: w / total_weight for sid, w in weights.items()}
-        
+
         # Apply transaction cost penalty if current weights provided
         if current_weights and self.config.transaction_cost > 0:
             weights = self._apply_transaction_cost_penalty(weights, current_weights)
-        
+
         return weights
-    
+
     def _apply_transaction_cost_penalty(
         self,
         new_weights: dict[str, float],
-        current_weights: dict[str, float]
+        current_weights: dict[str, float],
     ) -> dict[str, float]:
         """Apply transaction cost penalty to reduce turnover."""
         penalty_factor = self.config.transaction_cost
-        
+
         # Calculate turnover
         total_turnover = 0.0
         for strategy_id in new_weights:
             current_weight = current_weights.get(strategy_id, 0)
             turnover = abs(new_weights[strategy_id] - current_weight)
             total_turnover += turnover
-        
+
         # If turnover is below threshold, return new weights
         if total_turnover < 0.1:  # 10% turnover threshold
             return new_weights
-        
+
         # Otherwise, blend with current weights
         blend_factor = min(0.8, 1.0 - penalty_factor * total_turnover)
-        
+
         blended_weights = {}
         for strategy_id in new_weights:
             current_weight = current_weights.get(strategy_id, 0)
-            blended_weight = (blend_factor * new_weights[strategy_id] + 
+            blended_weight = (blend_factor * new_weights[strategy_id] +
                             (1 - blend_factor) * current_weight)
             blended_weights[strategy_id] = blended_weight
-        
+
         # Renormalize
         total_weight = sum(blended_weights.values())
         if total_weight > 0:
             blended_weights = {sid: w / total_weight for sid, w in blended_weights.items()}
-        
+
         return blended_weights
-    
+
     def _equal_weights(self, strategy_ids: list[str]) -> dict[str, float]:
         """Return equal weights for all strategies."""
         if not strategy_ids:
             return {}
         weight = 1.0 / len(strategy_ids)
-        return {sid: weight for sid in strategy_ids}
-    
+        return dict.fromkeys(strategy_ids, weight)
+
     def get_performance_attribution(self) -> dict[str, Any]:
         """Get performance attribution analysis."""
         if not self.performance_cache or not self.weight_history:
             return {}
-        
+
         latest_weights = self.weight_history[-1] if self.weight_history else {}
-        
+
         attribution: dict[str, Any] = {
             "individual_contributions": {},
             "total_portfolio_metrics": {},
             "diversification_ratio": 0.0,
-            "concentration_index": 0.0
+            "concentration_index": 0.0,
         }
-        
+
         # Calculate individual contributions
         total_return = 0.0
         total_volatility = 0.0
-        
+
         for strategy_id, metrics in self.performance_cache.items():
             weight = latest_weights.get(strategy_id, 0)
             contribution = weight * metrics.annualized_return
             risk_contribution = weight * metrics.volatility
-            
+
             attribution["individual_contributions"][strategy_id] = {
                 "weight": weight,
                 "return_contribution": contribution,
                 "risk_contribution": risk_contribution,
                 "sharpe_ratio": metrics.sharpe_ratio,
-                "max_drawdown": metrics.max_drawdown
+                "max_drawdown": metrics.max_drawdown,
             }
-            
+
             total_return += contribution
             total_volatility += risk_contribution  # Simplified calculation
-        
+
         # Portfolio-level metrics
         attribution["total_portfolio_metrics"] = {
             "expected_return": total_return,
             "expected_volatility": total_volatility,
-            "expected_sharpe": total_return / total_volatility if total_volatility > 0 else 0
+            "expected_sharpe": total_return / total_volatility if total_volatility > 0 else 0,
         }
-        
+
         # Concentration metrics
         weights_array = np.array(list[Any](latest_weights.values()))
         attribution["concentration_index"] = np.sum(weights_array ** 2)  # Herfindahl index
         concentration = float(attribution["concentration_index"])
         attribution["effective_strategies"] = 1.0 / concentration if concentration > 0 else 0
-        
+
         return attribution
 
 
@@ -1108,7 +1109,7 @@ class StrategyInterface(ABC):
             last_execution_time_ms=self._state.last_execution_time_ms,
             memory_usage_mb=self._state.memory_usage_mb,
             created_at=self._state.created_at,
-            last_updated_at=datetime.utcnow(),
+            last_updated_at=datetime.now(UTC),
             parameters=self._state.parameters)
 
     def validate_action(self, action: StrategyAction) -> list[str]:
@@ -1170,8 +1171,8 @@ class MARLStrategyInterface(StrategyInterface):
     """Enhanced interface specifically for MARL-based strategies."""
 
     def __init__(self, strategy_id: str, agent_configs: list[dict[str, Any]],
-                 asset_specifications: list[AssetSpecification], 
-                 ensemble_config: Optional[EnsembleConfig] = None,
+                 asset_specifications: list[AssetSpecification],
+                 ensemble_config: EnsembleConfig | None = None,
                  **kwargs: dict[str, Any]) -> None:
         """Initialize MARL strategy with multiple agents."""
         super().__init__(
@@ -1182,7 +1183,7 @@ class MARLStrategyInterface(StrategyInterface):
         self.agent_configs = agent_configs
         self.agents: dict[str, Any] = {}  # Will hold actual agent instances
         self.current_episode = 0
-        
+
         # Enhanced ensemble configuration
         self.ensemble_config = ensemble_config or EnsembleConfig()
         self.ensemble_combiner = ConfigurableEnsemble(self.ensemble_config)
@@ -1247,15 +1248,15 @@ class MARLStrategyInterface(StrategyInterface):
         try:
             # Update agent performance metrics if available
             await self._update_agent_performance_metrics()
-            
+
             # Use the configurable ensemble combiner
             combined_action = self.ensemble_combiner.combine_actions(
                 actions=agent_actions,
-                performance_metrics=self.agent_metrics_cache
+                performance_metrics=self.agent_metrics_cache,
             )
-            
+
             # Ensure the strategy_id is set correctly
-            combined_action = StrategyAction(
+            return StrategyAction(
                 action_type=combined_action.action_type,
                 symbol=combined_action.symbol,
                 exchange_id=combined_action.exchange_id,
@@ -1279,55 +1280,54 @@ class MARLStrategyInterface(StrategyInterface):
                     "ensemble_config": {
                         "method": self.ensemble_config.method.value,
                         "performance_window": self.ensemble_config.performance_window,
-                        "confidence_threshold": self.ensemble_config.confidence_threshold
+                        "confidence_threshold": self.ensemble_config.confidence_threshold,
                     },
                     "agent_count": len(agent_actions),
-                    "episode": self.current_episode
-                }
+                    "episode": self.current_episode,
+                },
             )
-            
-            return combined_action
-            
+
+
         except Exception as e:
             # Fallback to simple majority voting on error
-            warnings.warn(f"Error in ensemble combination, falling back to simple voting: {e}")
+            warnings.warn(f"Error in ensemble combination, falling back to simple voting: {e}", stacklevel=2)
             return await self._fallback_simple_voting(agent_actions)
-    
+
     async def _update_agent_performance_metrics(self) -> None:
         """Update performance metrics for each agent based on historical performance."""
         try:
             for agent_id, performance_history in self.agent_performance_history.items():
                 if len(performance_history) >= self.ensemble_config.min_observations:
                     returns_series = pd.Series(performance_history)
-                    
+
                     # Calculate comprehensive metrics for this agent
                     metrics = StatisticalAnalyzer.calculate_performance_metrics(returns_series)
                     metrics.strategy_id = agent_id
-                    
+
                     self.agent_metrics_cache[agent_id] = metrics
-                    
+
         except Exception as e:
-            warnings.warn(f"Error updating agent performance metrics: {e}")
-    
+            warnings.warn(f"Error updating agent performance metrics: {e}", stacklevel=2)
+
     def record_agent_performance(self, agent_id: str, performance_value: float) -> None:
         """Record performance for an agent to update ensemble weights.
-        
+
         Args:
             agent_id: ID of the agent
             performance_value: Performance metric (e.g., return, PnL)
         """
         if agent_id not in self.agent_performance_history:
             self.agent_performance_history[agent_id] = []
-        
+
         self.agent_performance_history[agent_id].append(performance_value)
-        
+
         # Keep only recent history within performance window
         max_history = self.ensemble_config.performance_window
         if len(self.agent_performance_history[agent_id]) > max_history:
             self.agent_performance_history[agent_id] = (
                 self.agent_performance_history[agent_id][-max_history:]
             )
-    
+
     async def _fallback_simple_voting(self, agent_actions: dict[str, StrategyAction]) -> StrategyAction:
         """Fallback to simple voting if ensemble method fails."""
         action_votes: dict[ActionType, int] = {}
@@ -1373,8 +1373,8 @@ class EnsembleStrategyInterface(StrategyInterface):
         self,
         strategy_id: str,
         sub_strategies: list[StrategyInterface],
-        ensemble_config: Optional[EnsembleConfig] = None,
-        reweighting_config: Optional[ReweightingConfig] = None,
+        ensemble_config: EnsembleConfig | None = None,
+        reweighting_config: ReweightingConfig | None = None,
         **kwargs: dict[str, Any]) -> None:
         """Initialize ensemble strategy with advanced statistical reweighting.
 
@@ -1392,20 +1392,20 @@ class EnsembleStrategyInterface(StrategyInterface):
 
         super().__init__(strategy_id, StrategyType.ENSEMBLE, list[Any](all_assets.values()), **kwargs)
         self.sub_strategies = sub_strategies
-        
+
         # Enhanced configuration systems
         self.ensemble_config = ensemble_config or EnsembleConfig()
         self.reweighting_config = reweighting_config or ReweightingConfig()
-        
+
         # Advanced components
         self.ensemble_combiner = ConfigurableEnsemble(self.ensemble_config)
         self.reweighting_system = StatisticalReweighting(self.reweighting_config)
-        
+
         # Performance tracking
         self.strategy_performance_history: dict[str, list[float]] = {}
         self.strategy_returns_series: dict[str, pd.Series[Any]] = {}
         self.strategy_weights = {s.strategy_id: 1.0 / len(sub_strategies) for s in sub_strategies}
-        self.last_rebalance_time: Optional[datetime] = None
+        self.last_rebalance_time: datetime | None = None
 
     @abstractmethod
     async def combine_actions(
@@ -1421,8 +1421,8 @@ class EnsembleStrategyInterface(StrategyInterface):
 
     def update_strategy_weights(
         self,
-        performance_metrics: Optional[dict[str, dict[str, float]]] = None,
-        force_rebalance: bool = False
+        performance_metrics: dict[str, dict[str, float]] | None = None,
+        force_rebalance: bool = False,
     ) -> None:
         """Update weights using advanced statistical reweighting methods.
 
@@ -1431,13 +1431,13 @@ class EnsembleStrategyInterface(StrategyInterface):
             force_rebalance: Force rebalancing regardless of frequency settings
         """
         try:
-            current_time = datetime.utcnow()
-            
+            current_time = datetime.now(UTC)
+
             # Check if rebalancing is needed based on frequency
             if not force_rebalance and self.last_rebalance_time:
                 if not self._should_rebalance(current_time):
                     return
-            
+
             # Use statistical reweighting if sufficient data available
             if self.strategy_returns_series and len(self.strategy_returns_series) > 1:
                 # Filter strategies with sufficient observations
@@ -1445,53 +1445,52 @@ class EnsembleStrategyInterface(StrategyInterface):
                     sid: series for sid, series in self.strategy_returns_series.items()
                     if len(series) >= self.reweighting_config.min_observations
                 }
-                
+
                 if valid_series:
                     # Calculate optimal weights using statistical methods
                     new_weights = self.reweighting_system.calculate_optimal_weights(
                         strategy_performances=valid_series,
-                        current_weights=self.strategy_weights
+                        current_weights=self.strategy_weights,
                     )
-                    
+
                     # Update weights for strategies with sufficient data
                     for strategy_id, weight in new_weights.items():
                         if strategy_id in self.strategy_weights:
                             self.strategy_weights[strategy_id] = weight
-                    
+
                     # Normalize all weights (including strategies without sufficient data)
                     self._normalize_weights()
-                    
+
                     self.last_rebalance_time = current_time
                     return
-            
+
             # Fallback to legacy performance-based reweighting if provided
             if performance_metrics:
                 self._legacy_performance_reweighting(performance_metrics)
                 self.last_rebalance_time = current_time
-                
+
         except Exception as e:
-            warnings.warn(f"Error in statistical reweighting, using fallback: {e}")
+            warnings.warn(f"Error in statistical reweighting, using fallback: {e}", stacklevel=2)
             if performance_metrics:
                 self._legacy_performance_reweighting(performance_metrics)
-    
+
     def _should_rebalance(self, current_time: datetime) -> bool:
         """Check if rebalancing is needed based on frequency configuration."""
         if not self.last_rebalance_time:
             return True
-        
+
         time_diff = current_time - self.last_rebalance_time
-        
+
         if self.reweighting_config.rebalance_frequency == "daily":
             return time_diff.days >= 1
-        elif self.reweighting_config.rebalance_frequency == "weekly":
+        if self.reweighting_config.rebalance_frequency == "weekly":
             return time_diff.days >= 7
-        elif self.reweighting_config.rebalance_frequency == "monthly":
+        if self.reweighting_config.rebalance_frequency == "monthly":
             return time_diff.days >= 30
-        elif self.reweighting_config.rebalance_frequency == "quarterly":
+        if self.reweighting_config.rebalance_frequency == "quarterly":
             return time_diff.days >= 90
-        else:
-            return True  # Default to always rebalance
-    
+        return True  # Default to always rebalance
+
     def _legacy_performance_reweighting(self, performance_metrics: dict[str, dict[str, float]]) -> None:
         """Legacy simple performance-based reweighting for backward compatibility."""
         total_performance = sum(
@@ -1503,46 +1502,46 @@ class EnsembleStrategyInterface(StrategyInterface):
                 if strategy_id in self.strategy_weights:
                     strategy_pnl = metrics.get("total_pnl", 0)
                     self.strategy_weights[strategy_id] = max(
-                        self.reweighting_config.min_weight, 
-                        min(self.reweighting_config.max_weight, strategy_pnl / total_performance)
+                        self.reweighting_config.min_weight,
+                        min(self.reweighting_config.max_weight, strategy_pnl / total_performance),
                     )
 
         self._normalize_weights()
-    
+
     def _normalize_weights(self) -> None:
         """Normalize strategy weights to sum to 1.0."""
         total_weight = sum(self.strategy_weights.values())
         if total_weight > 0:
             for strategy_id in self.strategy_weights:
                 self.strategy_weights[strategy_id] /= total_weight
-    
+
     def record_strategy_performance(self, strategy_id: str, return_value: float) -> None:
         """Record performance for a strategy to update reweighting calculations.
-        
+
         Args:
             strategy_id: ID of the strategy
             return_value: Return value for this period (e.g., daily return)
         """
         if strategy_id not in self.strategy_performance_history:
             self.strategy_performance_history[strategy_id] = []
-        
+
         self.strategy_performance_history[strategy_id].append(return_value)
-        
+
         # Keep only recent history within lookback window
         max_history = self.reweighting_config.lookback_window
         if len(self.strategy_performance_history[strategy_id]) > max_history:
             self.strategy_performance_history[strategy_id] = (
                 self.strategy_performance_history[strategy_id][-max_history:]
             )
-        
+
         # Update pandas series for statistical analysis
         self.strategy_returns_series[strategy_id] = pd.Series(
-            self.strategy_performance_history[strategy_id]
+            self.strategy_performance_history[strategy_id],
         )
-    
+
     async def combine_actions_with_weights(
         self,
-        sub_actions: dict[str, StrategyAction]
+        sub_actions: dict[str, StrategyAction],
     ) -> StrategyAction:
         """Combine sub-strategy actions using current weights and ensemble configuration."""
         if not sub_actions:
@@ -1552,14 +1551,14 @@ class EnsembleStrategyInterface(StrategyInterface):
                 exchange_id="",
                 confidence=0.0,
                 strategy_id=self.strategy_id,
-                reasoning="No sub-strategy actions available"
+                reasoning="No sub-strategy actions available",
             )
-        
+
         try:
             # Apply current strategy weights to actions
             weighted_actions = {}
             total_weight = 0.0
-            
+
             for strategy_id, action in sub_actions.items():
                 weight = self.strategy_weights.get(strategy_id, 0)
                 if weight > 0:
@@ -1573,28 +1572,28 @@ class EnsembleStrategyInterface(StrategyInterface):
                         suggested_price=action.suggested_price,
                         strategy_id=strategy_id,  # Keep original strategy ID
                         reasoning=action.reasoning,
-                        metadata={**action.metadata, "ensemble_weight": weight}
+                        metadata={**action.metadata, "ensemble_weight": weight},
                     )
                     weighted_actions[strategy_id] = weighted_action
                     total_weight += weight
-            
+
             if not weighted_actions:
                 return await self.combine_actions(sub_actions)
-            
+
             # Get performance metrics for ensemble combination
             performance_metrics = {}
-            for strategy_id in weighted_actions.keys():
+            for strategy_id in weighted_actions:
                 if strategy_id in self.reweighting_system.performance_cache:
                     performance_metrics[strategy_id] = self.reweighting_system.performance_cache[strategy_id]
-            
+
             # Use ensemble combiner with performance metrics
             combined_action = self.ensemble_combiner.combine_actions(
                 actions=weighted_actions,
-                performance_metrics=performance_metrics
+                performance_metrics=performance_metrics,
             )
-            
+
             # Update metadata with ensemble information
-            combined_action = StrategyAction(
+            return StrategyAction(
                 action_type=combined_action.action_type,
                 symbol=combined_action.symbol,
                 exchange_id=combined_action.exchange_id,
@@ -1608,16 +1607,15 @@ class EnsembleStrategyInterface(StrategyInterface):
                     "ensemble_weights": self.strategy_weights,
                     "reweighting_method": self.reweighting_config.method.value,
                     "total_ensemble_weight": total_weight,
-                    "sub_strategy_count": len(weighted_actions)
-                }
+                    "sub_strategy_count": len(weighted_actions),
+                },
             )
-            
-            return combined_action
-            
+
+
         except Exception as e:
-            warnings.warn(f"Error in weighted ensemble combination: {e}")
+            warnings.warn(f"Error in weighted ensemble combination: {e}", stacklevel=2)
             return await self.combine_actions(sub_actions)
-    
+
     def get_ensemble_analytics(self) -> dict[str, Any]:
         """Get comprehensive analytics about the ensemble performance and weights."""
         analytics = {
@@ -1626,30 +1624,30 @@ class EnsembleStrategyInterface(StrategyInterface):
                 "method": self.reweighting_config.method.value,
                 "lookback_window": self.reweighting_config.lookback_window,
                 "rebalance_frequency": self.reweighting_config.rebalance_frequency,
-                "last_rebalance": self.last_rebalance_time.isoformat() if self.last_rebalance_time else None
+                "last_rebalance": self.last_rebalance_time.isoformat() if self.last_rebalance_time else None,
             },
             "ensemble_config": {
                 "method": self.ensemble_config.method.value,
                 "performance_window": self.ensemble_config.performance_window,
-                "confidence_threshold": self.ensemble_config.confidence_threshold
-            }
+                "confidence_threshold": self.ensemble_config.confidence_threshold,
+            },
         }
-        
+
         # Add performance attribution if available
-        if hasattr(self.reweighting_system, 'get_performance_attribution'):
+        if hasattr(self.reweighting_system, "get_performance_attribution"):
             analytics["performance_attribution"] = self.reweighting_system.get_performance_attribution()
-        
+
         # Add strategy-level analytics
         strategy_analytics = {}
-        for strategy_id in self.strategy_weights.keys():
+        for strategy_id in self.strategy_weights:
             strategy_analytics[strategy_id] = {
                 "current_weight": self.strategy_weights.get(strategy_id, 0),
                 "observation_count": len(self.strategy_performance_history.get(strategy_id, [])),
-                "has_sufficient_data": len(self.strategy_performance_history.get(strategy_id, [])) >= self.reweighting_config.min_observations
+                "has_sufficient_data": len(self.strategy_performance_history.get(strategy_id, [])) >= self.reweighting_config.min_observations,
             }
-        
+
         analytics["strategy_analytics"] = strategy_analytics
-        
+
         return analytics
 
 

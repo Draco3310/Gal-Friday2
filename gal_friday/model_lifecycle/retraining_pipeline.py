@@ -1,20 +1,19 @@
 """Model retraining and drift detection pipeline."""
 
-import asyncio
-import contextlib
-import uuid
 from collections.abc import Callable
+import contextlib
 from dataclasses import asdict, dataclass, field  # Added asdict
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
+import uuid
 
+import asyncio
 import numpy as np
 from scipy import stats
 
 from gal_friday.core.events import LogEvent
 from gal_friday.core.pubsub import PubSubManager
-from typing import Any
 
 if TYPE_CHECKING:
     from gal_friday.config_manager import ConfigManager
@@ -277,11 +276,11 @@ class DriftDetector:
     def _calculate_prediction_drift_score(self, baseline: list[float],
                                         current: list[float]) -> float:
         """Calculate drift score between prediction distributions using KL divergence.
-        
+
         Args:
             baseline: List of baseline prediction values
             current: List of current prediction values
-            
+
         Returns:
             KL divergence score normalized to 0-1 range
         """
@@ -393,8 +392,8 @@ class RetrainingPipeline:
                 await asyncio.sleep(self._check_interval)
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                self.logger.error(f"Error in retraining monitoring loop: {e}")
+            except Exception:
+                self.logger.exception("Error in retraining monitoring loop: ")
                 await asyncio.sleep(60)  # Brief pause before retry
 
     async def _check_all_models(self) -> None:
@@ -421,8 +420,8 @@ class RetrainingPipeline:
                         RetrainingTrigger.DRIFT_DETECTED,
                         significant_drift)
 
-        except Exception as e:
-            self.logger.error(f"Error checking models for drift: {e}")
+        except Exception:
+            self.logger.exception("Error checking models for drift: ")
 
     async def _get_current_model_data(self, model_id: str) -> dict[str, Any]:
         """Get current performance and feature data for a model."""
@@ -561,7 +560,7 @@ class RetrainingPipeline:
                 }
                 await self.retraining_repository.update_job_status(uuid.UUID(job.job_id), updates)
 
-            self.logger.error(f"Retraining failed for job {job.job_id}: {e}")
+            self.logger.exception(f"Retraining failed for job {job.job_id}: ")
 
     async def get_retraining_status(self) -> dict[str, Any]:
         """Get current retraining pipeline status."""

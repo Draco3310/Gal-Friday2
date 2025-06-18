@@ -1,6 +1,6 @@
-import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
+import uuid
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -58,9 +58,9 @@ class Order(Base):
         # from gal_friday.core.events import ExecutionReportEvent
 
         # Calculate quantity_filled and average_fill_price from associated fills
-        quantity_filled_val = Decimal("0")
-        total_fill_value = Decimal("0")
-        commission_val = Decimal("0")
+        quantity_filled_val = Decimal(0)
+        total_fill_value = Decimal(0)
+        commission_val = Decimal(0)
         commission_asset_val = None
 
         if self.fills:
@@ -76,7 +76,7 @@ class Order(Base):
         event_data = {
             "source_module": self.__class__.__name__,
             "event_id": uuid.uuid4(), # New event ID
-            "timestamp": datetime.utcnow(), # Event creation time
+            "timestamp": datetime.now(UTC), # Event creation time
             "exchange_order_id": self.exchange_order_id,
             "trading_pair": self.trading_pair,
             "exchange": self.exchange,

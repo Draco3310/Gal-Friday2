@@ -1,11 +1,12 @@
 """WebSocket market data ingestion."""
 
 
+from typing import Any
+
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.execution.websocket_client import KrakenWebSocketClient
 from gal_friday.logger_service import LoggerService
-from typing import Any
 
 
 class WebSocketMarketDataService:

@@ -1,16 +1,17 @@
-import asyncio
 from datetime import UTC, datetime
-from decimal import Decimal
 
 import pytest
 
+from gal_friday.monitoring.alerting_system import (
+    Alert as ExternalAlert,
+    AlertingSystem,
+)
 from gal_friday.monitoring_service import (
     Alert,
     AlertRule,
     AlertSeverity,
     MetricsCollectionSystem,
 )
-from gal_friday.monitoring.alerting_system import AlertingSystem, Alert as ExternalAlert, AlertSeverity as ExternalSeverity
 
 
 class DummyAlertingSystem(AlertingSystem):

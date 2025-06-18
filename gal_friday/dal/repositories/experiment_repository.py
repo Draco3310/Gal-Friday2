@@ -1,20 +1,21 @@
 """Repository for A/B testing experiment data using SQLAlchemy."""
 
-import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+import uuid
 
 from sqlalchemy import Integer, Numeric, cast, func, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert  # For ON CONFLICT DO UPDATE/NOTHING
+from sqlalchemy.dialects.postgresql import (
+    insert as pg_insert,  # For ON CONFLICT DO UPDATE/NOTHING
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gal_friday.dal.base import BaseRepository
 from gal_friday.dal.models.experiment import Experiment
 from gal_friday.dal.models.experiment_assignment import ExperimentAssignment
 from gal_friday.dal.models.experiment_outcome import ExperimentOutcome
-from typing import Any
 
 # ExperimentConfig and ExperimentStatus would now likely be service-layer or domain models.
 
@@ -96,7 +97,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
                 select(Experiment)
                 .where(
                     Experiment.status.in_(["created", "running"]),
-                    (Experiment.end_time == None) | (Experiment.end_time > datetime.now(UTC)))
+                    (Experiment.end_time is None) | (Experiment.end_time > datetime.now(UTC)))
                 .order_by(Experiment.start_time.desc())
             )
             result = await session.execute(stmt)
@@ -166,7 +167,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
         insert_stmt = pg_insert(ExperimentOutcome).values(**outcome_data)
         update_cols = {
             key: insert_stmt.excluded[key]
-            for key in outcome_data.keys()
+            for key in outcome_data
             if key != "outcome_id"
         }
         upsert_stmt = insert_stmt.on_conflict_do_update(
@@ -192,7 +193,6 @@ class ExperimentRepository(BaseRepository[Experiment]):
         Returns:
             The existing or newly created :class:`ExperimentOutcome` instance.
         """
-
         for key in ["outcome_id", "experiment_id", "event_id"]:
             if isinstance(outcome_data.get(key), str):
                 outcome_data[key] = uuid.UUID(outcome_data[key])
@@ -249,7 +249,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
                     "sample_count": row["sample_count"],
                     "correct_predictions": row["correct_predictions"] or 0,
                     "signals_generated": row["signals_generated"] or 0,
-                    "total_return": row["total_return"] or Decimal("0"),
+                    "total_return": row["total_return"] or Decimal(0),
                     "accuracy": row["accuracy"] or Decimal("0.0"),
                 }
         return performance_summary

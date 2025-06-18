@@ -1,14 +1,14 @@
 """Tests for Model Registry functionality."""
 
-import asyncio
-import shutil
 from pathlib import Path
+import shutil
 
+import asyncio
 import numpy as np
 import pytest
-import xgboost as xgb
 from rich import print as rich_print
 from sklearn.preprocessing import StandardScaler
+import xgboost as xgb
 
 from gal_friday.model_lifecycle import (
     ModelArtifact,

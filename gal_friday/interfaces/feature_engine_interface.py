@@ -9,7 +9,7 @@ from typing import Any, Protocol
 import numpy as np
 import pandas as pd
 
-from ..core.asset_registry import AssetSpecification, AssetType
+from gal_friday.core.asset_registry import AssetSpecification, AssetType
 
 
 class FeatureCategory(Enum):

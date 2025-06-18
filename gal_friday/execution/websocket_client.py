@@ -1,22 +1,23 @@
 """Kraken WebSocket client for real-time data."""
 
-import asyncio
 import base64
-import contextlib
-import hashlib
-import hmac
-import json
-import time
-import uuid
 from collections import deque
+import contextlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Optional, Sequence, TypedDict, cast
+import hashlib
+import hmac
+import json
+import time
+from typing import TYPE_CHECKING, Any, TypedDict, cast
+import uuid
+
+import asyncio
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
 import aiohttp
 import websockets
@@ -29,10 +30,10 @@ from gal_friday.core.events import (
     MarketDataL2Event,
     MarketDataOHLCVEvent,
     MarketDataTickerEvent,
-    MarketDataTradeEvent)
+    MarketDataTradeEvent,
+)
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
-from typing import Any
 
 
 class ConnectionState(Enum):
@@ -89,7 +90,7 @@ class OrderBookLevel:
     price: Decimal
     quantity: Decimal
     timestamp: float
-    
+
     def is_empty(self) -> bool:
         """Check if level should be removed."""
         return self.quantity <= 0
@@ -103,20 +104,20 @@ class OrderBookSnapshot:
     asks: list[OrderBookLevel] = field(default_factory=list[Any])
     timestamp: float = field(default_factory=time.time)
     sequence: int = 0
-    
-    def get_best_bid(self) -> Optional[OrderBookLevel]:
+
+    def get_best_bid(self) -> OrderBookLevel | None:
         """Get highest bid price."""
         return self.bids[0] if self.bids else None
-    
-    def get_best_ask(self) -> Optional[OrderBookLevel]:
+
+    def get_best_ask(self) -> OrderBookLevel | None:
         """Get lowest ask price."""
         return self.asks[0] if self.asks else None
-    
-    def get_spread(self) -> Optional[Decimal]:
+
+    def get_spread(self) -> Decimal | None:
         """Calculate bid-ask spread."""
         best_bid = self.get_best_bid()
         best_ask = self.get_best_ask()
-        
+
         if best_bid and best_ask:
             return best_ask.price - best_bid.price
         return None
@@ -223,7 +224,7 @@ class KrakenWebSocketClient:
         self.order_books: dict[str, OrderBookSnapshot] = {}
         self.last_sequence: dict[str, int] = {}
         self.error_counts: dict[ProcessingError, int] = {}
-        
+
         # Order book processing configuration
         self.max_order_book_depth = config.get("order_book.max_depth", 100)
         self.stale_data_threshold = config.get("order_book.stale_data_threshold_seconds", 30)
@@ -231,7 +232,7 @@ class KrakenWebSocketClient:
         self.error_recovery_enabled = config.get("order_book.error_recovery_enabled", True)
         self.validation_enabled = config.get("order_book.validation_enabled", True)
         self.max_sequence_gap = config.get("order_book.max_sequence_gap", 10)
-        
+
         # Performance tracking
         self.processing_metrics = ProcessingMetrics()
         self.processing_times: deque[float] = deque(maxlen=1000)
@@ -345,13 +346,13 @@ class KrakenWebSocketClient:
 
     async def _get_ws_token(self) -> str:
         """Get WebSocket authentication token from Kraken API.
-        
+
         Implements caching to avoid unnecessary API calls.
         Tokens are valid for 900 seconds (15 minutes).
-        
+
         Returns:
             Valid WebSocket authentication token
-            
+
         Raises:
             ExecutionHandlerAuthenticationError: If token retrieval fails
         """
@@ -388,12 +389,11 @@ class KrakenWebSocketClient:
                 "Content-Type": "application/x-www-form-urlencoded",
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.api_base_url}{endpoint}",
-                    headers=headers,
-                    data=post_data) as response:
-                    result = await response.json()
+            async with aiohttp.ClientSession() as session, session.post(
+                f"{self.api_base_url}{endpoint}",
+                headers=headers,
+                data=post_data) as response:
+                result = await response.json()
 
             # Handle response
             if result.get("error"):
@@ -416,7 +416,7 @@ class KrakenWebSocketClient:
             return token
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Failed to retrieve WebSocket token: %s",
                 str(e),
                 source_module=self._source_module,
@@ -479,7 +479,7 @@ class KrakenWebSocketClient:
                     await handler(message)
 
         except json.JSONDecodeError as e:
-            self.logger.error(
+            self.logger.exception(
                 f"Invalid JSON in WebSocket message: {raw_message}, error: {e!s}",
                 source_module=self._source_module)
         except Exception as e:
@@ -578,40 +578,40 @@ class KrakenWebSocketClient:
     async def _handle_orderbook(self, message: list[Any]) -> None:
         """Handle order book updates with comprehensive processing and error handling."""
         start_time = time.time()
-        
+
         try:
             # Validate basic message structure
             if not self._validate_orderbook_message(message):
                 await self._handle_processing_error(
                     ProcessingError.MALFORMED_MESSAGE,
                     "Invalid order book message structure",
-                    raw_data=message
+                    raw_data=message,
                 )
                 return
-            
+
             # Extract message components
             # Kraken format: [channelID, data, "book", pair]
             data = message[MESSAGE_DATA_INDEX]
             pair = message[MESSAGE_PAIR_INDEX] if len(message) > MESSAGE_PAIR_INDEX else "UNKNOWN"
-            
+
             # Map Kraken pair to internal format
             symbol = self._map_kraken_pair(pair)
-            
+
             # Check processing time threshold
             timeout_task = asyncio.create_task(asyncio.sleep(self.max_processing_time))
             processing_task = asyncio.create_task(
-                self._process_order_book_data(symbol, data)
+                self._process_order_book_data(symbol, data),
             )
-            
+
             done, pending = await asyncio.wait(
                 [processing_task, timeout_task],
-                return_when=asyncio.FIRST_COMPLETED
+                return_when=asyncio.FIRST_COMPLETED,
             )
-            
+
             # Cancel any remaining tasks
             for task in pending:
                 task.cancel()
-            
+
             # Check if processing completed successfully
             if processing_task in done:
                 success = await processing_task
@@ -619,42 +619,42 @@ class KrakenWebSocketClient:
                     # Update processing metrics
                     processing_time = time.time() - start_time
                     await self._update_processing_metrics(processing_time)
-                    
+
                     self.logger.debug(
                         f"Successfully processed order book update for {symbol}",
                         source_module=self._source_module,
-                        context={"processing_time": f"{processing_time:.4f}s"}
+                        context={"processing_time": f"{processing_time:.4f}s"},
                     )
                 else:
                     self.logger.warning(
                         f"Order book processing failed for {symbol}",
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
             else:
                 await self._handle_processing_error(
                     ProcessingError.PROCESSING_TIMEOUT,
                     f"Processing timeout exceeded {self.max_processing_time}s for {symbol}",
-                    symbol=symbol
+                    symbol=symbol,
                 )
-                
-        except asyncio.TimeoutError:
+
+        except TimeoutError:
             await self._handle_processing_error(
                 ProcessingError.PROCESSING_TIMEOUT,
-                f"Processing timeout for order book update",
-                symbol=symbol if 'symbol' in locals() else None
+                "Processing timeout for order book update",
+                symbol=symbol if "symbol" in locals() else None,
             )
         except MemoryError:
             await self._handle_processing_error(
                 ProcessingError.MEMORY_LIMIT,
                 "Memory limit exceeded during order book processing",
-                symbol=symbol if 'symbol' in locals() else None
+                symbol=symbol if "symbol" in locals() else None,
             )
         except Exception as e:
             await self._handle_processing_error(
                 ProcessingError.MALFORMED_MESSAGE,
                 f"Unexpected error processing order book: {e}",
-                symbol=symbol if 'symbol' in locals() else None,
-                raw_data=message
+                symbol=symbol if "symbol" in locals() else None,
+                raw_data=message,
             )
 
     async def _handle_own_trades(self, message: list[Any]) -> None:
@@ -821,27 +821,24 @@ class KrakenWebSocketClient:
                 source_module=self._source_module)
 
     # Order book processing methods
-    
+
     def _validate_orderbook_message(self, message: list[Any]) -> bool:
         """Validate basic order book message structure."""
         try:
             if len(message) < MESSAGE_MIN_LENGTH:
                 return False
-            
+
             # Check if we have data and pair information
             if len(message) <= MESSAGE_PAIR_INDEX:
                 return False
-                
+
             # Validate that data is present
             data = message[MESSAGE_DATA_INDEX]
-            if not isinstance(data, dict):
-                return False
-                
-            return True
-            
+            return isinstance(data, dict)
+
         except Exception:
             return False
-    
+
     async def _process_order_book_data(self, symbol: str, data: dict[str, Any]) -> bool:
         """Process order book data with comprehensive error handling."""
         try:
@@ -851,18 +848,18 @@ class KrakenWebSocketClient:
                 await self._handle_processing_error(
                     ProcessingError.STALE_DATA,
                     f"Stale data detected for {symbol}",
-                    symbol=symbol
+                    symbol=symbol,
                 )
                 return False
-            
+
             # Determine if this is a snapshot or update
             is_snapshot = "bs" in data and "as" in data  # Kraken snapshot format
-            
+
             if is_snapshot:
                 success = await self._process_snapshot_data(symbol, data)
             else:
                 success = await self._process_incremental_data(symbol, data)
-            
+
             if success:
                 # Validate order book consistency
                 if self.validation_enabled:
@@ -870,220 +867,220 @@ class KrakenWebSocketClient:
                     if not consistency_valid:
                         self.logger.error(f"Order book consistency check failed for {symbol}")
                         return False
-                
+
                 # Publish order book event
                 await self._publish_order_book_event(symbol, is_snapshot)
-                
+
             return success
-            
+
         except Exception as e:
             await self._handle_processing_error(
                 ProcessingError.MALFORMED_MESSAGE,
                 f"Error processing order book data for {symbol}: {e}",
-                symbol=symbol
+                symbol=symbol,
             )
             return False
-    
+
     async def _process_snapshot_data(self, symbol: str, data: dict[str, Any]) -> bool:
         """Process order book snapshot data."""
         try:
             # Create new order book snapshot
             order_book = OrderBookSnapshot(symbol=symbol)
-            
+
             # Process bids (bs = bid snapshot)
             if "bs" in data:
                 bids_success = await self._process_bid_levels(order_book, data["bs"])
                 if not bids_success:
                     return False
-            
+
             # Process asks (as = ask snapshot)
             if "as" in data:
                 asks_success = await self._process_ask_levels(order_book, data["as"])
                 if not asks_success:
                     return False
-            
+
             # Update order book state
             self.order_books[symbol] = order_book
-            
+
             self.logger.debug(
                 f"Processed snapshot for {symbol}",
                 source_module=self._source_module,
                 context={
                     "bid_levels": len(order_book.bids),
-                    "ask_levels": len(order_book.asks)
-                }
+                    "ask_levels": len(order_book.asks),
+                },
             )
-            
+
             return True
-            
-        except Exception as e:
-            self.logger.error(f"Error processing snapshot data for {symbol}: {e}")
+
+        except Exception:
+            self.logger.exception(f"Error processing snapshot data for {symbol}: ")
             return False
-    
+
     async def _process_incremental_data(self, symbol: str, data: dict[str, Any]) -> bool:
         """Process incremental order book updates."""
         try:
             # Initialize order book if not exists
             if symbol not in self.order_books:
                 self.order_books[symbol] = OrderBookSnapshot(symbol=symbol)
-            
+
             order_book = self.order_books[symbol]
-            
+
             # Process bid updates (b = bid updates)
             if "b" in data:
                 bids_success = await self._process_bid_updates(order_book, data["b"])
                 if not bids_success:
                     return False
-            
+
             # Process ask updates (a = ask updates)
             if "a" in data:
                 asks_success = await self._process_ask_updates(order_book, data["a"])
                 if not asks_success:
                     return False
-            
+
             # Update timestamp
             order_book.timestamp = time.time()
-            
+
             return True
-            
-        except Exception as e:
-            self.logger.error(f"Error processing incremental data for {symbol}: {e}")
+
+        except Exception:
+            self.logger.exception(f"Error processing incremental data for {symbol}: ")
             return False
-    
+
     async def _process_bid_levels(self, order_book: OrderBookSnapshot, bids: list[Any]) -> bool:
         """Process bid levels for snapshot data."""
         try:
             processed_count = 0
-            
+
             for bid_data in bids:
                 try:
                     price, quantity = await self._extract_price_quantity(bid_data)
-                    
+
                     if price is None or quantity is None:
                         continue
-                    
+
                     if quantity > 0:  # Only add non-zero quantities
                         level = OrderBookLevel(
                             price=price,
                             quantity=quantity,
-                            timestamp=time.time()
+                            timestamp=time.time(),
                         )
                         order_book.bids.append(level)
                         processed_count += 1
-                        
+
                 except Exception as e:
                     self.logger.warning(f"Error processing bid level: {e}")
                     continue
-            
+
             # Sort bids in descending order (highest price first)
             order_book.bids.sort(key=lambda x: x.price, reverse=True)
-            
+
             # Trim to max depth
             if len(order_book.bids) > self.max_order_book_depth:
                 order_book.bids = order_book.bids[:self.max_order_book_depth]
-            
+
             return processed_count > 0
-            
-        except Exception as e:
-            self.logger.error(f"Error processing bid levels: {e}")
+
+        except Exception:
+            self.logger.exception("Error processing bid levels: ")
             return False
-    
+
     async def _process_ask_levels(self, order_book: OrderBookSnapshot, asks: list[Any]) -> bool:
         """Process ask levels for snapshot data."""
         try:
             processed_count = 0
-            
+
             for ask_data in asks:
                 try:
                     price, quantity = await self._extract_price_quantity(ask_data)
-                    
+
                     if price is None or quantity is None:
                         continue
-                    
+
                     if quantity > 0:  # Only add non-zero quantities
                         level = OrderBookLevel(
                             price=price,
                             quantity=quantity,
-                            timestamp=time.time()
+                            timestamp=time.time(),
                         )
                         order_book.asks.append(level)
                         processed_count += 1
-                        
+
                 except Exception as e:
                     self.logger.warning(f"Error processing ask level: {e}")
                     continue
-            
+
             # Sort asks in ascending order (lowest price first)
             order_book.asks.sort(key=lambda x: x.price)
-            
+
             # Trim to max depth
             if len(order_book.asks) > self.max_order_book_depth:
                 order_book.asks = order_book.asks[:self.max_order_book_depth]
-            
+
             return processed_count > 0
-            
-        except Exception as e:
-            self.logger.error(f"Error processing ask levels: {e}")
+
+        except Exception:
+            self.logger.exception("Error processing ask levels: ")
             return False
-    
+
     async def _process_bid_updates(self, order_book: OrderBookSnapshot, updates: list[Any]) -> bool:
         """Process bid updates for incremental data."""
         try:
             processed_count = 0
-            
+
             for update_data in updates:
                 try:
                     price, quantity = await self._extract_price_quantity(update_data)
-                    
+
                     if price is None or quantity is None:
                         continue
-                    
+
                     # Apply update to bid side
                     await self._apply_bid_update(order_book, price, quantity)
                     processed_count += 1
-                    
+
                 except Exception as e:
                     self.logger.warning(f"Error processing bid update: {e}")
                     continue
-            
+
             return processed_count > 0
-            
-        except Exception as e:
-            self.logger.error(f"Error processing bid updates: {e}")
+
+        except Exception:
+            self.logger.exception("Error processing bid updates: ")
             return False
-    
+
     async def _process_ask_updates(self, order_book: OrderBookSnapshot, updates: list[Any]) -> bool:
         """Process ask updates for incremental data."""
         try:
             processed_count = 0
-            
+
             for update_data in updates:
                 try:
                     price, quantity = await self._extract_price_quantity(update_data)
-                    
+
                     if price is None or quantity is None:
                         continue
-                    
+
                     # Apply update to ask side
                     await self._apply_ask_update(order_book, price, quantity)
                     processed_count += 1
-                    
+
                 except Exception as e:
                     self.logger.warning(f"Error processing ask update: {e}")
                     continue
-            
+
             return processed_count > 0
-            
-        except Exception as e:
-            self.logger.error(f"Error processing ask updates: {e}")
+
+        except Exception:
+            self.logger.exception("Error processing ask updates: ")
             return False
-    
-    async def _extract_price_quantity(self, level_data: list[Any]) -> tuple[Optional[Decimal], Optional[Decimal]]:
+
+    async def _extract_price_quantity(self, level_data: list[Any]) -> tuple[Decimal | None, Decimal | None]:
         """Extract and validate price and quantity from level data."""
         try:
             if not isinstance(level_data, list) or len(level_data) < 2:
                 return None, None
-            
+
             # Extract price
             try:
                 price = Decimal(str(level_data[0]))
@@ -1093,7 +1090,7 @@ class KrakenWebSocketClient:
             except (ValueError, InvalidOperation):
                 self.logger.warning(f"Invalid price format: {level_data[0]}")
                 return None, None
-            
+
             # Extract quantity
             try:
                 quantity = Decimal(str(level_data[1]))
@@ -1103,19 +1100,19 @@ class KrakenWebSocketClient:
             except (ValueError, InvalidOperation):
                 self.logger.warning(f"Invalid quantity format: {level_data[1]}")
                 return None, None
-            
+
             return price, quantity
-            
-        except Exception as e:
-            self.logger.error(f"Error extracting price/quantity: {e}")
+
+        except Exception:
+            self.logger.exception("Error extracting price/quantity: ")
             return None, None
-    
+
     async def _apply_bid_update(self, order_book: OrderBookSnapshot, price: Decimal, quantity: Decimal) -> None:
         """Apply bid update to order book."""
         # Find existing level or insertion point
         insertion_index = 0
         found_existing = False
-        
+
         for i, level in enumerate(order_book.bids):
             if level.price == price:
                 # Update existing level
@@ -1128,31 +1125,30 @@ class KrakenWebSocketClient:
                     level.timestamp = time.time()
                 found_existing = True
                 break
-            elif level.price < price:
+            if level.price < price:
                 insertion_index = i
                 break
-            else:
-                insertion_index = i + 1
-        
+            insertion_index = i + 1
+
         # Insert new level if not updating existing and quantity > 0
         if not found_existing and quantity > 0:
             new_level = OrderBookLevel(
                 price=price,
                 quantity=quantity,
-                timestamp=time.time()
+                timestamp=time.time(),
             )
             order_book.bids.insert(insertion_index, new_level)
-        
+
         # Trim to max depth
         if len(order_book.bids) > self.max_order_book_depth:
             order_book.bids = order_book.bids[:self.max_order_book_depth]
-    
+
     async def _apply_ask_update(self, order_book: OrderBookSnapshot, price: Decimal, quantity: Decimal) -> None:
         """Apply ask update to order book."""
         # Find existing level or insertion point
         insertion_index = len(order_book.asks)
         found_existing = False
-        
+
         for i, level in enumerate(order_book.asks):
             if level.price == price:
                 # Update existing level
@@ -1165,87 +1161,87 @@ class KrakenWebSocketClient:
                     level.timestamp = time.time()
                 found_existing = True
                 break
-            elif level.price > price:
+            if level.price > price:
                 insertion_index = i
                 break
-        
+
         # Insert new level if not updating existing and quantity > 0
         if not found_existing and quantity > 0:
             new_level = OrderBookLevel(
                 price=price,
                 quantity=quantity,
-                timestamp=time.time()
+                timestamp=time.time(),
             )
             order_book.asks.insert(insertion_index, new_level)
-        
+
         # Trim to max depth
         if len(order_book.asks) > self.max_order_book_depth:
             order_book.asks = order_book.asks[:self.max_order_book_depth]
-    
+
     async def _validate_order_book_consistency(self, symbol: str) -> bool:
         """Validate order book consistency after updates."""
         try:
             order_book = self.order_books.get(symbol)
             if not order_book:
                 return True  # Empty order book is consistent
-            
+
             # Check bid/ask spread sanity
             best_bid = order_book.get_best_bid()
             best_ask = order_book.get_best_ask()
-            
+
             if best_bid and best_ask:
                 if best_bid.price >= best_ask.price:
                     await self._handle_processing_error(
                         ProcessingError.CROSSED_MARKET,
                         f"Crossed order book detected for {symbol}: bid={best_bid.price}, ask={best_ask.price}",
-                        symbol=symbol
+                        symbol=symbol,
                     )
                     return False
-                
+
                 spread = best_ask.price - best_bid.price
                 spread_percentage = spread / best_ask.price
-                if spread_percentage > Decimal('0.1'):  # 10% spread threshold
+                if spread_percentage > Decimal("0.1"):  # 10% spread threshold
                     self.logger.warning(
                         f"Wide spread detected for {symbol}: {spread} ({spread_percentage:.2%})",
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
-            
+
             # Check for duplicate price levels
             bid_prices = [level.price for level in order_book.bids]
             ask_prices = [level.price for level in order_book.asks]
-            
+
             if len(bid_prices) != len(set(bid_prices)):
                 self.logger.error(f"Duplicate bid prices detected for {symbol}")
                 return False
-            
+
             if len(ask_prices) != len(set(ask_prices)):
                 self.logger.error(f"Duplicate ask prices detected for {symbol}")
                 return False
-            
+
             return True
-            
-        except Exception as e:
-            self.logger.error(f"Error validating order book consistency for {symbol}: {e}")
+
+        except Exception:
+            self.logger.exception(f"Error validating order book consistency for {symbol}: ")
             return False
-    
+
     async def _publish_order_book_event(self, symbol: str, is_snapshot: bool) -> None:
         """Publish MarketDataL2Event to PubSub."""
         try:
             order_book = self.order_books.get(symbol)
             if not order_book:
                 return
-            
+
             # Convert order book levels to event format
             bids_list: Sequence[tuple[str, str]] = [
                 (str(level.price), str(level.quantity))
                 for level in order_book.bids
             ]
-            
+
             asks_list: Sequence[tuple[str, str]] = [
                 (str(level.price), str(level.quantity))
                 for level in order_book.asks
             ]
-            
+
             # Create and publish MarketDataL2Event
             event = MarketDataL2Event(
                 source_module=self._source_module,
@@ -1256,78 +1252,77 @@ class KrakenWebSocketClient:
                 bids=bids_list,
                 asks=asks_list,
                 is_snapshot=is_snapshot,
-                timestamp_exchange=datetime.fromtimestamp(order_book.timestamp, tz=UTC)
+                timestamp_exchange=datetime.fromtimestamp(order_book.timestamp, tz=UTC),
             )
-            
+
             await self.pubsub.publish(event)
-            
+
             self.logger.debug(
                 f"Published L2 order book event for {symbol}",
                 source_module=self._source_module,
                 context={
                     "is_snapshot": is_snapshot,
                     "bid_levels": len(bids_list),
-                    "ask_levels": len(asks_list)
-                }
+                    "ask_levels": len(asks_list),
+                },
             )
-            
-        except Exception as e:
-            self.logger.error(f"Error publishing order book event for {symbol}: {e}")
-    
+
+        except Exception:
+            self.logger.exception(f"Error publishing order book event for {symbol}: ")
+
     def _is_stale_data(self, current_time: float) -> bool:
         """Check if data is considered stale."""
         return bool(current_time - self._last_data_time > self.stale_data_threshold)
-    
+
     async def _handle_processing_error(
-        self, 
-        error_type: ProcessingError, 
+        self,
+        error_type: ProcessingError,
         message: str,
-        symbol: Optional[str] = None,
-        sequence: Optional[int] = None,
-        raw_data: Optional[Any] = None
+        symbol: str | None = None,
+        sequence: int | None = None,
+        raw_data: Any | None = None,
     ) -> None:
         """Centralized error handling with recovery strategies."""
-        
         # Track error statistics
         self.error_counts[error_type] = self.error_counts.get(error_type, 0) + 1
         self.processing_metrics.errors_encountered += 1
-        
+
         # Log error with appropriate level
         if error_type in [ProcessingError.SEQUENCE_GAP, ProcessingError.STALE_DATA]:
             self.logger.warning(
                 f"Processing warning ({error_type.value}): {message}",
                 source_module=self._source_module,
-                context={"symbol": symbol, "sequence": sequence}
+                context={"symbol": symbol, "sequence": sequence},
             )
         else:
             self.logger.error(
                 f"Processing error ({error_type.value}): {message}",
                 source_module=self._source_module,
-                context={"symbol": symbol, "sequence": sequence}
+                context={"symbol": symbol, "sequence": sequence},
             )
-        
+
         # Apply recovery strategy if enabled
         if self.error_recovery_enabled:
             try:
                 await self._apply_error_recovery(error_type, symbol)
                 self.processing_metrics.recovery_attempts += 1
-            except Exception as e:
-                self.logger.error(f"Error recovery failed for {error_type.value}: {e}")
-    
-    async def _apply_error_recovery(self, error_type: ProcessingError, symbol: Optional[str]) -> None:
+            except Exception:
+                self.logger.exception(f"Error recovery failed for {error_type.value}: ")
+
+    async def _apply_error_recovery(self, error_type: ProcessingError, symbol: str | None) -> None:
         """Apply error recovery strategies."""
         if error_type == ProcessingError.CROSSED_MARKET and symbol:
             # Clear order book state for crossed market
             if symbol in self.order_books:
                 del self.order_books[symbol]
                 self.logger.info(f"Cleared order book state for {symbol} due to crossed market")
-        
+
         elif error_type == ProcessingError.STALE_DATA and symbol:
             # Clear stale order book data
             if symbol in self.order_books:
                 del self.order_books[symbol]
                 self.logger.info(f"Cleared stale order book data for {symbol}")
-        
+
         elif error_type == ProcessingError.MEMORY_LIMIT:
             # Clear oldest order books to free memory
             if len(self.order_books) > 10:
@@ -1335,27 +1330,27 @@ class KrakenWebSocketClient:
                 sorted_books = sorted(
                     self.order_books.items(),
                     key=lambda x: x[1].timestamp,
-                    reverse=True
+                    reverse=True,
                 )
                 self.order_books = dict[str, Any](sorted_books[:10])
                 self.logger.info("Cleared old order book data to manage memory usage")
-    
+
     async def _update_processing_metrics(self, processing_time: float) -> None:
         """Update processing performance metrics."""
         self.processing_metrics.messages_processed += 1
         self.processing_metrics.last_update_time = time.time()
-        
+
         # Add to processing times deque
         self.processing_times.append(processing_time)
-        
+
         # Calculate average processing time
         if self.processing_times:
             self.processing_metrics.average_processing_time = sum(self.processing_times) / len(self.processing_times)
-    
-    def get_order_book(self, symbol: str) -> Optional[OrderBookSnapshot]:
+
+    def get_order_book(self, symbol: str) -> OrderBookSnapshot | None:
         """Get current order book snapshot for a symbol."""
         return self.order_books.get(symbol)
-    
+
     def get_processing_statistics(self) -> dict[str, Any]:
         """Get comprehensive order book processing statistics."""
         return {
@@ -1364,7 +1359,7 @@ class KrakenWebSocketClient:
                 "errors_encountered": self.processing_metrics.errors_encountered,
                 "average_processing_time": self.processing_metrics.average_processing_time,
                 "sequence_gaps": self.processing_metrics.sequence_gaps,
-                "recovery_attempts": self.processing_metrics.recovery_attempts
+                "recovery_attempts": self.processing_metrics.recovery_attempts,
             },
             "error_counts": {error.value: count for error, count in self.error_counts.items()},
             "symbols_tracked": len(self.order_books),
@@ -1372,16 +1367,16 @@ class KrakenWebSocketClient:
                 "max_depth": self.max_order_book_depth,
                 "validation_enabled": self.validation_enabled,
                 "error_recovery_enabled": self.error_recovery_enabled,
-                "stale_data_threshold": self.stale_data_threshold
-            }
+                "stale_data_threshold": self.stale_data_threshold,
+            },
         }
 
     def _map_kraken_pair(self, kraken_pair: str) -> str:
         """Map Kraken pair format to internal format.
-        
+
         Args:
             kraken_pair: Kraken pair (e.g., "XBT/USD" or "XXBTZUSD")
-            
+
         Returns:
             Internal pair format (e.g., "BTC/USD")
         """

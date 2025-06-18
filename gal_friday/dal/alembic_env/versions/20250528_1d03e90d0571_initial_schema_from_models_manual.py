@@ -1,7 +1,7 @@
-"""initial_schema_from_models_manual
+"""initial_schema_from_models_manual.
 
 Revision ID: 1d03e90d0571
-Revises: 
+Revises:
 Create Date: 2025-05-28 21:10:06.655207
 
 """

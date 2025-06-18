@@ -2,46 +2,44 @@
 
 from __future__ import annotations
 
-import asyncio
-import secrets
-import time
-from abc import ABC, abstractmethod
-from collections.abc import Callable, Coroutine
-from collections import defaultdict
+import contextlib
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Union, cast
-
-from .interfaces.service_protocol import ServiceProtocol
+import secrets
+import time
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 import aiohttp
-
-from gal_friday.config_manager import ConfigManager
+import asyncio
 
 # Removed incorrect import: from gal_friday.core.errors import ExecutionHandlerAuthenticationError
 from gal_friday.core.events import (
     ClosePositionCommand,
     EventType,
     ExecutionReportEvent,
-    TradeSignalApprovedEvent)
-from gal_friday.exceptions import (
-    ExecutionHandlerAuthenticationError)
+    TradeSignalApprovedEvent,
+)
 from gal_friday.execution.adapters import (
     BatchOrderRequest,
     ExecutionAdapter,
     KrakenExecutionAdapter,
-    OrderRequest)
+    OrderRequest,
+)
 from gal_friday.execution.websocket_client import KrakenWebSocketClient
 from gal_friday.utils.kraken_api import generate_kraken_signature
-from typing import Any
+
+from .interfaces.service_protocol import ServiceProtocol
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
+    from gal_friday.config_manager import ConfigManager
     from gal_friday.core.pubsub import PubSubManager
     from gal_friday.logger_service import LoggerService
-    
+
 # These types are not yet implemented, use Any for now
 MonitoringService = Any
 EventStore = Any
@@ -105,7 +103,7 @@ class OrderStatusReportParameters:
 
 # Enterprise-Grade Enumerations and Data Classes
 class OrderState(str, Enum):
-    """Comprehensive order state enumeration"""
+    """Comprehensive order state enumeration."""
 
     CREATED = "created"
     PENDING_SUBMIT = "pending_submit"
@@ -122,7 +120,7 @@ class OrderState(str, Enum):
 
 
 class OrderPriority(str, Enum):
-    """Order processing priority levels"""
+    """Order processing priority levels."""
 
     CRITICAL = "critical"  # Emergency liquidations, stop losses
     HIGH = "high"  # Market orders, time-sensitive trades
@@ -131,7 +129,7 @@ class OrderPriority(str, Enum):
 
 
 class ShutdownOrderAction(str, Enum):
-    """Shutdown order handling actions"""
+    """Shutdown order handling actions."""
 
     CANCEL_ALL = "cancel_all"
     CANCEL_CONDITIONAL = "cancel_conditional"
@@ -141,39 +139,39 @@ class ShutdownOrderAction(str, Enum):
 
 @dataclass
 class OrderStateEvent:
-    """Order state change event"""
+    """Order state change event."""
 
     order_id: str
-    from_state: Optional[OrderState]
+    from_state: OrderState | None
     to_state: OrderState
     timestamp: datetime
-    exchange_id: Optional[str] = None
-    fill_quantity: Optional[float] = None
-    fill_price: Optional[float] = None
-    reason: Optional[str] = None
+    exchange_id: str | None = None
+    fill_quantity: float | None = None
+    fill_price: float | None = None
+    reason: str | None = None
 
 
 @dataclass
 class OrderLifecycleData:
-    """Complete order lifecycle information"""
+    """Complete order lifecycle information."""
 
     order_id: str
     current_state: OrderState
-    state_history: List[OrderStateEvent]
+    state_history: list[OrderStateEvent]
     creation_time: datetime
     last_update_time: datetime
-    exchange_order_id: Optional[str] = None
+    exchange_order_id: str | None = None
     filled_quantity: float = 0.0
     remaining_quantity: float = 0.0
 
 
 @dataclass
 class ShutdownConfig:
-    """Configuration for shutdown order handling"""
+    """Configuration for shutdown order handling."""
 
     default_action: ShutdownOrderAction
-    action_by_order_type: Dict[str, ShutdownOrderAction]
-    action_by_strategy: Dict[str, ShutdownOrderAction]
+    action_by_order_type: dict[str, ShutdownOrderAction]
+    action_by_strategy: dict[str, ShutdownOrderAction]
     safety_checks_enabled: bool = True
     max_cancellation_time: int = 30  # seconds
     require_confirmation: bool = False
@@ -183,7 +181,7 @@ class ShutdownConfig:
 
 @dataclass
 class OrderCancellationResult:
-    """Result of order cancellation attempt"""
+    """Result of order cancellation attempt."""
 
     order_id: str
     symbol: str
@@ -196,47 +194,44 @@ class OrderCancellationResult:
 
 @dataclass
 class AsyncOrderRequest:
-    """Asynchronous order request with metadata"""
+    """Asynchronous order request with metadata."""
 
-    order_request: Dict[str, Any]
+    order_request: dict[str, Any]
     priority: OrderPriority
-    callback: Optional[Callable[..., Any]] = None
+    callback: Callable[..., Any] | None = None
     timeout_seconds: float = 30.0
     retry_count: int = 0
     max_retries: int = 3
-    metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
 class BatchOperation:
-    """Batch operation definition"""
+    """Batch operation definition."""
 
     operation_id: str
     operation_type: str
-    orders: List[AsyncOrderRequest]
-    progress_callback: Optional[Callable[..., Any]] = None
+    orders: list[AsyncOrderRequest]
+    progress_callback: Callable[..., Any] | None = None
     max_concurrent: int = 10
     timeout_seconds: float = 300.0
 
 
 # Enterprise Exception Classes
 class OrderStateError(Exception):
-    """Order state tracking errors"""
+    """Order state tracking errors."""
 
-    pass
 
 
 class BatchProcessingError(Exception):
-    """Batch processing errors"""
+    """Batch processing errors."""
 
-    pass
 
 
 class OrderProcessingError(Exception):
-    """Order processing errors"""
+    """Order processing errors."""
 
-    pass
 
 
 class RateLimitTracker:
@@ -332,19 +327,20 @@ class RateLimitTracker:
 
 # Order State Tracking System
 class OrderStateTracker:
-    """Enterprise-grade order state tracking and lifecycle management"""
+    """Enterprise-grade order state tracking and lifecycle management."""
 
-    def __init__(self, persistence_service: Any, event_publisher: Any, config: Dict[str, Any]) -> None:
+    def __init__(self, persistence_service: Any, event_publisher: Any, config: dict[str, Any]) -> None:
+        """Initialize the instance."""
         self.persistence = persistence_service
         self.event_publisher = event_publisher
         self.config = config
         self.logger: Any = None  # Will be set by the execution handler (LoggerService)
-        self.order_states: Dict[str, OrderLifecycleData] = {}
+        self.order_states: dict[str, OrderLifecycleData] = {}
 
     async def create_order_tracking(
-        self, order_id: str, initial_data: Dict[str, Any]
+        self, order_id: str, initial_data: dict[str, Any],
     ) -> OrderLifecycleData:
-        """Create order state tracking for new order"""
+        """Create order state tracking for new order."""
         try:
             if self.logger:
                 self.logger.debug(f"Creating order tracking for {order_id}")
@@ -353,8 +349,8 @@ class OrderStateTracker:
                 order_id=order_id,
                 current_state=OrderState.CREATED,
                 state_history=[],
-                creation_time=datetime.now(timezone.utc),
-                last_update_time=datetime.now(timezone.utc),
+                creation_time=datetime.now(UTC),
+                last_update_time=datetime.now(UTC),
                 remaining_quantity=initial_data.get("quantity", 0.0))
 
             initial_event = OrderStateEvent(
@@ -376,13 +372,13 @@ class OrderStateTracker:
 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error creating order tracking for {order_id}: {e}")
+                self.logger.exception(f"Error creating order tracking for {order_id}: ")
             raise OrderStateError(f"Failed to create order tracking: {e}")
 
     async def update_order_state(
-        self, order_id: str, new_state: OrderState, **kwargs: Any
+        self, order_id: str, new_state: OrderState, **kwargs: Any,
     ) -> OrderLifecycleData:
-        """Update order state with validation and event publishing"""
+        """Update order state with validation and event publishing."""
         try:
             if order_id not in self.order_states:
                 lifecycle_data = await self._load_order_state(order_id)
@@ -397,7 +393,7 @@ class OrderStateTracker:
             # Validate state transition
             if not self._is_valid_transition(current_state, new_state):
                 raise OrderStateError(
-                    f"Invalid state transition for {order_id}: {current_state.value} -> {new_state.value}"
+                    f"Invalid state transition for {order_id}: {current_state.value} -> {new_state.value}",
                 )
 
             # Create state event
@@ -405,7 +401,7 @@ class OrderStateTracker:
                 order_id=order_id,
                 from_state=current_state,
                 to_state=new_state,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 exchange_id=kwargs.get("exchange_id"),
                 fill_quantity=kwargs.get("fill_quantity"),
                 fill_price=kwargs.get("fill_price"),
@@ -427,18 +423,18 @@ class OrderStateTracker:
 
             if self.logger:
                 self.logger.info(
-                    f"Order {order_id} state updated: {current_state.value} -> {new_state.value}"
+                    f"Order {order_id} state updated: {current_state.value} -> {new_state.value}",
                 )
 
             return lifecycle_data
 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error updating order state for {order_id}: {e}")
+                self.logger.exception(f"Error updating order state for {order_id}: ")
             raise OrderStateError(f"Failed to update order state: {e}")
 
     def _is_valid_transition(self, from_state: OrderState, to_state: OrderState) -> bool:
-        """Validate order state transitions"""
+        """Validate order state transitions."""
         valid_transitions = {
             OrderState.CREATED: {OrderState.PENDING_SUBMIT, OrderState.FAILED},
             OrderState.PENDING_SUBMIT: {OrderState.SUBMITTED, OrderState.FAILED},
@@ -479,8 +475,8 @@ class OrderStateTracker:
 
         return to_state in valid_transitions.get(from_state, set())
 
-    async def get_order_state(self, order_id: str) -> Optional[OrderLifecycleData]:
-        """Get current order state and lifecycle data"""
+    async def get_order_state(self, order_id: str) -> OrderLifecycleData | None:
+        """Get current order state and lifecycle data."""
         if order_id in self.order_states:
             return self.order_states[order_id]
 
@@ -492,7 +488,7 @@ class OrderStateTracker:
         return lifecycle_data
 
     async def _persist_order_state(self, lifecycle_data: OrderLifecycleData) -> None:
-        """Persist order state to storage using enterprise-grade DAL"""
+        """Persist order state to storage using enterprise-grade DAL."""
         try:
             if self.persistence:
                 # Create order state record for database
@@ -524,14 +520,14 @@ class OrderStateTracker:
                     self.logger.debug(
                         f"Persisted order state for order {lifecycle_data.order_id} with state {lifecycle_data.current_state.value}",
                         source_module=self.__class__.__name__)
-        except Exception as e:
+        except Exception:
             if self.logger:
-                self.logger.error(
-                    f"Failed to persist order state for order {lifecycle_data.order_id}: {e}",
+                self.logger.exception(
+                    f"Failed to persist order state for order {lifecycle_data.order_id}: ",
                     source_module=self.__class__.__name__)
 
-    async def _load_order_state(self, order_id: str) -> Optional[OrderLifecycleData]:
-        """Load order state from persistence using enterprise-grade DAL"""
+    async def _load_order_state(self, order_id: str) -> OrderLifecycleData | None:
+        """Load order state from persistence using enterprise-grade DAL."""
         try:
             if self.persistence:
                 order_state_data = await self.persistence.load_order_state(order_id)
@@ -579,15 +575,15 @@ class OrderStateTracker:
 
             return None
 
-        except Exception as e:
+        except Exception:
             if self.logger:
-                self.logger.error(
-                    f"Failed to load order state for order {order_id}: {e}",
+                self.logger.exception(
+                    f"Failed to load order state for order {order_id}: ",
                     source_module=self.__class__.__name__)
             return None
 
     async def _publish_state_event(self, event_type: str, event_data: OrderStateEvent) -> None:
-        """Publish state change event"""
+        """Publish state change event."""
         try:
             if self.event_publisher:
                 await self.event_publisher.publish(
@@ -600,30 +596,31 @@ class OrderStateTracker:
                         "to_state": event_data.to_state.value,
                         "timestamp": event_data.timestamp.isoformat(),
                     })
-        except Exception as e:
+        except Exception:
             if self.logger:
-                self.logger.error(f"Failed to publish state event: {e}")
+                self.logger.exception("Failed to publish state event: ")
 
 
 # Configurable Shutdown Handler
 class ConfigurableShutdownHandler:
-    """Handles configurable order cancellation during shutdown"""
+    """Handles configurable order cancellation during shutdown."""
 
     def __init__(self, config: ShutdownConfig, execution_handler: Any, market_data_service: Any = None) -> None:
+        """Initialize the instance."""
         self.config = config
         self.execution_handler = execution_handler
         self.market_data = market_data_service
         self.logger = execution_handler.logger
         self.shutdown_in_progress = False
 
-    async def handle_shutdown_orders(self) -> List[OrderCancellationResult]:
-        """Handle open orders during shutdown with configurable logic"""
+    async def handle_shutdown_orders(self) -> list[OrderCancellationResult]:
+        """Handle open orders during shutdown with configurable logic."""
         if self.shutdown_in_progress:
             self.logger.warning("Shutdown already in progress, skipping duplicate call")
             return []
 
         self.shutdown_in_progress = True
-        shutdown_start = datetime.now(timezone.utc)
+        shutdown_start = datetime.now(UTC)
 
         try:
             self.logger.info("Starting configurable order shutdown process")
@@ -638,7 +635,7 @@ class ConfigurableShutdownHandler:
                             "client_order_id": client_id,
                             "symbol": "UNKNOWN",  # Would need to enhance to track symbols
                             "order_type": "UNKNOWN",
-                        }
+                        },
                     )
 
             if not open_orders:
@@ -663,7 +660,7 @@ class ConfigurableShutdownHandler:
                     cancellation_results.append(result)
 
                 except Exception as e:
-                    self.logger.error(f"Error processing order {order.get('order_id')}: {e}")
+                    self.logger.exception(f"Error processing order {order.get('order_id')}: ")
                     cancellation_results.append(self._create_error_result(order, str(e)))
 
             # Log shutdown summary
@@ -674,15 +671,15 @@ class ConfigurableShutdownHandler:
 
             return cancellation_results
 
-        except Exception as e:
-            self.logger.error(f"Critical error in shutdown order handling: {e}")
+        except Exception:
+            self.logger.exception("Critical error in shutdown order handling: ")
             return []
 
         finally:
             self.shutdown_in_progress = False
 
-    async def _perform_safety_checks(self, open_orders: List[Dict[str, Any]]) -> bool:
-        """Perform comprehensive safety checks before order cancellation"""
+    async def _perform_safety_checks(self, open_orders: list[dict[str, Any]]) -> bool:
+        """Perform comprehensive safety checks before order cancellation."""
         try:
             # Check for critical stop losses if preservation is enabled
             if self.config.preserve_stop_losses:
@@ -693,19 +690,19 @@ class ConfigurableShutdownHandler:
                 ]
                 if stop_loss_orders:
                     self.logger.warning(
-                        f"Found {len(stop_loss_orders)} stop loss orders, preserving as per config"
+                        f"Found {len(stop_loss_orders)} stop loss orders, preserving as per config",
                     )
                     return False
 
             return True
-        except Exception as e:
-            self.logger.error(f"Error in safety checks: {e}")
+        except Exception:
+            self.logger.exception("Error in safety checks: ")
             return False
 
     def _create_safety_failure_results(
-        self, open_orders: List[Dict[str, Any]]
-    ) -> List[OrderCancellationResult]:
-        """Create results for safety check failures"""
+        self, open_orders: list[dict[str, Any]],
+    ) -> list[OrderCancellationResult]:
+        """Create results for safety check failures."""
         return [
             OrderCancellationResult(
                 order_id=order.get("order_id", "unknown"),
@@ -713,26 +710,26 @@ class ConfigurableShutdownHandler:
                 action_taken=ShutdownOrderAction.LEAVE_OPEN,
                 success=False,
                 reason="Safety checks failed",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 market_impact_estimate=0.0)
             for order in open_orders
         ]
 
     def _create_error_result(
-        self, order: Dict[str, Any], error_msg: str
+        self, order: dict[str, Any], error_msg: str,
     ) -> OrderCancellationResult:
-        """Create error result for order processing failure"""
+        """Create error result for order processing failure."""
         return OrderCancellationResult(
             order_id=order.get("order_id", "unknown"),
             symbol=order.get("symbol", "unknown"),
             action_taken=ShutdownOrderAction.LEAVE_OPEN,
             success=False,
             reason=f"Processing error: {error_msg}",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             market_impact_estimate=0.0)
 
-    async def _process_order_for_shutdown(self, order: Dict[str, Any]) -> OrderCancellationResult:
-        """Process individual order according to shutdown configuration"""
+    async def _process_order_for_shutdown(self, order: dict[str, Any]) -> OrderCancellationResult:
+        """Process individual order according to shutdown configuration."""
         order_id = order.get("order_id", "unknown")
         symbol = order.get("symbol", "unknown")
         order_type = order.get("order_type", "unknown")
@@ -742,7 +739,7 @@ class ConfigurableShutdownHandler:
 
         success = False
         reason = "Unknown error"
-        
+
         try:
             if action == ShutdownOrderAction.CANCEL_ALL:
                 # Attempt to cancel the order
@@ -781,25 +778,24 @@ class ConfigurableShutdownHandler:
                 action_taken=action,
                 success=success,
                 reason=reason,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 market_impact_estimate=0.0)
 
         except Exception as e:
-            self.logger.error(f"Error processing order {order_id}: {e}")
+            self.logger.exception(f"Error processing order {order_id}: ")
             return OrderCancellationResult(
                 order_id=order_id,
                 symbol=symbol,
                 action_taken=action,
                 success=False,
                 reason=f"Error: {e}",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 market_impact_estimate=0.0)
 
     def _determine_shutdown_action(
-        self, order_type: str, strategy_id: Optional[str]
+        self, order_type: str, strategy_id: str | None,
     ) -> ShutdownOrderAction:
-        """Determine shutdown action based on configuration hierarchy"""
-
+        """Determine shutdown action based on configuration hierarchy."""
         # Strategy-specific configuration takes highest priority
         if strategy_id and strategy_id in self.config.action_by_strategy:
             return self.config.action_by_strategy[strategy_id]
@@ -812,21 +808,21 @@ class ConfigurableShutdownHandler:
         return self.config.default_action
 
     async def _log_shutdown_summary(
-        self, results: List[OrderCancellationResult], start_time: datetime
+        self, results: list[OrderCancellationResult], start_time: datetime,
     ) -> None:
-        """Log summary of shutdown operations"""
-        duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+        """Log summary of shutdown operations."""
+        duration = (datetime.now(UTC) - start_time).total_seconds()
         successful = sum(1 for r in results if r.success)
         failed = len(results) - successful
 
         self.logger.info(
-            f"Shutdown completed in {duration:.2f}s. Success: {successful}, Failed: {failed}"
+            f"Shutdown completed in {duration:.2f}s. Success: {successful}, Failed: {failed}",
         )
 
     async def _wait_for_cancellation_completion(
-        self, results: List[OrderCancellationResult]
+        self, results: list[OrderCancellationResult],
     ) -> None:
-        """Wait for cancellation operations to complete"""
+        """Wait for cancellation operations to complete."""
         cancellation_attempts = [
             r
             for r in results
@@ -840,19 +836,19 @@ class ConfigurableShutdownHandler:
         max_wait_time = self.config.max_cancellation_time
 
         self.logger.info(
-            f"Waiting up to {max_wait_time}s for {len(cancellation_attempts)} cancellations to complete"
+            f"Waiting up to {max_wait_time}s for {len(cancellation_attempts)} cancellations to complete",
         )
 
         # Enhanced to actually check order status
         try:
             await self._verify_cancellation_completion(cancellation_attempts, max_wait_time)
-        except Exception as e:
-            self.logger.error(f"Error verifying cancellation completion: {e}")
+        except Exception:
+            self.logger.exception("Error verifying cancellation completion: ")
             # Fallback to simple wait
             await asyncio.sleep(min(max_wait_time, 5))
 
-    async def _evaluate_conditional_cancellation(self, order: Dict[str, Any]) -> tuple[bool, str]:
-        """Evaluate whether an order should be conditionally cancelled based on market conditions"""
+    async def _evaluate_conditional_cancellation(self, order: dict[str, Any]) -> tuple[bool, str]:
+        """Evaluate whether an order should be conditionally cancelled based on market conditions."""
         try:
             order_id = order.get("order_id", "unknown")
             symbol = order.get("symbol", "unknown")
@@ -877,7 +873,7 @@ class ConfigurableShutdownHandler:
                 order_type.lower() == "limit" and volatility and volatility > 0.05
             ):  # 5% volatility threshold
                 self.logger.info(
-                    f"High volatility ({volatility:.2%}) for {symbol}, preserving limit order {order_id}"
+                    f"High volatility ({volatility:.2%}) for {symbol}, preserving limit order {order_id}",
                 )
                 return False, f"High volatility ({volatility:.2%}) - preserving limit order"
 
@@ -887,28 +883,27 @@ class ConfigurableShutdownHandler:
                 return False, "Stop-loss order preserved for risk management"
 
             # Take-profit evaluation (cancel if far from current price)
-            if order_type.lower() in ["take-profit", "take_profit"]:
-                if current_price:
-                    # Enhanced take-profit evaluation with price comparison
-                    should_cancel, reason = await self._evaluate_take_profit_order(
-                        order_id, current_price, symbol
-                    )
-                    return should_cancel, reason
+            if order_type.lower() in ["take-profit", "take_profit"] and current_price:
+                # Enhanced take-profit evaluation with price comparison
+                should_cancel, reason = await self._evaluate_take_profit_order(
+                    order_id, current_price, symbol,
+                )
+                return should_cancel, reason
 
             # Default behavior for other order types
             return True, "Standard conditional cancellation"
 
         except Exception as e:
-            self.logger.error(
-                f"Error evaluating conditional cancellation for order {order.get('order_id')}: {e}"
+            self.logger.exception(
+                f"Error evaluating conditional cancellation for order {order.get('order_id')}: ",
             )
             # Conservative approach: don't cancel if we can't evaluate properly
             return False, f"Evaluation error: {e}"
 
     async def _verify_cancellation_completion(
-        self, cancellation_results: List[OrderCancellationResult], max_wait_time: int
+        self, cancellation_results: list[OrderCancellationResult], max_wait_time: int,
     ) -> None:
-        """Verify that cancellation requests have been processed"""
+        """Verify that cancellation requests have been processed."""
         start_time = time.time()
         check_interval = 1.0  # Check every second
 
@@ -921,7 +916,7 @@ class ConfigurableShutdownHandler:
                 try:
                     # Check order status via execution handler
                     order_details = await self.execution_handler._query_order_details(
-                        result.order_id
+                        result.order_id,
                     )
 
                     if order_details:
@@ -943,11 +938,11 @@ class ConfigurableShutdownHandler:
 
         if pending_cancellations:
             self.logger.warning(
-                f"{len(pending_cancellations)} cancellations still pending after {max_wait_time}s"
+                f"{len(pending_cancellations)} cancellations still pending after {max_wait_time}s",
             )
 
-    async def _convert_order_to_market(self, order: Dict[str, Any]) -> tuple[bool, str]:
-        """Convert a limit order to market order for immediate execution"""
+    async def _convert_order_to_market(self, order: dict[str, Any]) -> tuple[bool, str]:
+        """Convert a limit order to market order for immediate execution."""
         try:
             order_id = order.get("order_id", "unknown")
             symbol = order.get("symbol", "unknown")
@@ -983,7 +978,7 @@ class ConfigurableShutdownHandler:
                     volume_float = float(volume)
                     if volume_float * current_price > 10000:  # $10k threshold
                         self.logger.warning(
-                            f"Large market order conversion: {volume_float} {pair} worth ~${volume_float * current_price:.0f}"
+                            f"Large market order conversion: {volume_float} {pair} worth ~${volume_float * current_price:.0f}",
                         )
 
             # Prepare market order parameters
@@ -997,7 +992,7 @@ class ConfigurableShutdownHandler:
             }
 
             self.logger.info(
-                f"Converting limit order {order_id} to market order for immediate execution"
+                f"Converting limit order {order_id} to market order for immediate execution",
             )
 
             # Step 1: Cancel the original limit order
@@ -1007,7 +1002,7 @@ class ConfigurableShutdownHandler:
 
             # Step 2: Place market order
             result = await self.execution_handler._make_private_request_with_retry(
-                "/0/private/AddOrder", market_order_params
+                "/0/private/AddOrder", market_order_params,
             )
 
             if result and not result.get("error"):
@@ -1017,25 +1012,23 @@ class ConfigurableShutdownHandler:
                 if new_txids:
                     new_order_id = new_txids[0] if isinstance(new_txids, list) else new_txids
                     self.logger.info(
-                        f"Successfully converted order {order_id} to market order {new_order_id}"
+                        f"Successfully converted order {order_id} to market order {new_order_id}",
                     )
                     return True, f"Converted to market order {new_order_id}"
-                else:
-                    return False, "Market order placement returned no order ID"
-            else:
-                error_msg = (
-                    result.get("error", ["Unknown error"]) if result else ["API request failed"]
-                )
-                return False, f"Market order placement failed: {error_msg}"
+                return False, "Market order placement returned no order ID"
+            error_msg = (
+                result.get("error", ["Unknown error"]) if result else ["API request failed"]
+            )
+            return False, f"Market order placement failed: {error_msg}"
 
         except Exception as e:
-            self.logger.error(f"Error converting order {order.get('order_id')} to market: {e}")
+            self.logger.exception(f"Error converting order {order.get('order_id')} to market: ")
             return False, f"Conversion error: {e}"
 
     async def _evaluate_take_profit_order(
-        self, order_id: str, current_price: float, symbol: str
+        self, order_id: str, current_price: float, symbol: str,
     ) -> tuple[bool, str]:
-        """Evaluate take-profit order based on current market price and order details"""
+        """Evaluate take-profit order based on current market price and order details."""
         try:
             # Get detailed order information
             order_details = await self.execution_handler._query_order_details(order_id)
@@ -1048,17 +1041,13 @@ class ConfigurableShutdownHandler:
             # Try to get price from order description
             descr = order_details.get("descr", {})
             if "price" in descr:
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     order_price = float(descr["price"])
-                except (ValueError, TypeError):
-                    pass
 
             # Try to get price from order data
             if order_price is None and "price" in order_details:
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     order_price = float(order_details["price"])
-                except (ValueError, TypeError):
-                    pass
 
             # If we can't determine the order price, use conservative approach
             if order_price is None:
@@ -1072,7 +1061,6 @@ class ConfigurableShutdownHandler:
             price_diff_pct = abs(current_price - order_price) / current_price
 
             # Define thresholds for take-profit evaluation
-            close_threshold = 0.02  # 2% - very close to target
             far_threshold = 0.10  # 10% - far from target
 
             if order_side == "sell":
@@ -1080,14 +1068,14 @@ class ConfigurableShutdownHandler:
                 if current_price >= order_price * 0.95:  # Within 5% of target
                     self.logger.info(
                         f"Take-profit sell order {order_id} close to target: "
-                        f"current ${current_price:.2f} vs target ${order_price:.2f}"
+                        f"current ${current_price:.2f} vs target ${order_price:.2f}",
                     )
                     return False, f"Close to target price (${order_price:.2f}) - preserving order"
 
-                elif current_price <= order_price * 0.85:  # More than 15% below target
+                if current_price <= order_price * 0.85:  # More than 15% below target
                     self.logger.info(
                         f"Take-profit sell order {order_id} far from target: "
-                        f"current ${current_price:.2f} vs target ${order_price:.2f}"
+                        f"current ${current_price:.2f} vs target ${order_price:.2f}",
                     )
                     return True, f"Far from target price (${order_price:.2f}) - cancelling order"
 
@@ -1096,14 +1084,14 @@ class ConfigurableShutdownHandler:
                 if current_price <= order_price * 1.05:  # Within 5% of target
                     self.logger.info(
                         f"Take-profit buy order {order_id} close to target: "
-                        f"current ${current_price:.2f} vs target ${order_price:.2f}"
+                        f"current ${current_price:.2f} vs target ${order_price:.2f}",
                     )
                     return False, f"Close to target price (${order_price:.2f}) - preserving order"
 
-                elif current_price >= order_price * 1.15:  # More than 15% above target
+                if current_price >= order_price * 1.15:  # More than 15% above target
                     self.logger.info(
                         f"Take-profit buy order {order_id} far from target: "
-                        f"current ${current_price:.2f} vs target ${order_price:.2f}"
+                        f"current ${current_price:.2f} vs target ${order_price:.2f}",
                     )
                     return True, f"Far from target price (${order_price:.2f}) - cancelling order"
 
@@ -1111,34 +1099,32 @@ class ConfigurableShutdownHandler:
             order_age = await self._get_order_age_hours(order_details)
             if order_age and order_age > 24:  # Order older than 24 hours
                 if price_diff_pct > far_threshold:
-                    return True, f"Stale order (>24h) far from market - cancelling"
-                else:
-                    return False, f"Keeping aged order as still reasonable"
+                    return True, "Stale order (>24h) far from market - cancelling"
+                return False, "Keeping aged order as still reasonable"
 
             # Default: moderate evaluation
             if price_diff_pct > far_threshold:
                 return (
                     True,
                     f"Take-profit order too far from market ({price_diff_pct:.1%}) - cancelling")
-            else:
-                return (
-                    False,
-                    f"Take-profit order reasonably positioned ({price_diff_pct:.1%}) - preserving")
+            return (
+                False,
+                f"Take-profit order reasonably positioned ({price_diff_pct:.1%}) - preserving")
 
         except Exception as e:
-            self.logger.error(f"Error evaluating take-profit order {order_id}: {e}")
+            self.logger.exception(f"Error evaluating take-profit order {order_id}: ")
             # Conservative approach: don't cancel if we can't evaluate properly
             return False, f"Evaluation error: {e}"
 
-    async def _get_order_age_hours(self, order_details: Dict[str, Any]) -> Optional[float]:
-        """Calculate order age in hours"""
+    async def _get_order_age_hours(self, order_details: dict[str, Any]) -> float | None:
+        """Calculate order age in hours."""
         try:
             # Try to get order creation time
             open_time = order_details.get("opentm")
             if open_time:
                 # Kraken timestamps are in seconds
-                order_time = datetime.fromtimestamp(float(open_time), tz=timezone.utc)
-                current_time = datetime.now(timezone.utc)
+                order_time = datetime.fromtimestamp(float(open_time), tz=UTC)
+                current_time = datetime.now(UTC)
                 age_delta = current_time - order_time
                 return age_delta.total_seconds() / 3600  # Return hours
             return None
@@ -1150,9 +1136,10 @@ class ConfigurableShutdownHandler:
 
 # Async Order Processor
 class AsyncOrderProcessor:
-    """Enterprise-grade asynchronous order processing engine"""
+    """Enterprise-grade asynchronous order processing engine."""
 
-    def __init__(self, exchange_adapter: Any, config: Dict[str, Any]) -> None:
+    def __init__(self, exchange_adapter: Any, config: dict[str, Any]) -> None:
+        """Initialize the instance."""
         self.exchange_adapter = exchange_adapter
         self.config = config
         self.logger = exchange_adapter.logger if hasattr(exchange_adapter, "logger") else None
@@ -1166,8 +1153,8 @@ class AsyncOrderProcessor:
         }
 
         # Active processing tasks
-        self.processing_tasks: List[asyncio.Task[Any]] = []
-        self.batch_operations: Dict[str, BatchOperation] = {}
+        self.processing_tasks: list[asyncio.Task[Any]] = []
+        self.batch_operations: dict[str, BatchOperation] = {}
 
         # Concurrency control
         self.max_concurrent_orders = config.get("max_concurrent_orders", 50)
@@ -1177,7 +1164,7 @@ class AsyncOrderProcessor:
         self._running = False
 
     async def start_processing(self) -> None:
-        """Start asynchronous order processing"""
+        """Start asynchronous order processing."""
         if self._running:
             if self.logger:
                 self.logger.warning("Order processor already running")
@@ -1198,10 +1185,10 @@ class AsyncOrderProcessor:
 
     async def submit_order_async(
         self,
-        order_request: Dict[str, Any],
+        order_request: dict[str, Any],
         priority: OrderPriority = OrderPriority.NORMAL,
-        callback: Optional[Callable[..., Any]] = None) -> str:
-        """Submit order for asynchronous processing"""
+        callback: Callable[..., Any] | None = None) -> str:
+        """Submit order for asynchronous processing."""
         async_request = AsyncOrderRequest(
             order_request=order_request,
             priority=priority,
@@ -1216,11 +1203,11 @@ class AsyncOrderProcessor:
 
         except asyncio.QueueFull:
             if self.logger:
-                self.logger.error(f"Order queue full for priority {priority.value}")
+                self.logger.exception(f"Order queue full for priority {priority.value}")
             raise OrderProcessingError(f"Queue full for priority {priority.value}")
 
     async def stop_processing(self) -> None:
-        """Stop asynchronous order processing"""
+        """Stop asynchronous order processing."""
         self._running = False
 
         # Cancel all processing tasks
@@ -1232,9 +1219,9 @@ class AsyncOrderProcessor:
         if self.processing_tasks:
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*self.processing_tasks, return_exceptions=True), timeout=5.0
+                    asyncio.gather(*self.processing_tasks, return_exceptions=True), timeout=5.0,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if self.logger:
                     self.logger.warning("Some processing tasks did not stop gracefully")
 
@@ -1243,7 +1230,7 @@ class AsyncOrderProcessor:
             self.logger.info("Async order processor stopped")
 
     def _get_worker_count(self, priority: OrderPriority) -> int:
-        """Get worker count for priority level"""
+        """Get worker count for priority level."""
         worker_counts = {
             OrderPriority.CRITICAL: 5,
             OrderPriority.HIGH: 10,
@@ -1253,7 +1240,7 @@ class AsyncOrderProcessor:
         return worker_counts.get(priority, 5)
 
     async def _process_orders_worker(self, priority: OrderPriority, worker_id: int) -> None:
-        """Worker task for processing orders from priority queue"""
+        """Worker task for processing orders from priority queue."""
         if self.logger:
             self.logger.debug(f"Started {priority.value} priority worker {worker_id}")
 
@@ -1261,182 +1248,180 @@ class AsyncOrderProcessor:
             try:
                 # Get order from queue with timeout
                 order_request = await asyncio.wait_for(
-                    self.order_queues[priority].get(), timeout=1.0
+                    self.order_queues[priority].get(), timeout=1.0,
                 )
 
                 # Process the order
                 await self._execute_order_request(order_request)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
-            except Exception as e:
+            except Exception:
                 if self.logger:
-                    self.logger.error(f"Worker {priority.value}-{worker_id} error: {e}")
+                    self.logger.exception(f"Worker {priority.value}-{worker_id} error: ")
 
-    async def _execute_order_request(self, request: AsyncOrderRequest) -> Dict[str, Any]:
-        """Execute individual order request using real exchange adapter"""
-        async with self.semaphore:
-            async with self.rate_limiter:
-                try:
-                    # Enhanced execution via exchange adapter
-                    execution_start = time.time()
+    async def _execute_order_request(self, request: AsyncOrderRequest) -> dict[str, Any]:
+        """Execute individual order request using real exchange adapter."""
+        async with self.semaphore, self.rate_limiter:
+            try:
+                # Enhanced execution via exchange adapter
+                execution_start = time.time()
 
-                    if self.exchange_adapter and hasattr(self.exchange_adapter, "place_order"):
-                        # Use real exchange adapter for order placement
-                        result: dict[str, Any] = await self.exchange_adapter.place_order(request.order_request)
+                if self.exchange_adapter and hasattr(self.exchange_adapter, "place_order"):
+                    # Use real exchange adapter for order placement
+                    result: dict[str, Any] = await self.exchange_adapter.place_order(request.order_request)
 
-                        # Add execution metadata
-                        result.update(
-                            {
-                                "async_execution": True,
-                                "execution_time_ms": (time.time() - execution_start) * 1000,
-                                "priority": request.priority.value,
-                                "retry_count": request.retry_count,
-                                "worker_processed": True,
-                            }
-                        )
-
-                        if self.logger:
-                            self.logger.info(
-                                f"Async order executed via {self.exchange_adapter.__class__.__name__}: "
-                                f"{result.get('order_id', 'unknown')} in {result['execution_time_ms']:.1f}ms"
-                            )
-
-                    elif self.exchange_adapter and hasattr(
-                        self.exchange_adapter, "_make_private_request_with_retry"
-                    ):
-                        # Fallback to direct API call via adapter
-                        order_params = request.order_request
-                        result = await self.exchange_adapter._make_private_request_with_retry(
-                            "/0/private/AddOrder", order_params
-                        )
-
-                        # Process Kraken-style response
-                        if result and not result.get("error"):
-                            kraken_result = result.get("result", {})
-                            txids = kraken_result.get("txid", [])
-                            order_id = (
-                                txids[0]
-                                if txids and isinstance(txids, list)
-                                else str(txids)
-                                if txids
-                                else f"async_order_{int(time.time() * 1000000)}"
-                            )
-
-                            result = {
-                                "success": True,
-                                "order_id": order_id,
-                                "exchange_response": result,
-                                "async_execution": True,
-                                "execution_time_ms": (time.time() - execution_start) * 1000,
-                                "priority": request.priority.value,
-                                "retry_count": request.retry_count,
-                            }
-                        else:
-                            error_msg = (
-                                result.get("error", ["Unknown error"])
-                                if result
-                                else ["API request failed"]
-                            )
-                            result = {
-                                "success": False,
-                                "error": error_msg,
-                                "async_execution": True,
-                                "execution_time_ms": (time.time() - execution_start) * 1000,
-                                "priority": request.priority.value,
-                                "retry_count": request.retry_count,
-                            }
-
-                    else:
-                        # Enhanced simulation with realistic behavior for testing
-                        await asyncio.sleep(0.1)  # Simulate network latency
-
-                        order_id = f"sim_async_{int(time.time() * 1000000)}"
-                        result = {
-                            "success": True,
-                            "order_id": order_id,
-                            "simulated": True,
+                    # Add execution metadata
+                    result.update(
+                        {
+                            "async_execution": True,
                             "execution_time_ms": (time.time() - execution_start) * 1000,
                             "priority": request.priority.value,
                             "retry_count": request.retry_count,
-                            "order_params": request.order_request,
+                            "worker_processed": True,
+                        },
+                    )
+
+                    if self.logger:
+                        self.logger.info(
+                            f"Async order executed via {self.exchange_adapter.__class__.__name__}: "
+                            f"{result.get('order_id', 'unknown')} in {result['execution_time_ms']:.1f}ms",
+                        )
+
+                elif self.exchange_adapter and hasattr(
+                    self.exchange_adapter, "_make_private_request_with_retry",
+                ):
+                    # Fallback to direct API call via adapter
+                    order_params = request.order_request
+                    result = await self.exchange_adapter._make_private_request_with_retry(
+                        "/0/private/AddOrder", order_params,
+                    )
+
+                    # Process Kraken-style response
+                    if result and not result.get("error"):
+                        kraken_result = result.get("result", {})
+                        txids = kraken_result.get("txid", [])
+                        order_id = (
+                            txids[0]
+                            if txids and isinstance(txids, list)
+                            else str(txids)
+                            if txids
+                            else f"async_order_{int(time.time() * 1000000)}"
+                        )
+
+                        result = {
+                            "success": True,
+                            "order_id": order_id,
+                            "exchange_response": result,
+                            "async_execution": True,
+                            "execution_time_ms": (time.time() - execution_start) * 1000,
+                            "priority": request.priority.value,
+                            "retry_count": request.retry_count,
+                        }
+                    else:
+                        error_msg = (
+                            result.get("error", ["Unknown error"])
+                            if result
+                            else ["API request failed"]
+                        )
+                        result = {
+                            "success": False,
+                            "error": error_msg,
+                            "async_execution": True,
+                            "execution_time_ms": (time.time() - execution_start) * 1000,
+                            "priority": request.priority.value,
+                            "retry_count": request.retry_count,
                         }
 
-                        if self.logger:
-                            self.logger.debug(
-                                f"Simulated async order execution: {order_id} "
-                                f"(no exchange adapter available)"
-                            )
+                else:
+                    # Enhanced simulation with realistic behavior for testing
+                    await asyncio.sleep(0.1)  # Simulate network latency
 
-                    # Call callback if provided
-                    if request.callback:
-                        try:
-                            await request.callback(result)
-                        except Exception as callback_error:
-                            if self.logger:
-                                self.logger.error(f"Order callback failed: {callback_error}")
-
-                    # Update processing metrics
-                    self._update_processing_metrics(request, result)
-
-                    return result
-
-                except Exception as e:
-                    if self.logger:
-                        self.logger.error(
-                            f"Order execution failed for {request.priority.value} priority order: {e}"
-                        )
-
-                    # Enhanced retry logic with exponential backoff
-                    if request.retry_count < request.max_retries:
-                        request.retry_count += 1
-
-                        # Calculate exponential backoff delay
-                        retry_delay = min(
-                            self.config.get("error_retry_delay_seconds", 1.0)
-                            * (2 ** (request.retry_count - 1)),
-                            30.0,  # Max 30 second delay
-                        )
-
-                        if self.logger:
-                            self.logger.warning(
-                                f"Retrying order execution in {retry_delay:.1f}s "
-                                f"(attempt {request.retry_count}/{request.max_retries})"
-                            )
-
-                        # Schedule retry with delay
-                        asyncio.create_task(self._schedule_retry(request, retry_delay))
-                    else:
-                        if self.logger:
-                            self.logger.error(
-                                f"Order execution failed permanently after {request.max_retries} retries"
-                            )
-
-                    # Return error result instead of raising
-                    return {
-                        "success": False,
-                        "error": str(e),
+                    order_id = f"sim_async_{int(time.time() * 1000000)}"
+                    result = {
+                        "success": True,
+                        "order_id": order_id,
+                        "simulated": True,
+                        "execution_time_ms": (time.time() - execution_start) * 1000,
+                        "priority": request.priority.value,
                         "retry_count": request.retry_count,
-                        "max_retries_exceeded": request.retry_count >= request.max_retries,
+                        "order_params": request.order_request,
                     }
 
+                    if self.logger:
+                        self.logger.debug(
+                            f"Simulated async order execution: {order_id} "
+                            f"(no exchange adapter available)",
+                        )
+
+                # Call callback if provided
+                if request.callback:
+                    try:
+                        await request.callback(result)
+                    except Exception as callback_error:
+                        if self.logger:
+                            self.logger.exception(f"Order callback failed: {callback_error}")
+
+                # Update processing metrics
+                self._update_processing_metrics(request, result)
+
+                return result
+
+            except Exception as e:
+                if self.logger:
+                    self.logger.exception(
+                        f"Order execution failed for {request.priority.value} priority order: ",
+                    )
+
+                # Enhanced retry logic with exponential backoff
+                if request.retry_count < request.max_retries:
+                    request.retry_count += 1
+
+                    # Calculate exponential backoff delay
+                    retry_delay = min(
+                        self.config.get("error_retry_delay_seconds", 1.0)
+                        * (2 ** (request.retry_count - 1)),
+                        30.0,  # Max 30 second delay
+                    )
+
+                    if self.logger:
+                        self.logger.warning(
+                            f"Retrying order execution in {retry_delay:.1f}s "
+                            f"(attempt {request.retry_count}/{request.max_retries})",
+                        )
+
+                    # Schedule retry with delay
+                    asyncio.create_task(self._schedule_retry(request, retry_delay))
+                elif self.logger:
+                    self.logger.exception(
+                        f"Order execution failed permanently after {request.max_retries} retries",
+                    )
+
+                # Return error result instead of raising
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "retry_count": request.retry_count,
+                    "max_retries_exceeded": request.retry_count >= request.max_retries,
+                }
+
     async def _schedule_retry(self, request: AsyncOrderRequest, delay: float) -> None:
-        """Schedule order retry with delay"""
+        """Schedule order retry with delay."""
         await asyncio.sleep(delay)
         try:
             await self.order_queues[request.priority].put(request)
-        except Exception as e:
+        except Exception:
             if self.logger:
-                self.logger.error(f"Failed to reschedule order retry: {e}")
+                self.logger.exception("Failed to reschedule order retry: ")
 
     def _update_processing_metrics(
-        self, request: AsyncOrderRequest, result: Dict[str, Any]
+        self, request: AsyncOrderRequest, result: dict[str, Any],
     ) -> None:
-        """Update processing metrics for monitoring"""
+        """Update processing metrics for monitoring."""
         try:
             # Calculate processing duration
             processing_duration = time.time() - request.metadata.get(
-                "submission_time", time.time()
+                "submission_time", time.time(),
             )
 
             # Update metrics (would integrate with monitoring service)
@@ -1525,7 +1510,7 @@ class ExecutionHandler(ServiceProtocol):
             self._subscribed_channels: set[str] = set()
             self._max_reconnect_attempts = self._websocket_config.get("max_reconnect_attempts", 5)
             self._reconnect_delay_seconds = self._websocket_config.get(
-                "reconnect_delay_seconds", 5
+                "reconnect_delay_seconds", 5,
             )
             self._current_reconnect_attempts = 0
             self._is_running = False  # Service lifecycle tracking for reconnection logic
@@ -1577,16 +1562,16 @@ class ExecutionHandler(ServiceProtocol):
             event_publisher=self.pubsub,
             config={
                 "persistence_enabled": self.config.get(
-                    "execution_handler.order_state.persistence_enabled", True
+                    "execution_handler.order_state.persistence_enabled", True,
                 ),
                 "cache_size": self.config.get_int(
-                    "execution_handler.order_state.cache_size", 10000
+                    "execution_handler.order_state.cache_size", 10000,
                 ),
                 "batch_persistence": self.config.get(
-                    "execution_handler.order_state.batch_persistence", True
+                    "execution_handler.order_state.batch_persistence", True,
                 ),
                 "persistence_interval_seconds": self.config.get_int(
-                    "execution_handler.order_state.persistence_interval_seconds", 30
+                    "execution_handler.order_state.persistence_interval_seconds", 30,
                 ),
             })
         self.order_state_tracker.logger = self.logger
@@ -1594,36 +1579,36 @@ class ExecutionHandler(ServiceProtocol):
         # --- Configurable Shutdown Handler ---
         shutdown_config = ShutdownConfig(
             default_action=ShutdownOrderAction(
-                self.config.get("execution_handler.shutdown.default_action", "cancel_all")
+                self.config.get("execution_handler.shutdown.default_action", "cancel_all"),
             ),
             action_by_order_type={
                 "stop-loss": ShutdownOrderAction(
-                    self.config.get("execution_handler.shutdown.stop_loss_action", "leave_open")
+                    self.config.get("execution_handler.shutdown.stop_loss_action", "leave_open"),
                 ),
                 "take-profit": ShutdownOrderAction(
-                    self.config.get("execution_handler.shutdown.take_profit_action", "cancel_all")
+                    self.config.get("execution_handler.shutdown.take_profit_action", "cancel_all"),
                 ),
                 "limit": ShutdownOrderAction(
                     self.config.get(
-                        "execution_handler.shutdown.limit_action", "cancel_conditional"
-                    )
+                        "execution_handler.shutdown.limit_action", "cancel_conditional",
+                    ),
                 ),
                 "market": ShutdownOrderAction(
-                    self.config.get("execution_handler.shutdown.market_action", "leave_open")
+                    self.config.get("execution_handler.shutdown.market_action", "leave_open"),
                 ),
             },
             action_by_strategy={},
             safety_checks_enabled=self.config.get(
-                "execution_handler.shutdown.safety_checks_enabled", True
+                "execution_handler.shutdown.safety_checks_enabled", True,
             ),
             max_cancellation_time=self.config.get_int(
-                "execution_handler.shutdown.max_cancellation_time", 30
+                "execution_handler.shutdown.max_cancellation_time", 30,
             ),
             preserve_stop_losses=self.config.get(
-                "execution_handler.shutdown.preserve_stop_losses", True
+                "execution_handler.shutdown.preserve_stop_losses", True,
             ),
             market_hours_only=self.config.get(
-                "execution_handler.shutdown.market_hours_only", False
+                "execution_handler.shutdown.market_hours_only", False,
             ))
         # Initialize market data service for intelligent shutdown decisions
         self.market_data_service = self._initialize_market_data_service()
@@ -1636,26 +1621,26 @@ class ExecutionHandler(ServiceProtocol):
         # --- Asynchronous Order Processor ---
         async_config = {
             "max_concurrent_orders": self.config.get_int(
-                "execution_handler.async.max_concurrent_orders", 50
+                "execution_handler.async.max_concurrent_orders", 50,
             ),
             "max_requests_per_second": self.config.get_int(
-                "execution_handler.async.max_requests_per_second", 10
+                "execution_handler.async.max_requests_per_second", 10,
             ),
             "enable_priority_queues": self.config.get(
-                "execution_handler.async.enable_priority_queues", True
+                "execution_handler.async.enable_priority_queues", True,
             ),
             "error_retry_max_attempts": self.config.get_int(
-                "execution_handler.async.error_retry_max_attempts", 3
+                "execution_handler.async.error_retry_max_attempts", 3,
             ),
             "error_retry_delay_seconds": self.config.get_float(
-                "execution_handler.async.error_retry_delay_seconds", 1.0
+                "execution_handler.async.error_retry_delay_seconds", 1.0,
             ),
             "health_check_interval": self.config.get_int(
-                "execution_handler.async.health_check_interval", 60
+                "execution_handler.async.health_check_interval", 60,
             ),
         }
         self.async_processor = AsyncOrderProcessor(
-            exchange_adapter=self._adapter, config=async_config
+            exchange_adapter=self._adapter, config=async_config,
         )
 
         self._background_tasks: set[asyncio.Task[Any]] = set()
@@ -1673,7 +1658,7 @@ class ExecutionHandler(ServiceProtocol):
                 "async processing",
                 "batch orders",
                 "enterprise monitoring",
-            ]
+            ],
         )
 
         self.logger.info(
@@ -1683,17 +1668,17 @@ class ExecutionHandler(ServiceProtocol):
     async def initialize(self) -> None:
         """Async initialization hook for compatibility with ServiceProtocol."""
         # No asynchronous setup currently required
-        return None
+        return
 
     def _initialize_persistence_service(self) -> Any:
-        """Initialize persistence service for order state tracking"""
+        """Initialize persistence service for order state tracking."""
         try:
             # Import the DAL components
-            from gal_friday.dal.repositories.order_repository import OrderRepository
             from gal_friday.dal.connection_pool import DatabaseConnectionPool
+            from gal_friday.dal.repositories.order_repository import OrderRepository
 
             # Get database configuration
-            db_config = {
+            {
                 "host": self.config.get("database.host", "localhost"),
                 "port": self.config.get_int("database.port", 5432),
                 "database": self.config.get("database.name", "gal_friday"),
@@ -1713,33 +1698,34 @@ class ExecutionHandler(ServiceProtocol):
             # Create persistence service wrapper
             class OrderPersistenceService:
                 def __init__(self, repository: Any, logger: Any) -> None:
+                    """Initialize the instance."""
                     self.repository = repository
                     self.logger = logger
 
                 async def save_order_state(self, order_id: str, order_data: dict[str, Any]) -> None:
-                    """Save order state to database"""
+                    """Save order state to database."""
                     try:
                         await self.repository.save_order_state(order_id, order_data)
-                    except Exception as e:
-                        self.logger.error(f"Failed to save order state: {e}")
+                    except Exception:
+                        self.logger.exception("Failed to save order state: ")
                         raise
 
                 async def load_order_state(self, order_id: str) -> dict[str, Any] | None:
-                    """Load order state from database"""
+                    """Load order state from database."""
                     try:
                         result = await self.repository.load_order_state(order_id)
-                        return cast(dict[str, Any] | None, result)
-                    except Exception as e:
-                        self.logger.error(f"Failed to load order state: {e}")
+                        return cast("dict[str, Any] | None", result)
+                    except Exception:
+                        self.logger.exception("Failed to load order state: ")
                         return None
 
                 async def get_active_orders(self) -> list[dict[str, Any]]:
-                    """Get list[Any] of active orders from database"""
+                    """Get list[Any] of active orders from database."""
                     try:
                         result = await self.repository.get_active_orders()
-                        return cast(list[dict[str, Any]], result)
-                    except Exception as e:
-                        self.logger.error(f"Failed to get active orders: {e}")
+                        return cast("list[dict[str, Any]]", result)
+                    except Exception:
+                        self.logger.exception("Failed to get active orders: ")
                         return []
 
             persistence_service = OrderPersistenceService(order_repository, self.logger)
@@ -1750,21 +1736,23 @@ class ExecutionHandler(ServiceProtocol):
 
             return persistence_service
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to initialize persistence service: {e}. Operating without persistence.",
+        except Exception:
+            self.logger.exception(
+                "Failed to initialize persistence service: . Operating without persistence.",
                 source_module=self.__class__.__name__)
             return None
 
     def _initialize_market_data_service(self) -> Any:
-        """Initialize market data service for intelligent shutdown decisions"""
+        """Initialize market data service for intelligent shutdown decisions."""
         try:
             # Import market data components
             # Note: MarketPriceService is not implemented, using enhanced service instead
 
             # Import enhanced market data service
-            from gal_friday.execution_handler_enhancements import EnhancedMarketDataService
-            
+            from gal_friday.execution_handler_enhancements import (
+                EnhancedMarketDataService,
+            )
+
             market_data_service = EnhancedMarketDataService(self.config, self.logger)
 
             self.logger.info(
@@ -1773,14 +1761,14 @@ class ExecutionHandler(ServiceProtocol):
 
             return market_data_service
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to initialize market data service: {e}. Operating with basic shutdown logic.",
+        except Exception:
+            self.logger.exception(
+                "Failed to initialize market data service: . Operating with basic shutdown logic.",
                 source_module=self.__class__.__name__)
             return None
 
     async def _load_persisted_order_states(self) -> None:
-        """Load any persisted order states during startup"""
+        """Load any persisted order states during startup."""
         try:
             if self.order_state_tracker and self.persistence:
                 # Get list[Any] of active orders from persistence
@@ -1797,17 +1785,17 @@ class ExecutionHandler(ServiceProtocol):
                     f"Loaded {len(active_orders)} persisted order states",
                     source_module=self.__class__.__name__)
 
-        except Exception as e:
-            self.logger.error(
-                f"Error loading persisted order states: {e}", source_module=self.__class__.__name__
+        except Exception:
+            self.logger.exception(
+                "Error loading persisted order states: ", source_module=self.__class__.__name__,
             )
 
     async def _persist_all_pending_order_states(self) -> None:
-        """Persist all pending order states during shutdown"""
+        """Persist all pending order states during shutdown."""
         try:
             if self.order_state_tracker:
                 pending_count = 0
-                for order_id, lifecycle_data in self.order_state_tracker.order_states.items():
+                for lifecycle_data in self.order_state_tracker.order_states.values():
                     if lifecycle_data.current_state in [
                         OrderState.PENDING,
                         OrderState.SUBMITTED,
@@ -1820,9 +1808,9 @@ class ExecutionHandler(ServiceProtocol):
                     f"Persisted {pending_count} pending order states during shutdown",
                     source_module=self.__class__.__name__)
 
-        except Exception as e:
-            self.logger.error(
-                f"Error persisting pending order states: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error persisting pending order states: ",
                 source_module=self.__class__.__name__)
 
     async def start(self) -> None:
@@ -1873,7 +1861,7 @@ class ExecutionHandler(ServiceProtocol):
         self.pubsub.subscribe(EventType.TRADE_SIGNAL_APPROVED, self._close_position_handler)
 
         self.logger.info(
-            "ExecutionHandler started. Subscribed to TRADE_SIGNAL_APPROVED and close position commands.",  # noqa: E501
+            "ExecutionHandler started. Subscribed to TRADE_SIGNAL_APPROVED and close position commands.",
             source_module=self.__class__.__name__)
 
         # Enterprise WebSocket Connection Logic
@@ -1901,9 +1889,9 @@ class ExecutionHandler(ServiceProtocol):
             self.logger.info(
                 "Asynchronous order processor started successfully",
                 source_module=self.__class__.__name__)
-        except Exception as e:
-            self.logger.error(
-                f"Failed to start async processor: {e}",
+        except Exception:
+            self.logger.exception(
+                "Failed to start async processor: ",
                 source_module=self.__class__.__name__)
 
         # Load any persisted order states
@@ -1955,9 +1943,9 @@ class ExecutionHandler(ServiceProtocol):
                 self.logger.info(
                     "No orders required shutdown processing",
                     source_module=self.__class__.__name__)
-        except Exception as e:
-            self.logger.error(
-                f"Error during configurable shutdown: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error during configurable shutdown: ",
                 source_module=self.__class__.__name__)
 
         # Cancel ongoing monitoring tasks
@@ -1987,17 +1975,17 @@ class ExecutionHandler(ServiceProtocol):
                 self.logger.info(
                     "Async order processor stopped successfully",
                     source_module=self.__class__.__name__)
-        except Exception as e:
-            self.logger.error(
-                f"Error stopping async processor: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error stopping async processor: ",
                 source_module=self.__class__.__name__)
 
         try:
             # Persist any remaining order states
             await self._persist_all_pending_order_states()
-        except Exception as e:
-            self.logger.error(
-                f"Error persisting final order states: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error persisting final order states: ",
                 source_module=self.__class__.__name__)
 
         # Clean up the execution adapter
@@ -2353,10 +2341,10 @@ class ExecutionHandler(ServiceProtocol):
     def _is_retryable_error(self, error_str: str) -> bool:
         """Check if a Kraken error string indicates a potentially transient issue."""
         # Use enhanced error classifier if available
-        if hasattr(self, '_error_classifier'):
+        if hasattr(self, "_error_classifier"):
             error_instance = self._error_classifier.classify_error(error_str)
             return bool(self._error_classifier.should_retry(error_instance))
-        
+
         # Fallback to basic error codes
         retryable_codes = [
             "EGeneral:Temporary",
@@ -2568,9 +2556,9 @@ class ExecutionHandler(ServiceProtocol):
         await self._handle_add_order_response(result, event, cl_ord_id)
 
     async def _place_batch_order_with_sl_tp(
-        self, base_params: dict[str, Any], event: TradeSignalApprovedEvent
+        self, base_params: dict[str, Any], event: TradeSignalApprovedEvent,
     ) -> dict[str, Any]:
-        """Place batch order with stop-loss and take-profit using Kraken's AddOrderBatch endpoint"""
+        """Place batch order with stop-loss and take-profit using Kraken's AddOrderBatch endpoint."""
         try:
             # Prepare the batch order structure
             batch_orders = []
@@ -2597,7 +2585,7 @@ class ExecutionHandler(ServiceProtocol):
                 "orders": batch_orders,
                 "deadline": str(
                     int(time.time())
-                    + self.config.get_int("execution_handler.batch_orders.deadline_seconds", 300)
+                    + self.config.get_int("execution_handler.batch_orders.deadline_seconds", 300),
                 ),
                 "validate": "false",  # Set to "true" for validation only
             }
@@ -2629,23 +2617,23 @@ class ExecutionHandler(ServiceProtocol):
                         "result": {
                             "txid": combined_txids,
                             "descr": {"order": f"Batch order with {len(batch_orders)} orders"},
-                        }
+                        },
                     }
 
             return result
 
-        except Exception as e:
-            self.logger.error(
-                f"Error placing batch order for signal {event.signal_id}: {e}",
+        except Exception:
+            self.logger.exception(
+                f"Error placing batch order for signal {event.signal_id}: ",
                 source_module=self.__class__.__name__)
             # Fallback to single order placement
             uri_path = "/0/private/AddOrder"
             return await self._make_private_request_with_retry(uri_path, base_params)
 
     async def _prepare_sl_order(
-        self, base_params: dict[str, Any], event: TradeSignalApprovedEvent
-    ) -> Optional[dict[str, Any]]:
-        """Prepare stop-loss order parameters for batch placement"""
+        self, base_params: dict[str, Any], event: TradeSignalApprovedEvent,
+    ) -> dict[str, Any] | None:
+        """Prepare stop-loss order parameters for batch placement."""
         try:
             pair_info = self._pair_info.get(event.trading_pair)
             if not pair_info:
@@ -2655,7 +2643,7 @@ class ExecutionHandler(ServiceProtocol):
             sl_side = "sell" if event.side.lower() == "buy" else "buy"
 
             # Create stop-loss order parameters
-            sl_order = {
+            return {
                 "pair": base_params["pair"],
                 "type": sl_side,
                 "ordertype": "stop-loss",
@@ -2665,18 +2653,17 @@ class ExecutionHandler(ServiceProtocol):
                 "timeinforce": "GTC",
             }
 
-            return sl_order
 
-        except Exception as e:
-            self.logger.error(
-                f"Error preparing stop-loss order: {e}", source_module=self.__class__.__name__
+        except Exception:
+            self.logger.exception(
+                "Error preparing stop-loss order: ", source_module=self.__class__.__name__,
             )
             return None
 
     async def _prepare_tp_order(
-        self, base_params: dict[str, Any], event: TradeSignalApprovedEvent
-    ) -> Optional[dict[str, Any]]:
-        """Prepare take-profit order parameters for batch placement"""
+        self, base_params: dict[str, Any], event: TradeSignalApprovedEvent,
+    ) -> dict[str, Any] | None:
+        """Prepare take-profit order parameters for batch placement."""
         try:
             pair_info = self._pair_info.get(event.trading_pair)
             if not pair_info:
@@ -2686,7 +2673,7 @@ class ExecutionHandler(ServiceProtocol):
             tp_side = "sell" if event.side.lower() == "buy" else "buy"
 
             # Create take-profit order parameters
-            tp_order = {
+            return {
                 "pair": base_params["pair"],
                 "type": tp_side,
                 "ordertype": "take-profit",
@@ -2696,11 +2683,10 @@ class ExecutionHandler(ServiceProtocol):
                 "timeinforce": "GTC",
             }
 
-            return tp_order
 
-        except Exception as e:
-            self.logger.error(
-                f"Error preparing take-profit order: {e}", source_module=self.__class__.__name__
+        except Exception:
+            self.logger.exception(
+                "Error preparing take-profit order: ", source_module=self.__class__.__name__,
             )
             return None
 
@@ -2988,9 +2974,9 @@ class ExecutionHandler(ServiceProtocol):
                     report = ExecutionReportEvent(
                         source_module=self.__class__.__name__,
                         event_id=UUID(
-                            int=int(time.time() * 1000000) + idx
+                            int=int(time.time() * 1000000) + idx,
                         ),  # Ensure unique event IDs
-                        timestamp=datetime.utcnow(),
+                        timestamp=datetime.now(UTC),
                         signal_id=originating_event.signal_id,
                         exchange_order_id=kraken_order_id,
                         client_order_id=indexed_cl_ord_id,
@@ -3021,7 +3007,7 @@ class ExecutionHandler(ServiceProtocol):
 
                     # Start monitoring each order status
                     self._start_order_monitoring(
-                        indexed_cl_ord_id, kraken_order_id, originating_event
+                        indexed_cl_ord_id, kraken_order_id, originating_event,
                     )
             else:
                 # This case indicates success HTTP status but unexpected result
@@ -3073,10 +3059,8 @@ class ExecutionHandler(ServiceProtocol):
             # Cancel any existing connection task
             if self._websocket_connection_task and not self._websocket_connection_task.done():
                 self._websocket_connection_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await self._websocket_connection_task
-                except asyncio.CancelledError:
-                    pass
 
             # Establish connection using the WebSocket client
             await self.websocket_client.connect()
@@ -3095,7 +3079,7 @@ class ExecutionHandler(ServiceProtocol):
                 source_module=self.__class__.__name__)
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "WebSocket connection attempt failed: %s",
                 str(e),
                 source_module=self.__class__.__name__)
@@ -3140,7 +3124,7 @@ class ExecutionHandler(ServiceProtocol):
                 source_module=self.__class__.__name__)
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Failed to subscribe to order channels: %s",
                 str(e),
                 source_module=self.__class__.__name__)
@@ -3367,20 +3351,20 @@ class ExecutionHandler(ServiceProtocol):
                 if isinstance(data, list) and len(data) > 0:
                     first_item = data[0]
                     if isinstance(first_item, dict):
-                        return cast(dict[str, Any], first_item)
+                        return cast("dict[str, Any]", first_item)
                 if isinstance(data, dict):
-                    return cast(dict[str, Any], data)
+                    return cast("dict[str, Any]", data)
             elif isinstance(message, dict):
                 # Dict format with direct order data
                 result = message.get("data", message)
                 if isinstance(result, dict):
-                    return cast(dict[str, Any], result)
+                    return cast("dict[str, Any]", result)
                 return None
 
             return None
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Error extracting order data from message: %s",
                 str(e),
                 source_module=self.__class__.__name__)
@@ -3405,7 +3389,7 @@ class ExecutionHandler(ServiceProtocol):
             return []
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Error extracting trade data from message: %s",
                 str(e),
                 source_module=self.__class__.__name__)
@@ -3447,7 +3431,7 @@ class ExecutionHandler(ServiceProtocol):
 
             # Parse order details from WebSocket data
             order_status = self._map_exchange_status_to_internal(
-                order_data.get("status", "unknown")
+                order_data.get("status", "unknown"),
             )
 
             # Extract quantities and prices
@@ -3487,7 +3471,7 @@ class ExecutionHandler(ServiceProtocol):
             report = ExecutionReportEvent(
                 source_module=self.__class__.__name__,
                 event_id=UUID(int=int(time.time() * 1000000)),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 signal_id=signal_id,
                 exchange_order_id=exchange_order_id or "UNKNOWN",
                 client_order_id=client_order_id,
@@ -3553,7 +3537,7 @@ class ExecutionHandler(ServiceProtocol):
             for field in timestamp_fields:
                 if order_data.get(field):
                     timestamp_value = order_data[field]
-                    if isinstance(timestamp_value, (int, float)):
+                    if isinstance(timestamp_value, int | float):
                         return datetime.fromtimestamp(timestamp_value, tz=UTC)
                     if isinstance(timestamp_value, str):
                         try:
@@ -3899,7 +3883,7 @@ class ExecutionHandler(ServiceProtocol):
         report = ExecutionReportEvent(
             source_module=self.__class__.__name__,
             event_id=UUID(int=int(time.time() * 1000000)),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             signal_id=event.signal_id,
             exchange_order_id=effective_exchange_order_id,
             client_order_id=effective_cl_ord_id,
@@ -3967,7 +3951,7 @@ class ExecutionHandler(ServiceProtocol):
             report = ExecutionReportEvent(
                 source_module=self.__class__.__name__,
                 event_id=UUID(int=int(time.time() * 1000000)),  # Generate a proper UUID
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 signal_id=params.signal_id,
                 exchange_order_id=report_exchange_id,
                 client_order_id=params.client_order_id,
@@ -4483,10 +4467,8 @@ class ExecutionHandler(ServiceProtocol):
             # Cancel connection task if running
             if self._websocket_connection_task and not self._websocket_connection_task.done():
                 self._websocket_connection_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await self._websocket_connection_task
-                except asyncio.CancelledError:
-                    pass
 
             # Disconnect the WebSocket client
             await self.websocket_client.disconnect()
@@ -4602,7 +4584,7 @@ class ExecutionHandler(ServiceProtocol):
         report = ExecutionReportEvent(
             source_module=self.__class__.__name__,
             event_id=UUID(int=int(time.time() * 1000000)),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             signal_id=originating_event.signal_id,
             exchange_order_id=exchange_order_id,
             client_order_id=client_order_id,

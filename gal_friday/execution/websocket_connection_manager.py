@@ -1,9 +1,10 @@
 """WebSocket connection management and resilience."""
 
-import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
+
+import asyncio
 
 from gal_friday.logger_service import LoggerService
 

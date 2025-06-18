@@ -7,20 +7,19 @@ management, and publishes standardized market data events to the application's e
 
 # src/gal_friday/data_ingestor.py
 
-import asyncio
-import contextlib  # Added for SIM105 fix
-import json
-import logging
-import uuid
 from collections import defaultdict
-from collections.abc import Mapping
+import contextlib  # Added for SIM105 fix
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+import json
+import logging
+from typing import TYPE_CHECKING, Any, ClassVar
+import uuid
 
-import websockets
+import asyncio
 from sortedcontainers import SortedDict
+import websockets
 
 # Import necessary event classes from core module
 from .core.events import (
@@ -28,9 +27,8 @@ from .core.events import (
     MarketDataTradeEvent,
     PotentialHaltTriggerEvent,
     SystemStateEvent,
-    EventType)
-from .logger_service import ExcInfoType, LoggerService
-from typing import Any
+)
+from .logger_service import LoggerService
 
 if TYPE_CHECKING:
     from .config_manager import ConfigManager
@@ -441,7 +439,6 @@ class DataIngestor:
         self.logger.error(
             "Unexpected error in Data Ingestor loop. Reconnecting.",
             source_module=self.__class__.__name__,
-            exc_info=True,
             context={"error": str(error), "reconnect_delay_s": self._reconnect_delay})
 
     async def stop(self) -> None:
@@ -774,7 +771,7 @@ class DataIngestor:
         event = SystemStateEvent(
             source_module=self._source_module,
             event_id=uuid.uuid4(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             # Map Kraken status to internal state if needed
             new_state=str(status) if status is not None else "unknown", # Ensure str
             reason=f"Kraken WS Status Update: {str(status) if status is not None else 'unknown'}", # Ensure str in f-string part
@@ -1147,7 +1144,7 @@ class DataIngestor:
 
             return zlib.crc32(checksum_str.encode())
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Error calculating checksum",
                 source_module=self._source_module,
                 exc_info=False,
@@ -1325,7 +1322,7 @@ class DataIngestor:
             event = MarketDataL2Event(
                 source_module=self._source_module,
                 event_id=uuid.uuid4(),
-                timestamp=datetime.utcnow(),  # Event creation time
+                timestamp=datetime.now(UTC),  # Event creation time
                 trading_pair=symbol,
                 exchange=self._config.get("data_ingestion.default_exchange", "kraken"),
                 bids=bids_list,
@@ -1479,7 +1476,7 @@ class DataIngestor:
             bool: True if valid, False otherwise
         """
         required_fields = ["symbol", "price", "qty", "timestamp"]
-        
+
         for field_name in required_fields:
             if field_name not in trade_item:
                 self.logger.warning(
@@ -1509,7 +1506,7 @@ class DataIngestor:
             timestamp_str = trade_item.get("timestamp")
             side = trade_item.get("side", "").lower()  # buy/sell
             trade_id = trade_item.get("trade_id", "")
-            
+
             # Additional validation
             if float(qty_str) <= 0:
                 self.logger.debug(
@@ -1593,7 +1590,7 @@ class DataIngestor:
             halt_event = PotentialHaltTriggerEvent(
                 source_module=self._source_module,
                 event_id=uuid.uuid4(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 reason=reason)
 
             await self.pubsub.publish(halt_event)

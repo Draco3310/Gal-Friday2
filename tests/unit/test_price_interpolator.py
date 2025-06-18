@@ -1,8 +1,8 @@
+from datetime import UTC, timedelta
 import importlib.util
+from pathlib import Path
 import sys
 import types
-from pathlib import Path
-from datetime import UTC, timedelta
 
 import numpy as np
 import pandas as pd
@@ -70,7 +70,7 @@ def _sample_data(start: str, periods: int, slope: float = 1.0) -> pd.DataFrame:
             "low": base - 0.5,
             "close": base,
             "volume": np.arange(periods, dtype=float) * 10 + 100,
-        }
+        },
     )
 
 

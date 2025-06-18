@@ -330,7 +330,7 @@ class EnhancedDashboardPages:
     async def experiments_dashboard(self) -> str:
         """A/B testing experiments dashboard."""
         experiments = []
-        for exp_id, _ in self.experiment_manager.active_experiments.items():
+        for exp_id in self.experiment_manager.active_experiments:
             status = await self.experiment_manager.get_experiment_status(exp_id)
             experiments.append(status)
 
@@ -646,7 +646,7 @@ class EnhancedDashboardPages:
         seconds_per_hour = 3600
         seconds_per_minute = 60
         try:
-            timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            timestamp = datetime.fromisoformat(timestamp_str)
             delta = datetime.now(timestamp.tzinfo) - timestamp
 
             if delta.days > 0:

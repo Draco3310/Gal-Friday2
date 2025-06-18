@@ -15,23 +15,18 @@ in the event-driven simulation.
 # Standard library imports
 from __future__ import annotations
 
-import asyncio
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 import datetime as dt  # For dt.datetime and dt.timezone.utc
+from decimal import Decimal
+from enum import Enum
 import json
 import logging
-import uuid
-from collections.abc import Callable, Coroutine
-from decimal import Decimal
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    List,
-    Optional,
-    TypeVar)
-from dataclasses import dataclass, field
-from enum import Enum
+from typing import TYPE_CHECKING, Any, TypeVar
+import uuid
+
+import asyncio
 
 # Third-party imports
 import numpy as np
@@ -61,14 +56,17 @@ if TYPE_CHECKING:
     # Import core types
 
     # Import implementation types
-    from gal_friday.core.feature_registry_client import FeatureRegistryClient  # Added import
+    from gal_friday.core.feature_registry_client import (
+        FeatureRegistryClient,  # Added import
+    )
     from gal_friday.feature_engine import FeatureEngine  # Actual FeatureEngine
     from gal_friday.logger_service import LoggerService  # Actual LoggerService
     from gal_friday.portfolio_manager import PortfolioManager as _PortfolioManager
     from gal_friday.prediction_service import PredictionService as _PredictionService
     from gal_friday.risk_manager import RiskManager as _RiskManager
     from gal_friday.simulated_market_price_service import (
-        SimulatedMarketPriceService as _SimulatedMarketPriceService)
+        SimulatedMarketPriceService as _SimulatedMarketPriceService,
+    )
     from gal_friday.strategy_arbitrator import StrategyArbitrator as _StrategyArbitrator
 
     # Define type aliases that use the implementation types
@@ -81,14 +79,13 @@ if TYPE_CHECKING:
     StrategyArbitratorType = _StrategyArbitrator
 
     # Import Protocol for type checking
-    from typing import Protocol as ProtocolClass  # Use different name to avoid confusion
+    from typing import (
+        Protocol as ProtocolClass,  # Use different name to avoid confusion
+    )
 else:
     # Runtime Protocol handling - use typing_extensions for compatibility
     from collections.abc import Callable, Coroutine
-    from typing import (
-        TYPE_CHECKING,
-        Any,
-        TypeVar)
+    from typing import TYPE_CHECKING, Any, TypeVar
 
     from typing_extensions import Protocol as ProtocolClass
 
@@ -135,7 +132,8 @@ except ImportError:
 
 try:
     from gal_friday.simulated_execution_handler import (
-        SimulatedExecutionHandler as ExecutionHandler)
+        SimulatedExecutionHandler as ExecutionHandler,
+    )
 except ImportError:
     logging.getLogger(__name__).warning("Failed to import SimulatedExecutionHandler")
     ExecutionHandler = None  # type: ignore[assignment,misc]
@@ -166,15 +164,15 @@ except ImportError:
 
 # Import enhanced technical analysis
 from .technical_analysis_enhanced import (
-    TechnicalAnalysisManager,
     IndicatorConfig,
-    IndicatorType
+    IndicatorType,
+    TechnicalAnalysisManager,
 )
 
 # Global technical analysis manager (will be initialized when needed)
-_ta_manager: Optional[TechnicalAnalysisManager] = None
+_ta_manager: TechnicalAnalysisManager | None = None
 
-def get_ta_manager(config: Dict[str, Any], logger: logging.Logger) -> TechnicalAnalysisManager:
+def get_ta_manager(config: dict[str, Any], logger: logging.Logger) -> TechnicalAnalysisManager:
     """Get or create the global technical analysis manager."""
     global _ta_manager
     if _ta_manager is None:
@@ -183,12 +181,12 @@ def get_ta_manager(config: Dict[str, Any], logger: logging.Logger) -> TechnicalA
 
 # Import TA-Lib for backward compatibility
 try:
-    import talib as ta  
+    import talib as ta
 except ImportError:
     log = logging.getLogger(__name__)
     log.warning("TA-Lib not installed. Using enhanced technical analysis with fallbacks.")
     # Create a wrapper that uses the enhanced technical analysis
-    
+
     class TaLib:
         """Enhanced TA-Lib wrapper using the production technical analysis system."""
 
@@ -205,28 +203,28 @@ except ImportError:
             import logging
             logger = logging.getLogger(__name__)
             config: dict[str, Any] = {}
-            
+
             try:
                 ta_manager = get_ta_manager(config, logger)
-                
+
                 # Cast to numpy arrays to satisfy mypy
                 data: dict[str, np.ndarray[Any, Any]] = {
                     "high": np.asarray(high.values),
                     "low": np.asarray(low.values),
-                    "close": np.asarray(close.values)
+                    "close": np.asarray(close.values),
                 }
-                
+
                 indicator_config = IndicatorConfig(
                     indicator_type=IndicatorType.ATR,
                     parameters={"timeperiod": length},
-                    fallback_value=20.0
+                    fallback_value=20.0,
                 )
-                
+
                 result = ta_manager.calculate_indicator(indicator_config, data)
                 return pd.Series(result.values, index=high.index)
-                
-            except Exception as e:
-                logger.error(f"ATR calculation failed: {e}")
+
+            except Exception:
+                logger.exception("ATR calculation failed: ")
                 # Return fallback values
                 atr_value = Decimal("20.0")
                 return pd.Series([atr_value] * len(high), index=high.index)
@@ -236,10 +234,9 @@ except ImportError:
 
 # Import production components from backtesting_components
 from .backtesting_components import (
+    BacktestExchangeInfoService,
     BacktestPubSubManager,
     BacktestRiskManager,
-    BacktestExchangeInfoService,
-    BacktestComponentFactory
 )
 
 # Import optional dependencies if available
@@ -266,7 +263,7 @@ ExchangeInfoServiceImpl = BacktestExchangeInfoService
 class SignalEvent(Event):
     """Signal event for trading signals."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize SignalEvent with any additional keyword arguments.
 
         Args:
@@ -387,7 +384,7 @@ class BacktestHistoricalDataProviderImpl:
             pair_df = self._data[trading_pair]
 
             # Ensure start_time and end_time are timezone-aware if df.index is
-            if hasattr(pair_df.index, 'tz') and pair_df.index.tz is not None:
+            if hasattr(pair_df.index, "tz") and pair_df.index.tz is not None:
                 if start_time.tzinfo is None:
                     start_time = start_time.replace(tzinfo=pair_df.index.tz)
                 if end_time.tzinfo is None:
@@ -459,15 +456,15 @@ class BacktestHistoricalDataProviderImpl:
         if trading_pair not in self._data:
             self.logger.warning(f"No data available for pair {trading_pair}")
             return None
-            
+
         # Get OHLCV data for the time range
         ohlcv_data = self._data[trading_pair]
         mask = (ohlcv_data.index >= start_time) & (ohlcv_data.index <= end_time)
         filtered_data = ohlcv_data[mask]
-        
+
         if filtered_data.empty:
             return None
-            
+
         # Synthesize trade data from OHLCV
         # In production, this would be real tick data
         trade_data = []
@@ -475,26 +472,26 @@ class BacktestHistoricalDataProviderImpl:
             # Create synthetic trades based on OHLCV
             # High/Low trades
             trade_data.append({
-                'timestamp': timestamp,
-                'price': row['high'],
-                'volume': row['volume'] * 0.25,  # Distribute volume
-                'side': 'buy'
+                "timestamp": timestamp,
+                "price": row["high"],
+                "volume": row["volume"] * 0.25,  # Distribute volume
+                "side": "buy",
             })
             trade_data.append({
-                'timestamp': timestamp,
-                'price': row['low'],
-                'volume': row['volume'] * 0.25,
-                'side': 'sell'
+                "timestamp": timestamp,
+                "price": row["low"],
+                "volume": row["volume"] * 0.25,
+                "side": "sell",
             })
             # Close price trade
             trade_data.append({
-                'timestamp': timestamp,
-                'price': row['close'],
-                'volume': row['volume'] * 0.5,
-                'side': 'buy' if row['close'] > row['open'] else 'sell'
+                "timestamp": timestamp,
+                "price": row["close"],
+                "volume": row["volume"] * 0.5,
+                "side": "buy" if row["close"] > row["open"] else "sell",
             })
-        
-        return pd.DataFrame(trade_data).set_index('timestamp')
+
+        return pd.DataFrame(trade_data).set_index("timestamp")
 
 
 # --- Helper Function for Reporting --- #
@@ -537,8 +534,8 @@ def _calculate_annualized_return(
         if len(equity_curve) >= min_points_for_duration:
             first_date = equity_curve.index[0]
             last_date = equity_curve.index[-1]
-            if isinstance(first_date, (pd.Timestamp, dt.datetime)) and isinstance( # F821
-                last_date, (pd.Timestamp, dt.datetime), # F821
+            if isinstance(first_date, pd.Timestamp | dt.datetime) and isinstance( # F821
+                last_date, pd.Timestamp | dt.datetime, # F821
             ):
                 duration_days = (last_date - first_date).total_seconds() / (60 * 60 * 24)
                 if duration_days > 0:
@@ -757,18 +754,24 @@ class ConfigManagerProtocol(ProtocolClass):
 # Type[Any] aliases for service classes
 if TYPE_CHECKING:
     from gal_friday.backtest_historical_data_provider import (
-        BacktestHistoricalDataProvider as _BacktestHistoricalDataProvider)
+        BacktestHistoricalDataProvider as _BacktestHistoricalDataProvider,
+    )
     from gal_friday.core.pubsub import PubSubManager as _PubSubManager
-    from gal_friday.exchange_info_service import ExchangeInfoService as _ExchangeInfoService
+    from gal_friday.exchange_info_service import (
+        ExchangeInfoService as _ExchangeInfoService,
+    )
     from gal_friday.execution_handler import ExecutionHandler as _ExecutionHandler
     from gal_friday.feature_engine import FeatureEngine as _FeatureEngine
     from gal_friday.logger_service import LoggerService as _LoggerService
-    from gal_friday.market_price_service import MarketPriceService as _MarketPriceService
+    from gal_friday.market_price_service import (
+        MarketPriceService as _MarketPriceService,
+    )
     from gal_friday.portfolio_manager import PortfolioManager as _PortfolioManager
     from gal_friday.prediction_service import PredictionService as _PredictionService
     from gal_friday.risk_manager import RiskManager as _RiskManager
     from gal_friday.simulated_market_price_service import (
-        SimulatedMarketPriceService as _SimulatedMarketPriceService)
+        SimulatedMarketPriceService as _SimulatedMarketPriceService,
+    )
     from gal_friday.strategy_arbitrator import StrategyArbitrator as _StrategyArbitrator
 else:
     # Define dummy types for runtime
@@ -810,14 +813,14 @@ else:
 
 
 class BacktestMode(str, Enum):
-    """Backtesting execution modes"""
+    """Backtesting execution modes."""
     VECTORIZED = "vectorized"      # Fast vectorized backtesting
     EVENT_DRIVEN = "event_driven"  # Realistic event-driven simulation
 
 
 @dataclass
 class BacktestConfig:
-    """Configuration for backtesting runs"""
+    """Configuration for backtesting runs."""
     start_date: dt.datetime
     end_date: dt.datetime
     initial_capital: float
@@ -827,7 +830,7 @@ class BacktestConfig:
     slippage_rate: float = 0.0005
     benchmark_symbol: str | None = None
     output_dir: str = "results"
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary format expected by existing code."""
         return {
@@ -844,7 +847,7 @@ class BacktestConfig:
 
 @dataclass
 class PerformanceMetrics:
-    """Enhanced performance metrics results"""
+    """Enhanced performance metrics results."""
     total_return: float
     annualized_return: float
     volatility: float
@@ -858,9 +861,9 @@ class PerformanceMetrics:
     benchmark_return: float | None = None
     alpha: float | None = None
     beta: float | None = None
-    
+
     @classmethod
-    def from_existing_metrics(cls, metrics: dict[str, Any]) -> "PerformanceMetrics":
+    def from_existing_metrics(cls, metrics: dict[str, Any]) -> PerformanceMetrics:
         """Create PerformanceMetrics from existing metrics dictionary."""
         return cls(
             total_return=metrics.get("total_return_pct", 0.0) / 100.0,
@@ -875,8 +878,7 @@ class PerformanceMetrics:
 
 
 class BacktestError(Exception):
-    """Exception raised for backtesting errors"""
-    pass
+    """Exception raised for backtesting errors."""
 
 
 class BacktestingEngine:
@@ -1368,7 +1370,7 @@ class BacktestingEngine:
                 except Exception as e:  # Catch errors within loop step
                     log.exception("Error processing timestamp %s", current_timestamp) # TRY400
                     # Continue processing unless it's a critical error
-                    if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                    if isinstance(e, KeyboardInterrupt | SystemExit):
                         raise
                     continue
 
@@ -1505,115 +1507,114 @@ class BacktestingEngine:
             return None
 
     async def run_backtest(
-        self, 
-        config: BacktestConfig, 
+        self,
+        config: BacktestConfig,
         strategy: Any = None,
-        services: dict[str, Any] | None = None
+        services: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """
-        Run comprehensive backtest with performance analytics.
-        
+        """Run comprehensive backtest with performance analytics.
+
         This is the main public API for running backtests with the comprehensive framework.
-        
+
         Args:
             config: BacktestConfig instance with backtest parameters
             strategy: Optional strategy instance to test
             services: Optional pre-initialized services dictionary
-            
+
         Returns:
             Comprehensive backtest results including performance metrics and analytics
         """
         try:
             start_time = dt.datetime.now()
-            self.logger.info(f"Starting comprehensive backtest")
+            self.logger.info("Starting comprehensive backtest")
             self.logger.info(f"Mode: {config.mode.value}")
             self.logger.info(f"Period: {config.start_date} to {config.end_date}")
             self.logger.info(f"Initial capital: ${config.initial_capital:,.2f}")
             self.logger.info(f"Symbols: {config.symbols}")
-            
+
             # Convert config to format expected by existing methods
             run_config = config.to_dict()
-            
+
             # Load historical data
             await self._load_historical_data_for_symbols(config.symbols, config.start_date, config.end_date)
-            
+
             # Initialize or use provided services
             if services is None:
                 services = await self._create_default_services(run_config)
-            
+
             # Execute backtesting based on mode
             if config.mode == BacktestMode.VECTORIZED:
                 await self._run_vectorized_backtest(services, run_config, strategy)
             elif config.mode == BacktestMode.EVENT_DRIVEN:
                 await self._execute_simulation(services, run_config)
-            
+
             # Process results and calculate enhanced metrics
             results = self._process_and_save_results(services, run_config)
-            
+
             # Add benchmarking if specified
             if config.benchmark_symbol:
                 await self._add_benchmark_analysis(results, config)
-            
+
             # Calculate enhanced performance metrics
             enhanced_metrics = self._calculate_enhanced_metrics(results, config)
             results["enhanced_metrics"] = enhanced_metrics
-            
+
             # Add execution metadata
             execution_time = (dt.datetime.now() - start_time).total_seconds()
             results.update({
                 "config": config.__dict__,
                 "execution_time_seconds": execution_time,
                 "backtest_mode": config.mode.value,
-                "framework_version": "comprehensive_v1.0"
+                "framework_version": "comprehensive_v1.0",
             })
-            
+
             self.logger.info(f"Comprehensive backtest completed in {execution_time:.2f} seconds")
             if enhanced_metrics:
                 self.logger.info(f"Total return: {enhanced_metrics.total_return:.2%}")
                 self.logger.info(f"Sharpe ratio: {enhanced_metrics.sharpe_ratio:.2f}")
                 self.logger.info(f"Max drawdown: {enhanced_metrics.max_drawdown:.2%}")
-            
+
             return results
-            
+
         except Exception as e:
-            self.logger.error(f"Comprehensive backtest failed: {e}")
+            self.logger.exception("Comprehensive backtest failed: ")
             raise BacktestError(f"Backtesting failed: {e}")
 
     async def _create_default_services(self, run_config: dict[str, Any]) -> dict[str, Any]:
         """Create default services for backtesting with enterprise-grade initialization.
-        
+
         This method creates and initializes all required services for backtesting including
         portfolio management, risk management, prediction services, and strategy arbitration.
-        
+
         Args:
             run_config: Configuration dictionary containing backtest parameters
-            
+
         Returns:
             Dictionary of initialized services ready for backtesting
         """
         services: dict[str, Any] = {}
-        
+
         try:
             # Initialize core services if not already initialized
-            if not hasattr(self, 'pubsub_manager') or self.pubsub_manager is None:
+            if not hasattr(self, "pubsub_manager") or self.pubsub_manager is None:
                 await self._initialize_services()
-            
+
             # 1. Initialize Market Price Service (Simulated) first
             if SimulatedMarketPriceServiceType is not None:
                 # Pass the loaded historical data to SimulatedMarketPriceService
-                services['market_price_service'] = SimulatedMarketPriceServiceType(
+                services["market_price_service"] = SimulatedMarketPriceServiceType(
                     historical_data=self._data,  # Use the loaded data
                     config_manager=None,  # SimulatedMarketPriceService expects ConfigManager, not Protocol
-                    logger=self.logger
+                    logger=self.logger,
                 )
                 self.logger.info("Simulated Market Price Service initialized")
-            
+
             # 2. Initialize Portfolio Manager (needs market price service)
             if PortfolioManagerType is not None:
                 # Create a mock session maker for backtesting
                 from unittest.mock import Mock
                 mock_session_maker = Mock()
-                
+
                 # Create a mock ConfigManager that wraps our ConfigManagerProtocol
                 mock_config_manager = Mock()
                 mock_config_manager.get = self.config.get
@@ -1622,86 +1623,86 @@ class BacktestingEngine:
                 mock_config_manager.__contains__ = self.config.__contains__
                 mock_config_manager.get_all = self.config.get_all
                 mock_config_manager.set = self.config.set
-                
+
                 # Ensure logger_service is not None
                 if self.logger_service is None:
                     raise BacktestError("LoggerService must be initialized before creating services")
-                
-                services['portfolio_manager'] = PortfolioManagerType(
+
+                services["portfolio_manager"] = PortfolioManagerType(
                     config_manager=mock_config_manager,
                     pubsub_manager=self.pubsub_manager,
-                    market_price_service=services.get('market_price_service', Mock()),
+                    market_price_service=services.get("market_price_service", Mock()),
                     logger_service=self.logger_service,
-                    session_maker=mock_session_maker
+                    session_maker=mock_session_maker,
                 )
                 self.logger.info("Portfolio Manager initialized for backtesting")
-            
+
             # 3. Initialize Risk Manager
-            if RiskManagerType is not None and 'portfolio_manager' in services:
+            if RiskManagerType is not None and "portfolio_manager" in services:
                 # Create exchange info service for risk manager
                 from unittest.mock import Mock
                 mock_exchange_info = Mock()
-                
+
                 # Ensure logger_service is not None
                 if self.logger_service is None:
                     raise BacktestError("LoggerService must be initialized before creating services")
-                
-                services['risk_manager'] = RiskManagerType(
-                    config=self.config.get_all() if hasattr(self.config, 'get_all') else {},
+
+                services["risk_manager"] = RiskManagerType(
+                    config=self.config.get_all() if hasattr(self.config, "get_all") else {},
                     pubsub_manager=self.pubsub_manager,
-                    portfolio_manager=services['portfolio_manager'],
+                    portfolio_manager=services["portfolio_manager"],
                     logger_service=self.logger_service,
-                    market_price_service=services.get('market_price_service', Mock()),
-                    exchange_info_service=mock_exchange_info
+                    market_price_service=services.get("market_price_service", Mock()),
+                    exchange_info_service=mock_exchange_info,
                 )
                 self.logger.info("Risk Manager initialized for backtesting")
-            
+
             # 4. Initialize Prediction Service
             if PredictionServiceType is not None:
                 from concurrent.futures import ProcessPoolExecutor
                 # Create a process pool executor for prediction service
                 process_pool = ProcessPoolExecutor(max_workers=2)
-                
+
                 # Ensure logger_service is not None
                 if self.logger_service is None:
                     raise BacktestError("LoggerService must be initialized before creating services")
-                
-                services['prediction_service'] = PredictionServiceType(
-                    config=self.config.get_all() if hasattr(self.config, 'get_all') else {},
+
+                services["prediction_service"] = PredictionServiceType(
+                    config=self.config.get_all() if hasattr(self.config, "get_all") else {},
                     pubsub_manager=self.pubsub_manager,
                     process_pool_executor=process_pool,
                     logger_service=self.logger_service,
-                    configuration_manager=None  # Optional parameter
+                    configuration_manager=None,  # Optional parameter
                 )
                 self.logger.info("Prediction Service initialized for backtesting")
-            
+
             # 5. Initialize Strategy Arbitrator
             if StrategyArbitratorType is not None:
                 # Create a mock feature registry client
                 from unittest.mock import Mock
                 mock_feature_registry = Mock()
-                
+
                 # Ensure logger_service is not None
                 if self.logger_service is None:
                     raise BacktestError("LoggerService must be initialized before creating services")
-                
-                services['strategy_arbitrator'] = StrategyArbitratorType(
-                    config=self.config.get_all() if hasattr(self.config, 'get_all') else {},
+
+                services["strategy_arbitrator"] = StrategyArbitratorType(
+                    config=self.config.get_all() if hasattr(self.config, "get_all") else {},
                     pubsub_manager=self.pubsub_manager,
                     logger_service=self.logger_service,
-                    market_price_service=services.get('market_price_service', Mock()),
+                    market_price_service=services.get("market_price_service", Mock()),
                     feature_registry_client=mock_feature_registry,
-                    risk_manager=services.get('risk_manager'),
-                    portfolio_manager=services.get('portfolio_manager')
+                    risk_manager=services.get("risk_manager"),
+                    portfolio_manager=services.get("portfolio_manager"),
                 )
                 self.logger.info("Strategy Arbitrator initialized for backtesting")
-            
+
             # 6. Initialize Execution Handler (Simulated)
             if ExecutionHandler is not None:
                 # Create a mock historical data service
                 from unittest.mock import Mock
                 mock_data_service = Mock()
-                
+
                 # Create a mock ConfigManager
                 mock_exec_config_manager = Mock()
                 mock_exec_config_manager.get = self.config.get
@@ -1709,33 +1710,33 @@ class BacktestingEngine:
                 mock_exec_config_manager.__getitem__ = self.config.__getitem__
                 mock_exec_config_manager.__contains__ = self.config.__contains__
                 mock_exec_config_manager.get_all = self.config.get_all
-                
+
                 # Ensure logger_service is not None
                 if self.logger_service is None:
                     raise BacktestError("LoggerService must be initialized before creating services")
-                
-                services['execution_handler'] = ExecutionHandler(
+
+                services["execution_handler"] = ExecutionHandler(
                     config_manager=mock_exec_config_manager,
                     pubsub_manager=self.pubsub_manager,
                     data_service=mock_data_service,  # Expects HistoricalDataService
-                    logger_service=self.logger_service
+                    logger_service=self.logger_service,
                 )
                 self.logger.info("Backtest Execution Handler initialized")
-            
+
             # 7. Start all services that require async initialization
             for service_name, service in services.items():
-                if hasattr(service, 'start') and asyncio.iscoroutinefunction(service.start):
+                if hasattr(service, "start") and asyncio.iscoroutinefunction(service.start):
                     await service.start()
                     self.logger.debug(f"Started service: {service_name}")
-            
+
             self.logger.info(f"Successfully initialized {len(services)} services for backtesting")
             return services
-            
+
         except Exception as e:
-            self.logger.error(f"Failed to create default services: {e}")
+            self.logger.exception("Failed to create default services: ")
             # Clean up any partially initialized services
             for service_name, service in services.items():
-                if hasattr(service, 'stop') and asyncio.iscoroutinefunction(service.stop):
+                if hasattr(service, "stop") and asyncio.iscoroutinefunction(service.stop):
                     try:
                         await service.stop()
                     except Exception:
@@ -1743,142 +1744,142 @@ class BacktestingEngine:
             raise BacktestError(f"Failed to initialize services: {e}")
 
     async def _load_historical_data_for_symbols(
-        self, 
-        symbols: list[str], 
-        start_date: dt.datetime, 
-        end_date: dt.datetime
+        self,
+        symbols: list[str],
+        start_date: dt.datetime,
+        end_date: dt.datetime,
     ) -> None:
         """Load historical data for specified symbols and date range.
-        
+
         Enterprise-grade data loading with multiple sources, caching, validation,
         and comprehensive error handling.
-        
+
         Args:
             symbols: List of trading symbols to load data for
             start_date: Start date for data loading
             end_date: End date for data loading
-            
+
         Raises:
             BacktestError: If data loading fails or no data is available
         """
         self.logger.info(
-            f"Loading historical data for {len(symbols)} symbols: {symbols}"
+            f"Loading historical data for {len(symbols)} symbols: {symbols}",
         )
-        
+
         # Get data loading configuration
         data_config = self._get_data_loading_config()
-        
+
         # Initialize data loading statistics
         loading_stats: dict[str, Any] = {
-            'requested_symbols': len(symbols),
-            'successful_loads': 0,
-            'failed_loads': 0,
-            'cache_hits': 0,
-            'data_sources_used': set[Any](),
-            'total_data_points': 0
+            "requested_symbols": len(symbols),
+            "successful_loads": 0,
+            "failed_loads": 0,
+            "cache_hits": 0,
+            "data_sources_used": set[Any](),
+            "total_data_points": 0,
         }
-        
+
         try:
             # Initialize enterprise data loader if not already done
-            if not hasattr(self, '_enterprise_data_loader'):
+            if not hasattr(self, "_enterprise_data_loader"):
                 await self._initialize_enterprise_data_loader(data_config)
-            
+
             # Load data for each symbol with parallel processing for performance
             loading_tasks = []
             for symbol in symbols:
                 task = self._load_symbol_data_with_retry(
-                    symbol, start_date, end_date, data_config, loading_stats
+                    symbol, start_date, end_date, data_config, loading_stats,
                 )
                 loading_tasks.append(task)
-            
+
             # Execute loading tasks with controlled concurrency
-            max_concurrent = data_config.get('max_concurrent_loads', 5)
+            max_concurrent = data_config.get("max_concurrent_loads", 5)
             semaphore = asyncio.Semaphore(max_concurrent)
-            
+
             async def load_with_semaphore(coro: Coroutine[Any, Any, Any]) -> Any:
                 async with semaphore:
                     return await coro
-            
+
             # Wait for all loading tasks to complete
             results = await asyncio.gather(
                 *[load_with_semaphore(task) for task in loading_tasks],
-                return_exceptions=True
+                return_exceptions=True,
             )
-            
+
             # Process results and handle any exceptions
             successful_symbols = []
             failed_symbols = []
-            
+
             for i, result in enumerate(results):
                 symbol = symbols[i]
                 if isinstance(result, Exception):
                     self.logger.error(f"Failed to load data for {symbol}: {result}")
                     failed_symbols.append(symbol)
-                    loading_stats['failed_loads'] = loading_stats.get('failed_loads', 0) + 1
+                    loading_stats["failed_loads"] = loading_stats.get("failed_loads", 0) + 1
                 elif result:
                     successful_symbols.append(symbol)
-                    loading_stats['successful_loads'] = loading_stats.get('successful_loads', 0) + 1
+                    loading_stats["successful_loads"] = loading_stats.get("successful_loads", 0) + 1
                 else:
                     self.logger.warning(f"No data available for {symbol}")
                     failed_symbols.append(symbol)
-                    loading_stats['failed_loads'] = loading_stats.get('failed_loads', 0) + 1
-            
+                    loading_stats["failed_loads"] = loading_stats.get("failed_loads", 0) + 1
+
             # Validate loading success
             self._validate_data_loading_results(
-                successful_symbols, failed_symbols, data_config, loading_stats
+                successful_symbols, failed_symbols, data_config, loading_stats,
             )
-            
+
             # Log comprehensive loading statistics
             self._log_data_loading_statistics(loading_stats)
-            
+
             self.logger.info(
-                f"Successfully loaded data for {len(successful_symbols)}/{len(symbols)} symbols"
+                f"Successfully loaded data for {len(successful_symbols)}/{len(symbols)} symbols",
             )
-            
+
         except Exception as e:
-            self.logger.error(f"Critical error in data loading: {e}")
+            self.logger.exception("Critical error in data loading: ")
             raise BacktestError(f"Failed to load historical data: {e}")
 
     def _get_data_loading_config(self) -> dict[str, Any]:
         """Get comprehensive data loading configuration."""
         base_config = {
-            'max_concurrent_loads': 5,
-            'retry_attempts': 3,
-            'retry_delay_base': 1.0,
-            'retry_delay_multiplier': 2.0,
-            'cache_enabled': True,
-            'data_validation_enabled': True,
-            'quality_threshold': 0.8,
-            'allow_partial_failures': False,
-            'timeout_seconds': 30.0,
-            'default_data_source': 'auto',
-            'fallback_data_sources': ['local_files', 'database'],
+            "max_concurrent_loads": 5,
+            "retry_attempts": 3,
+            "retry_delay_base": 1.0,
+            "retry_delay_multiplier": 2.0,
+            "cache_enabled": True,
+            "data_validation_enabled": True,
+            "quality_threshold": 0.8,
+            "allow_partial_failures": False,
+            "timeout_seconds": 30.0,
+            "default_data_source": "auto",
+            "fallback_data_sources": ["local_files", "database"],
         }
-        
+
         # Override with user configuration
-        user_config: Any = self.config.get('backtest.data_loading', {})
+        user_config: Any = self.config.get("backtest.data_loading", {})
         if isinstance(user_config, dict):
             base_config.update(user_config)
-        
+
         # Add data source specific configuration
         base_config.update({
-            'file_sources': {
-                'data_path': self.config.get('backtest.data_path'),
-                'supported_formats': ['csv', 'parquet', 'json'],
-                'default_format': 'csv'
+            "file_sources": {
+                "data_path": self.config.get("backtest.data_path"),
+                "supported_formats": ["csv", "parquet", "json"],
+                "default_format": "csv",
             },
-            'database_sources': {
-                'primary_db': self.config.get('database.url'),
-                'timeseries_db': self.config.get('influxdb.url'),
-                'query_timeout': 60.0
+            "database_sources": {
+                "primary_db": self.config.get("database.url"),
+                "timeseries_db": self.config.get("influxdb.url"),
+                "query_timeout": 60.0,
             },
-            'api_sources': {
-                'rate_limit_delay': 1.0,
-                'api_timeout': 30.0,
-                'max_requests_per_minute': 60
-            }
+            "api_sources": {
+                "rate_limit_delay": 1.0,
+                "api_timeout": 30.0,
+                "max_requests_per_minute": 60,
+            },
         })
-        
+
         return base_config
 
     async def _initialize_enterprise_data_loader(self, data_config: dict[str, Any]) -> None:
@@ -1886,25 +1887,25 @@ class BacktestingEngine:
         try:
             # Initialize the comprehensive data loader with caching
             loader_config = {
-                'memory_cache_size': data_config.get('memory_cache_size', 1000),
-                'disk_cache_path': data_config.get('disk_cache_path', './cache/backtest_data'),
-                'cache_enabled': data_config['cache_enabled'],
-                'providers': data_config.get('enabled_providers', ['local_files', 'database']),
-                'timeout_seconds': data_config['timeout_seconds']
+                "memory_cache_size": data_config.get("memory_cache_size", 1000),
+                "disk_cache_path": data_config.get("disk_cache_path", "./cache/backtest_data"),
+                "cache_enabled": data_config["cache_enabled"],
+                "providers": data_config.get("enabled_providers", ["local_files", "database"]),
+                "timeout_seconds": data_config["timeout_seconds"],
             }
-            
+
             self._enterprise_data_loader = EnterpriseHistoricalDataLoader(
                 config=loader_config,
                 config_manager=self.config,
-                logger=self.logger
+                logger=self.logger,
             )
-            
+
             await self._enterprise_data_loader.initialize()
-            
+
             self.logger.info("Enterprise data loader initialized successfully")
-            
+
         except Exception as e:
-            self.logger.error(f"Failed to initialize enterprise data loader: {e}")
+            self.logger.exception("Failed to initialize enterprise data loader: ")
             raise BacktestError(f"Data loader initialization failed: {e}")
 
     async def _load_symbol_data_with_retry(
@@ -1913,70 +1914,69 @@ class BacktestingEngine:
         start_date: dt.datetime,
         end_date: dt.datetime,
         data_config: dict[str, Any],
-        loading_stats: dict[str, Any]
+        loading_stats: dict[str, Any],
     ) -> bool:
         """Load data for a single symbol with retry logic and comprehensive error handling."""
-        retry_attempts = data_config['retry_attempts']
-        retry_delay = data_config['retry_delay_base']
-        retry_multiplier = data_config['retry_delay_multiplier']
-        
+        retry_attempts = data_config["retry_attempts"]
+        retry_delay = data_config["retry_delay_base"]
+        retry_multiplier = data_config["retry_delay_multiplier"]
+
         for attempt in range(retry_attempts + 1):
             try:
                 # Create data request with comprehensive parameters
                 data_request = {
-                    'symbol': symbol,
-                    'start_date': start_date,
-                    'end_date': end_date,
-                    'data_source': data_config['default_data_source'],
-                    'fallback_sources': data_config['fallback_data_sources'],
-                    'include_volume': True,
-                    'validate_data': data_config['data_validation_enabled'],
-                    'cache_result': data_config['cache_enabled'],
-                    'quality_threshold': data_config['quality_threshold'],
-                    'timeout_seconds': data_config['timeout_seconds']
+                    "symbol": symbol,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "data_source": data_config["default_data_source"],
+                    "fallback_sources": data_config["fallback_data_sources"],
+                    "include_volume": True,
+                    "validate_data": data_config["data_validation_enabled"],
+                    "cache_result": data_config["cache_enabled"],
+                    "quality_threshold": data_config["quality_threshold"],
+                    "timeout_seconds": data_config["timeout_seconds"],
                 }
-                
+
                 # Load data using enterprise loader
                 data_result = await self._enterprise_data_loader.load_historical_data(data_request)
-                
-                if data_result and data_result.get('data') is not None:
+
+                if data_result and data_result.get("data") is not None:
                     # Store the loaded data
-                    df = data_result['data']
+                    df = data_result["data"]
                     self._data[symbol] = df
-                    
+
                     # Update statistics
-                    loading_stats['total_data_points'] += len(df)
-                    if data_result.get('cache_hit'):
-                        loading_stats['cache_hits'] += 1
-                    if data_result.get('data_source'):
-                        loading_stats['data_sources_used'].add(data_result['data_source'])
-                    
+                    loading_stats["total_data_points"] += len(df)
+                    if data_result.get("cache_hit"):
+                        loading_stats["cache_hits"] += 1
+                    if data_result.get("data_source"):
+                        loading_stats["data_sources_used"].add(data_result["data_source"])
+
                     self.logger.debug(
                         f"Successfully loaded {len(df)} data points for {symbol} "
-                        f"from {data_result.get('data_source', 'unknown')}"
+                        f"from {data_result.get('data_source', 'unknown')}",
                     )
                     return True
+                if attempt < retry_attempts:
+                    self.logger.warning(
+                        f"No data returned for {symbol}, attempt {attempt + 1}/{retry_attempts + 1}",
+                    )
                 else:
-                    if attempt < retry_attempts:
-                        self.logger.warning(
-                            f"No data returned for {symbol}, attempt {attempt + 1}/{retry_attempts + 1}"
-                        )
-                    else:
-                        self.logger.error(f"No data available for {symbol} after all retry attempts")
-                        return False
-                        
+                    self.logger.error(f"No data available for {symbol} after all retry attempts")
+                    return False
+
             except Exception as e:
                 if attempt < retry_attempts:
                     self.logger.warning(
                         f"Attempt {attempt + 1} failed for {symbol}: {e}. "
-                        f"Retrying in {retry_delay:.1f}s..."
+                        f"Retrying in {retry_delay:.1f}s...",
                     )
                     await asyncio.sleep(retry_delay)
                     retry_delay *= retry_multiplier
                 else:
-                    self.logger.error(f"All retry attempts failed for {symbol}: {e}")
+                    self.logger.exception(f"All retry attempts failed for {symbol}: ")
                     raise BacktestError(f"Failed to load data for {symbol}: {e}")
-        
+
         return False
 
     def _validate_data_loading_results(
@@ -1984,146 +1984,146 @@ class BacktestingEngine:
         successful_symbols: list[str],
         failed_symbols: list[str],
         data_config: dict[str, Any],
-        loading_stats: dict[str, Any]
+        loading_stats: dict[str, Any],
     ) -> None:
         """Validate data loading results and determine if backtest can proceed."""
         total_symbols = len(successful_symbols) + len(failed_symbols)
         success_rate = len(successful_symbols) / total_symbols if total_symbols > 0 else 0
-        
+
         # Check if we have any data at all
         if not successful_symbols:
             raise BacktestError(
                 f"No historical data could be loaded for any symbols. "
-                f"Failed symbols: {failed_symbols}"
+                f"Failed symbols: {failed_symbols}",
             )
-        
+
         # Check if partial failures are acceptable
-        if failed_symbols and not data_config.get('allow_partial_failures', False):
+        if failed_symbols and not data_config.get("allow_partial_failures", False):
             raise BacktestError(
                 f"Data loading failed for some symbols and partial failures are not allowed. "
-                f"Failed symbols: {failed_symbols}"
+                f"Failed symbols: {failed_symbols}",
             )
-        
+
         # Check minimum success rate if configured
-        min_success_rate = data_config.get('min_success_rate', 0.8)
+        min_success_rate = data_config.get("min_success_rate", 0.8)
         if success_rate < min_success_rate:
             raise BacktestError(
                 f"Data loading success rate ({success_rate:.1%}) is below minimum "
-                f"required rate ({min_success_rate:.1%})"
+                f"required rate ({min_success_rate:.1%})",
             )
-        
+
         # Validate data quality
         self._validate_loaded_data_quality(successful_symbols, data_config)
 
     def _validate_loaded_data_quality(
-        self, 
-        symbols: list[str], 
-        data_config: dict[str, Any]
+        self,
+        symbols: list[str],
+        data_config: dict[str, Any],
     ) -> None:
         """Validate the quality of loaded data."""
-        if not data_config.get('data_validation_enabled', True):
+        if not data_config.get("data_validation_enabled", True):
             return
-            
-        quality_threshold = data_config.get('quality_threshold', 0.8)
+
+        quality_threshold = data_config.get("quality_threshold", 0.8)
         quality_issues = []
-        
+
         for symbol in symbols:
             if symbol not in self._data:
                 continue
-                
+
             df = self._data[symbol]
             quality_score = self._calculate_data_quality_score(df, symbol)
-            
+
             if quality_score < quality_threshold:
                 quality_issues.append(f"{symbol}: {quality_score:.2f}")
                 self.logger.warning(
                     f"Data quality for {symbol} ({quality_score:.2f}) "
-                    f"is below threshold ({quality_threshold:.2f})"
+                    f"is below threshold ({quality_threshold:.2f})",
                 )
-        
-        if quality_issues and not data_config.get('allow_low_quality_data', False):
+
+        if quality_issues and not data_config.get("allow_low_quality_data", False):
             raise BacktestError(
                 f"Data quality issues detected: {quality_issues}. "
-                f"Set 'allow_low_quality_data: true' to proceed anyway."
+                f"Set 'allow_low_quality_data: true' to proceed anyway.",
             )
 
     def calculate_technical_indicators(
         self,
         symbol: str,
-        indicators: List[str],
-        custom_params: Optional[Dict[str, Dict[str, Any]]] = None
-    ) -> Dict[str, pd.Series[Any]]:
+        indicators: list[str],
+        custom_params: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, pd.Series[Any]]:
         """Calculate multiple technical indicators for a symbol using enhanced system.
-        
+
         Args:
             symbol: Trading pair symbol
             indicators: List of indicator names (e.g., ['atr_14', 'rsi_14', 'sma_20'])
             custom_params: Optional custom parameters for indicators
-            
+
         Returns:
             Dictionary mapping indicator names to pandas Series[Any]
         """
         if symbol not in self._data:
             raise ValueError(f"No data available for symbol {symbol}")
-            
+
         df = self._data[symbol]
-        
+
         # Initialize technical analysis manager if needed
         # Convert config to dict format for ta_manager
         config_dict = {}
-        if hasattr(self.config, 'get_all'):
+        if hasattr(self.config, "get_all"):
             config_dict = self.config.get_all()
-        elif hasattr(self.config, '__dict__'):
+        elif hasattr(self.config, "__dict__"):
             config_dict = self.config.__dict__
         ta_manager = get_ta_manager(config_dict, self.logger)
-        
+
         # Default indicator configurations
         default_configs = {
             "atr_14": IndicatorConfig(
                 indicator_type=IndicatorType.ATR,
                 parameters={"timeperiod": 14},
-                fallback_value=20.0
+                fallback_value=20.0,
             ),
             "atr_20": IndicatorConfig(
                 indicator_type=IndicatorType.ATR,
                 parameters={"timeperiod": 20},
-                fallback_value=20.0
+                fallback_value=20.0,
             ),
             "rsi_14": IndicatorConfig(
                 indicator_type=IndicatorType.RSI,
                 parameters={"timeperiod": 14},
-                fallback_value=50.0
+                fallback_value=50.0,
             ),
             "sma_20": IndicatorConfig(
                 indicator_type=IndicatorType.SMA,
-                parameters={"timeperiod": 20}
+                parameters={"timeperiod": 20},
             ),
             "sma_50": IndicatorConfig(
                 indicator_type=IndicatorType.SMA,
-                parameters={"timeperiod": 50}
+                parameters={"timeperiod": 50},
             ),
             "ema_12": IndicatorConfig(
                 indicator_type=IndicatorType.EMA,
-                parameters={"timeperiod": 12}
+                parameters={"timeperiod": 12},
             ),
             "ema_26": IndicatorConfig(
                 indicator_type=IndicatorType.EMA,
-                parameters={"timeperiod": 26}
+                parameters={"timeperiod": 26},
             ),
             "bbands_20": IndicatorConfig(
                 indicator_type=IndicatorType.BBANDS,
-                parameters={"timeperiod": 20, "nbdevup": 2.0, "nbdevdn": 2.0}
+                parameters={"timeperiod": 20, "nbdevup": 2.0, "nbdevdn": 2.0},
             ),
             "macd": IndicatorConfig(
                 indicator_type=IndicatorType.MACD,
-                parameters={"fastperiod": 12, "slowperiod": 26, "signalperiod": 9}
+                parameters={"fastperiod": 12, "slowperiod": 26, "signalperiod": 9},
             ),
             "vwap": IndicatorConfig(
                 indicator_type=IndicatorType.VWAP,
-                parameters={}
-            )
+                parameters={},
+            ),
         }
-        
+
         # Convert DataFrame to numpy arrays
         data: dict[str, Any] = {
             "open": df["open"].values if "open" in df.columns else None,
@@ -2132,12 +2132,12 @@ class BacktestingEngine:
             "close": df["close"].values if "close" in df.columns else None,
             "volume": df["volume"].values if "volume" in df.columns else None,
         }
-        
+
         # Remove None values and ensure correct type
         data_clean: dict[str, np.ndarray[Any, Any]] = {k: v for k, v in data.items() if v is not None}
-        
+
         results = {}
-        
+
         for indicator_name in indicators:
             try:
                 # Get configuration
@@ -2151,19 +2151,19 @@ class BacktestingEngine:
                         period = int(parts[1]) if parts[1].isdigit() else 14
                         config = IndicatorConfig(
                             indicator_type=indicator_type,
-                            parameters={"timeperiod": period}
+                            parameters={"timeperiod": period},
                         )
                     else:
                         self.logger.warning(f"Unknown indicator: {indicator_name}")
                         continue
-                
+
                 # Apply custom parameters if provided
                 if custom_params and indicator_name in custom_params:
                     config.parameters.update(custom_params[indicator_name])
-                
+
                 # Calculate indicator
                 result = ta_manager.calculate_indicator(config, data_clean)
-                
+
                 # Handle multiple outputs
                 if isinstance(result.values, tuple):
                     # For indicators like MACD, Bollinger Bands
@@ -2174,11 +2174,11 @@ class BacktestingEngine:
                 else:
                     # Single output
                     results[indicator_name] = pd.Series(result.values, index=df.index)
-                    
-            except Exception as e:
-                self.logger.error(f"Failed to calculate {indicator_name}: {e}")
+
+            except Exception:
+                self.logger.exception(f"Failed to calculate {indicator_name}: ")
                 continue
-        
+
         return results
 
     def _calculate_data_quality_score(self, df: pd.DataFrame, symbol: str) -> float:
@@ -2188,50 +2188,50 @@ class BacktestingEngine:
             total_rows = len(df)
             if total_rows == 0:
                 return 0.0
-            
+
             quality_factors = []
-            
+
             # Check for missing values
             missing_ratio = df.isnull().sum().sum() / (total_rows * len(df.columns))
             quality_factors.append(1.0 - missing_ratio)
-            
+
             # Check for reasonable OHLCV relationships
-            if all(col in df.columns for col in ['open', 'high', 'low', 'close']):
+            if all(col in df.columns for col in ["open", "high", "low", "close"]):
                 # High should be >= Open, Low, Close
-                high_valid = ((df['high'] >= df['open']) & 
-                            (df['high'] >= df['low']) & 
-                            (df['high'] >= df['close'])).mean()
-                
+                high_valid = ((df["high"] >= df["open"]) &
+                            (df["high"] >= df["low"]) &
+                            (df["high"] >= df["close"])).mean()
+
                 # Low should be <= Open, High, Close
-                low_valid = ((df['low'] <= df['open']) & 
-                           (df['low'] <= df['high']) & 
-                           (df['low'] <= df['close'])).mean()
-                
+                low_valid = ((df["low"] <= df["open"]) &
+                           (df["low"] <= df["high"]) &
+                           (df["low"] <= df["close"])).mean()
+
                 quality_factors.extend([high_valid, low_valid])
-            
+
             # Check for reasonable price movements (no extreme outliers)
-            if 'close' in df.columns and len(df) > 1:
-                price_changes = df['close'].pct_change().abs()
+            if "close" in df.columns and len(df) > 1:
+                price_changes = df["close"].pct_change().abs()
                 extreme_moves = (price_changes > 0.5).sum()  # >50% moves
                 extreme_ratio = extreme_moves / len(price_changes)
                 quality_factors.append(1.0 - min(extreme_ratio, 1.0))
-            
+
             # Check data continuity (no huge gaps)
-            if 'timestamp' in df.columns:
-                df_sorted = df.sort_values('timestamp')
-                time_diffs = df_sorted['timestamp'].diff()
+            if "timestamp" in df.columns:
+                df_sorted = df.sort_values("timestamp")
+                time_diffs = df_sorted["timestamp"].diff()
                 if len(time_diffs) > 1:
                     median_diff = time_diffs.median()
                     # Convert to numeric for comparison
-                    median_seconds = median_diff.total_seconds() if hasattr(median_diff, 'total_seconds') else float(median_diff)
-                    time_diffs_seconds = time_diffs.dt.total_seconds() if hasattr(time_diffs, 'dt') else time_diffs
+                    median_seconds = median_diff.total_seconds() if hasattr(median_diff, "total_seconds") else float(median_diff)
+                    time_diffs_seconds = time_diffs.dt.total_seconds() if hasattr(time_diffs, "dt") else time_diffs
                     large_gaps = (time_diffs_seconds > median_seconds * 10).sum()  # type: ignore[operator]
                     gap_ratio = large_gaps / len(time_diffs)
                     quality_factors.append(1.0 - min(gap_ratio, 1.0))
-            
+
             # Calculate overall quality score
             return sum(quality_factors) / len(quality_factors) if quality_factors else 0.0
-            
+
         except Exception as e:
             self.logger.warning(f"Error calculating quality score for {symbol}: {e}")
             return 0.5  # Default middle score if calculation fails
@@ -2244,37 +2244,36 @@ class BacktestingEngine:
         self.logger.info(f"  Failed Loads: {loading_stats['failed_loads']}")
         self.logger.info(f"  Cache Hits: {loading_stats['cache_hits']}")
         self.logger.info(f"  Total Data Points: {loading_stats['total_data_points']:,}")
-        
-        if loading_stats['data_sources_used']:
-            sources = ', '.join(loading_stats['data_sources_used'])
+
+        if loading_stats["data_sources_used"]:
+            sources = ", ".join(loading_stats["data_sources_used"])
             self.logger.info(f"  Data Sources Used: {sources}")
-        
-        success_rate = (loading_stats['successful_loads'] / 
-                       loading_stats['requested_symbols'] * 100 
-                       if loading_stats['requested_symbols'] > 0 else 0)
+
+        success_rate = (loading_stats["successful_loads"] /
+                       loading_stats["requested_symbols"] * 100
+                       if loading_stats["requested_symbols"] > 0 else 0)
         self.logger.info(f"  Success Rate: {success_rate:.1f}%")
 
     async def _run_vectorized_backtest(
-        self, 
-        services: dict[str, Any], 
+        self,
+        services: dict[str, Any],
         run_config: dict[str, Any],
-        strategy: Any = None
+        strategy: Any = None,
     ) -> None:
         """Run vectorized backtesting for faster execution."""
         self.logger.info("Running vectorized backtest")
-        
+
         # Get configuration
         trading_pairs = run_config.get("trading_pairs", [])
         start_date = pd.to_datetime(run_config["start_date"])
         end_date = pd.to_datetime(run_config["end_date"])
         initial_capital = run_config.get("initial_capital", 10000)
-        
+
         # Initialize portfolio tracking
-        portfolio_value = initial_capital
         cash = initial_capital
-        positions = {symbol: 0.0 for symbol in trading_pairs}
+        positions = dict.fromkeys(trading_pairs, 0.0)
         portfolio_history = []
-        
+
         # Get all data for vectorized processing
         all_data = {}
         for symbol in trading_pairs:
@@ -2282,23 +2281,23 @@ class BacktestingEngine:
                 symbol_data = self._data[symbol]
                 mask = (symbol_data["timestamp"] >= start_date) & (symbol_data["timestamp"] <= end_date)
                 all_data[symbol] = symbol_data[mask].sort_values("timestamp")
-        
+
         if not all_data:
             raise BacktestError("No data available for vectorized backtesting")
-        
+
         # Get unified timeline
         all_timestamps = set()
         for data in all_data.values():
             all_timestamps.update(data["timestamp"])
-        
+
         sorted_timestamps = sorted(all_timestamps)
-        
+
         # Vectorized processing
         for timestamp in sorted_timestamps:
             # Calculate portfolio value at this timestamp
             position_value = 0
             current_prices = {}
-            
+
             for symbol in trading_pairs:
                 if symbol in all_data:
                     symbol_data = all_data[symbol]
@@ -2307,18 +2306,18 @@ class BacktestingEngine:
                         price = timestamp_data.iloc[0]["close"]
                         current_prices[symbol] = price
                         position_value += positions[symbol] * price
-            
+
             total_value = cash + position_value
-            
+
             # Record portfolio state
             portfolio_history.append({
                 "timestamp": timestamp,
                 "total_value": total_value,
                 "cash": cash,
                 "position_value": position_value,
-                "positions": positions.copy()
+                "positions": positions.copy(),
             })
-            
+
             # Apply strategy signals if provided
             if strategy and hasattr(strategy, "generate_signals"):
                 signals = strategy.generate_signals(timestamp, current_prices, positions, cash)
@@ -2327,56 +2326,56 @@ class BacktestingEngine:
                     symbol = signal.get("symbol")
                     action = signal.get("action")
                     quantity = signal.get("quantity", 0)
-                    
+
                     if symbol in current_prices and action in ["buy", "sell"]:
                         price = current_prices[symbol]
                         trade_value = quantity * price
                         commission = trade_value * run_config.get("commission_rate", 0.001)
-                        
+
                         if action == "buy" and cash >= trade_value + commission:
                             cash -= trade_value + commission
                             positions[symbol] += quantity
                         elif action == "sell" and positions[symbol] >= quantity:
                             cash += trade_value - commission
                             positions[symbol] -= quantity
-        
+
         # Store results for metrics calculation
         if portfolio_history:
             portfolio_df = pd.DataFrame(portfolio_history)
             portfolio_df.set_index("timestamp", inplace=True)
             services["equity_curve"] = portfolio_df["total_value"]
-            
+
         self.logger.info(f"Vectorized backtest completed with {len(portfolio_history)} data points")
 
     async def _add_benchmark_analysis(self, results: dict[str, Any], config: BacktestConfig) -> None:
         """Add benchmark comparison analysis to results."""
         if not config.benchmark_symbol:
             return
-            
+
         self.logger.info(f"Adding benchmark analysis against {config.benchmark_symbol}")
-        
+
         try:
             # Load benchmark data (simplified - would need actual data loading)
             benchmark_data = self._data.get(config.benchmark_symbol)
             if benchmark_data is None:
                 self.logger.warning(f"No benchmark data available for {config.benchmark_symbol}")
                 return
-            
+
             # Filter benchmark data for the same period
             start_date = pd.to_datetime(config.start_date)
             end_date = pd.to_datetime(config.end_date)
             benchmark_mask = (benchmark_data["timestamp"] >= start_date) & (benchmark_data["timestamp"] <= end_date)
             benchmark_period_data = benchmark_data[benchmark_mask].sort_values("timestamp")
-            
+
             if benchmark_period_data.empty:
                 self.logger.warning("No benchmark data for the specified period")
                 return
-            
+
             # Calculate benchmark return
             initial_benchmark_price = benchmark_period_data.iloc[0]["close"]
             final_benchmark_price = benchmark_period_data.iloc[-1]["close"]
             benchmark_return = (final_benchmark_price - initial_benchmark_price) / initial_benchmark_price
-            
+
             # Add benchmark metrics to results
             results["benchmark_analysis"] = {
                 "benchmark_symbol": config.benchmark_symbol,
@@ -2385,19 +2384,19 @@ class BacktestingEngine:
                 "initial_price": float(initial_benchmark_price),
                 "final_price": float(final_benchmark_price),
             }
-            
+
             # Calculate alpha and beta if we have portfolio returns
             if "metrics" in results:
                 portfolio_return = results["metrics"].get("total_return_pct", 0) / 100
                 alpha = portfolio_return - benchmark_return
                 results["benchmark_analysis"]["alpha"] = float(alpha)
                 results["benchmark_analysis"]["alpha_pct"] = float(alpha * 100)
-                
+
                 self.logger.info(f"Benchmark return: {benchmark_return:.2%}")
                 self.logger.info(f"Alpha: {alpha:.2%}")
-                
+
         except Exception as e:
-            self.logger.error(f"Error in benchmark analysis: {e}")
+            self.logger.exception("Error in benchmark analysis: ")
             results["benchmark_analysis"] = {"error": str(e)}
 
     def _calculate_enhanced_metrics(self, results: dict[str, Any], config: BacktestConfig) -> PerformanceMetrics | None:
@@ -2406,10 +2405,10 @@ class BacktestingEngine:
             if "metrics" not in results:
                 self.logger.warning("No base metrics available for enhancement")
                 return None
-            
+
             base_metrics = results["metrics"]
             enhanced = PerformanceMetrics.from_existing_metrics(base_metrics)
-            
+
             # Add benchmark comparison if available
             if "benchmark_analysis" in results:
                 benchmark_analysis = results["benchmark_analysis"]
@@ -2417,116 +2416,114 @@ class BacktestingEngine:
                 enhanced.alpha = benchmark_analysis.get("alpha")
                 # Beta calculation would require more sophisticated analysis
                 enhanced.beta = 1.0  # Placeholder
-            
+
             # Calculate Calmar ratio (return/max_drawdown)
             if enhanced.max_drawdown > 0:
                 enhanced.calmar_ratio = enhanced.annualized_return / enhanced.max_drawdown
             else:
-                enhanced.calmar_ratio = float('inf') if enhanced.annualized_return > 0 else 0.0
-            
+                enhanced.calmar_ratio = float("inf") if enhanced.annualized_return > 0 else 0.0
+
             # Calculate volatility if we have equity curve
             if "equity_curve" in results:
                 equity_curve = results["equity_curve"]
-                if hasattr(equity_curve, 'pct_change'):
+                if hasattr(equity_curve, "pct_change"):
                     returns = equity_curve.pct_change().dropna()
                     enhanced.volatility = float(returns.std() * np.sqrt(252))  # Annualized
-            
+
             return enhanced
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating enhanced metrics: {e}")
+
+        except Exception:
+            self.logger.exception("Error calculating enhanced metrics: ")
             return None
 
     def run_strategy_comparison(
-        self, 
-        strategies: list[Any], 
-        config: BacktestConfig
+        self,
+        strategies: list[Any],
+        config: BacktestConfig,
     ) -> dict[str, Any]:
-        """
-        Run backtests on multiple strategies for comparison.
-        
+        """Run backtests on multiple strategies for comparison.
+
         Args:
             strategies: List of strategy instances to compare
             config: BacktestConfig for all strategies
-            
+
         Returns:
             Dictionary with results for each strategy
         """
         results = {}
-        
+
         for i, strategy in enumerate(strategies):
-            strategy_name = getattr(strategy, 'name', f'Strategy_{i+1}')
+            strategy_name = getattr(strategy, "name", f"Strategy_{i+1}")
             self.logger.info(f"Running backtest for {strategy_name}")
-            
+
             try:
                 # Run individual backtest - this would be async in practice
                 strategy_results = asyncio.run(self.run_backtest(config, strategy))
                 results[strategy_name] = strategy_results
-                
+
             except Exception as e:
-                self.logger.error(f"Error testing {strategy_name}: {e}")
+                self.logger.exception(f"Error testing {strategy_name}: ")
                 results[strategy_name] = {"error": str(e)}
-        
+
         # Add comparison summary
         results["comparison_summary"] = self._create_strategy_comparison_summary(results)
-        
+
         return results
-    
+
     def _create_strategy_comparison_summary(self, strategy_results: dict[str, Any]) -> dict[str, Any]:
         """Create a summary comparing strategy performance."""
         summary = {
-            "best_total_return": {"strategy": None, "return": float('-inf')},
-            "best_sharpe_ratio": {"strategy": None, "sharpe": float('-inf')},
-            "lowest_drawdown": {"strategy": None, "drawdown": float('inf')},
+            "best_total_return": {"strategy": None, "return": float("-inf")},
+            "best_sharpe_ratio": {"strategy": None, "sharpe": float("-inf")},
+            "lowest_drawdown": {"strategy": None, "drawdown": float("inf")},
             "most_trades": {"strategy": None, "trades": 0},
         }
-        
+
         for strategy_name, results in strategy_results.items():
             if strategy_name == "comparison_summary" or "error" in results:
                 continue
-                
+
             enhanced_metrics = results.get("enhanced_metrics")
             if not enhanced_metrics:
                 continue
-            
+
             # Check for best total return
             if enhanced_metrics.total_return > summary["best_total_return"]["return"]:  # type: ignore[index]
                 summary["best_total_return"] = {
                     "strategy": strategy_name,
-                    "return": enhanced_metrics.total_return
+                    "return": enhanced_metrics.total_return,
                 }
-            
+
             # Check for best Sharpe ratio
             if enhanced_metrics.sharpe_ratio > summary["best_sharpe_ratio"]["sharpe"]:  # type: ignore[index]
                 summary["best_sharpe_ratio"] = {
                     "strategy": strategy_name,
-                    "sharpe": enhanced_metrics.sharpe_ratio
+                    "sharpe": enhanced_metrics.sharpe_ratio,
                 }
-            
+
             # Check for lowest drawdown
             if enhanced_metrics.max_drawdown < summary["lowest_drawdown"]["drawdown"]:  # type: ignore[index]
                 summary["lowest_drawdown"] = {
                     "strategy": strategy_name,
-                    "drawdown": enhanced_metrics.max_drawdown
+                    "drawdown": enhanced_metrics.max_drawdown,
                 }
-            
+
             # Check for most trades
             if enhanced_metrics.total_trades > summary["most_trades"]["trades"]:  # type: ignore[index]
                 summary["most_trades"] = {
                     "strategy": strategy_name,
-                    "trades": enhanced_metrics.total_trades
+                    "trades": enhanced_metrics.total_trades,
                 }
-        
+
         return summary
 
     def generate_report(self, results: dict[str, Any], output_path: str | None = None) -> str:
-        """
-        Generate a comprehensive backtest report.
-        
+        """Generate a comprehensive backtest report.
+
         Args:
             results: Backtest results dictionary
             output_path: Optional path to save the report
-            
+
         Returns:
             Report content as string
         """
@@ -2535,7 +2532,7 @@ class BacktestingEngine:
         report_lines.append("COMPREHENSIVE BACKTESTING REPORT")
         report_lines.append("=" * 80)
         report_lines.append("")
-        
+
         # Configuration section
         if "config" in results:
             config = results["config"]
@@ -2546,7 +2543,7 @@ class BacktestingEngine:
             report_lines.append(f"  Mode: {config.get('mode', 'N/A')}")
             report_lines.append(f"  Commission Rate: {config.get('commission_rate', 0):.4f}")
             report_lines.append("")
-        
+
         # Performance metrics section
         enhanced_metrics = results.get("enhanced_metrics")
         if enhanced_metrics:
@@ -2562,7 +2559,7 @@ class BacktestingEngine:
             report_lines.append(f"  Total Trades: {enhanced_metrics.total_trades}")
             report_lines.append(f"  Profit Factor: {enhanced_metrics.profit_factor:.2f}")
             report_lines.append("")
-        
+
         # Benchmark comparison section
         if "benchmark_analysis" in results:
             benchmark = results["benchmark_analysis"]
@@ -2572,132 +2569,130 @@ class BacktestingEngine:
                 report_lines.append(f"  Benchmark Return: {benchmark.get('benchmark_return_pct', 0):.2f}%")
                 report_lines.append(f"  Alpha: {benchmark.get('alpha_pct', 0):.2f}%")
                 report_lines.append("")
-        
+
         # Execution details
         if "execution_time_seconds" in results:
             report_lines.append("EXECUTION DETAILS:")
             report_lines.append(f"  Execution Time: {results['execution_time_seconds']:.2f} seconds")
             report_lines.append(f"  Framework Version: {results.get('framework_version', 'N/A')}")
             report_lines.append("")
-        
+
         report_content = "\n".join(report_lines)
-        
+
         # Save report if path provided
         if output_path:
             try:
-                with open(output_path, 'w') as f:
+                with open(output_path, "w") as f:
                     f.write(report_content)
                 self.logger.info(f"Report saved to {output_path}")
-            except Exception as e:
-                self.logger.error(f"Error saving report: {e}")
-        
+            except Exception:
+                self.logger.exception("Error saving report: ")
+
         return report_content
 
     def optimize_parameters(
-        self, 
+        self,
         strategy_class: Any,
         parameter_grid: dict[str, list[Any]],
         config: BacktestConfig,
-        optimization_metric: str = "sharpe_ratio"
+        optimization_metric: str = "sharpe_ratio",
     ) -> dict[str, Any]:
-        """
-        Optimize strategy parameters using grid search.
-        
+        """Optimize strategy parameters using grid search.
+
         Args:
             strategy_class: Strategy class to instantiate with different parameters
             parameter_grid: Dictionary of parameter names to lists of values to test
             config: Base BacktestConfig for optimization
             optimization_metric: Metric to optimize ("sharpe_ratio", "total_return", etc.)
-            
+
         Returns:
             Dictionary with optimization results
         """
         import itertools
-        
+
         self.logger.info(f"Starting parameter optimization with {optimization_metric}")
-        
+
         # Generate all parameter combinations
         param_names = list[Any](parameter_grid.keys())
         param_values = list[Any](parameter_grid.values())
         param_combinations = list[Any](itertools.product(*param_values))
-        
+
         self.logger.info(f"Testing {len(param_combinations)} parameter combinations")
-        
+
         optimization_results = []
         best_result = None
-        best_metric_value = float('-inf')
-        
+        best_metric_value = float("-inf")
+
         for i, param_combo in enumerate(param_combinations):
             # Create parameter dictionary for this combination
-            params = dict[str, Any](zip(param_names, param_combo))
-            
+            params = dict[str, Any](zip(param_names, param_combo, strict=False))
+
             try:
                 # Instantiate strategy with these parameters
                 strategy = strategy_class(**params)
-                
+
                 # Run backtest
                 results = asyncio.run(self.run_backtest(config, strategy))
-                
+
                 # Extract optimization metric
                 enhanced_metrics = results.get("enhanced_metrics")
                 if enhanced_metrics:
                     metric_value = getattr(enhanced_metrics, optimization_metric, 0)
-                    
+
                     optimization_results.append({
                         "parameters": params,
                         "metric_value": metric_value,
                         "enhanced_metrics": enhanced_metrics,
-                        "results": results
+                        "results": results,
                     })
-                    
+
                     # Check if this is the best result so far
                     if metric_value > best_metric_value:
                         best_metric_value = metric_value
                         best_result = optimization_results[-1]
-                    
+
                     self.logger.info(f"Combination {i+1}/{len(param_combinations)}: "
                                    f"{optimization_metric}={metric_value:.4f}, params={params}")
-                
+
             except Exception as e:
-                self.logger.error(f"Error testing parameter combination {params}: {e}")
+                self.logger.exception(f"Error testing parameter combination {params}: ")
                 optimization_results.append({
                     "parameters": params,
-                    "error": str(e)
+                    "error": str(e),
                 })
-        
+
         return {
             "optimization_metric": optimization_metric,
             "best_result": best_result,
             "all_results": optimization_results,
             "parameter_grid": parameter_grid,
-            "total_combinations_tested": len(param_combinations)
+            "total_combinations_tested": len(param_combinations),
         }
 
     def load_data_from_csv(self, file_path: str, symbol_column: str = "symbol") -> None:
-        """
-        Load historical data from CSV file for backtesting.
-        
+        """Load historical data from CSV file for backtesting.
+
         Args:
             file_path: Path to CSV file
             symbol_column: Column name containing symbol/trading pair names
         """
         try:
             self.logger.info(f"Loading data from CSV: {file_path}")
-            
+
             df = pd.read_csv(file_path)
-            
+
             # Ensure timestamp column exists and is properly formatted
             if "timestamp" in df.columns:
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
             else:
                 raise BacktestError("CSV file must contain a 'timestamp' column")
-            
+
             # Required OHLCV columns
             required_columns = ["open", "high", "low", "close", "volume"]
             missing_columns = [col for col in required_columns if col not in df.columns]
             if missing_columns:
                 raise BacktestError(f"Missing required columns: {missing_columns}")
-            
+
             # Split data by symbol if symbol column exists
             if symbol_column in df.columns:
                 for symbol in df[symbol_column].unique():
@@ -2711,29 +2706,28 @@ class BacktestingEngine:
                 symbol = "DEFAULT_SYMBOL"
                 self._data[symbol] = df
                 self.logger.info(f"Loaded {len(df)} data points for {symbol}")
-            
+
             self.logger.info(f"Successfully loaded data for {len(self._data)} symbols")
-            
+
         except Exception as e:
-            self.logger.error(f"Error loading data from CSV: {e}")
+            self.logger.exception("Error loading data from CSV: ")
             raise BacktestError(f"Failed to load data from CSV: {e}")
 
     def get_data_summary(self) -> dict[str, Any]:
-        """
-        Get summary information about loaded data.
-        
+        """Get summary information about loaded data.
+
         Returns:
             Dictionary with data summary statistics
         """
         if not self._data:
             return {"error": "No data loaded"}
-        
+
         summary = {
             "symbols": list[Any](self._data.keys()),
             "symbol_count": len(self._data),
-            "symbol_details": {}
+            "symbol_details": {},
         }
-        
+
         for symbol, data in self._data.items():
             if not data.empty:
                 summary["symbol_details"][symbol] = {  # type: ignore[index]
@@ -2742,7 +2736,7 @@ class BacktestingEngine:
                     "end_date": data["timestamp"].max().isoformat(),
                     "columns": list[Any](data.columns),
                 }
-        
+
         return summary
 
     def clear_data(self) -> None:
@@ -2753,15 +2747,15 @@ class BacktestingEngine:
 
 class EnterpriseHistoricalDataLoader:
     """Enterprise-grade historical data loader with multiple sources, caching, and validation."""
-    
+
     def __init__(
-        self, 
+        self,
         config: dict[str, Any],
         config_manager: ConfigManagerProtocol,
-        logger: logging.Logger
+        logger: logging.Logger,
     ) -> None:
         """Initialize the enterprise data loader.
-        
+
         Args:
             config: Loader-specific configuration
             config_manager: Global configuration manager
@@ -2771,186 +2765,188 @@ class EnterpriseHistoricalDataLoader:
         self.config_manager = config_manager
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # Data providers registry
         self._providers: dict[str, Any] = {}
-        
+
         # Cache infrastructure
         self._memory_cache: dict[str, Any] = {}
-        self._disk_cache_enabled = config.get('cache_enabled', True)
-        self._disk_cache_path = Path(config.get('disk_cache_path', './cache/backtest_data'))
-        
+        self._disk_cache_enabled = config.get("cache_enabled", True)
+        self._disk_cache_path = Path(config.get("disk_cache_path", "./cache/backtest_data"))
+
         # Performance tracking
         self._stats = {
-            'total_requests': 0,
-            'cache_hits': 0,
-            'provider_requests': 0,
-            'failed_requests': 0,
-            'total_data_points_loaded': 0
+            "total_requests": 0,
+            "cache_hits": 0,
+            "provider_requests": 0,
+            "failed_requests": 0,
+            "total_data_points_loaded": 0,
         }
-        
+
         # Request tracking for rate limiting
         self._request_times: dict[str, list[dt.datetime]] = {}
-        
+
     async def initialize(self) -> None:
         """Initialize the enterprise data loader and its providers."""
         try:
             self.logger.info("Initializing Enterprise Historical Data Loader")
-            
+
             # Create cache directory
             if self._disk_cache_enabled:
                 self._disk_cache_path.mkdir(parents=True, exist_ok=True)
                 self.logger.info(f"Disk cache enabled at: {self._disk_cache_path}")
-            
+
             # Initialize data providers
             await self._initialize_providers()
-            
+
             self.logger.info(
-                f"Enterprise data loader initialized with {len(self._providers)} providers"
+                f"Enterprise data loader initialized with {len(self._providers)} providers",
             )
-            
-        except Exception as e:
-            self.logger.error(f"Failed to initialize enterprise data loader: {e}")
+
+        except Exception:
+            self.logger.exception("Failed to initialize enterprise data loader: ")
             raise
-    
+
     def _get_config_dict(self) -> dict[str, Any]:
         """Convert ConfigManagerProtocol to dictionary for provider initialization.
-        
+
         This method provides a robust way to extract configuration as a dictionary
         from various ConfigManager implementations, ensuring compatibility with
         providers that expect dict[str, Any].
-        
+
         Returns:
             Dictionary containing all configuration values
         """
         config_dict: dict[str, Any] = {}
-        
+
         try:
             # Try the standard get_all method first
-            if hasattr(self.config_manager, 'get_all') and callable(self.config_manager.get_all):
+            if hasattr(self.config_manager, "get_all") and callable(self.config_manager.get_all):
                 config_dict = self.config_manager.get_all()
                 if isinstance(config_dict, dict):
                     return config_dict
-            
+
             # Fallback to internal _config attribute if available
-            if hasattr(self.config_manager, '_config'):
-                internal_config = getattr(self.config_manager, '_config', None)
+            if hasattr(self.config_manager, "_config"):
+                internal_config = getattr(self.config_manager, "_config", None)
                 if isinstance(internal_config, dict):
                     return internal_config
-            
+
             # Last resort: build config dict from known keys
             # This ensures we always return a valid config dict
             self.logger.warning(
                 "ConfigManager doesn't expose get_all() or _config, "
-                "building minimal config dict"
+                "building minimal config dict",
             )
-            
+
             # Define critical configuration sections
             config_sections = [
-                'database', 'api', 'backtest', 'risk_manager', 
-                'portfolio_manager', 'execution_handler'
+                "database", "api", "backtest", "risk_manager",
+                "portfolio_manager", "execution_handler",
             ]
-            
+
             for section in config_sections:
                 section_config: Any = self.config_manager.get(section, {})
                 if section_config:
                     config_dict[section] = section_config
-                    
-        except Exception as e:
-            self.logger.error(f"Error extracting config dict: {e}")
+
+        except Exception:
+            self.logger.exception("Error extracting config dict: ")
             # Return empty dict rather than failing
-            
+
         return config_dict
-    
+
     async def _initialize_providers(self) -> None:
         """Initialize available data providers based on configuration."""
-        providers_config = self.config.get('providers', ['local_files'])
-        
+        providers_config = self.config.get("providers", ["local_files"])
+
         for provider_name in providers_config:
             try:
-                if provider_name == 'local_files':
-                    self._providers['local_files'] = LocalFileDataProvider(
+                if provider_name == "local_files":
+                    self._providers["local_files"] = LocalFileDataProvider(
                         config=self.config_manager,
-                        logger=self.logger
+                        logger=self.logger,
                     )
-                elif provider_name == 'database':
+                elif provider_name == "database":
                     # Import provider dynamically to avoid circular imports
-                    from gal_friday.providers.database_provider import DatabaseDataProvider
-                    
+                    from gal_friday.providers.database_provider import (
+                        DatabaseDataProvider,
+                    )
+
                     # Get configuration as dictionary using our robust helper method
                     config_dict = self._get_config_dict()
-                    
-                    self._providers['database'] = DatabaseDataProvider(
+
+                    self._providers["database"] = DatabaseDataProvider(
                         config=config_dict,
-                        logger=self.logger
+                        logger=self.logger,
                     )
-                elif provider_name == 'api':
+                elif provider_name == "api":
                     # Import provider dynamically to avoid circular imports
                     from gal_friday.providers.api_provider import APIDataProvider
-                    
+
                     # Get configuration as dictionary using our robust helper method
                     config_dict = self._get_config_dict()
-                    
-                    self._providers['api'] = APIDataProvider(
+
+                    self._providers["api"] = APIDataProvider(
                         config=config_dict,
-                        logger=self.logger
+                        logger=self.logger,
                     )
-                
+
                 self.logger.info(f"Initialized data provider: {provider_name}")
-                
+
             except Exception as e:
                 self.logger.warning(f"Failed to initialize provider {provider_name}: {e}")
-    
+
     async def load_historical_data(self, request: dict[str, Any]) -> dict[str, Any] | None:
         """Load historical data with comprehensive error handling and caching.
-        
+
         Args:
             request: Data request parameters including symbol, dates, sources, etc.
-            
+
         Returns:
             Dictionary containing loaded data and metadata, or None if failed
         """
-        self._stats['total_requests'] += 1
-        
+        self._stats["total_requests"] += 1
+
         try:
             # Generate cache key for this request
             cache_key = self._generate_cache_key(request)
-            
+
             # Try cache first if enabled
-            if request.get('cache_result', True):
+            if request.get("cache_result", True):
                 cached_result = await self._get_from_cache(cache_key)
                 if cached_result:
-                    self._stats['cache_hits'] += 1
+                    self._stats["cache_hits"] += 1
                     self.logger.debug(f"Cache hit for {request['symbol']}")
                     return cached_result
-            
+
             # Load from providers
             result = await self._load_from_providers(request)
-            
+
             # Cache the result if successful
-            if result and request.get('cache_result', True):
+            if result and request.get("cache_result", True):
                 await self._store_in_cache(cache_key, result)
-            
+
             if result:
-                self._stats['total_data_points_loaded'] += len(result.get('data', []))
-            
+                self._stats["total_data_points_loaded"] += len(result.get("data", []))
+
             return result
-            
-        except Exception as e:
-            self._stats['failed_requests'] += 1
-            self.logger.error(f"Failed to load data for {request.get('symbol', 'unknown')}: {e}")
+
+        except Exception:
+            self._stats["failed_requests"] += 1
+            self.logger.exception(f"Failed to load data for {request.get('symbol', 'unknown')}: ")
             return None
-    
+
     async def _load_from_providers(self, request: dict[str, Any]) -> dict[str, Any] | None:
         """Load data from available providers with fallback logic."""
-        symbol = request['symbol']
-        data_source = request.get('data_source', 'auto')
-        fallback_sources = request.get('fallback_sources', ['local_files'])
-        
+        symbol = request["symbol"]
+        data_source = request.get("data_source", "auto")
+        fallback_sources = request.get("fallback_sources", ["local_files"])
+
         # Determine providers to try
         providers_to_try = []
-        
-        if data_source == 'auto':
+
+        if data_source == "auto":
             # Use intelligent provider selection
             providers_to_try = self._select_optimal_providers(request)
         elif data_source in self._providers:
@@ -2958,149 +2954,149 @@ class EnterpriseHistoricalDataLoader:
         else:
             # Use fallback sources
             providers_to_try = [src for src in fallback_sources if src in self._providers]
-        
+
         if not providers_to_try:
             self.logger.error(f"No available providers for {symbol}")
             return None
-        
+
         # Try each provider until successful
         for provider_name in providers_to_try:
             try:
                 self.logger.debug(f"Trying provider {provider_name} for {symbol}")
-                
+
                 provider = self._providers[provider_name]
                 result = await provider.load_data(request)
-                
-                if result and result.get('data') is not None:
+
+                if result and result.get("data") is not None:
                     # Validate data quality if requested
-                    if request.get('validate_data', True):
-                        quality_score = self._validate_data_quality(result['data'], symbol)
-                        quality_threshold = request.get('quality_threshold', 0.8)
-                        
+                    if request.get("validate_data", True):
+                        quality_score = self._validate_data_quality(result["data"], symbol)
+                        quality_threshold = request.get("quality_threshold", 0.8)
+
                         if quality_score < quality_threshold:
                             self.logger.warning(
                                 f"Data quality for {symbol} from {provider_name} "
-                                f"({quality_score:.2f}) below threshold ({quality_threshold:.2f})"
+                                f"({quality_score:.2f}) below threshold ({quality_threshold:.2f})",
                             )
                             continue  # Try next provider
-                    
+
                     # Success - add metadata
                     result.update({
-                        'data_source': provider_name,
-                        'cache_hit': False,
-                        'quality_score': quality_score if 'quality_score' in locals() else None
+                        "data_source": provider_name,
+                        "cache_hit": False,
+                        "quality_score": quality_score if "quality_score" in locals() else None,
                     })
-                    
-                    self._stats['provider_requests'] += 1
+
+                    self._stats["provider_requests"] += 1
                     self.logger.debug(f"Successfully loaded {symbol} from {provider_name}")
                     return result  # type: ignore[no-any-return]
-                    
+
             except Exception as e:
                 self.logger.warning(f"Provider {provider_name} failed for {symbol}: {e}")
                 continue
-        
+
         # All providers failed
         self.logger.error(f"All providers failed for {symbol}")
         return None
-    
+
     def _select_optimal_providers(self, request: dict[str, Any]) -> list[str]:
         """Select optimal data providers based on request characteristics."""
         providers = []
-        
+
         # Prioritize based on data availability and performance
-        if 'local_files' in self._providers:
-            providers.append('local_files')  # Fastest for backtesting
-        
-        if 'database' in self._providers:
-            providers.append('database')  # Good for large datasets
-        
-        if 'api' in self._providers:
-            providers.append('api')  # Most comprehensive but slowest
-        
+        if "local_files" in self._providers:
+            providers.append("local_files")  # Fastest for backtesting
+
+        if "database" in self._providers:
+            providers.append("database")  # Good for large datasets
+
+        if "api" in self._providers:
+            providers.append("api")  # Most comprehensive but slowest
+
         return providers
-    
+
     def _generate_cache_key(self, request: dict[str, Any]) -> str:
         """Generate a unique cache key for the request."""
         key_parts = [
-            request['symbol'],
-            request['start_date'].isoformat(),
-            request['end_date'].isoformat(),
-            str(request.get('include_volume', True)),
-            str(request.get('data_source', 'auto'))
+            request["symbol"],
+            request["start_date"].isoformat(),
+            request["end_date"].isoformat(),
+            str(request.get("include_volume", True)),
+            str(request.get("data_source", "auto")),
         ]
-        return '_'.join(key_parts)
-    
+        return "_".join(key_parts)
+
     async def _get_from_cache(self, cache_key: str) -> dict[str, Any] | None:
         """Retrieve data from cache (memory first, then disk)."""
         # Try memory cache first
         if cache_key in self._memory_cache:
             return self._memory_cache[cache_key]  # type: ignore[no-any-return]
-        
+
         # Try disk cache
         if self._disk_cache_enabled:
             cache_file = self._disk_cache_path / f"{cache_key}.pkl"
             if cache_file.exists():
                 try:
                     import pickle
-                    with cache_file.open('rb') as f:
+                    with cache_file.open("rb") as f:
                         cached_data = pickle.load(f)
-                    
+
                     # Store in memory cache for next time
                     self._memory_cache[cache_key] = cached_data
                     return cached_data  # type: ignore[no-any-return]
-                    
+
                 except Exception as e:
                     self.logger.warning(f"Failed to load from disk cache: {e}")
-        
+
         return None
-    
+
     async def _store_in_cache(self, cache_key: str, data: dict[str, Any]) -> None:
         """Store data in cache (both memory and disk)."""
         # Store in memory cache
         self._memory_cache[cache_key] = data
-        
+
         # Store in disk cache
         if self._disk_cache_enabled:
             try:
                 import pickle
                 cache_file = self._disk_cache_path / f"{cache_key}.pkl"
-                with cache_file.open('wb') as f:
+                with cache_file.open("wb") as f:
                     pickle.dump(data, f)
             except Exception as e:
                 self.logger.warning(f"Failed to store in disk cache: {e}")
-    
+
     def _validate_data_quality(self, df: pd.DataFrame, symbol: str) -> float:
         """Validate data quality and return a score between 0 and 1."""
         if df.empty:
             return 0.0
-        
+
         quality_factors = []
-        
+
         # Check for missing values
         missing_ratio = df.isnull().sum().sum() / (len(df) * len(df.columns))
         quality_factors.append(1.0 - missing_ratio)
-        
+
         # Check OHLCV data consistency
-        if all(col in df.columns for col in ['open', 'high', 'low', 'close']):
+        if all(col in df.columns for col in ["open", "high", "low", "close"]):
             # High >= max(open, low, close)
-            high_valid = ((df['high'] >= df['open']) & (df['high'] >= df['low']) & 
-                         (df['high'] >= df['close'])).mean()
-            
+            high_valid = ((df["high"] >= df["open"]) & (df["high"] >= df["low"]) &
+                         (df["high"] >= df["close"])).mean()
+
             # Low <= min(open, high, close)
-            low_valid = ((df['low'] <= df['open']) & (df['low'] <= df['high']) & 
-                        (df['low'] <= df['close'])).mean()
-            
+            low_valid = ((df["low"] <= df["open"]) & (df["low"] <= df["high"]) &
+                        (df["low"] <= df["close"])).mean()
+
             quality_factors.extend([high_valid, low_valid])
-        
+
         # Check for reasonable data distribution
-        if 'close' in df.columns and len(df) > 1:
-            price_changes = df['close'].pct_change().abs()
+        if "close" in df.columns and len(df) > 1:
+            price_changes = df["close"].pct_change().abs()
             extreme_moves = (price_changes > 1.0).sum()  # >100% moves
             extreme_ratio = extreme_moves / len(price_changes)
             quality_factors.append(1.0 - min(extreme_ratio, 1.0))
-        
+
         return sum(quality_factors) / len(quality_factors) if quality_factors else 0.0
-    
+
     def get_statistics(self) -> dict[str, Any]:
         """Get loader performance statistics."""
         return self._stats.copy()
@@ -3108,90 +3104,89 @@ class EnterpriseHistoricalDataLoader:
 
 class LocalFileDataProvider:
     """Data provider for loading from local files (CSV, Parquet, etc.)."""
-    
+
     def __init__(self, config: ConfigManagerProtocol, logger: logging.Logger) -> None:
         """Initialize the local file data provider."""
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
-    
+
     async def load_data(self, request: dict[str, Any]) -> dict[str, Any] | None:
         """Load data from local files."""
         try:
-            symbol = request['symbol']
-            start_date = request['start_date']
-            end_date = request['end_date']
-            
+            symbol = request["symbol"]
+            start_date = request["start_date"]
+            end_date = request["end_date"]
+
             # Get data path from configuration
-            data_path: Any = self.config.get('backtest.data_path')
+            data_path: Any = self.config.get("backtest.data_path")
             if not data_path:
                 self.logger.error("No data path configured for local file provider")
                 return None
-            
+
             # Load data based on file format
             # Ensure data_path is a string or PathLike
-            if isinstance(data_path, (str, Path)):
+            if isinstance(data_path, str | Path):
                 path_obj = Path(data_path)
             else:
                 self.logger.error(f"Invalid data path type: {type(data_path)}")
                 return None
-            
-            if path_obj.suffix.lower() == '.csv':
-                df = pd.read_csv(str(path_obj), parse_dates=['timestamp'])
-            elif path_obj.suffix.lower() == '.parquet':
+
+            if path_obj.suffix.lower() == ".csv":
+                df = pd.read_csv(str(path_obj), parse_dates=["timestamp"])
+            elif path_obj.suffix.lower() == ".parquet":
                 df = pd.read_parquet(str(path_obj))
             else:
                 self.logger.error(f"Unsupported file format: {path_obj.suffix}")
                 return None
-            
+
             # Filter by symbol if multi-symbol file
-            if 'symbol' in df.columns:
-                df = df[df['symbol'] == symbol]
-            elif 'pair' in df.columns:
-                df = df[df['pair'] == symbol]
-            
+            if "symbol" in df.columns:
+                df = df[df["symbol"] == symbol]
+            elif "pair" in df.columns:
+                df = df[df["pair"] == symbol]
+
             # Filter by date range
-            if 'timestamp' in df.columns:
-                df = df[(df['timestamp'] >= start_date) & (df['timestamp'] <= end_date)]
-            
+            if "timestamp" in df.columns:
+                df = df[(df["timestamp"] >= start_date) & (df["timestamp"] <= end_date)]
+
             # Validate required columns
-            required_cols = {'open', 'high', 'low', 'close', 'volume'}
+            required_cols = {"open", "high", "low", "close", "volume"}
             if not required_cols.issubset(df.columns):
                 missing = required_cols - set(df.columns)
                 self.logger.error(f"Missing required columns: {missing}")
                 return None
-            
+
             if df.empty:
                 self.logger.warning(f"No data found for {symbol} in specified date range")
                 return None
-            
-            return {'data': df, 'source': 'local_file'}
-            
-        except Exception as e:
-            self.logger.error(f"Failed to load data from local file: {e}")
+
+            return {"data": df, "source": "local_file"}
+
+        except Exception:
+            self.logger.exception("Failed to load data from local file: ")
             return None
 
 
 class DatabaseDataProviderAdapter:
     """Adapter to use the production DatabaseDataProvider in backtesting."""
-    
+
     def __init__(self, config: ConfigManagerProtocol, logger: logging.Logger) -> None:
         """Initialize the database data provider adapter."""
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # Import and initialize the production DatabaseDataProvider
         from .providers.database_provider import DatabaseDataProvider
-        from .simulated_market_price_service import DataRequest
         config_dict = {}
-        if hasattr(config, 'get_all'):
+        if hasattr(config, "get_all"):
             config_dict = config.get_all()
-        elif hasattr(config, '__dict__'):
+        elif hasattr(config, "__dict__"):
             config_dict = config.__dict__
         self._provider = DatabaseDataProvider(config_dict, logger)
         self._initialized = False
-    
+
     async def load_data(self, request: dict[str, Any]) -> dict[str, Any] | None:
         """Load data from database sources using production provider."""
         try:
@@ -3199,45 +3194,45 @@ class DatabaseDataProviderAdapter:
             if not self._initialized:
                 await self._provider.initialize()
                 self._initialized = True
-            
+
             # Convert request to DataRequest format
             from .simulated_market_price_service import DataRequest
-            
+
             data_request = DataRequest(
-                symbol=request.get('symbol', 'XRP/USD'),
-                start_date=request.get('start_date', dt.datetime.now() - dt.timedelta(days=30)),
-                end_date=request.get('end_date', dt.datetime.now()),
-                frequency=request.get('frequency', '1m')
+                symbol=request.get("symbol", "XRP/USD"),
+                start_date=request.get("start_date", dt.datetime.now() - dt.timedelta(days=30)),
+                end_date=request.get("end_date", dt.datetime.now()),
+                frequency=request.get("frequency", "1m"),
             )
-            
+
             # Fetch data
             historical_points = await self._provider.fetch_data(data_request)
-            
+
             if not historical_points:
                 return None
-            
+
             # Convert to DataFrame format expected by backtesting
             data = []
             for point in historical_points:
                 data.append({
-                    'timestamp': point.timestamp,
-                    'open': point.open,
-                    'high': point.high,
-                    'low': point.low,
-                    'close': point.close,
-                    'volume': point.volume
+                    "timestamp": point.timestamp,
+                    "open": point.open,
+                    "high": point.high,
+                    "low": point.low,
+                    "close": point.close,
+                    "volume": point.volume,
                 })
-            
+
             df = pd.DataFrame(data)
             if not df.empty:
-                df.set_index('timestamp', inplace=True)
-            
-            return {'data': df, 'source': 'database'}
-            
-        except Exception as e:
-            self.logger.error(f"Failed to load data from database: {e}")
+                df.set_index("timestamp", inplace=True)
+
+            return {"data": df, "source": "database"}
+
+        except Exception:
+            self.logger.exception("Failed to load data from database: ")
             return None
-    
+
     async def cleanup(self) -> None:
         """Clean up database connections."""
         if self._initialized:
@@ -3246,24 +3241,23 @@ class DatabaseDataProviderAdapter:
 
 class APIDataProviderAdapter:
     """Adapter to use the production APIDataProvider in backtesting."""
-    
+
     def __init__(self, config: ConfigManagerProtocol, logger: logging.Logger) -> None:
         """Initialize the API data provider adapter."""
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # Import and initialize the production APIDataProvider
         from .providers.api_provider import APIDataProvider
-        from .simulated_market_price_service import DataRequest
         config_dict = {}
-        if hasattr(config, 'get_all'):
+        if hasattr(config, "get_all"):
             config_dict = config.get_all()
-        elif hasattr(config, '__dict__'):
+        elif hasattr(config, "__dict__"):
             config_dict = config.__dict__
         self._provider = APIDataProvider(config_dict, logger)
         self._initialized = False
-    
+
     async def load_data(self, request: dict[str, Any]) -> dict[str, Any] | None:
         """Load data from external APIs using production provider."""
         try:
@@ -3271,45 +3265,45 @@ class APIDataProviderAdapter:
             if not self._initialized:
                 await self._provider.initialize()
                 self._initialized = True
-            
+
             # Convert request to DataRequest format
             from .simulated_market_price_service import DataRequest
-            
+
             data_request = DataRequest(
-                symbol=request.get('symbol', 'XRP/USD'),
-                start_date=request.get('start_date', dt.datetime.now() - dt.timedelta(days=30)),
-                end_date=request.get('end_date', dt.datetime.now()),
-                frequency=request.get('frequency', '1m')
+                symbol=request.get("symbol", "XRP/USD"),
+                start_date=request.get("start_date", dt.datetime.now() - dt.timedelta(days=30)),
+                end_date=request.get("end_date", dt.datetime.now()),
+                frequency=request.get("frequency", "1m"),
             )
-            
+
             # Fetch data
             historical_points = await self._provider.fetch_data(data_request)
-            
+
             if not historical_points:
                 return None
-            
+
             # Convert to DataFrame format expected by backtesting
             data = []
             for point in historical_points:
                 data.append({
-                    'timestamp': point.timestamp,
-                    'open': point.open,
-                    'high': point.high,
-                    'low': point.low,
-                    'close': point.close,
-                    'volume': point.volume
+                    "timestamp": point.timestamp,
+                    "open": point.open,
+                    "high": point.high,
+                    "low": point.low,
+                    "close": point.close,
+                    "volume": point.volume,
                 })
-            
+
             df = pd.DataFrame(data)
             if not df.empty:
-                df.set_index('timestamp', inplace=True)
-            
-            return {'data': df, 'source': 'api'}
-            
-        except Exception as e:
-            self.logger.error(f"Failed to load data from API: {e}")
+                df.set_index("timestamp", inplace=True)
+
+            return {"data": df, "source": "api"}
+
+        except Exception:
+            self.logger.exception("Failed to load data from API: ")
             return None
-    
+
     async def cleanup(self) -> None:
         """Clean up API connections."""
         if self._initialized:

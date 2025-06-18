@@ -3,6 +3,8 @@
 Makes model classes available when the package is imported.
 """
 
+from .audit_entry import AuditEntry
+from .data_quality_issue import DataQualityIssue
 from .drift_detection_event import DriftDetectionEvent
 from .experiment import Experiment
 from .experiment_assignment import ExperimentAssignment
@@ -17,13 +19,12 @@ from .position_adjustment import PositionAdjustment
 from .reconciliation_event import ReconciliationEvent
 from .retraining_job import RetrainingJob
 from .risk_metrics import RiskMetrics
-from .data_quality_issue import DataQualityIssue
 from .trade_signal import TradeSignal
-from .audit_entry import AuditEntry
 
 __all__ = [
-    "Base",
     "AuditEntry",
+    "Base",
+    "DataQualityIssue",
     "DriftDetectionEvent",
     "Experiment",
     "ExperimentAssignment",
@@ -37,6 +38,5 @@ __all__ = [
     "ReconciliationEvent",
     "RetrainingJob",
     "RiskMetrics",
-    "DataQualityIssue",
     "TradeSignal",
 ]

@@ -1,6 +1,7 @@
 """SQLAlchemy model for the 'model_versions' table."""
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID as PythonUUID
 
 from sqlalchemy import DateTime, Index, String, Text, UniqueConstraint
@@ -8,7 +9,6 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .models_base import Base
-from typing import Any
 
 
 class ModelVersion(Base):

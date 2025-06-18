@@ -1,12 +1,13 @@
 """Enterprise-grade trade history service with comprehensive data retrieval and caching."""
 
-import hashlib
-import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Sequence
+import hashlib
+import json
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -14,7 +15,6 @@ from gal_friday.dal.repositories.fill_repository import FillRepository
 from gal_friday.exceptions import DataValidationError
 from gal_friday.models.fill import Fill
 from gal_friday.utils.performance_optimizer import LRUCache
-from typing import Any
 
 if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
@@ -76,10 +76,10 @@ class TradeHistoryRequest:
         """Validate request parameters."""
         if self.limit <= 0 or self.limit > 10000:
             raise DataValidationError("Limit must be between 1 and 10000")
-        
+
         if self.offset < 0:
             raise DataValidationError("Offset must be non-negative")
-        
+
         if self.start_date and self.end_date and self.start_date > self.end_date:
             raise DataValidationError("Start date must be before end date")
 
@@ -104,7 +104,7 @@ class TradeHistoryResponse:
 
 class TradeHistoryService:
     """Enterprise-grade trade history service with caching and comprehensive filtering.
-    
+
     Features:
     - Database integration with optimized queries
     - LRU caching for performance optimization
@@ -130,10 +130,10 @@ class TradeHistoryService:
         """
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # Initialize repositories
         self.fill_repository = FillRepository(session_maker, logger)
-        
+
         # Initialize caching
         self.cache = LRUCache[TradeHistoryResponse](maxsize=cache_size)
         self.cache_ttl = timedelta(seconds=cache_ttl_seconds)
@@ -160,7 +160,7 @@ class TradeHistoryService:
         """
         # Generate cache key
         cache_key = self._generate_cache_key(request)
-        
+
         # Check cache first
         cached_response = await self._get_from_cache(cache_key)
         if cached_response:
@@ -171,20 +171,20 @@ class TradeHistoryService:
 
         # Query database
         start_time = datetime.now(UTC)
-        
+
         try:
             # Get fills from database
             fills = await self._query_fills_from_database(request)
-            
+
             # Get total count for pagination
             total_count = await self._get_total_count(request)
-            
+
             # Convert fills to trade records
             trade_records = [self._convert_fill_to_trade_record(fill) for fill in fills]
-            
+
             # Calculate query time
             query_time = (datetime.now(UTC) - start_time).total_seconds()
-            
+
             # Create response
             response = TradeHistoryResponse(
                 trades=trade_records,
@@ -202,20 +202,20 @@ class TradeHistoryService:
                     "query_time_seconds": round(query_time, 3),
                     "cache_key": cache_key,
                 })
-            
+
             # Cache the response
             await self._cache_response(cache_key, response)
-            
+
             self.logger.info(
                 f"Retrieved {len(trade_records)} trades for {request.trading_pair} "
                 f"(total: {total_count}, query_time: {query_time:.3f}s)",
                 source_module=self._source_module)
-            
+
             return response
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Error retrieving trade history for {request.trading_pair}: {e}",
+                f"Error retrieving trade history for {request.trading_pair}: ",
                 source_module=self._source_module)
             raise
 
@@ -227,14 +227,14 @@ class TradeHistoryService:
         limit: int = 1000,
         offset: int = 0) -> list[dict[str, Any]]:
         """Simplified interface for getting trade history for a trading pair.
-        
+
         This method provides a simplified interface that returns the trade data
         in the format expected by the existing PortfolioManager API.
 
         Args:
             trading_pair: Trading pair to get history for
             start_date: Optional start date filter
-            end_date: Optional end date filter  
+            end_date: Optional end date filter
             limit: Maximum number of results
             offset: Number of results to skip
 
@@ -247,9 +247,9 @@ class TradeHistoryService:
             end_date=end_date,
             limit=limit,
             offset=offset)
-        
+
         response = await self.get_trade_history(request)
-        
+
         # Convert to the expected format for PortfolioManager compatibility
         return [
             {
@@ -284,10 +284,10 @@ class TradeHistoryService:
             end_date=end_date,
             limit=10000,  # Get all trades for analytics
         )
-        
+
         response = await self.get_trade_history(request)
         trades = response.trades
-        
+
         if not trades:
             return {
                 "total_trades": 0,
@@ -365,13 +365,12 @@ class TradeHistoryService:
                 end_date=request.end_date,
                 limit=request.limit,
                 offset=request.offset)
-        else:
-            return await self.fill_repository.get_fills_by_trading_pair(
-                trading_pair=request.trading_pair,
-                start_date=request.start_date,
-                end_date=request.end_date,
-                limit=request.limit,
-                offset=request.offset)
+        return await self.fill_repository.get_fills_by_trading_pair(
+            trading_pair=request.trading_pair,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            limit=request.limit,
+            offset=request.offset)
 
     async def _get_total_count(self, request: TradeHistoryRequest) -> int:
         """Get total count of records for pagination."""
@@ -410,4 +409,4 @@ class TradeHistoryService:
             **cache_stats,
             "ttl_seconds": self.cache_ttl.total_seconds(),
             "active_timestamps": len(self._cache_timestamps),
-        } 
+        }

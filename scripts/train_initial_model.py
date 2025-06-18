@@ -6,12 +6,11 @@ trains an XGBoost model, evaluates it, and saves the model artifact.
 """
 
 import logging
-import sys
 from pathlib import Path
+import sys
 
 import joblib
 import pandas as pd
-import xgboost as xgb
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -19,6 +18,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
+import xgboost as xgb
 
 # Error messages and constants
 FEATURE_LIST_ERROR = "Feature list ('training.data.feature_list') not defined in config"
@@ -51,8 +51,8 @@ except ImportError as e:
     # Logging might not be set up here yet, but attempt to use it if possible,
     # otherwise default to stderr for this critical early error.
     if "logging" in sys.modules:
-        logging.error(f"Error importing ConfigManager: {e}")
-        logging.error("Ensure the script is run from the project root or the PYTHONPATH is set correctly.")
+        logging.exception(f"Error importing ConfigManager: {e}")
+        logging.exception("Ensure the script is run from the project root or the PYTHONPATH is set correctly.")
     else:
         sys.stderr.write(f"Error importing ConfigManager: {e}\n")
         sys.stderr.write("Ensure the script is run from the project root or the PYTHONPATH is set correctly.\n")

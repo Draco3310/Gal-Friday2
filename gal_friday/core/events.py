@@ -5,14 +5,14 @@ system components, including market data events, trading signals, and execution 
 All events are implemented as immutable dataclasses with comprehensive validation.
 """
 
-import contextlib  # For SIM105
-import datetime as dt  # For DTZ003
-import uuid
 from collections.abc import Sequence
+import contextlib  # For SIM105
 from dataclasses import dataclass, field
+import datetime as dt  # For DTZ003
 from decimal import Decimal
 from enum import Enum, auto
 from typing import Any
+import uuid
 
 """
 Core Event Definitions for Gal-Friday
@@ -499,9 +499,9 @@ class MarketDataTradeEvent(Event):
         """Validate trade side after initialization."""
         if self.side.lower() not in ["buy", "sell"]:
             raise ValueError(self._INVALID_SIDE_MSG.format(side=self.side))
-        if self.price <= Decimal("0"):
+        if self.price <= Decimal(0):
             raise ValueError(self._NON_POSITIVE_PRICE_MSG.format(price=self.price))
-        if self.volume <= Decimal("0"):
+        if self.volume <= Decimal(0):
             raise ValueError(self._NON_POSITIVE_VOLUME_MSG.format(volume=self.volume))
 
 
@@ -543,7 +543,7 @@ class MarketDataTickerEvent(Event):
         ]
 
         for field_name, price in price_fields:
-            if price <= Decimal("0"):
+            if price <= Decimal(0):
                 # E501
                 error_msg = self._NON_POSITIVE_PRICE_MSG.format(field=field_name, price=price)
                 raise ValueError(error_msg)
@@ -557,7 +557,7 @@ class MarketDataTickerEvent(Event):
         ]
 
         for field_name, size in size_fields:
-            if size < Decimal("0"):
+            if size < Decimal(0):
                 raise ValueError(self._NON_POSITIVE_SIZE_MSG.format(field=field_name, size=size))
 
         # Validate trade count
@@ -1194,7 +1194,7 @@ class APIErrorEvent(Event):
     event_type: EventType = field(default=EventType.SYSTEM_ERROR, init=False)
 
     @classmethod
-    def create(cls, source_module: str, error_message: str, **details: Any) -> "APIErrorEvent":  # noqa: ANN401
+    def create(cls, source_module: str, error_message: str, **details: Any) -> "APIErrorEvent":
         """Create a new APIErrorEvent with a generated UUID and current timestamp.
 
         Args:

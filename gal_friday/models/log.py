@@ -1,13 +1,14 @@
 import datetime
-import uuid  # For LogEvent
 from typing import Any  # For LogEvent context
+import uuid  # For LogEvent
 
 from sqlalchemy import (  # DateTime removed as TIMESTAMPTZ is used
     TIMESTAMP,
     BigInteger,
     Integer,
     String,
-    Text)
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column  # For Mapped type hints
 from sqlalchemy.types import JSON  # Generic JSON type
 
@@ -57,7 +58,7 @@ class Log(Base):
         return LogEvent(
             source_module=self.logger_name,
             event_id=uuid.uuid4(),  # Generate a new UUID for the event
-            timestamp=self.timestamp if self.timestamp is not None else datetime.datetime.utcnow(),
+            timestamp=self.timestamp if self.timestamp is not None else datetime.datetime.now(UTC),
             level=self.level_name.upper(),
             message=self.message,
             context=event_context)

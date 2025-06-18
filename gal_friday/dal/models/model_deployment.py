@@ -1,6 +1,7 @@
 """SQLAlchemy model for the 'model_deployments' table."""
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID as PythonUUID
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
@@ -9,7 +10,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .models_base import Base
-from typing import Any
 
 
 class ModelDeployment(Base):

@@ -3,8 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, NamedTuple
-from typing import cast as typing_cast
+from typing import Any, NamedTuple, cast as typing_cast
 
 import numpy as np
 import pandas as pd
@@ -79,7 +78,7 @@ class DataInterpolator:
         self.config = config
         self.logger = logger
         self._source_module = "DataInterpolator"
-        self.interpolation_stats: Dict[str, Any] = {
+        self.interpolation_stats: dict[str, Any] = {
             "total_gaps_processed": 0,
             "successful_interpolations": 0,
             "failed_interpolations": 0,
@@ -301,12 +300,11 @@ class DataInterpolator:
 
         # Create result DataFrame
         numeric_columns = data.select_dtypes(include=[np.number]).columns
-        result = pd.DataFrame(
+        return pd.DataFrame(
             np.column_stack(interpolated_data),
             index=time_index,
             columns=numeric_columns)
 
-        return result
 
     def _spline_interpolation(
         self, data: pd.DataFrame, time_index: pd.DatetimeIndex) -> pd.DataFrame:
@@ -398,11 +396,10 @@ class DataInterpolator:
         last_values = preceding_data.iloc[-1]
 
         # Create DataFrame with repeated values
-        result = pd.DataFrame(
+        return pd.DataFrame(
             [last_values] * len(time_index),
             index=time_index)
 
-        return result
 
     def _backward_fill_interpolation(self, following_data: pd.DataFrame, time_index: pd.DatetimeIndex) -> pd.DataFrame:
         """Perform backward fill interpolation."""
@@ -413,11 +410,10 @@ class DataInterpolator:
         first_values = following_data.iloc[0]
 
         # Create DataFrame with repeated values
-        result = pd.DataFrame(
+        return pd.DataFrame(
             [first_values] * len(time_index),
             index=time_index)
 
-        return result
 
     def _time_weighted_interpolation(self, data: pd.DataFrame,
                                    time_index: pd.DatetimeIndex,
@@ -493,7 +489,7 @@ class DataInterpolator:
                     diffs: pd.Series[Any] = col_series.diff().abs()
                     max_diff_val: Any = diffs.max()
                     max_diff = float(max_diff_val) if pd.notna(max_diff_val) else 0.0
-                    
+
                     combined_col: pd.Series[Any] = combined_data[column]
                     quantile_val: Any = combined_col.diff().abs().quantile(0.95)
                     typical_diff = float(quantile_val) if pd.notna(quantile_val) else 0.0
@@ -506,8 +502,8 @@ class DataInterpolator:
 
             return True
 
-        except Exception as e:
-            self.logger.error(f"Error validating interpolated data: {e}", source_module=self._source_module)
+        except Exception:
+            self.logger.exception("Error validating interpolated data: ", source_module=self._source_module)
             return False
 
     def _add_interpolation_metadata(self, data: pd.DataFrame, method: InterpolationMethod, gap_info: GapInfo) -> pd.DataFrame:
@@ -657,7 +653,7 @@ class GapDetector:
 
         # Basic statistics
         total_duration = sum((g.duration for g in gaps), timedelta())
-        durations = [g.duration.total_seconds() for g in gaps]
+        [g.duration.total_seconds() for g in gaps]
 
         durations_seconds = [g.duration.total_seconds() for g in gaps] # ensure list[Any] is not empty before np.mean
         avg_duration_seconds = np.mean(durations_seconds) if durations_seconds else 0.0
@@ -891,9 +887,8 @@ class GapDetector:
             max_gap_duration: Maximum gap duration to interpolate
             quality_threshold: Minimum data quality threshold for interpolation
         """
-        if method_overrides is not None:
-            if self.interpolator.config.method_overrides is not None:
-                self.interpolator.config.method_overrides.update(method_overrides)
+        if method_overrides is not None and self.interpolator.config.method_overrides is not None:
+            self.interpolator.config.method_overrides.update(method_overrides)
 
         if max_gap_duration is not None:
             self.interpolator.config.max_gap_duration = max_gap_duration
@@ -919,22 +914,21 @@ class GapDetector:
         if not mode_interval_series.empty:
             # Convert pandas.Timedelta to datetime.timedelta
             # Access first item and convert to timedelta
-            first_mode = typing_cast(Any, mode_interval_series.iloc[0])
-            if hasattr(first_mode, 'to_pytimedelta'):
+            first_mode = typing_cast("Any", mode_interval_series.iloc[0])
+            if hasattr(first_mode, "to_pytimedelta"):
                 py_delta = first_mode.to_pytimedelta()
+            # If already a timedelta or similar
+            elif pd.notna(first_mode):
+                py_delta = pd.Timedelta(first_mode).to_pytimedelta()
             else:
-                # If already a timedelta or similar
-                if pd.notna(first_mode):
-                    py_delta = pd.Timedelta(first_mode).to_pytimedelta()
-                else:
-                    py_delta = timedelta(minutes=1)  # Default fallback
+                py_delta = timedelta(minutes=1)  # Default fallback
             return typing_cast("timedelta", py_delta) # Cast to timedelta
 
         # Fallback to median if mode is empty (e.g., all intervals are unique)
         # Since intervals is guaranteed to be non-empty at this point,
         # median() will always return a valid value
         median_val = intervals.median()
-        if hasattr(median_val, 'to_pytimedelta'):
+        if hasattr(median_val, "to_pytimedelta"):
             py_delta = median_val.to_pytimedelta()
         else:
             py_delta = pd.Timedelta(median_val).to_pytimedelta()
@@ -944,7 +938,7 @@ class GapDetector:
         """Detect pandas frequency string."""
         intervals = timestamps.diff().dropna()
         median_interval = intervals.median()
-        if hasattr(median_interval, 'total_seconds'):
+        if hasattr(median_interval, "total_seconds"):
             median_seconds = median_interval.total_seconds()
         else:
             # Convert to Timedelta if needed
@@ -1002,9 +996,9 @@ class GapDetector:
                 patterns.append({
                     "type": "day_of_week",
                     "day": day,
-                    "day_name": day_names[int(day)] if isinstance(day, (int, np.integer)) else str(day),
+                    "day_name": day_names[int(day)] if isinstance(day, int | np.integer) else str(day),
                     "occurrences": count,
-                    "description": f"Frequent gaps on {day_names[int(day)] if isinstance(day, (int, np.integer)) else str(day)}",
+                    "description": f"Frequent gaps on {day_names[int(day)] if isinstance(day, int | np.integer) else str(day)}",
                 })
 
         return patterns

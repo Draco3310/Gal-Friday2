@@ -1,15 +1,16 @@
 """Database connection pool management."""
 
-import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
+import asyncio
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
-    create_async_engine)
+    create_async_engine,
+)
 
 from gal_friday.config_manager import ConfigManager
 

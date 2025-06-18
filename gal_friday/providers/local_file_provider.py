@@ -1,24 +1,22 @@
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import pandas as pd
 
-from ..simulated_market_price_service import (
-    DataRequest,
-    HistoricalDataPoint,
-    HistoricalDataProvider)
+from gal_friday.simulated_market_price_service import DataRequest, HistoricalDataPoint, HistoricalDataProvider
 
 
 class LocalFileDataProvider(HistoricalDataProvider):
     """Load historical data from a local file."""
 
-    def __init__(self, config: Dict[str, Any], logger: logging.Logger) -> None:
+    def __init__(self, config: dict[str, Any], logger: logging.Logger) -> None:
+        """Initialize the instance."""
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
 
-    async def fetch_data(self, request: DataRequest) -> List[HistoricalDataPoint]:
+    async def fetch_data(self, request: DataRequest) -> list[HistoricalDataPoint]:
         """Fetch data for ``request`` from the configured local file."""
         path_str = self.config.get("local_file_path")
         if not path_str:
@@ -35,7 +33,7 @@ class LocalFileDataProvider(HistoricalDataProvider):
                 self.logger.error("Unsupported file format: %s", path.suffix)
                 return []
         except Exception as exc:  # pragma: no cover - simple logging
-            self.logger.error("Failed reading %s: %s", path, exc)
+            self.logger.exception("Failed reading %s: %s", path, exc)
             return []
 
         if "symbol" in df.columns:
@@ -43,7 +41,7 @@ class LocalFileDataProvider(HistoricalDataProvider):
         if "timestamp" in df.columns:
             df = df[(df["timestamp"] >= request.start_date) & (df["timestamp"] <= request.end_date)]
 
-        data: List[HistoricalDataPoint] = [
+        data: list[HistoricalDataPoint] = [
             HistoricalDataPoint(
                 timestamp=row["timestamp"],
                 symbol=request.symbol,
@@ -68,6 +66,4 @@ class LocalFileDataProvider(HistoricalDataProvider):
             df = pd.read_csv(path, nrows=1)
         except Exception:  # pragma: no cover - best effort
             return False
-        if "symbol" in df.columns:
-            return True
-        return False
+        return "symbol" in df.columns

@@ -18,7 +18,7 @@ except ImportError:
     torch = None
 
 # Local application imports
-from ..interfaces.predictor_interface import PredictorInterface
+from gal_friday.interfaces.predictor_interface import PredictorInterface
 
 # Type variable for exception classes
 E = TypeVar("E", bound=Exception)

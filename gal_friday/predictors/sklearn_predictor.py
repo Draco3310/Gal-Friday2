@@ -5,8 +5,8 @@ with the prediction service to generate trade signals based on
 scikit-learn models.
 """
 
-import logging
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -416,11 +416,11 @@ class SKLearnPredictor(PredictorInterface):
         model_id: str) -> tuple[float | None, float | None, dict[str, Any] | None]:
         """Make prediction for models without predict_proba method."""
         prediction_output = model.predict(processed_features)
-        
+
         # Handle scalar output first (including native Python types)
-        if isinstance(prediction_output, (float, int)):
+        if isinstance(prediction_output, float | int):
             return float(prediction_output), None, None
-        
+
         # Handle numpy array output
         if isinstance(prediction_output, np.ndarray):
             if prediction_output.size == 1:
@@ -519,7 +519,7 @@ class SKLearnPredictor(PredictorInterface):
                 cast("Model", model),
                 processed_features,
                 request.model_id)
-            
+
             if error:
                 result.update(error)
                 result["error"] = cls._ERROR_MSG_PREDICTION
@@ -537,7 +537,7 @@ class SKLearnPredictor(PredictorInterface):
                 prediction,
                 confidence)
             return result
-            
+
         except FileNotFoundError as e:
             result["error"] = f"File not found: {e!s}"
             logger.exception(result["error"])

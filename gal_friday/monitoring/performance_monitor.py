@@ -4,18 +4,18 @@ This module tracks system performance metrics, trading performance,
 and provides insights for optimization.
 """
 
-import asyncio
+from collections import defaultdict, deque
 import contextlib
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from enum import Enum
 import gc
 import statistics
 import time
 import types
-from collections import defaultdict, deque
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+import asyncio
 import psutil
 
 if TYPE_CHECKING:
@@ -25,7 +25,6 @@ from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import Event, EventType
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
-from typing import Any
 
 
 class MetricType(Enum):
@@ -317,7 +316,7 @@ class PerformanceMonitor:
             self.pubsub.subscribe(event_type, track_event_processing)
 
     def timer(
-        self, metric_type: MetricType, **tags: str | int | float | bool) -> PerformanceTimer:
+        self, metric_type: MetricType, **tags: str | float | bool) -> PerformanceTimer:
         """Create a performance timer context manager."""
         return PerformanceTimer(self.collector, metric_type, tags)
 
@@ -325,7 +324,7 @@ class PerformanceMonitor:
         self,
         metric_type: MetricType,
         value: float,
-        **tags: str | int | float | bool) -> None:
+        **tags: str | float | bool) -> None:
         """Record a performance metric."""
         self.collector.record(metric_type, value, tags)
 

@@ -4,9 +4,9 @@ This module tests the risk manager's signal approval/rejection logic
 and position sizing calculations.
 """
 
-import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+import uuid
 
 import pytest
 
@@ -39,7 +39,7 @@ class TestRiskManager:
     def test_position_sizing_calculation(self, sample_proposed_signal):
         """Test position size calculation based on risk parameters."""
         # Risk parameters
-        account_balance = Decimal("100000")
+        account_balance = Decimal(100000)
         risk_per_trade_pct = Decimal("0.5")  # 0.5%
 
         # Calculate position size
@@ -52,7 +52,7 @@ class TestRiskManager:
         position_size = risk_amount / risk_per_unit
 
         # Expected: $500 risk / $0.01 per unit = 50,000 units
-        assert position_size == Decimal("50000")
+        assert position_size == Decimal(50000)
 
     def test_signal_rejection_max_positions(self):
         """Test signal rejection when max positions reached."""
@@ -66,7 +66,7 @@ class TestRiskManager:
 
     def test_drawdown_based_position_sizing(self):
         """Test position size reduction during drawdown."""
-        base_size = Decimal("1000")
+        base_size = Decimal(1000)
         current_drawdown = Decimal("5.0")  # 5% drawdown
 
         # Simple linear reduction: reduce by 50% at 10% drawdown
@@ -74,7 +74,7 @@ class TestRiskManager:
         adjusted_size = base_size * (1 - reduction_factor * Decimal("0.5"))
 
         # At 5% drawdown, expect 75% of base size
-        assert adjusted_size == Decimal("750")
+        assert adjusted_size == Decimal(750)
 
 
 class TestSignalValidation:

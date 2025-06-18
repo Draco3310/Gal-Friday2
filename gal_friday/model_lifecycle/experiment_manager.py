@@ -1,12 +1,5 @@
 """A/B Testing Experiment Manager for model comparison."""
 
-import asyncio
-import gc
-import random
-import time
-import uuid
-import weakref
-from abc import ABC, abstractmethod
 from collections.abc import (
     Callable,
     Coroutine,
@@ -17,8 +10,19 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Set, TypeVar, cast
+import gc
+import random
+import time
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Protocol,
+    TypeVar,
+    cast,
+)
+import uuid
 
+import asyncio
 import numpy as np
 from scipy import stats
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker  # Added
@@ -31,7 +35,6 @@ from gal_friday.core.pubsub import PubSubManager
 from gal_friday.dal.models.experiment import Experiment as ExperimentModel
 from gal_friday.dal.repositories.experiment_repository import ExperimentRepository
 from gal_friday.logger_service import LoggerService
-from typing import Any
 
 if TYPE_CHECKING:
     from gal_friday.model_lifecycle.registry import (
@@ -82,7 +85,7 @@ class SubscriptionInfo:
     created_time: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
     state: HandlerState = HandlerState.ACTIVE
-    metadata: Dict[str, Any] = field(default_factory=dict[str, Any])
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass
@@ -90,9 +93,9 @@ class UnsubscribeResult:
     """Detailed result of unsubscribe operation for monitoring and debugging."""
     subscription_id: str
     success: bool
-    error_message: Optional[str] = None
+    error_message: str | None = None
     cleanup_time: float = 0.0
-    resources_freed: Dict[str, Any] = field(default_factory=dict[str, Any])
+    resources_freed: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 class PredictionHandlerProtocol(Protocol):
@@ -106,7 +109,7 @@ class PredictionHandlerProtocol(Protocol):
         """Cleanup handler resources including memory and connections."""
         ...
 
-    def get_subscription_info(self) -> Dict[str, Any]:
+    def get_subscription_info(self) -> dict[str, Any]:
         """Get detailed handler subscription information."""
         ...
 
@@ -115,12 +118,13 @@ class SubscriptionManager:
     """Enterprise-grade manager for all prediction handler subscriptions."""
 
     def __init__(self, logger_service: LoggerService) -> None:
+        """Initialize the instance."""
         self.logger = logger_service
         self._source_module = "SubscriptionManager"
 
         # Subscription tracking with thread-safe operations
-        self.subscriptions: Dict[str, SubscriptionInfo] = {}
-        self.handlers: Dict[str, PredictionHandlerProtocol] = {}
+        self.subscriptions: dict[str, SubscriptionInfo] = {}
+        self.handlers: dict[str, PredictionHandlerProtocol] = {}
         self.subscription_lock = asyncio.Lock()
 
         # Shutdown management
@@ -128,18 +132,17 @@ class SubscriptionManager:
         self.shutdown_timeout = 30.0  # seconds
 
         # Enterprise statistics tracking
-        self.unsubscribe_stats: Dict[str, Any] = {
-            'total_unsubscribes': 0,
-            'successful_unsubscribes': 0,
-            'failed_unsubscribes': 0,
-            'forced_shutdowns': 0,
-            'resources_freed': {}
+        self.unsubscribe_stats: dict[str, Any] = {
+            "total_unsubscribes": 0,
+            "successful_unsubscribes": 0,
+            "failed_unsubscribes": 0,
+            "forced_shutdowns": 0,
+            "resources_freed": {},
         }
 
     async def register_subscription(self, subscription_info: SubscriptionInfo,
                                   handler: PredictionHandlerProtocol) -> None:
         """Register a new prediction handler subscription with full tracking."""
-
         async with self.subscription_lock:
             self.subscriptions[subscription_info.subscription_id] = subscription_info
             self.handlers[subscription_info.handler_id] = handler
@@ -150,13 +153,12 @@ class SubscriptionManager:
                 context={
                     "subscription_type": subscription_info.subscription_type.value,
                     "handler_id": subscription_info.handler_id,
-                    "topic": subscription_info.topic
-                }
+                    "topic": subscription_info.topic,
+                },
             )
 
     async def unsubscribe_handler(self, subscription_id: str, force: bool = False) -> UnsubscribeResult:
         """Unsubscribe a specific prediction handler with comprehensive error handling."""
-
         start_time = time.time()
 
         try:
@@ -165,7 +167,7 @@ class SubscriptionManager:
                     return UnsubscribeResult(
                         subscription_id=subscription_id,
                         success=False,
-                        error_message="Subscription not found"
+                        error_message="Subscription not found",
                     )
 
                 subscription = self.subscriptions[subscription_id]
@@ -176,12 +178,12 @@ class SubscriptionManager:
                     del self.subscriptions[subscription_id]
                     self.logger.warning(
                         f"Cleaned up orphaned subscription: {subscription_id}",
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
                     return UnsubscribeResult(
                         subscription_id=subscription_id,
                         success=True,
-                        cleanup_time=time.time() - start_time
+                        cleanup_time=time.time() - start_time,
                     )
 
                 # Mark as stopping
@@ -192,13 +194,13 @@ class SubscriptionManager:
                     if not force:
                         await asyncio.wait_for(
                             handler.stop(),
-                            timeout=self.shutdown_timeout / 2
+                            timeout=self.shutdown_timeout / 2,
                         )
 
                     # Cleanup resources with timeout
                     await asyncio.wait_for(
                         handler.cleanup(),
-                        timeout=self.shutdown_timeout / 4
+                        timeout=self.shutdown_timeout / 4,
                     )
 
                     # Remove from tracking
@@ -209,38 +211,38 @@ class SubscriptionManager:
 
                     # Get resource info before cleanup
                     resources_freed = {}
-                    if hasattr(handler, 'get_subscription_info'):
+                    if hasattr(handler, "get_subscription_info"):
                         try:
                             resources_freed = handler.get_subscription_info()
                         except Exception as e:
                             self.logger.warning(
                                 f"Failed to get subscription info during cleanup: {e}",
-                                source_module=self._source_module
+                                source_module=self._source_module,
                             )
 
                     result = UnsubscribeResult(
                         subscription_id=subscription_id,
                         success=True,
                         cleanup_time=time.time() - start_time,
-                        resources_freed=resources_freed
+                        resources_freed=resources_freed,
                     )
 
-                    self.unsubscribe_stats['successful_unsubscribes'] = self.unsubscribe_stats.get('successful_unsubscribes', 0) + 1
+                    self.unsubscribe_stats["successful_unsubscribes"] = self.unsubscribe_stats.get("successful_unsubscribes", 0) + 1
                     self.logger.info(
                         f"Successfully unsubscribed handler: {subscription_id}",
                         source_module=self._source_module,
                         context={
                             "cleanup_time": result.cleanup_time,
-                            "resources_freed": bool(resources_freed)
-                        }
+                            "resources_freed": bool(resources_freed),
+                        },
                     )
 
                     return result
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Force shutdown if timeout
                     subscription.state = HandlerState.ERROR
-                    self.unsubscribe_stats['forced_shutdowns'] = self.unsubscribe_stats.get('forced_shutdowns', 0) + 1
+                    self.unsubscribe_stats["forced_shutdowns"] = self.unsubscribe_stats.get("forced_shutdowns", 0) + 1
 
                     # Still remove from tracking to prevent leaks
                     if subscription_id in self.subscriptions:
@@ -251,54 +253,55 @@ class SubscriptionManager:
                     self.logger.warning(
                         f"Forced shutdown of handler due to timeout: {subscription_id}",
                         source_module=self._source_module,
-                        context={"timeout": self.shutdown_timeout}
+                        context={"timeout": self.shutdown_timeout},
                     )
 
                     return UnsubscribeResult(
                         subscription_id=subscription_id,
                         success=True,  # Consider forced shutdown as success
                         error_message="Forced shutdown due to timeout",
-                        cleanup_time=time.time() - start_time
+                        cleanup_time=time.time() - start_time,
                     )
 
                 except Exception as e:
                     subscription.state = HandlerState.ERROR
-                    self.unsubscribe_stats['failed_unsubscribes'] = self.unsubscribe_stats.get('failed_unsubscribes', 0) + 1
+                    self.unsubscribe_stats["failed_unsubscribes"] = self.unsubscribe_stats.get("failed_unsubscribes", 0) + 1
 
                     self.logger.error(
                         f"Error unsubscribing handler {subscription_id}: {e}",
                         source_module=self._source_module,
-                        exc_info=True
+                        exc_info=True,
                     )
 
                     return UnsubscribeResult(
                         subscription_id=subscription_id,
                         success=False,
                         error_message=str(e),
-                        cleanup_time=time.time() - start_time
+                        cleanup_time=time.time() - start_time,
                     )
 
         except Exception as e:
             self.logger.error(
                 f"Critical error during unsubscribe: {e}",
                 source_module=self._source_module,
-                exc_info=True
+                exc_info=True,
             )
             return UnsubscribeResult(
                 subscription_id=subscription_id,
                 success=False,
                 error_message=f"Critical error: {e}",
-                cleanup_time=time.time() - start_time
+                cleanup_time=time.time() - start_time,
             )
 
         finally:
-            self.unsubscribe_stats['total_unsubscribes'] = self.unsubscribe_stats.get('total_unsubscribes', 0) + 1
+            self.unsubscribe_stats["total_unsubscribes"] = self.unsubscribe_stats.get("total_unsubscribes", 0) + 1
 
 
 class ExperimentShutdownManager:
     """Enterprise-grade shutdown manager for experiment prediction handlers."""
 
     def __init__(self, subscription_manager: SubscriptionManager) -> None:
+        """Initialize the instance."""
         self.subscription_manager = subscription_manager
         self.logger = subscription_manager.logger
         self._source_module = "ExperimentShutdownManager"
@@ -308,17 +311,15 @@ class ExperimentShutdownManager:
         self.batch_size = 5  # Number of handlers to shutdown concurrently
         self.grace_period = 2.0  # Time between shutdown batches
 
-    async def shutdown_all_handlers(self) -> Dict[str, UnsubscribeResult]:
-        """
-        Shutdown all prediction handlers with comprehensive error handling and batching.
+    async def shutdown_all_handlers(self) -> dict[str, UnsubscribeResult]:
+        """Shutdown all prediction handlers with comprehensive error handling and batching.
         Replaces the pass statement with enterprise-grade unsubscribe logic.
         """
-
         try:
             self.subscription_manager.shutdown_in_progress = True
             self.logger.info(
                 "Starting comprehensive shutdown of all prediction handlers",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
             # Get all active subscriptions
@@ -331,14 +332,14 @@ class ExperimentShutdownManager:
             if not active_subscriptions:
                 self.logger.info(
                     "No active handlers to shutdown",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
                 return {}
 
             self.logger.info(
                 f"Shutting down {len(active_subscriptions)} prediction handlers",
                 source_module=self._source_module,
-                context={"handler_count": len(active_subscriptions)}
+                context={"handler_count": len(active_subscriptions)},
             )
 
             # Shutdown in batches for better resource management
@@ -351,7 +352,7 @@ class ExperimentShutdownManager:
 
                 self.logger.info(
                     f"Shutting down batch {batch_num}/{batch_count}: {len(batch)} handlers",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
 
                 # Shutdown batch concurrently
@@ -363,21 +364,20 @@ class ExperimentShutdownManager:
                 try:
                     batch_results = await asyncio.wait_for(
                         asyncio.gather(*batch_tasks, return_exceptions=True),
-                        timeout=self.shutdown_timeout / batch_count
+                        timeout=self.shutdown_timeout / batch_count,
                     )
 
                     # Process batch results
-                    for sub_id, result in zip(batch, batch_results):
+                    for sub_id, result in zip(batch, batch_results, strict=False):
                         if isinstance(result, Exception):
                             results[sub_id] = UnsubscribeResult(
                                 subscription_id=sub_id,
                                 success=False,
-                                error_message=str(result)
+                                error_message=str(result),
                             )
                             self.logger.error(
                                 f"Batch shutdown exception for {sub_id}: {result}",
                                 source_module=self._source_module,
-                                exc_info=True
                             )
                         elif isinstance(result, UnsubscribeResult):
                             results[sub_id] = result
@@ -386,14 +386,14 @@ class ExperimentShutdownManager:
                             results[sub_id] = UnsubscribeResult(
                                 subscription_id=sub_id,
                                 success=False,
-                                error_message=f"Unexpected result type: {type(result)}"
+                                error_message=f"Unexpected result type: {type(result)}",
                             )
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Handle batch timeout - force shutdown remaining handlers
                     self.logger.warning(
                         f"Batch {batch_num} timeout - forcing shutdown of remaining handlers",
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
 
                     for sub_id in batch:
@@ -415,8 +415,8 @@ class ExperimentShutdownManager:
                 context={
                     "successful_shutdowns": successful,
                     "failed_shutdowns": failed,
-                    "total_handlers": len(results)
-                }
+                    "total_handlers": len(results),
+                },
             )
 
             # Force cleanup any remaining subscriptions
@@ -428,7 +428,7 @@ class ExperimentShutdownManager:
             self.logger.error(
                 f"Critical error during shutdown: {e}",
                 source_module=self._source_module,
-                exc_info=True
+                exc_info=True,
             )
             # Emergency cleanup
             await self._emergency_cleanup()
@@ -439,7 +439,6 @@ class ExperimentShutdownManager:
 
     async def _cleanup_remaining_subscriptions(self) -> None:
         """Cleanup any remaining subscriptions after shutdown."""
-
         async with self.subscription_manager.subscription_lock:
             remaining = list[Any](self.subscription_manager.subscriptions.keys())
 
@@ -447,25 +446,22 @@ class ExperimentShutdownManager:
                 self.logger.warning(
                     f"Force cleaning {len(remaining)} remaining subscriptions",
                     source_module=self._source_module,
-                    context={"remaining_subscriptions": remaining}
+                    context={"remaining_subscriptions": remaining},
                 )
 
                 for sub_id in remaining:
-                    try:
+                    with suppress(KeyError):
                         del self.subscription_manager.subscriptions[sub_id]
-                    except KeyError:
-                        pass
 
                 # Clear handlers
                 self.subscription_manager.handlers.clear()
 
     async def _emergency_cleanup(self) -> None:
         """Emergency cleanup in case of critical errors."""
-
         try:
             self.logger.critical(
                 "Performing emergency cleanup of all subscriptions",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
             # Clear all tracking data
@@ -479,7 +475,7 @@ class ExperimentShutdownManager:
             self.logger.critical(
                 f"Emergency cleanup failed: {e}",
                 source_module=self._source_module,
-                exc_info=True
+                exc_info=True,
             )
 
 
@@ -487,6 +483,7 @@ class PredictionHandlerUnsubscriber:
     """Main class for handling prediction handler unsubscribe operations."""
 
     def __init__(self, logger_service: LoggerService) -> None:
+        """Initialize the instance."""
         self.logger = logger_service
         self._source_module = "PredictionHandlerUnsubscriber"
         self.subscription_manager = SubscriptionManager(logger_service)
@@ -494,22 +491,20 @@ class PredictionHandlerUnsubscriber:
 
         # Health monitoring
         self.health_check_interval = 30.0
-        self.health_check_task: Optional[asyncio.Task[Any]] = None
+        self.health_check_task: asyncio.Task[Any] | None = None
 
     async def initialize(self) -> None:
         """Initialize the unsubscriber with health monitoring."""
         self.health_check_task = asyncio.create_task(self._health_monitor())
         self.logger.info(
             "Initialized prediction handler unsubscriber with health monitoring",
-            source_module=self._source_module
+            source_module=self._source_module,
         )
 
     async def unsubscribe_prediction_handler(self, handler_id: str) -> bool:
-        """
-        Unsubscribe specific prediction handler.
+        """Unsubscribe specific prediction handler.
         Implements the logic that was missing at line 230.
         """
-
         try:
             # Find subscription by handler ID
             subscription_id = None
@@ -522,7 +517,7 @@ class PredictionHandlerUnsubscriber:
             if not subscription_id:
                 self.logger.warning(
                     f"No subscription found for handler: {handler_id}",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
                 return True  # Consider as success if already cleaned
 
@@ -535,13 +530,13 @@ class PredictionHandlerUnsubscriber:
                     source_module=self._source_module,
                     context={
                         "cleanup_time": result.cleanup_time,
-                        "resources_freed": bool(result.resources_freed)
-                    }
+                        "resources_freed": bool(result.resources_freed),
+                    },
                 )
             else:
                 self.logger.error(
                     f"Failed to unsubscribe handler {handler_id}: {result.error_message}",
-                    source_module=self._source_module
+                    source_module=self._source_module,
                 )
 
             return result.success
@@ -550,52 +545,47 @@ class PredictionHandlerUnsubscriber:
             self.logger.error(
                 f"Error unsubscribing prediction handler {handler_id}: {e}",
                 source_module=self._source_module,
-                exc_info=True
+                exc_info=True,
             )
             return False
 
     async def shutdown(self) -> None:
-        """
-        Complete shutdown with comprehensive unsubscribe logic.
+        """Complete shutdown with comprehensive unsubscribe logic.
         Replaces pass statement with full enterprise implementation.
         """
-
         try:
             self.logger.info(
                 "Starting experiment manager shutdown with comprehensive unsubscribe logic",
-                source_module=self._source_module
+                source_module=self._source_module,
             )
 
             # Stop health monitoring
             if self.health_check_task and not self.health_check_task.done():
                 self.health_check_task.cancel()
-                try:
+                with suppress(asyncio.CancelledError):
                     await self.health_check_task
-                except asyncio.CancelledError:
-                    pass
 
             # Shutdown all handlers
-            results = await self.shutdown_manager.shutdown_all_handlers()
+            await self.shutdown_manager.shutdown_all_handlers()
 
             # Log final statistics
             stats = self.get_unsubscribe_statistics()
             self.logger.info(
                 f"Shutdown complete with statistics: {stats}",
                 source_module=self._source_module,
-                context=stats
+                context=stats,
             )
 
         except Exception as e:
             self.logger.error(
                 f"Error during comprehensive shutdown: {e}",
                 source_module=self._source_module,
-                exc_info=True
+                exc_info=True,
             )
             raise
 
     async def _health_monitor(self) -> None:
         """Monitor health of subscriptions and cleanup stale ones."""
-
         while True:
             try:
                 await asyncio.sleep(self.health_check_interval)
@@ -614,7 +604,7 @@ class PredictionHandlerUnsubscriber:
                 for sub_id in stale_subscriptions:
                     self.logger.warning(
                         f"Cleaning up stale subscription: {sub_id}",
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
                     await self.subscription_manager.unsubscribe_handler(sub_id)
 
@@ -624,17 +614,16 @@ class PredictionHandlerUnsubscriber:
                 self.logger.error(
                     f"Error in health monitor: {e}",
                     source_module=self._source_module,
-                    exc_info=True
+                    exc_info=True,
                 )
 
-    def get_unsubscribe_statistics(self) -> Dict[str, Any]:
+    def get_unsubscribe_statistics(self) -> dict[str, Any]:
         """Get comprehensive unsubscribe and health statistics."""
-
         return {
             **self.subscription_manager.unsubscribe_stats,
-            'active_subscriptions': len(self.subscription_manager.subscriptions),
-            'active_handlers': len(self.subscription_manager.handlers),
-            'shutdown_in_progress': self.subscription_manager.shutdown_in_progress
+            "active_subscriptions": len(self.subscription_manager.subscriptions),
+            "active_handlers": len(self.subscription_manager.handlers),
+            "shutdown_in_progress": self.subscription_manager.shutdown_in_progress,
         }
 
 
@@ -667,7 +656,7 @@ class VariantPerformance:
     # Trading performance
     signals_generated: int = 0
     profitable_trades: int = 0
-    total_return: Decimal = Decimal("0")
+    total_return: Decimal = Decimal(0)
     sharpe_ratio: Decimal | None = None
     max_drawdown: Decimal | None = None
 
@@ -770,12 +759,13 @@ class ExperimentManager:
                 handler_id="experiment_prediction_router",
                 subscription_type=SubscriptionType.PREDICTION_HANDLER,
                 topic="prediction_routing",
-                callback=self._prediction_handler
+                callback=self._prediction_handler,
             )
 
             # Create a wrapper that implements the PredictionHandlerProtocol
             class PredictionHandlerWrapper:
                 def __init__(self, handler_func: Callable[..., Any], logger: LoggerService) -> None:
+                    """Initialize the instance."""
                     self.handler_func = handler_func
                     self.logger = logger
                     self._stopped = False
@@ -792,12 +782,12 @@ class ExperimentManager:
                     self._cleaned_up = True
                     self.logger.info("Prediction handler resources cleaned up", source_module="PredictionHandlerWrapper")
 
-                def get_subscription_info(self) -> Dict[str, Any]:
+                def get_subscription_info(self) -> dict[str, Any]:
                     """Get subscription information."""
                     return {
                         "handler_type": "prediction_router",
                         "stopped": self._stopped,
-                        "memory_refs": 0 if self._cleaned_up else 1
+                        "memory_refs": 0 if self._cleaned_up else 1,
                     }
 
             handler_wrapper = PredictionHandlerWrapper(self._prediction_handler, self.logger)
@@ -813,7 +803,7 @@ class ExperimentManager:
         """Stop the experiment manager with comprehensive unsubscribe logic."""
         self.logger.info(
             "Starting experiment manager shutdown with comprehensive prediction handler cleanup",
-            source_module=self._source_module
+            source_module=self._source_module,
         )
 
         # Cancel monitoring task first
@@ -831,12 +821,12 @@ class ExperimentManager:
                 if unsubscribe_success:
                     self.logger.info(
                         "Successfully unsubscribed experiment prediction handler",
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
                 else:
                     self.logger.warning(
                         "Failed to unsubscribe experiment prediction handler",
-                        source_module=self._source_module
+                        source_module=self._source_module,
                     )
 
                 # Comprehensive shutdown of all prediction handlers
@@ -852,19 +842,19 @@ class ExperimentManager:
                     "Experiment manager shutdown complete with comprehensive unsubscribe statistics",
                     source_module=self._source_module,
                     context={
-                        "total_unsubscribes": stats.get('total_unsubscribes', 0),
-                        "successful_unsubscribes": stats.get('successful_unsubscribes', 0),
-                        "failed_unsubscribes": stats.get('failed_unsubscribes', 0),
-                        "forced_shutdowns": stats.get('forced_shutdowns', 0),
-                        "active_subscriptions_remaining": stats.get('active_subscriptions', 0)
-                    }
+                        "total_unsubscribes": stats.get("total_unsubscribes", 0),
+                        "successful_unsubscribes": stats.get("successful_unsubscribes", 0),
+                        "failed_unsubscribes": stats.get("failed_unsubscribes", 0),
+                        "forced_shutdowns": stats.get("forced_shutdowns", 0),
+                        "active_subscriptions_remaining": stats.get("active_subscriptions", 0),
+                    },
                 )
 
             except Exception as e:
                 self.logger.error(
                     f"Error during comprehensive prediction handler unsubscribe: {e}",
                     source_module=self._source_module,
-                    exc_info=True
+                    exc_info=True,
                 )
                 # Continue with shutdown even if unsubscribe fails
 
@@ -873,12 +863,11 @@ class ExperimentManager:
 
         self.logger.info(
             "Experiment manager shutdown completed",
-            source_module=self._source_module
+            source_module=self._source_module,
         )
 
     async def unsubscribe_prediction_handler(self, handler_id: str) -> bool:
-        """
-        Manually unsubscribe a specific prediction handler during runtime.
+        """Manually unsubscribe a specific prediction handler during runtime.
 
         Args:
             handler_id: ID of the handler to unsubscribe
@@ -890,15 +879,14 @@ class ExperimentManager:
             self.logger.warning(
                 "Cannot unsubscribe handler: unsubscriber not initialized",
                 source_module=self._source_module,
-                context={"handler_id": handler_id}
+                context={"handler_id": handler_id},
             )
             return False
 
         return await self._unsubscriber.unsubscribe_prediction_handler(handler_id)
 
-    def get_subscription_statistics(self) -> Dict[str, Any]:
-        """
-        Get current subscription and unsubscribe statistics.
+    def get_subscription_statistics(self) -> dict[str, Any]:
+        """Get current subscription and unsubscribe statistics.
 
         Returns:
             dict[str, Any]: Statistics about subscriptions and unsubscribe operations
@@ -943,14 +931,14 @@ class ExperimentManager:
             experiment_data_dict = exp_data
             # Ensure UUIDs are actual UUID objects if repo expects them
             if "experiment_id" in experiment_data_dict and isinstance(
-                experiment_data_dict["experiment_id"], str
+                experiment_data_dict["experiment_id"], str,
             ):
                 experiment_data_dict["experiment_id"] = uuid.UUID(
-                    experiment_data_dict["experiment_id"]
+                    experiment_data_dict["experiment_id"],
                 )
             for key in ["control_model_id", "treatment_model_id"]:
                 if key in experiment_data_dict and isinstance(
-                    experiment_data_dict[key], str
+                    experiment_data_dict[key], str,
                 ):
                     experiment_data_dict[key] = uuid.UUID(experiment_data_dict[key])
 
@@ -961,16 +949,16 @@ class ExperimentManager:
 
             # Dates should be datetime objects
             if "start_time" in experiment_data_dict and isinstance(
-                experiment_data_dict["start_time"], str
+                experiment_data_dict["start_time"], str,
             ):
                 experiment_data_dict["start_time"] = datetime.fromisoformat(
-                    experiment_data_dict["start_time"]
+                    experiment_data_dict["start_time"],
                 )
             if "end_time" in experiment_data_dict and isinstance(
-                experiment_data_dict["end_time"], str
+                experiment_data_dict["end_time"], str,
             ):
                 experiment_data_dict["end_time"] = datetime.fromisoformat(
-                    experiment_data_dict["end_time"]
+                    experiment_data_dict["end_time"],
                 )
 
 
@@ -1082,10 +1070,7 @@ class ExperimentManager:
                 variant = self._select_variant(event, config)
 
                 # Route to appropriate model
-                if variant == "control":
-                    model_id = config.control_model_id
-                else:
-                    model_id = config.treatment_model_id
+                model_id = config.control_model_id if variant == "control" else config.treatment_model_id
 
                 # Record assignment
                 await self._record_assignment(exp_id, variant, event)
@@ -1139,7 +1124,7 @@ class ExperimentManager:
         if config.allocation_strategy == "deterministic":
             # Hash-based assignment for consistency
             event_id = getattr(event, "event_id", str(id(event)))
-            hash_value = hash(f"{event_id}{str(config.experiment_id)}")
+            hash_value = hash(f"{event_id}{config.experiment_id!s}")
             return "treatment" if (hash_value % 100) < (traffic_split * 100) else "control"
 
         if config.allocation_strategy == "epsilon_greedy":
@@ -1411,7 +1396,7 @@ class ExperimentManager:
 
             for exp_model in active_experiment_models:
                 # Handle experiment_id whether it's a UUID object or string
-                if hasattr(exp_model.experiment_id, 'hex'):
+                if hasattr(exp_model.experiment_id, "hex"):
                     exp_id_hex = exp_model.experiment_id.hex
                 else:
                     exp_id_hex = str(exp_model.experiment_id)
@@ -1419,7 +1404,7 @@ class ExperimentManager:
                 self.active_experiments[exp_id_hex] = exp_model
 
                 perf_data = await self.experiment_repo.get_experiment_performance(
-                    uuid.UUID(str(exp_model.experiment_id))
+                    uuid.UUID(str(exp_model.experiment_id)),
                 )
 
                 self.experiment_performance[exp_id_hex] = {}
@@ -1427,18 +1412,18 @@ class ExperimentManager:
                     # Handle model_id whether it's a UUID object or string
                     if variant_name == "control":
                         model_id_for_variant = (
-                            exp_model.control_model_id.hex 
-                            if hasattr(exp_model.control_model_id, 'hex') 
+                            exp_model.control_model_id.hex
+                            if hasattr(exp_model.control_model_id, "hex")
                             else str(exp_model.control_model_id)
                         )
                     else:
                         model_id_for_variant = (
-                            exp_model.treatment_model_id.hex 
-                            if hasattr(exp_model.treatment_model_id, 'hex') 
+                            exp_model.treatment_model_id.hex
+                            if hasattr(exp_model.treatment_model_id, "hex")
                             else str(exp_model.treatment_model_id)
                         )
                     vp = VariantPerformance(
-                        model_id=model_id_for_variant, variant_name=variant_name
+                        model_id=model_id_for_variant, variant_name=variant_name,
                     )
                     vp.sample_count = metrics.get("sample_count", 0)
                     vp.correct_predictions = metrics.get("correct_predictions", 0)
@@ -1466,7 +1451,7 @@ class ExperimentManager:
             if not exp_data:
                 return {"error": "Experiment not found"}
             return {
-                "experiment_id": exp_data.experiment_id.hex if hasattr(exp_data.experiment_id, 'hex') else str(exp_data.experiment_id),
+                "experiment_id": exp_data.experiment_id.hex if hasattr(exp_data.experiment_id, "hex") else str(exp_data.experiment_id),
                 "name": exp_data.name,
                 "status": exp_data.status,
                 "start_time": exp_data.start_time.isoformat(),
@@ -1487,13 +1472,13 @@ class ExperimentManager:
             "status": "active",
             "start_time": config.start_time.isoformat(),
             "control": {
-                "model_id": config.control_model_id.hex if hasattr(config.control_model_id, 'hex') else str(config.control_model_id),
+                "model_id": config.control_model_id.hex if hasattr(config.control_model_id, "hex") else str(config.control_model_id),
                 "samples": control_perf.sample_count,
                 "accuracy": control_perf.mean_accuracy,
                 "signals": control_perf.signals_generated,
             },
             "treatment": {
-                "model_id": config.treatment_model_id.hex if hasattr(config.treatment_model_id, 'hex') else str(config.treatment_model_id),
+                "model_id": config.treatment_model_id.hex if hasattr(config.treatment_model_id, "hex") else str(config.treatment_model_id),
                 "samples": treatment_perf.sample_count,
                 "accuracy": treatment_perf.mean_accuracy,
                 "signals": treatment_perf.signals_generated,
@@ -1501,6 +1486,6 @@ class ExperimentManager:
             "statistical_significance": {
                 "is_significant": is_significant,
                 "p_value": p_value,
-                "confidence_level": float(config.confidence_level or Decimal("0")),
+                "confidence_level": float(config.confidence_level or Decimal(0)),
             },
         }

@@ -1,17 +1,20 @@
-import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any  # Added Any, List, TYPE_CHECKING
+import uuid
 
 from sqlalchemy import JSON, DateTime, Float, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship  # Added Mapped, mapped_column
+from sqlalchemy.orm import (  # Added Mapped, mapped_column
+    Mapped,
+    mapped_column,
+    relationship,
+)
 from sqlalchemy.sql import func
 
 from gal_friday.core.events import TradeSignalProposedEvent
 
 from .base import Base
-from typing import Any
 
 if TYPE_CHECKING:
     from .order import Order  # For relationship hint
@@ -55,10 +58,10 @@ class Signal(Base):
         # from decimal import Decimal # For type conversion if necessary
         # from gal_friday.core.events import TradeSignalProposedEvent
 
-        event_data = {
+        {
             "source_module": self.__class__.__name__,
             "event_id": uuid.uuid4(), # New event ID
-            "timestamp": datetime.utcnow(), # Event creation time
+            "timestamp": datetime.now(UTC), # Event creation time
             "signal_id": self.signal_id, # Use the Signal's own ID
             "trading_pair": self.trading_pair,
             "exchange": self.exchange,
@@ -76,7 +79,7 @@ class Signal(Base):
         return TradeSignalProposedEvent(
             source_module=self.__class__.__name__,
             event_id=uuid.uuid4(), # New event_id for this event
-            timestamp=datetime.utcnow(), # Event's own creation time
+            timestamp=datetime.now(UTC), # Event's own creation time
             signal_id=self.signal_id, # This is the ID of the signal itself
             trading_pair=self.trading_pair,
             exchange=self.exchange,

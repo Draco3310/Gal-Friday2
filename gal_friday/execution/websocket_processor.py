@@ -1,12 +1,13 @@
 """WebSocket message processing and sequencing."""
 
-import asyncio
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import asyncio
 
 from gal_friday.logger_service import LoggerService
-from typing import Any
 
 
 @dataclass

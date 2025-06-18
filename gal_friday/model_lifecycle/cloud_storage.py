@@ -1,12 +1,12 @@
 """Cloud storage backends for model artifacts."""
 
-import asyncio
-import hashlib
 from abc import ABC, abstractmethod
+import hashlib
 from pathlib import Path
 from typing import Any
 
 import aiofiles  # type: ignore
+import asyncio
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
@@ -37,7 +37,7 @@ class GCSBackend(CloudStorageBackend):
 
     def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
         """Initialize GCS backend.
-        
+
         Args:
             config: Configuration manager
             logger: Logger service
@@ -56,7 +56,7 @@ class GCSBackend(CloudStorageBackend):
     def _init_client(self) -> None:
         """Initialize GCS client."""
         try:
-            import google.cloud.storage as storage  # type: ignore[import-untyped]
+            from google.cloud import storage  # type: ignore[import-untyped]
             self.client = storage.Client(project=self.project_id)
             self.bucket = self.client.bucket(self.bucket_name)
 

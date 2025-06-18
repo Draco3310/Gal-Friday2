@@ -1,6 +1,6 @@
-import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+import uuid
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String
 from sqlalchemy.sql import func
@@ -37,14 +37,14 @@ class Configuration(Base):
             "loaded_at": self.loaded_at.isoformat() if self.loaded_at else None,
             "source_module": self.__class__.__name__,
         }
-        
+
         message = f"Configuration accessed/processed: PK={self.config_pk}, Hash={self.config_hash}"
 
         return LogEvent(
             source_module=self.__class__.__name__,
             event_id=uuid.uuid4(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             level="INFO",
             message=message,
-            context=context
+            context=context,
         )

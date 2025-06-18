@@ -4,12 +4,12 @@ This module tests the complete data ingestion pipeline including
 market data processing, validation, and performance.
 """
 
-import asyncio
-import time
-import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+import time
+import uuid
 
+import asyncio
 import pytest
 
 from gal_friday.core.events import (
@@ -29,14 +29,14 @@ class TestMarketDataL2:
         """Create sample L2 market data."""
         return {
             "bids": [
-                [Decimal("0.5000"), Decimal("1000")],
-                [Decimal("0.4999"), Decimal("2000")],
-                [Decimal("0.4998"), Decimal("1500")],
+                [Decimal("0.5000"), Decimal(1000)],
+                [Decimal("0.4999"), Decimal(2000)],
+                [Decimal("0.4998"), Decimal(1500)],
             ],
             "asks": [
-                [Decimal("0.5001"), Decimal("1000")],
-                [Decimal("0.5002"), Decimal("2000")],
-                [Decimal("0.5003"), Decimal("1500")],
+                [Decimal("0.5001"), Decimal(1000)],
+                [Decimal("0.5002"), Decimal(2000)],
+                [Decimal("0.5003"), Decimal(1500)],
             ],
             "timestamp": datetime.now(UTC),
             "pair": "XRP/USD",
@@ -65,14 +65,14 @@ class TestMarketDataL2:
     @pytest.mark.asyncio
     async def test_order_book_depth_calculation(self, sample_l2_data):
         """Test order book depth calculations."""
-        processor = MarketDataProcessor()
+        MarketDataProcessor()
 
         # Calculate bid/ask depth
         bid_depth = sum(bid[1] for bid in sample_l2_data["bids"])
         ask_depth = sum(ask[1] for ask in sample_l2_data["asks"])
 
-        assert bid_depth == Decimal("4500")
-        assert ask_depth == Decimal("4500")
+        assert bid_depth == Decimal(4500)
+        assert ask_depth == Decimal(4500)
 
         # Calculate weighted average prices
         weighted_bid = sum(b[0] * b[1] for b in sample_l2_data["bids"]) / bid_depth
@@ -103,22 +103,22 @@ class TestMarketDataL2:
 
         # Valid data
         valid_data = {
-            "bids": [[Decimal("0.5000"), Decimal("1000")]],
-            "asks": [[Decimal("0.5001"), Decimal("1000")]],
+            "bids": [[Decimal("0.5000"), Decimal(1000)]],
+            "asks": [[Decimal("0.5001"), Decimal(1000)]],
         }
         assert validator.validate_l2_data(valid_data)
 
         # Invalid: crossed book
         invalid_data = {
-            "bids": [[Decimal("0.5002"), Decimal("1000")]],
-            "asks": [[Decimal("0.5001"), Decimal("1000")]],
+            "bids": [[Decimal("0.5002"), Decimal(1000)]],
+            "asks": [[Decimal("0.5001"), Decimal(1000)]],
         }
         assert not validator.validate_l2_data(invalid_data)
 
         # Invalid: negative prices
         invalid_data2 = {
-            "bids": [[Decimal("-0.5000"), Decimal("1000")]],
-            "asks": [[Decimal("0.5001"), Decimal("1000")]],
+            "bids": [[Decimal("-0.5000"), Decimal(1000)]],
+            "asks": [[Decimal("0.5001"), Decimal(1000)]],
         }
         assert not validator.validate_l2_data(invalid_data2)
 
@@ -135,7 +135,7 @@ class TestMarketDataOHLCV:
             "high": Decimal("0.5100"),
             "low": Decimal("0.4950"),
             "close": Decimal("0.5050"),
-            "volume": Decimal("50000"),
+            "volume": Decimal(50000),
             "timeframe": "1m",
             "pair": "XRP/USD",
         }
@@ -179,7 +179,7 @@ class TestMarketDataOHLCV:
                 "high": Decimal("0.5010") + Decimal(f"0.000{i}"),
                 "low": Decimal("0.4990") + Decimal(f"0.000{i}"),
                 "close": Decimal("0.5005") + Decimal(f"0.000{i}"),
-                "volume": Decimal("10000"),
+                "volume": Decimal(10000),
             }
             candles_1m.append(candle)
 
@@ -208,7 +208,7 @@ class TestMarketDataOHLCV:
 
         # Invalid: negative volume
         invalid_data2 = sample_ohlcv_data.copy()
-        invalid_data2["volume"] = Decimal("-1000")
+        invalid_data2["volume"] = Decimal(-1000)
         assert not validator.validate_ohlcv_data(invalid_data2)
 
 
@@ -235,7 +235,7 @@ class TestDataQuality:
     @pytest.mark.asyncio
     async def test_corrupt_data_detection(self):
         """Test detection and handling of corrupt data."""
-        validator = DataValidator()
+        DataValidator()
 
         corrupt_scenarios = [
             # Extreme price spike
@@ -274,9 +274,9 @@ class TestDataQuality:
             sequence_number=1000,  # Duplicate
         )
 
-        assert processor.is_duplicate(event1) == False
+        assert not processor.is_duplicate(event1)
         processor.mark_processed(event1)
-        assert processor.is_duplicate(event2) == True
+        assert processor.is_duplicate(event2)
 
 
 class TestDataIngestionPerformance:
@@ -451,11 +451,7 @@ class DataValidator:
             if bid[0] <= 0 or bid[1] <= 0:
                 return False
 
-        for ask in data.get("asks", []):
-            if ask[0] <= 0 or ask[1] <= 0:
-                return False
-
-        return True
+        return all(not (ask[0] <= 0 or ask[1] <= 0) for ask in data.get("asks", []))
 
     def validate_ohlcv_data(self, data: dict) -> bool:
         """Validate OHLCV candlestick data."""
@@ -473,10 +469,7 @@ class DataValidator:
         if data["volume"] < 0:
             return False
 
-        if any(data[k] < 0 for k in ["open", "high", "low", "close"]):
-            return False
-
-        return True
+        return not any(data[k] < 0 for k in ["open", "high", "low", "close"])
 
 
 # Extension methods for easy test event creation
@@ -489,8 +482,8 @@ def create_test_event(cls, pair: str, **kwargs):
             timestamp=datetime.now(UTC),
             trading_pair=pair,
             exchange="kraken",
-            bids=kwargs.get("bids", [[Decimal("0.5000"), Decimal("1000")]]),
-            asks=kwargs.get("asks", [[Decimal("0.5001"), Decimal("1000")]]),
+            bids=kwargs.get("bids", [[Decimal("0.5000"), Decimal(1000)]]),
+            asks=kwargs.get("asks", [[Decimal("0.5001"), Decimal(1000)]]),
             timestamp_exchange=kwargs.get("timestamp_exchange", datetime.now(UTC)),
             sequence_number=kwargs.get("sequence_number", 1),
         )

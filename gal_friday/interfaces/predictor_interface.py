@@ -1,7 +1,7 @@
 """Interface definition for prediction model implementations."""
 
-import logging
 from abc import ABC, abstractmethod
+import logging
 from typing import Any
 
 import numpy as np
