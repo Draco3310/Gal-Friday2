@@ -8,7 +8,10 @@ affect positions.
 import asyncio
 from datetime import datetime, UTC
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..dal.models import Order
 from uuid import UUID
 
 from ..core.events import ExecutionReportEvent
@@ -77,13 +80,28 @@ class OrderPositionIntegrationService:
                 return False
 
             # Update position and establish relationship
+            # Ensure price is not None
+            if execution_report.average_fill_price is None:
+                self.logger.error(
+                    f"Execution report for order {order_id} missing average fill price",
+                    source_module=self._source_module)
+                return False
+            
+            # Ensure trade_id is not None
+            trade_id = execution_report.exchange_order_id or execution_report.client_order_id
+            if not trade_id:
+                self.logger.error(
+                    f"Execution report for order {order_id} missing trade ID",
+                    source_module=self._source_module)
+                return False
+            
             realized_pnl, updated_position = await self.position_manager.update_position_for_trade(
                 trading_pair=execution_report.trading_pair,
                 side=execution_report.side,
                 quantity=execution_report.quantity_filled,
                 price=execution_report.average_fill_price,
                 timestamp=execution_report.timestamp,
-                trade_id=execution_report.exchange_order_id or execution_report.client_order_id,
+                trade_id=trade_id,
                 order_id=order_id,  # This establishes the relationship
                 commission=execution_report.commission or Decimal(0),
                 commission_asset=execution_report.commission_asset)
@@ -209,7 +227,7 @@ class OrderPositionIntegrationService:
                 f"Starting order-position relationship reconciliation (last {hours_back} hours)",
                 source_module=self._source_module)
 
-            results = {
+            results: dict[str, Any] = {
                 "reconciliation_timestamp": datetime.now(UTC),
                 "hours_checked": hours_back,
                 "issues_found": [],
@@ -235,7 +253,7 @@ class OrderPositionIntegrationService:
                 # Auto-fix if requested and it's safe
                 if auto_fix and await self._can_auto_fix_unlinked_order(order):
                     if await self._auto_fix_unlinked_order(order):
-                        issue["auto_fixed"] = True
+                        issue["auto_fixed"] = "true"
                         results["issues_fixed"] += 1
 
             # Check for orphaned position references
@@ -268,7 +286,7 @@ class OrderPositionIntegrationService:
             position_id_str = str(position_id)
 
             # Get position details
-            position = await self.position_repository.find_by_id(position_id_str)
+            position = await self.position_repository.get_by_id(position_id_str)
             if not position:
                 return {"error": f"Position {position_id_str} not found"}
 
@@ -276,7 +294,7 @@ class OrderPositionIntegrationService:
             orders = await self.order_repository.get_orders_by_position(position_id_str)
 
             # Build audit trail
-            audit_trail = {
+            audit_trail: dict[str, Any] = {
                 "position_id": position_id_str,
                 "trading_pair": position.trading_pair,
                 "side": position.side,
@@ -325,8 +343,8 @@ class OrderPositionIntegrationService:
         """Verify that linking an order to a position makes sense."""
         try:
             # Get order and position details
-            order = await self.order_repository.find_by_id(order_id)
-            position = await self.position_repository.find_by_id(position_id)
+            order = await self.order_repository.get_by_id(order_id)
+            position = await self.position_repository.get_by_id(position_id)
 
             if not order or not position:
                 self.logger.error(
@@ -355,7 +373,7 @@ class OrderPositionIntegrationService:
                 source_module=self._source_module)
             return False
 
-    async def _can_auto_fix_unlinked_order(self, order) -> bool:
+    async def _can_auto_fix_unlinked_order(self, order: "Order") -> bool:
         """Determine if an unlinked order can be safely auto-fixed."""
         # Only auto-fix orders that are clearly filled and recent
         if order.status not in ["FILLED", "PARTIALLY_FILLED"]:
@@ -372,7 +390,7 @@ class OrderPositionIntegrationService:
         
         return True
 
-    async def _auto_fix_unlinked_order(self, order) -> bool:
+    async def _auto_fix_unlinked_order(self, order: "Order") -> bool:
         """Attempt to auto-fix an unlinked order by finding/creating appropriate position."""
         try:
             # Look for an existing active position for the same trading pair

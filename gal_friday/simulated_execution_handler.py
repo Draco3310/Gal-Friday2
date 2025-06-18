@@ -605,7 +605,7 @@ class SimulatedExecutionHandler:
                     break
                 # Get timestamp from bar name or keep current one
                 current_timestamp = (
-                    next_bar.name if hasattr(next_bar, "name") else current_timestamp
+                    datetime.fromisoformat(str(next_bar.name)) if hasattr(next_bar, "name") else current_timestamp
                 )
                 next_bar = self.data_service.get_next_bar(
                     event.trading_pair,
@@ -790,15 +790,8 @@ class SimulatedExecutionHandler:
 
         final_fill_price = simulated_fill_price if simulated_fill_qty > Decimal(0) else None
 
-        # Convert fill_timestamp if needed to ensure it's a datetime object
+        # fill_timestamp is guaranteed to be a datetime by the type system
         timestamp = fill_timestamp
-        if not isinstance(timestamp, datetime):
-            self.logger.warning(
-                "Converting fill_timestamp from %s to datetime",
-                type(timestamp),  # G004 fix
-                source_module=self.__class__.__name__)
-            # Default to current time if conversion fails
-            timestamp = datetime.utcnow()
 
         return {
             "status": status,
@@ -934,9 +927,7 @@ class SimulatedExecutionHandler:
                     # Ensure the new signal_id for the remainder is unique if needed,
                     # but _add_to_active_limit_orders uses its own internal_sim_order_id.
                     # The original signal_id is still important for SL/TP tracking.
-                    from gal_friday.core.events import (
-                        TradeSignalApprovedEvent as ConcreteEvent,  # type: ignore
-                    )
+                    from gal_friday.core.events import TradeSignalApprovedEvent as ConcreteEvent
 
                     event_for_active = ConcreteEvent(**remaining_payload)
 
@@ -1304,12 +1295,6 @@ class SimulatedExecutionHandler:
         -------
             bool: True if the bar is valid for SL/TP checks, False otherwise
         """
-        if bar is None or bar_timestamp is None:
-            self.logger.warning(
-                "Invalid bar or timestamp provided for SL/TP check",
-                source_module=self.__class__.__name__)
-            return False
-
         # Check if bar has required OHLC data
         required_columns = ["high", "low"]
         for col in required_columns:
@@ -1523,9 +1508,7 @@ class SimulatedExecutionHandler:
         exit_side = "SELL" if exit_details["original_side"].upper() == "BUY" else "BUY"
 
         # Construct a temporary event for simulating the SL market order
-        from gal_friday.core.events import (
-            TradeSignalApprovedEvent as ConcreteEvent,  # type: ignore
-        )
+        from gal_friday.core.events import TradeSignalApprovedEvent as ConcreteEvent
 
         sl_market_exit_payload = {
             "event_id": uuid.uuid4(),
@@ -1921,7 +1904,11 @@ class SimulatedExecutionHandler:
         """Register a new SL/TP or update an existing one for a position."""
         position_id = initial_event_signal_id_str
 
-        if fill_details.event.sl_price is None and fill_details.event.tp_price is None:
+        # Check if SL/TP prices are effectively not set (using 0 as sentinel value)
+        sl_is_set = fill_details.event.sl_price != Decimal("0")
+        tp_is_set = fill_details.event.tp_price != Decimal("0")
+        
+        if not sl_is_set and not tp_is_set:
             self.logger.debug(
                 "No SL or TP price provided for signal %s. Skipping SL/TP registration.",
                 position_id)
@@ -2016,9 +2003,7 @@ class SimulatedExecutionHandler:
                     fill_timestamp=bar_timestamp))
 
             # Create a new market TradeSignalApprovedEvent for the remaining quantity
-            from gal_friday.core.events import (
-                TradeSignalApprovedEvent as ConcreteEvent,  # type: ignore
-            )
+            from gal_friday.core.events import TradeSignalApprovedEvent as ConcreteEvent
 
             market_conversion_payload = {
                 "event_id": uuid.uuid4(),
@@ -2365,7 +2350,8 @@ async def _find_and_test_single_trigger(
 
         if _check_bar_for_trigger(original_side, trigger_type, target_price, bar_low, bar_high):
             trigger_bar_data = potential_bar
-            trigger_bar_ts = trigger_bar_data.name
+            # Convert pandas index (name) to datetime
+            trigger_bar_ts = datetime.fromisoformat(str(trigger_bar_data.name))
             break
 
     if trigger_bar_data is not None and trigger_bar_ts is not None:

@@ -575,7 +575,7 @@ class KrakenMarketPriceService(MarketPriceService):
             
             # Get OHLC data for the lookback period
             since = datetime.now(UTC) - timedelta(hours=lookback_hours)
-            candles = await self.get_ohlc_data(
+            candles = await self.get_historical_ohlcv(
                 trading_pair=trading_pair,
                 timeframe=timeframe,
                 since=since
@@ -604,7 +604,7 @@ class KrakenMarketPriceService(MarketPriceService):
                     f"Calculated volatility for {trading_pair}: {annualized_volatility:.2f}%",
                     source_module=self._source_module)
                 
-                return annualized_volatility
+                return float(annualized_volatility)
             
             return None
             

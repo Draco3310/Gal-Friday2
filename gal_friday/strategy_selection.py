@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Any, Deque, Set
+from typing import Dict, List, Optional, Tuple, Any, Deque, Set, cast
 
 import numpy as np
 from scipy import stats
@@ -344,8 +344,9 @@ class StrategyPerformanceAnalyzer:
         win_rate = len(wins) / len(trades) if trades else 0
         
         # Profit factor
-        gross_profit = sum(wins) if wins else Decimal("0")
-        gross_loss = abs(sum(losses)) if losses else Decimal("1")  # Avoid division by zero
+        gross_profit = Decimal(str(sum(wins))) if wins else Decimal("0")
+        gross_loss_sum = sum(losses) if losses else Decimal("0")
+        gross_loss = Decimal(str(abs(gross_loss_sum))) if gross_loss_sum != 0 else Decimal("1")  # Avoid division by zero
         profit_factor = float(gross_profit / gross_loss) if gross_loss > 0 else 0
         
         # Risk-adjusted returns
@@ -617,7 +618,7 @@ class StrategyPerformanceAnalyzer:
         periods: int = 10
     ) -> Optional[float]:
         """Calculate trend of a specific metric over recent periods."""
-        history = self._performance_history.get(strategy_id, [])
+        history = cast(List[Any], self._performance_history.get(strategy_id, []))
         
         if len(history) < 2:
             return None
@@ -636,7 +637,7 @@ class StrategyPerformanceAnalyzer:
         x = np.arange(len(recent_values))
         slope, _ = np.polyfit(x, recent_values, 1)
         
-        return slope
+        return float(slope)
 
 
 class MarketConditionMonitor:
@@ -789,7 +790,7 @@ class MarketConditionMonitor:
         # Placeholder implementation
         return {
             "realized_volatility_24h": 0.035,  # 3.5% daily volatility
-            "implied_volatility": None,  # Would come from options if available
+            "implied_volatility": 0.0,  # Would come from options if available
             "volatility_percentile": 65.0  # Current vol at 65th percentile historically
         }
         
@@ -836,7 +837,7 @@ class MarketConditionMonitor:
         """Calculate correlation matrix between trading pairs."""
         # This would calculate actual correlations in production
         # Placeholder implementation
-        correlations = {}
+        correlations: Dict[str, Dict[str, float]] = {}
         for pair1 in trading_pairs:
             correlations[pair1] = {}
             for pair2 in trading_pairs:
@@ -862,9 +863,9 @@ class RiskEvaluator:
         self, 
         logger: LoggerService, 
         config: Dict[str, Any],
-        risk_manager,  # Reference to RiskManager
-        portfolio_manager  # Reference to PortfolioManager
-    ):
+        risk_manager: Any,  # Reference to RiskManager
+        portfolio_manager: Any  # Reference to PortfolioManager
+    ) -> None:
         self.logger = logger
         self.config = config
         self.risk_manager = risk_manager
@@ -1000,7 +1001,7 @@ class RiskEvaluator:
         # This would calculate actual correlations in production
         # Placeholder implementation
         max_correlation = 0.45  # Placeholder
-        correlated_strategies = []
+        correlated_strategies: List[str] = []
         
         acceptable = max_correlation <= self._risk_limits["max_correlation"]
         
@@ -1127,7 +1128,7 @@ class RiskEvaluator:
             for key in weights
         )
         
-        return aggregate_score
+        return float(aggregate_score)
         
     def _generate_risk_recommendations(
         self,
@@ -1635,8 +1636,8 @@ class StrategyOrchestrator:
         self,
         logger: LoggerService,
         config: Dict[str, Any],
-        monitoring_service  # Reference to MonitoringService
-    ):
+        monitoring_service: Any  # Reference to MonitoringService
+    ) -> None:
         self.logger = logger
         self.config = config
         self.monitoring_service = monitoring_service
@@ -1774,7 +1775,7 @@ class StrategyOrchestrator:
         )
         
         self._phase_start_time = datetime.utcnow()
-        phase_duration = self._active_transition.phase_durations[phase]
+        phase_duration = self._active_transition.phase_durations[phase] if self._active_transition else timedelta(hours=1)
         
         # Update traffic allocation
         await self._update_traffic_allocation(phase, strategy_id)
@@ -1817,7 +1818,7 @@ class StrategyOrchestrator:
         self._transition_metrics[strategy_id].append(current_metrics)
         
         # Check rollback triggers
-        rollback_triggers = self._active_transition.rollback_triggers
+        rollback_triggers = self._active_transition.rollback_triggers if self._active_transition else {}
         
         # Sharpe ratio check
         if current_metrics["sharpe_ratio"] < rollback_triggers["sharpe_drop"]:
@@ -1953,12 +1954,12 @@ class StrategyOrchestrator:
             "transition_id": transition_plan.transition_id,
             "from_strategy": transition_plan.from_strategy,
             "to_strategy": transition_plan.to_strategy,
-            "duration": (transition_plan.completed_at - transition_plan.started_at).total_seconds(),
+            "duration": (transition_plan.completed_at - transition_plan.started_at).total_seconds() if transition_plan.completed_at and transition_plan.started_at else 0,
             "metrics": self._transition_metrics.get(transition_plan.to_strategy, [])
         }
         
         self.logger.info(
-            f"Archived transition metrics: {len(metrics_summary['metrics'])} data points",
+            f"Archived transition metrics: {len(cast(List[Any], metrics_summary.get('metrics', [])))} data points",
             source_module=self._source_module
         )
         
@@ -1994,11 +1995,11 @@ class StrategySelectionSystem:
         self,
         logger: LoggerService,
         config: Dict[str, Any],
-        risk_manager,
-        portfolio_manager,
-        monitoring_service,
-        database_manager  # For data access
-    ):
+        risk_manager: Any,
+        portfolio_manager: Any,
+        monitoring_service: Any,
+        database_manager: Any  # For data access
+    ) -> None:
         self.logger = logger
         self.config = config
         self._source_module = self.__class__.__name__
@@ -2029,7 +2030,7 @@ class StrategySelectionSystem:
         self._last_selection_time: Optional[datetime] = None
         self._selection_frequency = timedelta(hours=config.get("selection_frequency_hours", 4))
         self._is_running = False
-        self._selection_task = None
+        self._selection_task: Optional[asyncio.Task[None]] = None
         
     async def start(self) -> None:
         """Start the strategy selection system."""
@@ -2180,7 +2181,7 @@ class StrategySelectionSystem:
         
     def get_current_strategy(self) -> str:
         """Get the currently active strategy."""
-        return self.config.get("current_strategy_id", "default")
+        return str(self.config.get("current_strategy_id", "default"))
         
     async def force_strategy_evaluation(self) -> Optional[StrategyEvaluationResult]:
         """Force an immediate strategy evaluation (for manual triggering)."""

@@ -9,9 +9,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, UTC
 from decimal import Decimal
-from typing import Dict, List, Any, Optional, AsyncGenerator
+from typing import Dict, List, Any, Optional, AsyncGenerator, cast
 
-from ..core.events import EventType, Event
+from ..core.events import EventType, Event, ExecutionReportEvent, FillEvent
 from ..core.pubsub import PubSubManager
 from ..logger_service import LoggerService
 from typing import Any
@@ -25,7 +25,7 @@ class LiveOrderData:
     side: str
     order_type: str
     quantity: Decimal
-    price: Optional
+    price: Optional[Decimal]
     status: str
     filled_quantity: Decimal
     remaining_quantity: Decimal
@@ -155,8 +155,7 @@ class LiveDataCollector:
         try:
             # Subscribe to execution events
             self.pubsub.subscribe(EventType.EXECUTION_REPORT, self._handle_execution_report)
-            self.pubsub.subscribe(EventType.ORDER_STATUS_CHANGE, self._handle_order_update)
-            self.pubsub.subscribe(EventType.TRADE_COMPLETED, self._handle_trade_completed)
+            self.pubsub.subscribe(EventType.FILL, self._handle_trade_completed)
             
             # Start periodic system metrics collection
             asyncio.create_task(self._system_metrics_loop())
@@ -249,7 +248,7 @@ class LiveDataCollector:
             if not self.portfolio_manager:
                 return {}
                 
-            portfolio_state = self.portfolio_manager.get_current_state()
+            portfolio_state: Dict[str, Any] = self.portfolio_manager.get_current_state()
             
             # Add performance calculations
             performance_metrics = await self._calculate_portfolio_performance()
@@ -308,7 +307,7 @@ class LiveDataCollector:
             if not self.risk_manager:
                 return {}
                 
-            risk_metrics = {
+            risk_metrics: Dict[str, Any] = {
                 "available_risk_budget": float(self.risk_manager.get_available_risk_budget()),
                 "current_exposure": float(self.risk_manager.get_current_exposure()),
                 "max_position_size": float(self.risk_manager.get_max_position_size()),
@@ -357,6 +356,14 @@ class LiveDataCollector:
     async def _handle_execution_report(self, event: Event) -> None:
         """Handle execution report events."""
         try:
+            # Ensure we have an ExecutionReportEvent
+            if not isinstance(event, ExecutionReportEvent):
+                self.logger.warning(
+                    f"Expected ExecutionReportEvent, got {type(event).__name__}",
+                    source_module=self._source_module
+                )
+                return
+            
             # Update order status
             order_id = event.exchange_order_id
             if order_id in self._active_orders:
@@ -376,41 +383,31 @@ class LiveDataCollector:
                 exc_info=True
             )
     
-    async def _handle_order_update(self, event: Event) -> None:
-        """Handle order status change events."""
-        try:
-            # This would be implemented based on the actual event structure
-            pass
-            
-        except Exception as e:
-            self.logger.error(
-                f"Error handling order update: {e}",
-                source_module=self._source_module,
-                exc_info=True
-            )
     
     async def _handle_trade_completed(self, event: Event) -> None:
         """Handle trade completion events."""
         try:
-            # Add to recent trades
-            trade_data = LiveTradeData(
-                trade_id=str(event.trade_id) if hasattr(event, 'trade_id') else f"trade_{int(event.timestamp.timestamp())}",
-                order_id=event.exchange_order_id if hasattr(event, 'exchange_order_id') else "unknown",
-                trading_pair=event.trading_pair if hasattr(event, 'trading_pair') else "unknown",
-                side=event.side if hasattr(event, 'side') else "unknown",
-                quantity=event.quantity_filled if hasattr(event, 'quantity_filled') else Decimal("0"),
-                price=event.average_fill_price if hasattr(event, 'average_fill_price') else Decimal("0"),
-                fee=Decimal("0"),  # Would be extracted from event
-                timestamp=event.timestamp,
-                strategy_id="unknown",  # Would be extracted from event
-                realized_pnl=Decimal("0")  # Would be calculated
-            )
-            
-            self._recent_trades.insert(0, trade_data)
-            
-            # Limit history size
-            if len(self._recent_trades) > self._max_trade_history:
-                self._recent_trades = self._recent_trades[:self._max_trade_history]
+            # Type cast to FillEvent for proper type checking
+            if hasattr(event, 'fill_id'):  # Check if it's a FillEvent
+                # Add to recent trades
+                trade_data = LiveTradeData(
+                    trade_id=event.fill_id if hasattr(event, 'fill_id') else f"trade_{int(event.timestamp.timestamp())}",
+                    order_id=event.order_id if hasattr(event, 'order_id') else "unknown",
+                    trading_pair=event.trading_pair if hasattr(event, 'trading_pair') else "unknown",
+                    side=event.side if hasattr(event, 'side') else "unknown",
+                    quantity=event.quantity if hasattr(event, 'quantity') else Decimal("0"),
+                    price=event.price if hasattr(event, 'price') else Decimal("0"),
+                    fee=event.fee if hasattr(event, 'fee') else Decimal("0"),
+                    timestamp=event.timestamp,
+                    strategy_id="unknown",  # Would be extracted from event metadata
+                    realized_pnl=Decimal("0")  # Would be calculated from position data
+                )
+                
+                self._recent_trades.insert(0, trade_data)
+                
+                # Limit history size
+                if len(self._recent_trades) > self._max_trade_history:
+                    self._recent_trades = self._recent_trades[:self._max_trade_history]
             
         except Exception as e:
             self.logger.error(

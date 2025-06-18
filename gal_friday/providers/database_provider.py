@@ -3,7 +3,7 @@ import logging
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast, AsyncIterator
 
 import pandas as pd
 from sqlalchemy import and_, func, or_, select
@@ -66,10 +66,13 @@ class DatabaseDataProvider(HistoricalDataProvider):
                 from ..config_manager import ConfigManager
                 from ..logger_service import LoggerService
                 
-                config_manager = ConfigManager(self.config)
-                logger_service = LoggerService(config_manager, source_module=self._source_module)
+                # Create a temporary config file path or use default
+                config_path = self.config.get("config_path", "config/config.yaml")
+                config_manager = ConfigManager(config_path)
+                # LoggerService requires pubsub_manager - using None for now
+                logger_service = self.logger
                 
-                self._connection_pool = DatabaseConnectionPool(config_manager, logger_service)
+                self._connection_pool = DatabaseConnectionPool(config_manager, logger_service)  # type: ignore[arg-type]
                 await self._connection_pool.initialize()
             
             # Initialize InfluxDB client if not provided
@@ -77,15 +80,20 @@ class DatabaseDataProvider(HistoricalDataProvider):
                 from ..config_manager import ConfigManager
                 from ..logger_service import LoggerService
                 
-                config_manager = ConfigManager(self.config)
-                logger_service = LoggerService(config_manager, source_module=self._source_module)
+                # Create a temporary config file path or use default
+                config_path = self.config.get("config_path", "config/config.yaml")
+                config_manager = ConfigManager(config_path)
+                # LoggerService requires pubsub_manager - using None for now
+                logger_service = self.logger
                 
-                self._ts_db = TimeSeriesDB(config_manager, logger_service)
+                self._ts_db = TimeSeriesDB(config_manager, logger_service)  # type: ignore[arg-type]
             
             # Create history repository
             from ..logger_service import LoggerService
-            logger_service = LoggerService(ConfigManager(self.config), source_module=self._source_module)
-            self._history_repo = HistoryRepository(self._ts_db, logger_service)
+            config_path = self.config.get("config_path", "config/config.yaml")
+            # LoggerService requires pubsub_manager - using provided logger instead
+            logger_service = self.logger
+            self._history_repo = HistoryRepository(self._ts_db, logger_service)  # type: ignore[arg-type]
             
             self._initialized = True
             
@@ -138,7 +146,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
             cached_data = self._query_cache[cache_key]
             if self._is_cache_valid(cached_data):
                 self._query_metrics["cache_hits"] += 1
-                return cached_data["data"]
+                return cast(List[HistoricalDataPoint], cached_data["data"])
         
         # Start performance timer
         start_time = asyncio.get_event_loop().time()
@@ -213,11 +221,14 @@ class DatabaseDataProvider(HistoricalDataProvider):
         data_points = []
         for timestamp, row in df.iterrows():
             # Filter by exact date range
-            if timestamp < request.start_date or timestamp > request.end_date:
+            ts_datetime = timestamp.to_pydatetime() if hasattr(timestamp, 'to_pydatetime') else timestamp
+            if not isinstance(ts_datetime, datetime):
+                continue
+            if ts_datetime < request.start_date or ts_datetime > request.end_date:
                 continue
                 
             data_point = HistoricalDataPoint(
-                timestamp=timestamp.to_pydatetime(),
+                timestamp=ts_datetime,
                 symbol=request.symbol,
                 open=float(row.get("open", 0)),
                 high=float(row.get("high", 0)),
@@ -265,12 +276,12 @@ class DatabaseDataProvider(HistoricalDataProvider):
                 return []
             
             # Convert orders to OHLCV format
-            data_points = self._aggregate_orders_to_ohlcv(orders, request)
+            data_points = self._aggregate_orders_to_ohlcv(list(orders), request)
             
             return data_points
 
     @asynccontextmanager
-    async def _get_db_session(self):
+    async def _get_db_session(self) -> AsyncIterator[AsyncSession]:
         """Get database session from connection pool."""
         if not self._connection_pool:
             raise RuntimeError("Connection pool not initialized")
@@ -284,7 +295,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
         if symbol in self._valid_symbols_cache:
             cache_entry = self._valid_symbols_cache[symbol]
             if self._is_cache_entry_valid(cache_entry):
-                return cache_entry["valid"]
+                return cast(bool, cache_entry["valid"])
         
         # Ensure initialized
         if not self._initialized:
@@ -300,7 +311,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
                 
                 result = await session.execute(query)
                 count = result.scalar()
-                exists = count > 0
+                exists = count is not None and count > 0
                 
                 # Cache result
                 self._valid_symbols_cache[symbol] = {
@@ -320,7 +331,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
 
     async def get_symbol_metadata(self, symbol: str) -> Dict[str, Any]:
         """Get additional metadata about a symbol from database."""
-        metadata = {
+        metadata: Dict[str, Any] = {
             "symbol": symbol,
             "min_price": None,
             "max_price": None,
@@ -335,9 +346,9 @@ class DatabaseDataProvider(HistoricalDataProvider):
                 thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
                 
                 query = select(
-                    func.min(Order.price).label("min_price"),
-                    func.max(Order.price).label("max_price"),
-                    func.sum(Order.volume).label("total_volume"),
+                    func.min(Order.average_fill_price).label("min_price"),
+                    func.max(Order.average_fill_price).label("max_price"),
+                    func.sum(Order.filled_quantity).label("total_volume"),
                     func.max(Order.created_at).label("last_update")
                 ).where(
                     and_(
@@ -410,7 +421,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
         candles = int(total_minutes / interval_minutes) + 10
         
         # Cap at max batch size
-        return min(candles, self._max_batch_size)
+        return cast(int, min(candles, self._max_batch_size))
 
     def _validate_ohlcv(self, dp: HistoricalDataPoint) -> bool:
         """Validate OHLCV data integrity."""
@@ -436,7 +447,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
         """Aggregate orders into OHLCV format."""
         # Group orders by time bucket
         bucket_size = self._parse_frequency_to_timedelta(request.frequency)
-        buckets = defaultdict(list[Any])
+        buckets: Dict[datetime, List[Any]] = defaultdict(list)
         
         for order in orders:
             bucket_time = self._round_to_bucket(order.created_at, bucket_size)
@@ -507,7 +518,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
             return False
         
         age = (datetime.now(UTC) - cache_entry["timestamp"]).total_seconds()
-        return age < self._cache_ttl
+        return cast(bool, age < self._cache_ttl)
 
     def _is_cache_entry_valid(self, cache_entry: Dict[str, Any]) -> bool:
         """Check if symbol cache entry is still valid."""
@@ -515,7 +526,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
             return False
         
         age = (datetime.now(UTC) - cache_entry["timestamp"]).total_seconds()
-        return age < self._cache_ttl
+        return cast(bool, age < self._cache_ttl)
 
     def _cache_query_result(self, cache_key: str, data_points: List[HistoricalDataPoint]) -> None:
         """Cache query results with LRU eviction."""
@@ -552,7 +563,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
 
     async def get_diagnostics(self) -> Dict[str, Any]:
         """Get diagnostic information about database provider health."""
-        diagnostics = {
+        diagnostics: Dict[str, Any] = {
             "provider": "DatabaseDataProvider",
             "status": "healthy",
             "initialized": self._initialized,
@@ -573,9 +584,9 @@ class DatabaseDataProvider(HistoricalDataProvider):
             try:
                 async with self._get_db_session() as session:
                     await session.execute(select(1))
-                    diagnostics["connections"]["postgresql"] = "healthy"
+                    cast(Dict[str, str], diagnostics["connections"])["postgresql"] = "healthy"
             except Exception as e:
-                diagnostics["connections"]["postgresql"] = f"error: {str(e)}"
+                cast(Dict[str, str], diagnostics["connections"])["postgresql"] = f"error: {str(e)}"
                 diagnostics["status"] = "degraded"
         
         # Check InfluxDB connection
@@ -583,9 +594,9 @@ class DatabaseDataProvider(HistoricalDataProvider):
             try:
                 # Perform health check query
                 await self._ts_db.query("buckets()")
-                diagnostics["connections"]["influxdb"] = "healthy"
+                cast(Dict[str, str], diagnostics["connections"])["influxdb"] = "healthy"
             except Exception as e:
-                diagnostics["connections"]["influxdb"] = f"error: {str(e)}"
+                cast(Dict[str, str], diagnostics["connections"])["influxdb"] = f"error: {str(e)}"
                 diagnostics["status"] = "degraded"
         
         return diagnostics

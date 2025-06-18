@@ -137,7 +137,7 @@ class GCPSecretsBackend(SecretsBackend):
         self._source_module = self.__class__.__name__
 
         try:
-            from google.cloud import secretmanager
+            import google.cloud.secretmanager as secretmanager  # type: ignore[import-untyped]
             self.client = secretmanager.SecretManagerServiceClient()
         except ImportError:
             raise ImportError("google-cloud-secret-manager package not installed") from None

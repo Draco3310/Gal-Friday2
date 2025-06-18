@@ -25,24 +25,26 @@ from gal_friday.logger_service import LoggerService
 
 # Type variables for comprehensive generic support
 T = TypeVar("T")
+T_co = TypeVar("T_co", covariant=True)  # Covariant type variable for protocols
 K = TypeVar("K")  # Cache key type
 V = TypeVar("V")  # Cache value type
 P = ParamSpec("P")  # Parameter specification for function signatures
 AsyncP = ParamSpec("AsyncP")  # Parameter specification for async functions
 AsyncT = TypeVar("AsyncT")  # Return type for async functions
+AsyncT_co = TypeVar("AsyncT_co", covariant=True)  # Covariant for async protocols
 
 
 # Protocols for type safety
 @runtime_checkable
-class CacheableFunction(Protocol[P, T]):
+class CacheableFunction(Protocol[P, T_co]):
     """Protocol for cacheable functions."""
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> T: ...
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> T_co: ...
 
 
 @runtime_checkable
-class AsyncCacheableFunction(Protocol[AsyncP, AsyncT]):
+class AsyncCacheableFunction(Protocol[AsyncP, AsyncT_co]):
     """Protocol for async cacheable functions."""
-    def __call__(self, *args: AsyncP.args, **kwargs: AsyncP.kwargs) -> Awaitable[AsyncT]: ...
+    def __call__(self, *args: AsyncP.args, **kwargs: AsyncP.kwargs) -> Awaitable[AsyncT_co]: ...
 
 
 @dataclass
@@ -123,7 +125,7 @@ class TypeSafeCache(Generic[K, V]):
     
     def __init__(self, config: CacheConfig) -> None:
         self.config = config
-        self._cache: Dict[K, CacheEntry[V]] = OrderedDict()
+        self._cache: OrderedDict[K, CacheEntry[V]] = OrderedDict()
         self._lock = threading.RLock() if config.thread_safe else None
         
         # Statistics
@@ -297,6 +299,7 @@ class ConnectionPool:
         """
         self.create_conn = create_conn
         self.logger = logger_service # Initialize self.logger
+        self._source_module = self.__class__.__name__
         self.max_connections = max_connections
         self.min_connections = min_connections
         self.health_check_interval = health_check_interval
@@ -418,7 +421,7 @@ class ConnectionPool:
             return not conn.is_closed()
         elif hasattr(conn, 'closed'):
             # For aiopg/psycopg-style connections
-            return conn.closed == 0
+            return bool(conn.closed == 0)
         elif hasattr(conn, 'ping'):
             # For connections with ping method
             try:
@@ -1118,7 +1121,7 @@ def cache(
     typed_keys: bool = True,
     thread_safe: bool = True,
     eviction_policy: str = "lru"
-) -> Callable[[Callable[P, T]], Callable[P, T]]:
+) -> Any:
     """
     Type-safe caching decorator with comprehensive generic typing.
     
@@ -1134,7 +1137,7 @@ def cache(
             eviction_policy=eviction_policy
         )
     
-    return TypedCacheDecorator[P, T](config)
+    return TypedCacheDecorator(config)
 
 
 def async_cache(
@@ -1145,7 +1148,7 @@ def async_cache(
     typed_keys: bool = True,
     thread_safe: bool = True,
     eviction_policy: str = "lru"
-) -> Callable[[Callable[AsyncP, Awaitable[AsyncT]]], Callable[AsyncP, Awaitable[AsyncT]]]:
+) -> Any:
     """Type-safe async caching decorator with comprehensive generic typing."""
     
     if config is None:
@@ -1157,33 +1160,33 @@ def async_cache(
             eviction_policy=eviction_policy
         )
     
-    return AsyncTypedCacheDecorator[AsyncP, AsyncT](config)
+    return AsyncTypedCacheDecorator(config)
 
 
-def rate_limited(calls: int = 10, period: int = 60) -> Callable[[Callable[P, T]], Callable[P, T]]:
+def rate_limited(calls: int = 10, period: int = 60) -> Any:
     """Type-safe rate limiting decorator with proper generic typing."""
-    return TypedRateLimitDecorator[P, T](calls, period)
+    return TypedRateLimitDecorator(calls, period)
 
 
-def async_rate_limited(calls: int = 10, period: int = 60) -> Callable[[Callable[AsyncP, Awaitable[AsyncT]]], Callable[AsyncP, Awaitable[AsyncT]]]:
+def async_rate_limited(calls: int = 10, period: int = 60) -> Any:
     """Type-safe async rate limiting decorator with proper generic typing."""
-    return AsyncTypedRateLimitDecorator[AsyncP, AsyncT](calls, period)
+    return AsyncTypedRateLimitDecorator(calls, period)
 
 
 def timed(
     name: Optional[str] = None, 
     logger: Optional[LoggerService] = None
-) -> Callable[[Callable[P, T]], Callable[P, T]]:
+) -> Any:
     """Type-safe timing decorator with proper generic typing."""
-    return TypedTimingDecorator[P, T](name, logger)
+    return TypedTimingDecorator(name, logger)
 
 
 def async_timed(
     name: Optional[str] = None, 
     logger: Optional[LoggerService] = None
-) -> Callable[[Callable[AsyncP, Awaitable[AsyncT]]], Callable[AsyncP, Awaitable[AsyncT]]]:
+) -> Any:
     """Type-safe async timing decorator with proper generic typing."""
-    return AsyncTypedTimingDecorator[AsyncP, AsyncT](name, logger)
+    return AsyncTypedTimingDecorator(name, logger)
 
 
 # Legacy compatibility decorators (deprecated but maintained for backward compatibility)
@@ -1433,7 +1436,7 @@ class DatabaseConnectionPool(ConnectionPool):
                 return True
             elif hasattr(conn, 'fetch') or hasattr(conn, 'fetchval'):
                 # For other async database connections
-                await conn.fetchval(self._health_check_query)
+                await conn.fetchval(self._health_check_query)  # type: ignore[attr-defined]
                 return True
             elif hasattr(conn, 'cursor'):
                 # For aiopg-style connections

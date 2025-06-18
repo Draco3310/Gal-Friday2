@@ -160,7 +160,7 @@ class ExecutionEventBuilder:
         """Get the original ordered quantity."""
         if fill.order and hasattr(fill.order, 'quantity_ordered'):
             # SQLAlchemy will return the actual Decimal value, not a Column
-            return fill.order.quantity_ordered
+            return cast(Decimal, fill.order.quantity_ordered)
         
         # If no order context, use the fill quantity as a fallback
         return fill.quantity_filled
@@ -169,7 +169,7 @@ class ExecutionEventBuilder:
         """Extract signal ID from related order."""
         if fill.order and hasattr(fill.order, 'signal_id') and fill.order.signal_id:
             # SQLAlchemy will return the actual UUID value, not a Column
-            return fill.order.signal_id
+            return cast(uuid.UUID, fill.order.signal_id)
         
         return None
     

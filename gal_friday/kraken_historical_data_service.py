@@ -19,9 +19,6 @@ from gal_friday.data_ingestion.gap_detector import GapDetector
 from gal_friday.interfaces.historical_data_service_interface import HistoricalDataService
 from gal_friday.logger_service import LoggerService
 
-from .historical_data_service import HistoricalDataService
-from .logger_service import LoggerService
-
 
 class CircuitBreakerError(Exception):
     """Custom exception for CircuitBreaker errors."""
@@ -323,7 +320,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
         # 3. Check if data from DB is complete for the requested range
         if db_df is not None and not db_df.empty:
             # Ensure DataFrame index is timezone-aware (UTC) for comparison
-            if db_df.index.tz is None:
+            if isinstance(db_df.index, pd.DatetimeIndex) and db_df.index.tz is None:
                 db_df.index = db_df.index.tz_localize(UTC)
 
             available_start = db_df.index.min()
@@ -399,7 +396,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
         if combined_df is not None and not combined_df.empty:
             # Ensure index is timezone-aware UTC before slicing
-            if combined_df.index.tz is None:
+            if isinstance(combined_df.index, pd.DatetimeIndex) and combined_df.index.tz is None:
                 combined_df.index = combined_df.index.tz_localize(UTC)
             # Slice to the exact requested range
             final_df = combined_df[(combined_df.index >= start_time_utc) & (combined_df.index <= end_time_utc)]
@@ -526,8 +523,6 @@ class KrakenHistoricalDataService(HistoricalDataService):
                 "Error calculating ATR for %s:",
                 trading_pair,
                 source_module=self._source_module)
-            return None
-        else:
             return None
 
     async def _fetch_ohlcv_data(
@@ -858,8 +853,6 @@ class KrakenHistoricalDataService(HistoricalDataService):
                 "Error storing OHLCV data in InfluxDB:",
                 source_module=self._source_module)
             return False
-        else:
-            return True
 
     async def _store_trades_data_in_influxdb(self, df: pd.DataFrame, trading_pair: str) -> bool:
         """Store trade data in InfluxDB.
@@ -889,7 +882,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
             for timestamp, row in df.iterrows():
                 # Ensure timestamp is timezone-aware (UTC) before writing
                 ts_to_write = timestamp
-                if timestamp.tzinfo is None:
+                if isinstance(timestamp, pd.Timestamp) and timestamp.tzinfo is None:
                     ts_to_write = timestamp.tz_localize(UTC)
 
                 point = (
@@ -979,8 +972,6 @@ class KrakenHistoricalDataService(HistoricalDataService):
                 "Error querying OHLCV data from InfluxDB:",
                 source_module=self._source_module)
             return None
-        else:
-            return df
 
     async def _query_trades_data_from_influxdb(
         self,
@@ -1032,8 +1023,6 @@ class KrakenHistoricalDataService(HistoricalDataService):
                 "Error querying trade data from InfluxDB:",
                 source_module=self._source_module)
             return None
-        else:
-            return df
 
     def _get_missing_ranges(
         self,
@@ -1078,10 +1067,12 @@ class KrakenHistoricalDataService(HistoricalDataService):
                     exc_info=True,
                     source_module=self._source_module)
                 return [(start_time, end_time)]
-        elif df.index.tz is None:
-            df.index = df.index.tz_localize(UTC)
-        elif df.index.tz != UTC:
-            df.index = df.index.tz_convert(UTC)
+        else:
+            # At this point we know df.index is a DatetimeIndex
+            if df.index.tz is None:
+                df.index = df.index.tz_localize(UTC)
+            elif df.index.tz != UTC:
+                df.index = df.index.tz_convert(UTC)
 
         # Sort DataFrame by timestamp index
         df = df.sort_index()
@@ -1156,8 +1147,10 @@ class KrakenHistoricalDataService(HistoricalDataService):
         if last_data_point_ts < end_time:
             # Calculate the actual missing start considering the expected interval
             actual_missing_start = last_data_point_ts
-            if expected_interval_str and self._interval_str_to_timedelta(expected_interval_str):
-                actual_missing_start = last_data_point_ts + self._interval_str_to_timedelta(expected_interval_str)
+            if expected_interval_str:
+                interval_delta = self._interval_str_to_timedelta(expected_interval_str)
+                if interval_delta:
+                    actual_missing_start = last_data_point_ts + interval_delta
 
             if end_time > actual_missing_start:
                 missing_ranges.append((actual_missing_start, end_time))
@@ -1239,12 +1232,6 @@ class KrakenHistoricalDataService(HistoricalDataService):
                 "Error getting latest timestamp from InfluxDB:",
                 source_module=self._source_module)
             return None
-        else:
-            # This else corresponds to the try block above
-            # If no exception occurred during the query and processing,
-            # and we didn't return a timestamp from the loop,
-            # it means no data was found or an unexpected structure was encountered.
-            return None
 
     async def fetch_trades(
         self,
@@ -1269,7 +1256,7 @@ class KrakenHistoricalDataService(HistoricalDataService):
                 return None
 
             all_trades: list[dict[str, Any]] = [] # Added type hint
-            last_id = None
+            last_id: str | None = None
 
             # Kraken returns max 1000 trades per request
             batch_size = min(limit or 1000, 1000)

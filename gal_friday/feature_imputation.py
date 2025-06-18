@@ -439,7 +439,7 @@ class KNNImputationStrategy(ImputationStrategy):
     
     def __init__(self, config: ImputationConfig, logger: LoggerService) -> None:
         super().__init__(config, logger)
-        self._knn_imputer = None
+        self._knn_imputer: Optional[KNNImputer] = None  # type: ignore[no-any-unimported]
         self._feature_scaler = StandardScaler()
         
     async def impute(
@@ -478,9 +478,9 @@ class KNNImputationStrategy(ImputationStrategy):
                     weights='distance'
                 )
             
-            # Perform imputation
-            assert self._knn_imputer is not None  # Type narrowing for mypy
-            imputed_matrix = self._knn_imputer.fit_transform(feature_matrix)
+            # Perform imputation - at this point _knn_imputer is guaranteed to be initialized
+            knn_imputer = self._knn_imputer  # Local variable for type narrowing
+            imputed_matrix = knn_imputer.fit_transform(feature_matrix)
             imputed_values = pd.Series(
                 imputed_matrix[:, 0], 
                 index=data.index, 

@@ -51,14 +51,14 @@ class ModelWithPredict(Protocol):
     capabilities through a `predict` method, which is common in scikit-learn
     compatible models.
     """
-    def predict(self, x: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
+    def predict(self, x: np.ndarray[Any, Any]) -> Any:
         """Predict target values for the input data.
 
         Args:
             x: Input samples as a numpy array of shape (n_samples, n_features).
 
         Returns:
-            Predicted target values as a numpy array.
+            Predicted target values, typically as a numpy array but may be scalar.
         """
         ...
 
@@ -417,13 +417,21 @@ class SKLearnPredictor(PredictorInterface):
         """Make prediction for models without predict_proba method."""
         prediction_output = model.predict(processed_features)
         
+        # Handle scalar output first (including native Python types)
+        if isinstance(prediction_output, (float, int)):
+            return float(prediction_output), None, None
+        
         # Handle numpy array output
         if isinstance(prediction_output, np.ndarray):
             if prediction_output.size == 1:
                 return float(prediction_output.item()), None, None
-        # Handle scalar output (some models might return scalars directly)
-        elif isinstance(prediction_output, (float, int, np.floating, np.integer)):
-            return float(prediction_output), None, None
+            return (
+                None,
+                None,
+                {
+                    "error": f"Unsupported array shape: {prediction_output.shape}",
+                    "model_id": model_id,
+                })
 
         return (
             None,

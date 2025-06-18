@@ -11,6 +11,12 @@ import joblib
 import numpy as np
 from scipy.special import softmax
 
+# PyTorch import (conditional)
+try:
+    import torch
+except ImportError:
+    torch = None
+
 # Local application imports
 from ..interfaces.predictor_interface import PredictorInterface
 
@@ -51,14 +57,11 @@ class PredictorModel(Protocol):
         ...
 
 
-import torch  # Add import for torch.Tensor
-
-
 @runtime_checkable
 class TorchModel(Protocol):
     """Protocol for PyTorch model inference."""
 
-    def __call__(self, x: torch.Tensor) -> torch.Tensor: # Changed np.ndarray[Any, Any] to torch.Tensor
+    def __call__(self, x: Any) -> Any:  # Using Any to avoid torch import issues
         """Forward pass for PyTorch model.
 
         Args:
@@ -247,7 +250,7 @@ class LSTMPredictor(PredictorInterface):
                 Exception,
                 f"Failed to load LSTM model from {self.model_path}: {e!s}")
 
-    def predict(self, features: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:  # type: ignore[return]
+    def predict(self, features: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Generate predictions using the loaded LSTM model (instance method).
 
         This method now assumes `features` is the 2D sequence (timesteps, features_per_step).
@@ -301,7 +304,7 @@ class LSTMPredictor(PredictorInterface):
 
             # Explicitly type the output to help mypy understand it's an ndarray[Any, Any]
             model_output: np.ndarray[Any, Any] = raw_predictions.cpu().numpy().flatten().astype(np.float32)
-            if model_output.shape != (1):
+            if model_output.shape != (1,):
                 self.logger.error(
                     f"Model output shape {model_output.shape} is not compatible with "
                     f"expected dimensions for model {self.model_id}")
@@ -405,7 +408,7 @@ class LSTMPredictor(PredictorInterface):
     def _process_features(
         cls,
         feature_sequence: np.ndarray[Any, Any], # Expected to be pre-scaled
-        scaler_asset: object | joblib.scaler.StandardScaler | None, # Kept for compatibility, but should be None
+        scaler_asset: Any, # Kept for compatibility, but should be None
         model_id: str,
         logger: logging.Logger) -> tuple[np.ndarray[Any, Any], str] | dict[str, str]:
         """Process the input features (reshaping only, scaling is removed)."""

@@ -297,9 +297,9 @@ class FeatureEngineer:
         
         return df
     
-    def _calculate_rsi(self, prices: pd.Series[Any], window: int = 14) -> pd.Series[Any]:
+    def _calculate_rsi(self, prices: pd.Series[float], window: int = 14) -> pd.Series[float]:
         """Calculate Relative Strength Index."""
-        delta = prices.diff()
+        delta: pd.Series[float] = prices.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
         
@@ -308,9 +308,9 @@ class FeatureEngineer:
         
         return rsi
     
-    def _calculate_macd(self, prices: pd.Series[Any], 
+    def _calculate_macd(self, prices: pd.Series[float], 
                        fast: int = 12, slow: int = 26, signal: int = 9
-                       ) -> Tuple[pd.Series[Any], pd.Series[Any]]:
+                       ) -> Tuple[pd.Series[float], pd.Series[float]]:
         """Calculate MACD indicator."""
         ema_fast = prices.ewm(span=fast).mean()
         ema_slow = prices.ewm(span=slow).mean()
@@ -330,7 +330,7 @@ class FeatureEngineer:
         df = df.dropna(thresh=int(len(df) * (1 - nan_threshold)), axis=1)
         
         # Forward fill remaining NaN values
-        df = df.fillna(method='ffill').fillna(method='bfill')
+        df = df.ffill().bfill()
         
         return df
 
@@ -385,7 +385,7 @@ class ModelTrainer:
             X_scaled = scaler.fit_transform(X)
             
             # Perform cross-validation
-            cv_scores = self._perform_cross_validation(model, X_scaled, y, 
+            cv_scores = self._perform_cross_validation(model, X_scaled, np.asarray(y.values), 
                                                      training_config.cv_folds)
             
             # Train final model
@@ -498,11 +498,11 @@ class ModelTrainer:
             }
         )
         
-        return cv_scores
+        return np.array(cv_scores)
     
     def _calculate_performance_metrics(self, 
                                      model: Any,
-                                     scaler: StandardScaler,
+                                     scaler: Any,  # StandardScaler instance
                                      X: pd.DataFrame,
                                      y: pd.Series[Any],
                                      symbol: str,
@@ -545,7 +545,7 @@ class MLPredictionPipeline:
         
         # Model management
         self.models: Dict[str, Any] = {}
-        self.scalers: Dict[str, StandardScaler] = {}
+        self.scalers: Dict[str, Any] = {}  # StandardScaler instances
         self.feature_names: Dict[str, List[str]] = {}
         self.model_metrics: Dict[str, ModelPerformanceMetrics] = {}
         
@@ -554,7 +554,7 @@ class MLPredictionPipeline:
         self.model_storage_path.mkdir(parents=True, exist_ok=True)
         
         # Performance tracking
-        self.prediction_stats = {
+        self.prediction_stats: Dict[str, Union[int, datetime, None]] = {
             'predictions_made': 0,
             'successful_predictions': 0,
             'failed_predictions': 0,
@@ -665,8 +665,10 @@ class MLPredictionPipeline:
                 self.model_metrics[symbol].prediction_count += 1
             
             # Update stats
-            self.prediction_stats['predictions_made'] += 1
-            self.prediction_stats['successful_predictions'] += 1
+            current_count = self.prediction_stats.get('predictions_made', 0)
+            self.prediction_stats['predictions_made'] = (int(current_count) if isinstance(current_count, (int, float)) else 0) + 1
+            success_count = self.prediction_stats.get('successful_predictions', 0)
+            self.prediction_stats['successful_predictions'] = (int(success_count) if isinstance(success_count, (int, float)) else 0) + 1
             self.prediction_stats['last_prediction_time'] = datetime.utcnow()
             
             result = PredictionResult(
@@ -696,7 +698,8 @@ class MLPredictionPipeline:
             return result
             
         except Exception as e:
-            self.prediction_stats['failed_predictions'] += 1
+            failed_count = self.prediction_stats.get('failed_predictions', 0)
+            self.prediction_stats['failed_predictions'] = (int(failed_count) if isinstance(failed_count, (int, float)) else 0) + 1
             self.logger.error(
                 "Prediction failed for %(symbol)s: %(error)s",
                 source_module=self._source_module,
@@ -747,7 +750,7 @@ class MLPredictionPipeline:
             context={"symbol": symbol, "path": str(model_path)}
         )
         
-        return model_version
+        return str(model_version)
     
     def _prepare_prediction_features(self, 
                                    features: Dict[str, float], 
@@ -786,7 +789,7 @@ class MLPredictionPipeline:
             from scipy import stats
             confidence_multiplier = stats.norm.ppf((1 + confidence_level) / 2)
             
-            return std_dev * confidence_multiplier
+            return float(std_dev * confidence_multiplier)
         else:
             # Default uncertainty estimation (could be improved with quantile regression)
             return 0.02  # 2% of price as default uncertainty

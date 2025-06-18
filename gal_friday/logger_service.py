@@ -1590,22 +1590,25 @@ class LoggerService(ServiceProtocol):
 
             valid_fields: dict[str, Any] = {}
             for key, value in fields.items():
-                # Handle specific types first
-                if isinstance(value, bool):  # bool must come before int since bool is a subclass of int
-                    valid_fields[key] = value
-                elif isinstance(value, (int, float)):
-                    valid_fields[key] = value
-                elif isinstance(value, str):
-                    valid_fields[key] = value
-                elif isinstance(value, Decimal):
-                    valid_fields[key] = float(value)
+                # Explicit type guard to help mypy understand value can be Any type
+                field_value: Any = value
+                
+                # Handle specific types - check string last since it's the broadest type
+                if isinstance(field_value, bool):  # bool must come before int since bool is a subclass of int
+                    valid_fields[key] = field_value
+                elif isinstance(field_value, (int, float)):
+                    valid_fields[key] = field_value
+                elif isinstance(field_value, Decimal):
+                    valid_fields[key] = float(field_value)
+                elif isinstance(field_value, str):
+                    valid_fields[key] = field_value
                 else:
                     self.warning(
                         "Unsupported type for InfluxDB field '%s': %s. Converting to string.",
                         key,
-                        type(value),
+                        type(field_value),
                         source_module="LoggerService")
-                    valid_fields[key] = str(value)
+                    valid_fields[key] = str(field_value)
 
             if not valid_fields:
                 self.warning(

@@ -195,8 +195,8 @@ class KrakenWebSocketClient:
 
         # Connection state
         self.state = ConnectionState.DISCONNECTED
-        self.ws_public: ClientConnection | None = None
-        self.ws_private: ClientConnection | None = None
+        self.ws_public: ClientConnection | None = None  # type: ignore[no-any-unimported]
+        self.ws_private: ClientConnection | None = None  # type: ignore[no-any-unimported]
 
         # Subscriptions
         self.public_subscriptions: set[str] = set()
@@ -234,7 +234,8 @@ class KrakenWebSocketClient:
         
         # Performance tracking
         self.processing_metrics = ProcessingMetrics()
-        self.processing_times = deque(maxlen=1000)
+        self.processing_times: deque[float] = deque(maxlen=1000)
+        self._last_data_time: float = time.time()
 
     async def connect(self) -> None:
         """Establish WebSocket connections."""
@@ -526,17 +527,6 @@ class KrakenWebSocketClient:
                     self.logger.error(
                         f"Subscription error: {message.get('errorMessage')}",
                         source_module=self._source_module)
-            elif isinstance(message, list) and len(message) >= MESSAGE_MIN_LENGTH:
-                # Data message format: [channelID, data, channelName, pair]
-                channel_name = (
-                    message[MESSAGE_CHANNEL_INDEX]
-                    if len(message) > MESSAGE_CHANNEL_INDEX
-                    else None
-                )
-
-                if channel_name in self.message_handlers:
-                    handler = self.message_handlers[channel_name]
-                    await handler(message)
         except Exception as e:
             self.logger.exception(
                 f"Error in _handle_event_message: {e!s}",
@@ -1286,11 +1276,7 @@ class KrakenWebSocketClient:
     
     def _is_stale_data(self, current_time: float) -> bool:
         """Check if data is considered stale."""
-        if hasattr(self, '_last_data_time'):
-            return current_time - self._last_data_time > self.stale_data_threshold
-        
-        self._last_data_time = current_time
-        return False
+        return bool(current_time - self._last_data_time > self.stale_data_threshold)
     
     async def _handle_processing_error(
         self, 
@@ -1380,7 +1366,7 @@ class KrakenWebSocketClient:
                 "sequence_gaps": self.processing_metrics.sequence_gaps,
                 "recovery_attempts": self.processing_metrics.recovery_attempts
             },
-            "error_counts": dict[str, Any](self.error_counts),
+            "error_counts": {error.value: count for error, count in self.error_counts.items()},
             "symbols_tracked": len(self.order_books),
             "configuration": {
                 "max_depth": self.max_order_book_depth,

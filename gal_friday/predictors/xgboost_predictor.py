@@ -7,11 +7,18 @@ XGBoost models.
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import joblib  # For loading scalers
 import numpy as np
-import xgboost as xgb
+
+if TYPE_CHECKING:
+    import xgboost as xgb
+else:
+    try:
+        import xgboost as xgb
+    except ImportError:
+        xgb = None  # type: ignore[assignment]
 
 from ..interfaces.predictor_interface import PredictorInterface
 
@@ -154,10 +161,14 @@ class XGBoostPredictor(PredictorInterface):
         cls,
         model_path: str,
         model_id: str,
-        logger: logging.Logger) -> tuple[xgb.Booster | None, dict[str, Any]]:
+        logger: logging.Logger) -> tuple[Any | None, dict[str, Any]]:
         """Load XGBoost model from file."""
         if not Path(model_path).exists():
             return None, {"error": f"Model file not found: {model_path}", "model_id": model_id}
+        
+        if xgb is None:
+            return None, {"error": "XGBoost library not available", "model_id": model_id}
+        
         try:
             model = xgb.Booster()
             model.load_model(model_path)
@@ -225,12 +236,15 @@ class XGBoostPredictor(PredictorInterface):
     @classmethod
     def _make_prediction(
         cls,
-        model: xgb.Booster,
+        model: Any,
         features: np.ndarray[Any, Any],
         feature_names: list[str],  # Renamed to match call site
         model_id: str,
         logger: logging.Logger) -> dict[str, Any]:
         """Make prediction using the loaded model."""
+        if xgb is None:
+            return {"error": "XGBoost library not available", "model_id": model_id}
+        
         try:
             dmatrix = xgb.DMatrix(features, feature_names=feature_names)
             prediction_val = model.predict(dmatrix)

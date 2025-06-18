@@ -8,7 +8,7 @@ import asyncio
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, cast
 from dataclasses import dataclass, field
 from enum import Enum
 import json
@@ -561,7 +561,7 @@ class EnhancedMarketDataService:
         """Extract exchange from symbol or return default."""
         # This would implement symbol parsing logic
         # For now, return default exchange
-        return self._default_exchange
+        return str(self._default_exchange)
 
 
 # Error Management Classes
@@ -817,19 +817,19 @@ class KrakenErrorClassifier:
     def calculate_retry_delay(self, strategy: Dict[str, Any]) -> float:
         """Calculate delay for next retry attempt."""
         strategy_type = strategy["strategy"]
-        base_delay = strategy["base_delay"]
-        retry_count = strategy["current_retry"]
+        base_delay = float(strategy["base_delay"])
+        retry_count = int(strategy["current_retry"])
         
         if strategy_type == RetryStrategy.IMMEDIATE.value:
             return 0.0
         elif strategy_type == RetryStrategy.LINEAR_BACKOFF.value:
-            return base_delay * (retry_count + 1)
+            return float(base_delay * (retry_count + 1))
         elif strategy_type == RetryStrategy.EXPONENTIAL_BACKOFF.value:
-            return base_delay * (2 ** retry_count)
+            return float(base_delay * (2 ** retry_count))
         elif strategy_type == RetryStrategy.FIXED_INTERVAL.value:
-            return base_delay
+            return float(base_delay)
         else:
-            return base_delay
+            return float(base_delay)
     
     def should_retry(self, error_instance: ErrorInstance) -> bool:
         """Determine if an error should be retried."""
@@ -893,12 +893,12 @@ class KrakenErrorClassifier:
             recent_errors = [e for e in self._error_history if e.timestamp > cutoff_time]
             
             # Category breakdown
-            category_counts = {}
+            category_counts: dict[str, int] = {}
             for error in recent_errors:
                 category_counts[error.category.value] = category_counts.get(error.category.value, 0) + 1
             
             # Severity breakdown
-            severity_counts = {}
+            severity_counts: dict[str, int] = {}
             for error in recent_errors:
                 severity_counts[error.severity.value] = severity_counts.get(error.severity.value, 0) + 1
             
@@ -922,7 +922,7 @@ class KrakenErrorClassifier:
     
     def _get_most_common_errors(self, errors: List[ErrorInstance], limit: int = 5) -> List[Dict[str, Any]]:
         """Get most common error messages."""
-        error_counts = {}
+        error_counts: dict[str, int] = {}
         for error in errors:
             error_counts[error.message] = error_counts.get(error.message, 0) + 1
         
@@ -975,7 +975,7 @@ class BatchExecutionResult:
 class OptimizedBatchProcessor:
     """Production-grade batch order processing system."""
     
-    def __init__(self, adapter, logger: LoggerService, config: ConfigManager) -> None:
+    def __init__(self, adapter: Any, logger: LoggerService, config: ConfigManager) -> None:
         self.adapter = adapter
         self.logger = logger
         self.config = config
@@ -1007,18 +1007,17 @@ class OptimizedBatchProcessor:
             # Pre-process orders
             processed_orders = await self._preprocess_orders(orders)
             
-            # Choose execution strategy
-            if strategy == BatchStrategy.PARALLEL:
-                results = await self._execute_parallel(processed_orders)
-            elif strategy == BatchStrategy.SEQUENTIAL:
-                results = await self._execute_sequential(processed_orders)
-            elif strategy == BatchStrategy.SMART_ROUTING:
-                results = await self._execute_smart_routing(processed_orders)
-            elif strategy == BatchStrategy.RISK_AWARE:
-                results = await self._execute_risk_aware(processed_orders)
-            else:
-                # Default to smart routing
-                results = await self._execute_smart_routing(processed_orders)
+            # Strategy mapping for cleaner execution
+            strategy_handlers = {
+                BatchStrategy.PARALLEL: self._execute_parallel,
+                BatchStrategy.SEQUENTIAL: self._execute_sequential,
+                BatchStrategy.SMART_ROUTING: self._execute_smart_routing,
+                BatchStrategy.RISK_AWARE: self._execute_risk_aware,
+            }
+            
+            # Get handler with fallback to smart routing
+            handler = strategy_handlers.get(strategy, self._execute_smart_routing)
+            results = await handler(processed_orders)
             
             execution_time = time.time() - start_time
             
@@ -1096,7 +1095,7 @@ class OptimizedBatchProcessor:
                             "error": str(result)
                         })
                     else:
-                        results.append(result)
+                        results.append(cast(Dict[str, Any], result))
                         
             except asyncio.TimeoutError:
                 # Handle timeout

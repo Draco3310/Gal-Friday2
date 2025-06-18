@@ -19,9 +19,11 @@ from .retraining_job import RetrainingJob
 from .risk_metrics import RiskMetrics
 from .data_quality_issue import DataQualityIssue
 from .trade_signal import TradeSignal
+from .audit_entry import AuditEntry
 
 __all__ = [
     "Base",
+    "AuditEntry",
     "DriftDetectionEvent",
     "Experiment",
     "ExperimentAssignment",

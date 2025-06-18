@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timezone
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -264,27 +264,28 @@ class RealTimeDashboard:
         """Setup FastAPI routes for dashboard"""
         
         @self.app.get("/")
-        async def dashboard_home():
+        async def dashboard_home() -> dict[str, str]:
             """Main dashboard page"""
             return {"message": "Gal Friday Trading Dashboard", "status": "active"}
         
         @self.app.get("/health")
-        async def health_check():
+        async def health_check() -> dict[str, str]:
             """Health check endpoint"""
             return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
         
         @self.app.websocket("/ws")
-        async def websocket_endpoint(websocket: WebSocket):
+        async def websocket_endpoint(websocket: WebSocket) -> None:
             """WebSocket endpoint for real-time updates"""
             await self._handle_websocket_connection(websocket)
         
         @self.app.get("/api/data/{widget_type}")
-        async def get_widget_data(widget_type: str):
+        async def get_widget_data(widget_type: str) -> dict[str, Any]:
             """Get current data for specific widget type"""
-            return self.current_data.get(widget_type, {})
+            result = self.current_data.get(widget_type, {})
+            return cast(dict[str, Any], result)
         
         @self.app.get("/api/widgets")
-        async def get_all_widgets():
+        async def get_all_widgets() -> dict[str, Any]:
             """Get all current widget data"""
             return {
                 "data": self.current_data,

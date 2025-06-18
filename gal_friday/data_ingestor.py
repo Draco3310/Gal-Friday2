@@ -16,6 +16,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 import websockets
@@ -24,9 +25,9 @@ from sortedcontainers import SortedDict
 # Import necessary event classes from core module
 from .core.events import (
     MarketDataL2Event,
+    MarketDataTradeEvent,
     PotentialHaltTriggerEvent,
     SystemStateEvent,
-    MarketDataEvent,
     EventType)
 from .logger_service import ExcInfoType, LoggerService
 from typing import Any
@@ -142,7 +143,7 @@ class DataIngestor:
         self._system_status: str | None = None
 
         # Initialize book state
-        self._l2_books: dict[str, dict[str, SortedDict | int | None]] = defaultdict(
+        self._l2_books: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"bids": SortedDict(), "asks": SortedDict(), "checksum": None})
 
         # Validate configuration
@@ -1035,7 +1036,7 @@ class DataIngestor:
 
     def _update_price_levels(
         self,
-        book_side: SortedDict,
+        book_side: Any,  # SortedDict instance
         updates: list[Any],
         symbol: str,
         side: str) -> bool:
@@ -1338,7 +1339,7 @@ class DataIngestor:
                 "Unexpected error publishing OHLCV event.",
                 source_module=self._source_module)
 
-    def _validate_ohlc_item(self, ohlc_item: list[Any]) -> bool:
+    def _validate_ohlc_item(self, ohlc_item: Any) -> bool:
         """Validate OHLC item structure.
 
         Args:
@@ -1517,24 +1518,34 @@ class DataIngestor:
                     source_module=self._source_module)
                 return
 
-            # Create trade event payload
-            trade_payload = {
-                "trading_pair": symbol,
-                "exchange": "kraken",
-                "price": price_str,
-                "volume": qty_str,
-                "timestamp_exchange": timestamp_str,
-                "side": side if side in ["buy", "sell"] else "unknown",
-                "trade_id": str(trade_id),
-            }
+            # Parse timestamp
+            try:
+                # Kraken uses Unix timestamp (float seconds)
+                timestamp_exchange = datetime.fromtimestamp(float(timestamp_str) if timestamp_str is not None else 0, tz=UTC)
+            except (ValueError, TypeError):
+                self.logger.warning(
+                    "Could not parse trade timestamp, using current time",
+                    source_module=self._source_module,
+                    context={"timestamp": timestamp_str})
+                timestamp_exchange = datetime.now(UTC)
 
-            # Publish trade event
-            trade_event = MarketDataEvent(
+            # Validate side (MarketDataTradeEvent requires "buy" or "sell")
+            if side not in ["buy", "sell"]:
+                # Default to "buy" for unknown sides
+                side = "buy"
+
+            # Create trade event
+            trade_event = MarketDataTradeEvent(
                 source_module=self._source_module,
                 event_id=uuid.uuid4(),
-                timestamp=datetime.utcnow(),
-                event_type=EventType.MARKET_DATA_TRADE,
-                payload=trade_payload)
+                timestamp=datetime.now(UTC),
+                trading_pair=symbol,
+                exchange="kraken",
+                timestamp_exchange=timestamp_exchange,
+                price=Decimal(price_str),
+                volume=Decimal(qty_str),
+                side=side,
+                trade_id=str(trade_id) if trade_id else None)
 
             try:
                 await self.pubsub.publish(trade_event)

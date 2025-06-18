@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, NamedTuple
+from typing import Any, Dict, List, NamedTuple
 from typing import cast as typing_cast
 
 import numpy as np
@@ -60,7 +60,7 @@ class InterpolationConfig:
     method_overrides: dict[str, InterpolationMethod] | None = None
     validation_enabled: bool = True
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Initialize method_overrides if None."""
         if self.method_overrides is None:
             self.method_overrides = {}
@@ -79,7 +79,7 @@ class DataInterpolator:
         self.config = config
         self.logger = logger
         self._source_module = "DataInterpolator"
-        self.interpolation_stats = {
+        self.interpolation_stats: Dict[str, Any] = {
             "total_gaps_processed": 0,
             "successful_interpolations": 0,
             "failed_interpolations": 0,
@@ -189,7 +189,7 @@ class DataInterpolator:
         """Select optimal interpolation method based on gap characteristics."""
         # Check for method overrides
         override_key = f"{gap_info.symbol}_{gap_info.data_type}"
-        if override_key in self.config.method_overrides:
+        if self.config.method_overrides and override_key in self.config.method_overrides:
             return self.config.method_overrides[override_key]
 
         # Select method based on gap characteristics
@@ -489,11 +489,16 @@ class DataInterpolator:
                     continue
 
                 if len(interpolated_data) > 1:
-                    diffs = interpolated_data[column].diff().abs()
-                    max_diff = diffs.max()
-                    typical_diff = combined_data[column].diff().abs().quantile(0.95)
+                    col_series: pd.Series[Any] = interpolated_data[column]
+                    diffs: pd.Series[Any] = col_series.diff().abs()
+                    max_diff_val: Any = diffs.max()
+                    max_diff = float(max_diff_val) if pd.notna(max_diff_val) else 0.0
+                    
+                    combined_col: pd.Series[Any] = combined_data[column]
+                    quantile_val: Any = combined_col.diff().abs().quantile(0.95)
+                    typical_diff = float(quantile_val) if pd.notna(quantile_val) else 0.0
 
-                    if pd.notna(typical_diff) and max_diff > typical_diff * 3:  # Allow 3x typical movement
+                    if pd.notna(typical_diff) and pd.notna(max_diff) and max_diff > typical_diff * 3:  # Allow 3x typical movement
                         self.logger.warning(
                             f"Interpolated {column} shows unusual jumps",
                             source_module=self._source_module)
@@ -515,7 +520,7 @@ class DataInterpolator:
 
         return result
 
-    def _update_interpolation_stats(self, gap_info: GapInfo, method: InterpolationMethod | None, success: bool):
+    def _update_interpolation_stats(self, gap_info: GapInfo, method: InterpolationMethod | None, success: bool) -> None:
         """Update interpolation statistics."""
         self.interpolation_stats["total_gaps_processed"] += 1
 
@@ -887,7 +892,8 @@ class GapDetector:
             quality_threshold: Minimum data quality threshold for interpolation
         """
         if method_overrides is not None:
-            self.interpolator.config.method_overrides.update(method_overrides)
+            if self.interpolator.config.method_overrides is not None:
+                self.interpolator.config.method_overrides.update(method_overrides)
 
         if max_gap_duration is not None:
             self.interpolator.config.max_gap_duration = max_gap_duration
@@ -912,24 +918,37 @@ class GapDetector:
         mode_interval_series = intervals.mode()
         if not mode_interval_series.empty:
             # Convert pandas.Timedelta to datetime.timedelta
-            py_delta = mode_interval_series.iloc[0].to_pytimedelta()
+            # Access first item and convert to timedelta
+            first_mode = typing_cast(Any, mode_interval_series.iloc[0])
+            if hasattr(first_mode, 'to_pytimedelta'):
+                py_delta = first_mode.to_pytimedelta()
+            else:
+                # If already a timedelta or similar
+                if pd.notna(first_mode):
+                    py_delta = pd.Timedelta(first_mode).to_pytimedelta()
+                else:
+                    py_delta = timedelta(minutes=1)  # Default fallback
             return typing_cast("timedelta", py_delta) # Cast to timedelta
 
         # Fallback to median if mode is empty (e.g., all intervals are unique)
+        # Since intervals is guaranteed to be non-empty at this point,
+        # median() will always return a valid value
         median_val = intervals.median()
-        if pd.isna(median_val): # Check if median itself is NaT (e.g., if intervals was empty, though covered above)
-            self.logger.warning(
-                "Median interval calculation resulted in NaT, defaulting to 1 minute.",
-                source_module=self._source_module)
-            return timedelta(minutes=1)
-
-        py_delta = median_val.to_pytimedelta()
+        if hasattr(median_val, 'to_pytimedelta'):
+            py_delta = median_val.to_pytimedelta()
+        else:
+            py_delta = pd.Timedelta(median_val).to_pytimedelta()
         return typing_cast("timedelta", py_delta) # Cast to timedelta
 
     def _detect_frequency(self, timestamps: pd.Series[Any]) -> str:
         """Detect pandas frequency string."""
         intervals = timestamps.diff().dropna()
-        median_seconds = intervals.median().total_seconds()
+        median_interval = intervals.median()
+        if hasattr(median_interval, 'total_seconds'):
+            median_seconds = median_interval.total_seconds()
+        else:
+            # Convert to Timedelta if needed
+            median_seconds = pd.Timedelta(median_interval).total_seconds()
 
         # Map to pandas frequency
         if median_seconds < 60:
@@ -983,9 +1002,9 @@ class GapDetector:
                 patterns.append({
                     "type": "day_of_week",
                     "day": day,
-                    "day_name": day_names[day],
+                    "day_name": day_names[int(day)] if isinstance(day, (int, np.integer)) else str(day),
                     "occurrences": count,
-                    "description": f"Frequent gaps on {day_names[day]}",
+                    "description": f"Frequent gaps on {day_names[int(day)] if isinstance(day, (int, np.integer)) else str(day)}",
                 })
 
         return patterns

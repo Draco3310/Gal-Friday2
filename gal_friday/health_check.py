@@ -360,7 +360,7 @@ class RedisChecker(HealthChecker):
         try:
             # Try to import aioredis, but make it optional
             try:
-                import aioredis  # type: ignore
+                import aioredis
             except ImportError:
                 return HealthCheckResult(
                     name=self.name,

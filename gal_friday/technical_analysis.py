@@ -137,7 +137,7 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         # Fill initial NaN values with neutral RSI value
         result = result.fillna(50.0)
         
-        return result.values
+        return np.asarray(result.values, dtype=np.float64)
     
     def bbands(
         self, 
@@ -189,7 +189,7 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         # Fill initial NaN values with the first available close price
         result = result.bfill()
         
-        return result.values
+        return np.asarray(result.values, dtype=np.float64)
     
     def sma(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate Simple Moving Average using pandas-ta."""
@@ -200,7 +200,7 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         # Fill initial NaN values
         result = result.bfill()
         
-        return result.values
+        return np.asarray(result.values, dtype=np.float64)
     
     def macd(
         self,
@@ -255,7 +255,7 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         # Fill initial NaN values with 0
         result = result.fillna(0.0)
         
-        return result.values
+        return np.asarray(result.values, dtype=np.float64)
 
 
 class TALibImplementation(TechnicalAnalysisInterface):
@@ -294,7 +294,8 @@ class TALibImplementation(TechnicalAnalysisInterface):
     def rsi(self, close: np.ndarray[Any, Any], timeperiod: int = 14) -> np.ndarray[Any, Any]:
         """Calculate RSI using TA-Lib."""
         close = self._validate_input(close, timeperiod + 1)
-        return cast(np.ndarray[Any, Any], talib.RSI(close, timeperiod=timeperiod))
+        result = talib.RSI(close, timeperiod=timeperiod)
+        return np.asarray(result, dtype=np.float64)
     
     def bbands(
         self, 
@@ -306,17 +307,20 @@ class TALibImplementation(TechnicalAnalysisInterface):
     ) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using TA-Lib."""
         close = self._validate_input(close, timeperiod)
-        return cast(np.ndarray[Any, Any], talib.BBANDS(close, timeperiod=timeperiod, nbdevup=nbdevup, nbdevdn=nbdevdn, matype=matype))
+        upper, middle, lower = talib.BBANDS(close, timeperiod=timeperiod, nbdevup=nbdevup, nbdevdn=nbdevdn, matype=matype)
+        return (np.asarray(upper, dtype=np.float64), np.asarray(middle, dtype=np.float64), np.asarray(lower, dtype=np.float64))
     
     def ema(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate EMA using TA-Lib."""
         close = self._validate_input(close)
-        return cast(np.ndarray[Any, Any], talib.EMA(close, timeperiod=timeperiod))
+        result = talib.EMA(close, timeperiod=timeperiod)
+        return np.asarray(result, dtype=np.float64)
     
     def sma(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate SMA using TA-Lib."""
         close = self._validate_input(close, timeperiod)
-        return cast(np.ndarray[Any, Any], talib.SMA(close, timeperiod=timeperiod))
+        result = talib.SMA(close, timeperiod=timeperiod)
+        return np.asarray(result, dtype=np.float64)
     
     def macd(
         self,
@@ -327,7 +331,8 @@ class TALibImplementation(TechnicalAnalysisInterface):
     ) -> Tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using TA-Lib."""
         close = self._validate_input(close, slowperiod)
-        return cast(np.ndarray[Any, Any], talib.MACD(close, fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod))
+        macd, signal, hist = talib.MACD(close, fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod)
+        return (np.asarray(macd, dtype=np.float64), np.asarray(signal, dtype=np.float64), np.asarray(hist, dtype=np.float64))
     
     def atr(
         self,
@@ -340,7 +345,8 @@ class TALibImplementation(TechnicalAnalysisInterface):
         high = self._validate_input(high, timeperiod)
         low = self._validate_input(low, timeperiod)
         close = self._validate_input(close, timeperiod)
-        return cast(np.ndarray[Any, Any], talib.ATR(high, low, close, timeperiod=timeperiod))
+        result = talib.ATR(high, low, close, timeperiod=timeperiod)
+        return np.asarray(result, dtype=np.float64)
 
 
 class StubImplementation(TechnicalAnalysisInterface):
@@ -417,7 +423,7 @@ class StubImplementation(TechnicalAnalysisInterface):
         # Simple range calculation
         true_range = high - low
         if len(true_range) < timeperiod:
-            return true_range
+            return np.asarray(true_range, dtype=np.float64)
         
         # Simple moving average of range
         return np.convolve(true_range, np.ones(timeperiod)/timeperiod, mode='same')

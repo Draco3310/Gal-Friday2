@@ -99,7 +99,7 @@ class AdvancedSpreadCalculator:
             if not microstructure_data.midpoint:
                 return {}
             
-            spreads = {}
+            spreads: dict[str, float] = {}
             
             # 1. Basic quoted spread
             if microstructure_data.quoted_spread:
@@ -247,7 +247,7 @@ class AdvancedSpreadCalculator:
             # Define standard order sizes for impact calculation (in USD)
             impact_sizes = [1000, 5000, 10000, 25000, 50000]
             
-            impact_metrics = {}
+            impact_metrics: dict[str, float] = {}
             
             for size_usd in impact_sizes:
                 # Calculate buy impact
@@ -692,7 +692,7 @@ class IntelligentImputationEngine:
             
             # Use KNN imputer
             imputer = KNNImputer(n_neighbors=self._knn_neighbors)
-            imputed_data: np.ndarray = imputer.fit_transform(data)
+            imputed_data: np.ndarray[Any, np.dtype[np.float64]] = imputer.fit_transform(data)
             
             return pd.Series(imputed_data.flatten(), index=series.index)
             
@@ -835,7 +835,7 @@ class ComprehensiveFeatureValidator:
     
     def _check_feature_consistency(self, features: Dict[str, float]) -> Dict[str, Any]:
         """Check consistency between related features."""
-        consistency_results = {}
+        consistency_results: dict[str, Any] = {}
         
         # Spread consistency checks
         if 'quoted_spread_abs' in features and 'quoted_spread_bps' in features:
@@ -883,7 +883,7 @@ class ComprehensiveFeatureValidator:
         historical_data: pd.DataFrame
     ) -> Dict[str, Any]:
         """Validate temporal coherence of features."""
-        temporal_results = {}
+        temporal_results: dict[str, Any] = {}
         
         for feature_name, current_value in features.items():
             if feature_name not in historical_data.columns:
@@ -918,7 +918,7 @@ class ComprehensiveFeatureValidator:
     ) -> Tuple[Dict[str, float], Dict[str, Any]]:
         """Apply corrections based on validation results."""
         corrected_features = features.copy()
-        corrections = {}
+        corrections: dict[str, Any] = {}
         
         # Correct outliers
         outlier_results = validation_report.get('statistical_tests', {}).get('outliers', {})
@@ -984,7 +984,7 @@ class AdvancedTemporalPatternEngine:
     ) -> Dict[str, Any]:
         """Extract comprehensive temporal patterns from data."""
         try:
-            patterns = {}
+            patterns: dict[str, Any] = {}
             
             # 1. Time-of-day effects
             patterns['time_of_day'] = self._analyze_time_of_day_effects(data, target_feature)
@@ -1082,7 +1082,7 @@ class AdvancedTemporalPatternEngine:
     ) -> Dict[str, Any]:
         """Analyze effects of different global market sessions on crypto."""
         try:
-            session_effects = {}
+            session_effects: dict[str, Any] = {}
             
             for session_name, (start_hour, end_hour) in self._market_sessions.items():
                 # Handle sessions that cross midnight
@@ -1279,7 +1279,7 @@ class AdvancedTemporalPatternEngine:
             regime_changes = (regimes != regimes.shift(1)).cumsum()
             regime_lengths = regimes.groupby(regime_changes).size()
             
-            persistence_stats = {}
+            persistence_stats: dict[str, Any] = {}
             for regime in ['low_vol', 'normal_vol', 'high_vol']:
                 regime_episodes = regimes.groupby(regime_changes).first()
                 regime_episode_lengths = regime_lengths[regime_episodes == regime]

@@ -310,13 +310,21 @@ class PositionManager:
 
             try:
                 # First, update the position in the database
-                updated_pos = await self.position_repository.update(str(position_model.id), position_model.to_dict(exclude={"id"}))
+                update_data = {
+                    "quantity": position_model.quantity,
+                    "entry_price": position_model.entry_price,
+                    "current_price": position_model.current_price,
+                    "realized_pnl": position_model.realized_pnl,
+                    "unrealized_pnl": position_model.unrealized_pnl,
+                    "is_active": position_model.is_active
+                }
+                updated_pos = await self.position_repository.update(str(position_model.id), update_data)
                 if not updated_pos:
                     self.logger.error(f"Failed to update position {position_model.id} in DB.", source_module=self._source_module)
                     return realized_pnl_trade, None
 
                 # NEW: Link the order to this position for audit trail
-                await self._link_order_to_position(params.order_id, position_model.id)
+                await self._link_order_to_position(params.order_id, str(position_model.id))
 
                 self.logger.info(
                     "Updated position in DB - Pair: %s, Side: %s, Trade Qty: %s, Trade Price: %s, "

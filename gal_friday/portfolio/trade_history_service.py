@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -339,8 +339,7 @@ class TradeHistoryService:
         # Check if cache entry is expired
         cache_time = self._cache_timestamps.get(cache_key)
         if not cache_time or (datetime.now(UTC) - cache_time) > self.cache_ttl:
-            # Remove expired entry
-            await self.cache.set(cache_key, None)  # This will effectively remove it
+            # Entry expired, remove timestamp
             self._cache_timestamps.pop(cache_key, None)
             return None
 
@@ -357,7 +356,7 @@ class TradeHistoryService:
         await self.cache.set(cache_key, response)
         self._cache_timestamps[cache_key] = datetime.now(UTC)
 
-    async def _query_fills_from_database(self, request: TradeHistoryRequest) -> list[Fill]:
+    async def _query_fills_from_database(self, request: TradeHistoryRequest) -> Sequence[Fill]:
         """Query fills from database based on request parameters."""
         if request.strategy_id:
             return await self.fill_repository.get_fills_by_strategy(

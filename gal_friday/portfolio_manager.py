@@ -26,7 +26,7 @@ from .exceptions import (
     DataValidationError,
     InsufficientFundsError,
     PriceNotAvailableError)
-from .interfaces.market_price_service_interface import MarketPriceService
+from .interfaces import MarketPriceService
 from .logger_service import LoggerService
 from .portfolio.funds_manager import FundsManager, TradeParams
 from .portfolio.position_manager import PositionManager
@@ -580,9 +580,10 @@ class PortfolioManager:
                             latest_price - pos_model.entry_price # Changed to entry_price
                         ) * pos_model.quantity
 
+                base_asset, quote_asset = self._split_symbol(pair)
                 positions_dict[pair] = {
-                    "base_asset": pos_model.base_asset, # Assumes PositionModel has base_asset
-                    "quote_asset": pos_model.quote_asset, # Assumes PositionModel has quote_asset
+                    "base_asset": base_asset,
+                    "quote_asset": quote_asset,
                     "quantity": str(pos_model.quantity),
                     "average_entry_price": str(pos_model.entry_price), # Changed to entry_price
                     "current_market_value": (
@@ -1193,7 +1194,7 @@ class PortfolioManager:
     def _compare_balances(
         self,
         internal: dict[str, Decimal],
-        exchange: dict[str, Decimal]) -> dict[str, dict[str, Decimal]]:
+        exchange: dict[str, Decimal]) -> dict[str, dict[str, Decimal | str]]:
         """Compare internal and exchange balances, return discrepancies.
 
         Identifies balance differences that exceed configured thresholds.

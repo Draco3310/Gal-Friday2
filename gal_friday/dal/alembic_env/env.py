@@ -4,7 +4,7 @@ import os
 import sys
 from logging.config import fileConfig
 
-from alembic import context  # type: ignore
+from alembic import context
 from sqlalchemy.engine import Connection
 
 # Ensure the application's root directory is in the Python path
@@ -16,7 +16,7 @@ from typing import Any, Literal, cast
 from alembic.autogenerate.api import (  # type: ignore
     AutogenContext,
     CompareTypeContext)
-from alembic.runtime.migration import MigrationContext  # type: ignore
+from alembic.runtime.migration import MigrationContext
 from sqlalchemy import Column as SAColumn  # Alias to avoid clash
 from sqlalchemy.sql.schema import SchemaItem
 
@@ -71,9 +71,9 @@ def include_symbol(
     return True
 
 def compare_type(
-    context: CompareTypeContext,
+    context: Any,  # CompareTypeContext
     inspected_column: dict[str, Any],
-    metadata_column: SAColumn,
+    metadata_column: Any,  # SAColumn[Any]
     inspected_type: Any,
     metadata_type: Any) -> bool | None:
     logger.debug(f"Comparing type for column {metadata_column.name}: DB {inspected_type} vs Meta {metadata_type}")
@@ -118,7 +118,7 @@ def run_migrations_offline() -> None:
     # Note: include_symbol is not a standard hook and will be ignored
     # by Alembic unless using a custom extension
     
-    context.configure(**standard_hooks)
+    context.configure(**standard_hooks)  # type: ignore[arg-type]
     context.run_migrations()
 
 
@@ -135,7 +135,7 @@ def do_run_migrations(connection: Connection) -> None:
         "compare_type": compare_type,
     }
     
-    context.configure(**standard_hooks)
+    context.configure(**standard_hooks)  # type: ignore[arg-type]
     with context.begin_transaction():
         context.run_migrations()
 
@@ -158,7 +158,7 @@ async def run_async_migrations() -> None:
         "compare_type": compare_type,
     }
     
-    context.configure(**standard_hooks)
+    context.configure(**standard_hooks)  # type: ignore[arg-type]
     context.run_migrations()
 
 

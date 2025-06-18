@@ -41,26 +41,14 @@ from typing import Any
 if TYPE_CHECKING:
     from gal_friday.core.pubsub import PubSubManager
     from gal_friday.logger_service import LoggerService
+    
+# These types are not yet implemented, use Any for now
+MonitoringService = Any
+EventStore = Any
 
 # Remove hardcoded URL - will be loaded from configuration
 
 
-class ExecutionHandlerAuthenticationError(ValueError):
-    """Raised when an API credential is not in the expected format or other auth issue.
-
-    Args:
-        message: Custom error message. Defaults to API secret format error.
-        *args: Additional arguments to pass to the parent class.
-    """
-
-    def __init__(self, message: str = "API secret must be base64 encoded.", *args: object) -> None:
-        """Initialize the error with a custom message.
-
-        Args:
-            message: Custom error message. Defaults to API secret format error.
-            *args: Additional arguments to pass to the parent class.
-        """
-        super().__init__(message, *args)
 
 
 @dataclass
@@ -346,11 +334,11 @@ class RateLimitTracker:
 class OrderStateTracker:
     """Enterprise-grade order state tracking and lifecycle management"""
 
-    def __init__(self, persistence_service, event_publisher, config: Dict[str, Any]) -> None:
+    def __init__(self, persistence_service: Any, event_publisher: Any, config: Dict[str, Any]) -> None:
         self.persistence = persistence_service
         self.event_publisher = event_publisher
         self.config = config
-        self.logger = None  # Will be set by the execution handler
+        self.logger: Any = None  # Will be set by the execution handler (LoggerService)
         self.order_states: Dict[str, OrderLifecycleData] = {}
 
     async def create_order_tracking(
@@ -392,7 +380,7 @@ class OrderStateTracker:
             raise OrderStateError(f"Failed to create order tracking: {e}")
 
     async def update_order_state(
-        self, order_id: str, new_state: OrderState, **kwargs
+        self, order_id: str, new_state: OrderState, **kwargs: Any
     ) -> OrderLifecycleData:
         """Update order state with validation and event publishing"""
         try:
@@ -621,7 +609,7 @@ class OrderStateTracker:
 class ConfigurableShutdownHandler:
     """Handles configurable order cancellation during shutdown"""
 
-    def __init__(self, config: ShutdownConfig, execution_handler, market_data_service=None) -> None:
+    def __init__(self, config: ShutdownConfig, execution_handler: Any, market_data_service: Any = None) -> None:
         self.config = config
         self.execution_handler = execution_handler
         self.market_data = market_data_service
@@ -752,6 +740,9 @@ class ConfigurableShutdownHandler:
         # Determine action based on configuration
         action = self._determine_shutdown_action(order_type, None)
 
+        success = False
+        reason = "Unknown error"
+        
         try:
             if action == ShutdownOrderAction.CANCEL_ALL:
                 # Attempt to cancel the order
@@ -782,9 +773,7 @@ class ConfigurableShutdownHandler:
                     reason = f"Conversion failed, cancelled instead: {reason}"
                     success = cancel_success
 
-            else:
-                success = False
-                reason = f"Unknown action: {action}"
+            # No else clause needed - all enum values are covered
 
             return OrderCancellationResult(
                 order_id=order_id,
@@ -1163,13 +1152,13 @@ class ConfigurableShutdownHandler:
 class AsyncOrderProcessor:
     """Enterprise-grade asynchronous order processing engine"""
 
-    def __init__(self, exchange_adapter, config: Dict[str, Any]) -> None:
+    def __init__(self, exchange_adapter: Any, config: Dict[str, Any]) -> None:
         self.exchange_adapter = exchange_adapter
         self.config = config
         self.logger = exchange_adapter.logger if hasattr(exchange_adapter, "logger") else None
 
         # Processing queues by priority
-        self.order_queues = {
+        self.order_queues: dict[OrderPriority, asyncio.Queue[Any]] = {
             OrderPriority.CRITICAL: asyncio.Queue(maxsize=1000),
             OrderPriority.HIGH: asyncio.Queue(maxsize=5000),
             OrderPriority.NORMAL: asyncio.Queue(maxsize=10000),
@@ -1294,7 +1283,7 @@ class AsyncOrderProcessor:
 
                     if self.exchange_adapter and hasattr(self.exchange_adapter, "place_order"):
                         # Use real exchange adapter for order placement
-                        result = await self.exchange_adapter.place_order(request.order_request)
+                        result: dict[str, Any] = await self.exchange_adapter.place_order(request.order_request)
 
                         # Add execution metadata
                         result.update(
@@ -1500,6 +1489,7 @@ class ExecutionHandler(ServiceProtocol):
                 source_module=self.__class__.__name__)
 
         self._session: aiohttp.ClientSession | None = None
+        self.websocket_client: KrakenWebSocketClient | None = None
 
         # --- Initialize Execution Adapter Pattern (Enterprise Architecture) ---
         # Configure which exchange adapter to use
@@ -1548,7 +1538,7 @@ class ExecutionHandler(ServiceProtocol):
         else:
             self._websocket_connection_state = "DISABLED"
             self._websocket_connection_task = None
-            self.websocket_client = None
+            self.websocket_client = None  # WebSocket disabled
 
         # --- Enhanced Order ID Mapping[Any, Any] (Bidirectional & Comprehensive) ---
         # Maps internal client order IDs to Kraken exchange order IDs
@@ -1586,13 +1576,13 @@ class ExecutionHandler(ServiceProtocol):
             persistence_service=self.persistence,
             event_publisher=self.pubsub,
             config={
-                "persistence_enabled": self.config.get_bool(
+                "persistence_enabled": self.config.get(
                     "execution_handler.order_state.persistence_enabled", True
                 ),
                 "cache_size": self.config.get_int(
                     "execution_handler.order_state.cache_size", 10000
                 ),
-                "batch_persistence": self.config.get_bool(
+                "batch_persistence": self.config.get(
                     "execution_handler.order_state.batch_persistence", True
                 ),
                 "persistence_interval_seconds": self.config.get_int(
@@ -1623,16 +1613,16 @@ class ExecutionHandler(ServiceProtocol):
                 ),
             },
             action_by_strategy={},
-            safety_checks_enabled=self.config.get_bool(
+            safety_checks_enabled=self.config.get(
                 "execution_handler.shutdown.safety_checks_enabled", True
             ),
             max_cancellation_time=self.config.get_int(
                 "execution_handler.shutdown.max_cancellation_time", 30
             ),
-            preserve_stop_losses=self.config.get_bool(
+            preserve_stop_losses=self.config.get(
                 "execution_handler.shutdown.preserve_stop_losses", True
             ),
-            market_hours_only=self.config.get_bool(
+            market_hours_only=self.config.get(
                 "execution_handler.shutdown.market_hours_only", False
             ))
         # Initialize market data service for intelligent shutdown decisions
@@ -1651,7 +1641,7 @@ class ExecutionHandler(ServiceProtocol):
             "max_requests_per_second": self.config.get_int(
                 "execution_handler.async.max_requests_per_second", 10
             ),
-            "enable_priority_queues": self.config.get_bool(
+            "enable_priority_queues": self.config.get(
                 "execution_handler.async.enable_priority_queues", True
             ),
             "error_retry_max_attempts": self.config.get_int(
@@ -1695,7 +1685,7 @@ class ExecutionHandler(ServiceProtocol):
         # No asynchronous setup currently required
         return None
 
-    def _initialize_persistence_service(self):
+    def _initialize_persistence_service(self) -> Any:
         """Initialize persistence service for order state tracking"""
         try:
             # Import the DAL components
@@ -1714,16 +1704,19 @@ class ExecutionHandler(ServiceProtocol):
             }
 
             # Create connection pool and repository
-            db_pool = DatabaseConnectionPool(db_config, self.logger)
-            order_repository = OrderRepository(db_pool.get_session_maker(), self.logger)
+            db_pool = DatabaseConnectionPool(self.config, self.logger)
+            session_maker = db_pool.get_session_maker()
+            if not session_maker:
+                raise RuntimeError("Failed to get session maker from database pool")
+            order_repository = OrderRepository(session_maker, self.logger)
 
             # Create persistence service wrapper
             class OrderPersistenceService:
-                def __init__(self, repository, logger) -> None:
+                def __init__(self, repository: Any, logger: Any) -> None:
                     self.repository = repository
                     self.logger = logger
 
-                async def save_order_state(self, order_id: str, order_data: dict[str, Any]):
+                async def save_order_state(self, order_id: str, order_data: dict[str, Any]) -> None:
                     """Save order state to database"""
                     try:
                         await self.repository.save_order_state(order_id, order_data)
@@ -1731,18 +1724,20 @@ class ExecutionHandler(ServiceProtocol):
                         self.logger.error(f"Failed to save order state: {e}")
                         raise
 
-                async def load_order_state(self, order_id: str):
+                async def load_order_state(self, order_id: str) -> dict[str, Any] | None:
                     """Load order state from database"""
                     try:
-                        return await self.repository.load_order_state(order_id)
+                        result = await self.repository.load_order_state(order_id)
+                        return cast(dict[str, Any] | None, result)
                     except Exception as e:
                         self.logger.error(f"Failed to load order state: {e}")
                         return None
 
-                async def get_active_orders(self):
+                async def get_active_orders(self) -> list[dict[str, Any]]:
                     """Get list[Any] of active orders from database"""
                     try:
-                        return await self.repository.get_active_orders()
+                        result = await self.repository.get_active_orders()
+                        return cast(list[dict[str, Any]], result)
                     except Exception as e:
                         self.logger.error(f"Failed to get active orders: {e}")
                         return []
@@ -1761,20 +1756,16 @@ class ExecutionHandler(ServiceProtocol):
                 source_module=self.__class__.__name__)
             return None
 
-    def _initialize_market_data_service(self):
+    def _initialize_market_data_service(self) -> Any:
         """Initialize market data service for intelligent shutdown decisions"""
         try:
             # Import market data components
-            from gal_friday.market_price import MarketPriceService
+            # Note: MarketPriceService is not implemented, using enhanced service instead
 
-            # Create market data service if available
-            if hasattr(self, "market_price_service") and self.market_price_service:
-                market_data_service = self.market_price_service
-            else:
-                # Import enhanced market data service
-                from gal_friday.execution_handler_enhancements import EnhancedMarketDataService
-                
-                market_data_service = EnhancedMarketDataService(self.config, self.logger)
+            # Import enhanced market data service
+            from gal_friday.execution_handler_enhancements import EnhancedMarketDataService
+            
+            market_data_service = EnhancedMarketDataService(self.config, self.logger)
 
             self.logger.info(
                 "Market data service initialized for shutdown decisions",
@@ -1788,7 +1779,7 @@ class ExecutionHandler(ServiceProtocol):
                 source_module=self.__class__.__name__)
             return None
 
-    async def _load_persisted_order_states(self):
+    async def _load_persisted_order_states(self) -> None:
         """Load any persisted order states during startup"""
         try:
             if self.order_state_tracker and self.persistence:
@@ -1798,7 +1789,7 @@ class ExecutionHandler(ServiceProtocol):
                 for order_data in active_orders:
                     order_id = order_data.get("order_id")
                     if order_id:
-                        lifecycle_data = await self._load_order_state(order_id)
+                        lifecycle_data = await self.order_state_tracker._load_order_state(order_id)
                         if lifecycle_data:
                             self.order_state_tracker.order_states[order_id] = lifecycle_data
 
@@ -1811,7 +1802,7 @@ class ExecutionHandler(ServiceProtocol):
                 f"Error loading persisted order states: {e}", source_module=self.__class__.__name__
             )
 
-    async def _persist_all_pending_order_states(self):
+    async def _persist_all_pending_order_states(self) -> None:
         """Persist all pending order states during shutdown"""
         try:
             if self.order_state_tracker:
@@ -1822,7 +1813,7 @@ class ExecutionHandler(ServiceProtocol):
                         OrderState.SUBMITTED,
                         OrderState.PARTIALLY_FILLED,
                     ]:
-                        await self._persist_order_state(lifecycle_data)
+                        await self.order_state_tracker._persist_order_state(lifecycle_data)
                         pending_count += 1
 
                 self.logger.info(
@@ -2364,7 +2355,7 @@ class ExecutionHandler(ServiceProtocol):
         # Use enhanced error classifier if available
         if hasattr(self, '_error_classifier'):
             error_instance = self._error_classifier.classify_error(error_str)
-            return self._error_classifier.should_retry(error_instance)
+            return bool(self._error_classifier.should_retry(error_instance))
         
         # Fallback to basic error codes
         retryable_codes = [
@@ -2561,9 +2552,9 @@ class ExecutionHandler(ServiceProtocol):
             cl_ord_id,
             source_module=self.__class__.__name__)
         # Determine if we should use batch order placement
-        use_batch = self.config.get_bool("execution_handler.batch_orders.enabled", True) and (
-            event.sl_price is not None or event.tp_price is not None
-        )
+        has_sl = event.sl_price is not None
+        has_tp = event.tp_price is not None
+        use_batch = self.config.get("execution_handler.batch_orders.enabled", True) and (has_sl or has_tp)
 
         if use_batch and (event.sl_price or event.tp_price):
             # Use AddOrderBatch for simultaneous SL/TP placement
@@ -3196,7 +3187,7 @@ class ExecutionHandler(ServiceProtocol):
                 message,
                 source_module=self.__class__.__name__)
 
-    def _parse_message_type(self, message: dict[str, Any]) -> str:
+    def _parse_message_type(self, message: dict[str, Any] | list[Any]) -> str:
         """Parse WebSocket message to determine its type.
 
         Args:
@@ -3213,7 +3204,9 @@ class ExecutionHandler(ServiceProtocol):
                     return "SUBSCRIPTION_ACK"
                 if event == "systemStatus":
                     return "HEARTBEAT"
-                return f"EVENT_{event.upper()}"
+                if event:
+                    return f"EVENT_{event.upper()}"
+                return "EVENT_UNKNOWN"
             if "channel" in message or "channelName" in message:
                 channel = message.get("channel") or message.get("channelName")
                 if channel in ["ownTrades"]:
@@ -3291,6 +3284,8 @@ class ExecutionHandler(ServiceProtocol):
 
             for trade_info in trade_data:
                 exchange_order_id = trade_info.get("ordertxid")
+                if not exchange_order_id:
+                    continue
                 client_order_id = self._exchange_to_internal_order_id.get(exchange_order_id)
 
                 if client_order_id:
@@ -3359,7 +3354,7 @@ class ExecutionHandler(ServiceProtocol):
                 str(e),
                 source_module=self.__class__.__name__)
 
-    def _extract_order_data_from_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
+    def _extract_order_data_from_message(self, message: dict[str, Any] | list[Any]) -> dict[str, Any] | None:
         """Extract order data from WebSocket message.
 
         Handles different message formats from Kraken WebSocket.
@@ -3370,12 +3365,17 @@ class ExecutionHandler(ServiceProtocol):
                 # List format: [channel_id, data, channel_name, ...]
                 data = message[1]
                 if isinstance(data, list) and len(data) > 0:
-                    return data[0]  # First order in the list[Any]
+                    first_item = data[0]
+                    if isinstance(first_item, dict):
+                        return cast(dict[str, Any], first_item)
                 if isinstance(data, dict):
-                    return data
+                    return cast(dict[str, Any], data)
             elif isinstance(message, dict):
                 # Dict format with direct order data
-                return message.get("data", message)
+                result = message.get("data", message)
+                if isinstance(result, dict):
+                    return cast(dict[str, Any], result)
+                return None
 
             return None
 
@@ -3386,7 +3386,7 @@ class ExecutionHandler(ServiceProtocol):
                 source_module=self.__class__.__name__)
             return None
 
-    def _extract_trade_data_from_message(self, message: dict[str, Any]) -> list[dict[str, Any]]:
+    def _extract_trade_data_from_message(self, message: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
         """Extract trade data from WebSocket message."""
         try:
             if isinstance(message, list) and len(message) >= 2:
@@ -3797,10 +3797,8 @@ class ExecutionHandler(ServiceProtocol):
 
             order_details_result = await self._query_order_details(exchange_order_id)
 
-            if order_details_result is None:  # Fatal error querying, stop monitoring
+            if order_details_result is None:  # Error querying, stop monitoring
                 break
-            if order_details_result is False:  # Non-fatal error, continue polling
-                continue
 
             order_data = order_details_result
             parsed_data = await self._parse_order_data(order_data, exchange_order_id)
@@ -3965,10 +3963,7 @@ class ExecutionHandler(ServiceProtocol):
             # Include reason if status is 'canceled' or 'expired'
             error_message_val = params.order_data.get("reason")
 
-            if params.exchange_order_id is not None:
-                report_exchange_id = params.exchange_order_id
-            else:
-                report_exchange_id = "NO_EXCHANGE_ID"
+            report_exchange_id = params.exchange_order_id
             report = ExecutionReportEvent(
                 source_module=self.__class__.__name__,
                 event_id=UUID(int=int(time.time() * 1000000)),  # Generate a proper UUID
@@ -4101,15 +4096,17 @@ class ExecutionHandler(ServiceProtocol):
 
             try:
                 # Place both orders together
-                batch_response = await self._adapter.place_batch_orders(batch_request)
+                batch_response = await self._adapter.place_batch_orders([sl_order, tp_order])
 
-                if batch_response.success:
+                # Check if any orders were successful
+                successful_orders = [r for r in batch_response if r.get("success", False)]
+                if successful_orders:
                     # Process each order result
-                    for i, order_result in enumerate(batch_response.order_results):
-                        if order_result.success and order_result.exchange_order_ids:
+                    for i, order_result in enumerate(batch_response):
+                        if order_result.get("success") and order_result.get("exchange_order_ids"):
                             order_type = "SL" if i == 0 else "TP"
-                            exchange_order_id = order_result.exchange_order_ids[0]
-                            client_order_id = order_result.client_order_id
+                            exchange_order_id = order_result["exchange_order_ids"][0]
+                            client_order_id = order_result.get("client_order_id")
 
                             self.logger.info(
                                 "%s order placed successfully: cl_ord_id=%s, exchange_id=%s",
@@ -4127,28 +4124,29 @@ class ExecutionHandler(ServiceProtocol):
                                 )
 
                             # Publish execution report
-                            await self._publish_initial_execution_report(
-                                originating_event=originating_event,
-                                client_order_id=client_order_id,
-                                exchange_order_id=exchange_order_id,
-                                order_type=batch_request.orders[i].order_type)
+                            if client_order_id:
+                                await self._publish_initial_execution_report(
+                                    originating_event=originating_event,
+                                    client_order_id=client_order_id,
+                                    exchange_order_id=exchange_order_id,
+                                    order_type=batch_request.orders[i].order_type)
 
-                            # Start monitoring
-                            self._start_order_monitoring(
-                                client_order_id,
-                                exchange_order_id,
-                                originating_event)
+                                # Start monitoring
+                                self._start_order_monitoring(
+                                    client_order_id,
+                                    exchange_order_id,
+                                    originating_event)
                         else:
                             order_type = "SL" if i == 0 else "TP"
                             self.logger.error(
                                 "%s order placement failed: %s",
                                 order_type,
-                                order_result.error_message,
+                                order_result.get("error_message", "Unknown error"),
                                 source_module=self.__class__.__name__)
                 else:
                     self.logger.error(
                         "Batch order placement failed: %s",
-                        batch_response.error_message,
+                        "Batch order placement failed",
                         source_module=self.__class__.__name__)
                     # Fall back to individual placement
                     await self._place_sl_tp_individually(

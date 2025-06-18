@@ -150,22 +150,19 @@ class ThresholdBasedInterpreter(PredictionInterpreter):
             return False
 
         if field_name in prediction:
+            # First, try to convert to float
             try:
                 value = float(prediction[field_name])
-                validation_rules = config.validation_rules
-
-                # Check value range
-                if "min_value" in validation_rules and value < validation_rules["min_value"]:
-                    return False
-                if "max_value" in validation_rules and value > validation_rules["max_value"]:
-                    return False
-
-                # Check data type constraints
-                expected_type = validation_rules.get("type")
-                if expected_type and not isinstance(value, (int, float)):
-                    return False
-
             except (ValueError, TypeError):
+                return False
+            
+            # Now perform validation on the successfully converted value
+            validation_rules = config.validation_rules
+            
+            # Check value range
+            if "min_value" in validation_rules and value < validation_rules["min_value"]:
+                return False
+            if "max_value" in validation_rules and value > validation_rules["max_value"]:
                 return False
 
         return True
@@ -313,7 +310,7 @@ class BasicProbabilityValidator(ProbabilityValidator):
             elif operator == ValidationOperator.NOT_EQUAL:
                 return float(actual) != float(expected)
             elif operator == ValidationOperator.BETWEEN:
-                return expected[0] <= float(actual) <= expected[1]
+                return bool(expected[0] <= float(actual) <= expected[1])
             elif operator == ValidationOperator.NOT_BETWEEN:
                 return not (expected[0] <= float(actual) <= expected[1])
             elif operator == ValidationOperator.IN_LIST:
@@ -321,7 +318,8 @@ class BasicProbabilityValidator(ProbabilityValidator):
             elif operator == ValidationOperator.NOT_IN_LIST:
                 return actual not in expected
             else:
-                return False
+                # This should never happen with a proper enum, but we handle it for robustness
+                raise ValueError(f"Unknown validation operator: {operator}")
         except (ValueError, TypeError, IndexError):
             return False
 
@@ -329,7 +327,7 @@ class BasicProbabilityValidator(ProbabilityValidator):
 class ConfigurableProbabilityValidator:
     """Enterprise-grade configurable probability validator with comprehensive monitoring."""
 
-    def __init__(self, config_path: Optional[str] = None, logger_service=None) -> None:
+    def __init__(self, config_path: Optional[str] = None, logger_service: Optional[LoggerService] = None) -> None:
         self.logger = logger_service
 
         # Validator registry
@@ -340,7 +338,7 @@ class ConfigurableProbabilityValidator:
         self.rule_groups: Dict[str, List[ValidationRule]] = {}
 
         # Performance statistics
-        self.validation_stats = {
+        self.validation_stats: Dict[str, Any] = {
             "total_validations": 0,
             "successful_validations": 0,
             "failed_validations": 0,
@@ -543,7 +541,7 @@ class ConfigurableProbabilityValidator:
 class PredictionInterpretationEngine:
     """Enterprise-grade prediction interpretation engine with configurable rules."""
 
-    def __init__(self, config_path: Optional[str] = None, logger_service=None) -> None:
+    def __init__(self, config_path: Optional[str] = None, logger_service: Optional[LoggerService] = None) -> None:
         self.logger = logger_service
 
         # Interpreter registry
@@ -731,10 +729,10 @@ class StrategyArbitrator(ServiceProtocol):
         logger_service: LoggerService,
         market_price_service: MarketPriceService,
         feature_registry_client: FeatureRegistryClient,  # Added parameter
-        risk_manager=None,  # Added for strategy selection
-        portfolio_manager=None,  # Added for strategy selection
-        monitoring_service=None,  # Added for strategy selection
-        database_manager=None,  # Added for strategy selection
+        risk_manager: Any = None,  # Added for strategy selection
+        portfolio_manager: Any = None,  # Added for strategy selection
+        monitoring_service: Any = None,  # Added for strategy selection
+        database_manager: Any = None,  # Added for strategy selection
     ) -> None:
         """Initialize the StrategyArbitrator.
 
@@ -813,7 +811,7 @@ class StrategyArbitrator(ServiceProtocol):
                 "Strategy Selection System initialized and enabled",
                 source_module=self._source_module)
         else:
-            self.strategy_selection_system = None
+            self.strategy_selection_system = None  # type: ignore[assignment]
             if self._config.get("strategy_selection", {}).get("enabled", False):
                 self.logger.warning(
                     "Strategy selection enabled but dependencies not provided - using static selection",
@@ -872,7 +870,7 @@ class StrategyArbitrator(ServiceProtocol):
                 source_module=self._source_module)
             raise StrategyConfigurationError from value_error
 
-    async def initialize(self, *args, **kwargs) -> None:
+    async def initialize(self, *args: Any, **kwargs: Any) -> None:
         """Async initialization hook for compatibility with ServiceProtocol."""
         # No asynchronous setup required at this time
         self.logger.debug(
@@ -1443,7 +1441,7 @@ class StrategyArbitrator(ServiceProtocol):
         # if not self.feature_registry_client.get_feature_definition(feature_name):
         #     self.logger.warning(f"Feature '{feature_name}' in rule not found in registry. Rule may fail.")
 
-        feature_value_float = features.get(feature_name)
+        feature_value_float = features.get(feature_name) if feature_name is not None else None
 
         if feature_value_float is None:
             self.logger.info(
@@ -1522,8 +1520,8 @@ class StrategyArbitrator(ServiceProtocol):
             raw_features = associated_payload.get("triggering_features")
 
         if not raw_features or not isinstance(
-            raw_features, dict[str, Any]
-        ):  # Check if raw_features is None, empty or not a dict[str, Any]
+            raw_features, dict
+        ):  # Check if raw_features is None, empty or not a dict
             self.logger.warning(
                 "No valid 'triggering_features' (dict[str, float]) found in PredictionEvent %s for %s on %s.",
                 prediction_event.event_id,
@@ -1839,12 +1837,8 @@ class StrategyArbitrator(ServiceProtocol):
 
     async def handle_prediction_event(self, event: PredictionEvent) -> None:
         """Handle incoming prediction events directly."""
-        if not isinstance(event, PredictionEvent):
-            self.logger.warning(
-                "Received non-PredictionEvent: %s",
-                type(event),
-                source_module=self._source_module)
-            return
+        # Type checking is handled by the type annotation
+        # If we receive a non-PredictionEvent, it's a programming error
 
         # Validate prediction event using enterprise validation system
         if not await self._validate_prediction_event(event):

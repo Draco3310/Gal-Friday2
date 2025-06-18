@@ -12,14 +12,18 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import ROUND_DOWN, ROUND_UP, ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 from enum import Enum
 import json
 
 import numpy as np
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 # Direct imports of actual service implementations
 from .core.events import (
+    Event,
     EventType,
     PotentialHaltTriggerEvent,
     TradeSignalProposedEvent,
@@ -32,6 +36,14 @@ from .exchange_info_service import ExchangeInfoService
 from .logger_service import LoggerService
 from .market_price_service import MarketPriceService
 from .portfolio_manager import PortfolioManager
+
+
+@dataclass(frozen=True)
+class GenericEvent(Event):
+    """Generic event for custom risk management events."""
+    event_type: EventType
+    event_name: str
+    data: dict[str, Any]
 
 
 # Enhanced Enums for Risk Management
@@ -496,13 +508,21 @@ class RiskManager:
         self._market_conditions: Dict[str, MarketCondition] = {}
         self._last_market_update: Dict[str, datetime] = {}
         
+        # Audit statistics tracking
+        self._audit_stats: Dict[str, Any] = {
+            'total_entries': 0,
+            'successful_persists': 0,
+            'failed_persists': 0,
+            'last_persist_time': None,
+        }
+        
         # Enhanced rejection/approval tracking
-        self._rejection_stats: Dict[str, int] = {
+        self._rejection_stats: Dict[str, Any] = {
             'total_rejections': 0,
             'rejections_by_reason': {},
             'rejections_by_symbol': {},
         }
-        self._approval_stats: Dict[str, int] = {
+        self._approval_stats: Dict[str, Any] = {
             'total_approvals': 0,
             'conditional_approvals': 0,
             'approvals_by_symbol': {},
@@ -515,6 +535,9 @@ class RiskManager:
         # Risk threshold tracking
         self._threshold_breach_count: Dict[str, int] = {}
         self._last_threshold_reset = datetime.now(UTC)
+        
+        # Audit repository (initialized later)
+        self._audit_repository: Any = None
 
         # For dynamic risk based on FeatureEngine features
         self._dynamic_risk_volatility_feature_key: str | None = None
@@ -522,14 +545,20 @@ class RiskManager:
         self._latest_volatility_features: dict[str, float] = {} # Type[Any] hint Dict
 
         # Initialize risk metrics repository if available
+        self._risk_metrics_repository: Optional[Any] = None
         try:
             from gal_friday.dal.repositories.risk_metrics_repository import RiskMetricsRepository
-            self._risk_metrics_repository = RiskMetricsRepository()
-        except ImportError:
+            from gal_friday.dal.connection_pool import DatabaseConnectionPool
+            
+            # Try to get database connection pool from config
+            db_pool = DatabaseConnectionPool(self._config, self.logger)
+            session_maker = db_pool.get_session_maker()
+            if session_maker:
+                self._risk_metrics_repository = RiskMetricsRepository(session_maker, self.logger)
+        except (ImportError, Exception) as e:
             self.logger.warning(
-                "RiskMetricsRepository not available - risk metrics will not be persisted to database",
+                f"RiskMetricsRepository not available - risk metrics will not be persisted to database: {e}",
                 source_module=self._source_module)
-            self._risk_metrics_repository = None
 
         # Load configuration (including new dynamic risk params)
         self._load_risk_config()
@@ -914,7 +943,7 @@ class RiskManager:
                     try:
                         volatility_raw = await self._market_price_service.get_volatility(
                             trading_pair,
-                            self._volatility_window_size, # type: ignore
+                            self._volatility_window_size,
                         )
                         if volatility_raw is not None:
                             # This fallback loop's purpose is to populate the same
@@ -2009,13 +2038,27 @@ class RiskManager:
 
         return extracted
 
-    async def _handle_execution_report_for_losses(self, event_dict: dict[str, Any]) -> None:
+    async def _handle_execution_report_for_losses(self, event: ExecutionReportEvent) -> None:
         """Handle execution reports to track losses for consecutive loss counting.
         
         Enhanced implementation with comprehensive execution report parsing,
         loss counter logic, event publishing and audit trail.
         """
         try:
+            # Convert event to dict for legacy parsing (can be refactored later)
+            event_dict = {
+                "event_type": event.event_type.name,
+                "exchange_order_id": event.exchange_order_id,
+                "trading_pair": event.trading_pair,
+                "side": event.side,
+                "order_status": event.order_status,
+                "quantity_filled": event.quantity_filled,
+                "average_fill_price": event.average_fill_price,
+                "commission": event.commission,
+                "timestamp": event.timestamp,
+                "signal_id": event.signal_id,
+            }
+            
             # Parse execution report based on format
             execution_report = await self._parse_execution_report(event_dict)
             if not execution_report:
@@ -2038,7 +2081,7 @@ class RiskManager:
                 self._execution_buffer.pop(0)
             
             # Get portfolio state to determine P&L
-            portfolio_state = await self._portfolio_manager.get_current_state()
+            portfolio_state = self._portfolio_manager.get_current_state()
             if not portfolio_state:
                 self.logger.error(
                     "Could not get portfolio state for execution report processing",
@@ -2062,13 +2105,13 @@ class RiskManager:
             await self._update_execution_audit_trail(execution_report, realized_pnl, risk_events)
             
             # Update comprehensive risk metrics
-            await self._update_risk_metrics_from_execution(execution_report, realized_pnl, portfolio_state)
+            await self._update_risk_metrics_from_execution(execution_report, realized_pnl or Decimal("0"), portfolio_state)
             
             # Check consecutive loss thresholds
             await self._check_consecutive_loss_thresholds()
             
             # Publish risk metrics update event
-            await self._publish_risk_metrics_update(execution_report, realized_pnl)
+            await self._publish_risk_metrics_update(execution_report, realized_pnl or Decimal("0"))
             
             self.logger.info(
                 f"Processed execution report {execution_report.order_id}: "
@@ -2080,9 +2123,9 @@ class RiskManager:
             self.logger.error(
                 f"Error processing execution report for loss tracking: {e}",
                 source_module=self._source_module,
-                context={"event_dict": event_dict})
+                context={"event": str(event)})
             # Publish error event for monitoring
-            await self._publish_execution_error_event(event_dict, str(e))
+            await self._publish_execution_error_event(event.to_dict() if hasattr(event, 'to_dict') else {'event': str(event)}, str(e))
 
     async def _calculate_realized_pnl_from_execution(
         self, 
@@ -2212,19 +2255,19 @@ class RiskManager:
                     source_module=self._source_module)
                 
                 # Publish halt trigger event
-                halt_event = {
-                    "type": "PotentialHaltTrigger",
-                    "source_module": self._source_module,
-                    "reason": f"Maximum consecutive losses exceeded: {self._consecutive_loss_count}",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "context": {
-                        "consecutive_losses": self._consecutive_loss_count,
-                        "max_allowed": self._max_consecutive_losses,
-                        "recent_trades": self._recent_trades[-5:]  # Last 5 trades
-                    }
-                }
+                halt_reason = (
+                    f"Maximum consecutive losses exceeded: {self._consecutive_loss_count} "
+                    f"(max allowed: {self._max_consecutive_losses}). "
+                    f"Recent trades: {len(self._recent_trades[-5:])} losses"
+                )
+                halt_event = PotentialHaltTriggerEvent(
+                    source_module=self._source_module,
+                    event_id=uuid.uuid4(),
+                    timestamp=datetime.now(timezone.utc),
+                    reason=halt_reason
+                )
                 
-                await self.pubsub.publish(EventType.POTENTIAL_HALT_TRIGGER, halt_event)
+                await self.pubsub.publish(halt_event)
                 
                 # Reduce risk parameters
                 self._risk_per_trade_pct = max(
@@ -2271,8 +2314,16 @@ class RiskManager:
                 }
             }
             
-            # Publish to a generic event type or create a specific one
-            await self.pubsub.publish("risk.metrics.updated", risk_metrics_event)
+            # Create and publish risk metrics updated event
+            metrics_event = GenericEvent(
+                source_module=self._source_module,
+                event_id=uuid.uuid4(),
+                timestamp=datetime.now(timezone.utc),
+                event_type=EventType.SYSTEM_ERROR,  # Using SYSTEM_ERROR as placeholder for custom events
+                event_name="risk.metrics.updated",
+                data=risk_metrics_event
+            )
+            await self.pubsub.publish(metrics_event)
             
             # Also add to metrics history
             current_snapshot = RiskMetrics(
@@ -2315,7 +2366,7 @@ class RiskManager:
                 )
                 
                 # Get current portfolio state
-                portfolio_state = await self._portfolio_manager.get_current_state()
+                portfolio_state = self._portfolio_manager.get_current_state()
                 if not portfolio_state:
                     self.logger.error(
                         "Could not get portfolio state for risk metrics calculation",
@@ -2415,16 +2466,19 @@ class RiskManager:
                     if total_trades > 0:
                         win_rate = (Decimal(len(winning_trades)) / Decimal(total_trades)) * Decimal("100")
                     
+                    total_wins = Decimal("0")
+                    total_losses = Decimal("0")
+                    
                     if winning_trades:
-                        total_wins = sum(Decimal(str(t["realized_pnl"])) for t in winning_trades)
+                        total_wins = Decimal(str(sum(Decimal(str(t["realized_pnl"])) for t in winning_trades)))
                         avg_win = total_wins / len(winning_trades)
                     
                     if losing_trades:
-                        total_losses = abs(sum(Decimal(str(t["realized_pnl"])) for t in losing_trades))
+                        total_losses = Decimal(str(abs(sum(Decimal(str(t["realized_pnl"])) for t in losing_trades))))
                         avg_loss = total_losses / len(losing_trades)
                         
                         # Calculate profit factor
-                        if total_losses > 0 and winning_trades:
+                        if total_losses > 0 and total_wins > 0:
                             profit_factor = total_wins / total_losses
                     
                     # Extract returns for VaR and Sharpe calculations
@@ -2509,35 +2563,35 @@ class RiskManager:
                     self._metrics_history.pop(0)
                 
                 # Persist metrics to database
-                if hasattr(self, "_risk_metrics_repository"):
+                if hasattr(self, "_risk_metrics_repository") and self._risk_metrics_repository:
                     try:
-                        await self._risk_metrics_repository.update_metrics(
-                            consecutive_losses=self._consecutive_loss_count,
-                            consecutive_wins=self._consecutive_win_count,
-                            current_drawdown=current_drawdown,
-                            current_drawdown_pct=current_drawdown_pct,
-                            max_drawdown=self._max_drawdown,
-                            max_drawdown_pct=self._max_drawdown_pct,
-                            total_pnl=total_pnl,
-                            total_pnl_pct=total_pnl_pct,
-                            win_rate=win_rate,
-                            avg_win=avg_win,
-                            avg_loss=avg_loss,
-                            profit_factor=profit_factor,
-                            total_exposure=total_exposure,
-                            total_exposure_pct=total_exposure_pct,
-                            long_exposure=long_exposure,
-                            long_exposure_pct=long_exposure_pct,
-                            short_exposure=short_exposure,
-                            short_exposure_pct=short_exposure_pct,
-                            concentration_risk=concentration_risk,
-                            open_positions_count=open_positions_count,
-                            risk_score=risk_score,
-                            current_equity=current_equity,
-                            peak_equity=self._peak_equity,
-                            var_95=var_95,
-                            expected_shortfall=expected_shortfall,
-                            sharpe_ratio=sharpe_ratio)
+                        await self._risk_metrics_repository.update_metrics({
+                            "consecutive_losses": self._consecutive_loss_count,
+                            "consecutive_wins": self._consecutive_win_count,
+                            "current_drawdown": current_drawdown,
+                            "current_drawdown_pct": current_drawdown_pct,
+                            "max_drawdown": self._max_drawdown,
+                            "max_drawdown_pct": self._max_drawdown_pct,
+                            "total_pnl": total_pnl,
+                            "total_pnl_pct": total_pnl_pct,
+                            "win_rate": win_rate,
+                            "avg_win": avg_win,
+                            "avg_loss": avg_loss,
+                            "profit_factor": profit_factor,
+                            "total_exposure": total_exposure,
+                            "total_exposure_pct": total_exposure_pct,
+                            "long_exposure": long_exposure,
+                            "long_exposure_pct": long_exposure_pct,
+                            "short_exposure": short_exposure,
+                            "short_exposure_pct": short_exposure_pct,
+                            "concentration_risk": concentration_risk,
+                            "open_positions_count": open_positions_count,
+                            "risk_score": risk_score,
+                            "current_equity": current_equity,
+                            "peak_equity": self._peak_equity,
+                            "var_95": var_95,
+                            "expected_shortfall": expected_shortfall,
+                            "sharpe_ratio": sharpe_ratio})
                     except Exception as e:
                         self.logger.error(
                             f"Failed to persist risk metrics: {e}",
@@ -2594,7 +2648,16 @@ class RiskManager:
                     }
                 }
                 
-                await self.pubsub.publish("risk.metrics.calculated", risk_metrics_event)
+                # Create and publish risk metrics calculated event
+                calculated_event = GenericEvent(
+                    source_module=self._source_module,
+                    event_id=uuid.uuid4(),
+                    timestamp=datetime.now(timezone.utc),
+                    event_type=EventType.SYSTEM_ERROR,  # Using SYSTEM_ERROR as placeholder for custom events
+                    event_name="risk.metrics.calculated",
+                    data=risk_metrics_event
+                )
+                await self.pubsub.publish(calculated_event)
                 
                 # Check for risk threshold breaches
                 await self._check_risk_thresholds(
@@ -2763,14 +2826,38 @@ class RiskManager:
         }
         
         # Publish to general rejection topic
-        await self.pubsub.publish(EventType.TRADE_SIGNAL_REJECTED, event_data)
+        rejection_event_obj = GenericEvent(
+            source_module=self._source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.now(timezone.utc),
+            event_type=EventType.TRADE_SIGNAL_REJECTED,
+            event_name='trade.signal.rejected',
+            data=event_data
+        )
+        await self.pubsub.publish(rejection_event_obj)
         
         # Publish to severity-specific topic for urgent attention
         if rejection_event.severity in [RejectionSeverity.HIGH, RejectionSeverity.CRITICAL]:
-            await self.pubsub.publish(f'signals.rejected.{rejection_event.severity.value}', event_data)
+            severity_event = GenericEvent(
+                source_module=self._source_module,
+                event_id=uuid.uuid4(),
+                timestamp=datetime.now(timezone.utc),
+                event_type=EventType.TRADE_SIGNAL_REJECTED,
+                event_name=f'signals.rejected.{rejection_event.severity.value}',
+                data=event_data
+            )
+            await self.pubsub.publish(severity_event)
         
         # Publish to strategy-specific topic for strategy optimization
-        await self.pubsub.publish(f'signals.rejected.{rejection_event.strategy_id}', event_data)
+        strategy_event = GenericEvent(
+            source_module=self._source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.now(timezone.utc),
+            event_type=EventType.TRADE_SIGNAL_REJECTED,
+            event_name=f'signals.rejected.{rejection_event.strategy_id}',
+            data=event_data
+        )
+        await self.pubsub.publish(strategy_event)
     
     def _update_rejection_statistics(self, rejection_event: SignalRejectionEvent) -> None:
         """Update rejection statistics for monitoring."""
@@ -2800,8 +2887,8 @@ class RiskManager:
             
             # Check if we have a retry tracking system
             if not hasattr(self, '_retry_queue'):
-                self._retry_queue = {}
-                self._retry_attempts = {}
+                self._retry_queue: Dict[str, Any] = {}
+                self._retry_attempts: Dict[str, int] = {}
                 self._retry_task = asyncio.create_task(self._retry_processing_loop())
             
             signal_key = str(rejection.signal_id)
@@ -3020,6 +3107,8 @@ class RiskManager:
             )
             
             # Create a new signal event with retry metadata
+            # Note: TradeSignalProposedEvent doesn't have a metadata field, 
+            # so we'll just process it as-is
             retry_event = TradeSignalProposedEvent(
                 source_module=original_event.source_module,
                 event_id=uuid.uuid4(),  # New event ID for the retry
@@ -3034,15 +3123,6 @@ class RiskManager:
                 proposed_tp_price=original_event.proposed_tp_price,
                 strategy_id=original_event.strategy_id,
                 triggering_prediction_event_id=original_event.triggering_prediction_event_id)
-            
-            # Add retry metadata
-            retry_event.metadata = getattr(original_event, 'metadata', {})
-            retry_event.metadata.update({
-                "is_retry": True,
-                "retry_attempt": attempt_number,
-                "original_rejection_reason": rejection_event.rejection_reason.value,
-                "retry_conditions_checked": conditions_to_check,
-            })
             
             # Resubmit for processing
             await self._handle_trade_signal_proposed(retry_event)
@@ -3231,7 +3311,15 @@ class RiskManager:
                 "created_at": retry_entry["created_at"].isoformat(),
             }
             
-            await self.pubsub.publish("signals.retry.scheduled", event_data)
+            retry_scheduled_event = GenericEvent(
+                source_module=self._source_module,
+                event_id=uuid.uuid4(),
+                timestamp=datetime.now(timezone.utc),
+                event_type=EventType.SYSTEM_ERROR,  # Using SYSTEM_ERROR as placeholder
+                event_name="signals.retry.scheduled",
+                data=event_data
+            )
+            await self.pubsub.publish(retry_scheduled_event)
             
         except Exception as e:
             self.logger.error(
@@ -3255,7 +3343,15 @@ class RiskManager:
                 "conditions_checked": retry_entry["conditions_to_check"],
             }
             
-            await self.pubsub.publish("signals.retry.attempt", event_data)
+            retry_attempt_event = GenericEvent(
+                source_module=self._source_module,
+                event_id=uuid.uuid4(),
+                timestamp=datetime.now(timezone.utc),
+                event_type=EventType.SYSTEM_ERROR,  # Using SYSTEM_ERROR as placeholder
+                event_name="signals.retry.attempt",
+                data=event_data
+            )
+            await self.pubsub.publish(retry_attempt_event)
             
         except Exception as e:
             self.logger.error(
@@ -3284,7 +3380,15 @@ class RiskManager:
                 "exhausted_at": datetime.now(UTC).isoformat(),
             }
             
-            await self.pubsub.publish("signals.retry.exhausted", event_data)
+            retry_exhausted_event = GenericEvent(
+                source_module=self._source_module,
+                event_id=uuid.uuid4(),
+                timestamp=datetime.now(timezone.utc),
+                event_type=EventType.SYSTEM_ERROR,  # Using SYSTEM_ERROR as placeholder
+                event_name="signals.retry.exhausted",
+                data=event_data
+            )
+            await self.pubsub.publish(retry_exhausted_event)
             
             # Clean up tracking for this signal
             signal_key = str(rejection.signal_id)
@@ -3522,16 +3626,48 @@ class RiskManager:
         }
         
         # Publish to general approval topic
-        await self.pubsub.publish(EventType.TRADE_SIGNAL_APPROVED, event_data)
+        approval_event_obj = GenericEvent(
+            source_module=self._source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.now(timezone.utc),
+            event_type=EventType.TRADE_SIGNAL_APPROVED,
+            event_name='trade.signal.approved',
+            data=event_data
+        )
+        await self.pubsub.publish(approval_event_obj)
         
         # Publish to execution service
-        await self.pubsub.publish('execution.signals.approved', event_data)
+        execution_event = GenericEvent(
+            source_module=self._source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.now(timezone.utc),
+            event_type=EventType.TRADE_SIGNAL_APPROVED,
+            event_name='execution.signals.approved',
+            data=event_data
+        )
+        await self.pubsub.publish(execution_event)
         
         # Publish to portfolio manager for position tracking
-        await self.pubsub.publish('portfolio.signals.approved', event_data)
+        portfolio_event = GenericEvent(
+            source_module=self._source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.now(timezone.utc),
+            event_type=EventType.TRADE_SIGNAL_APPROVED,
+            event_name='portfolio.signals.approved',
+            data=event_data
+        )
+        await self.pubsub.publish(portfolio_event)
         
         # Publish to strategy-specific topic
-        await self.pubsub.publish(f'signals.approved.{approval_event.strategy_id}', event_data)
+        strategy_event = GenericEvent(
+            source_module=self._source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.now(timezone.utc),
+            event_type=EventType.TRADE_SIGNAL_APPROVED,
+            event_name=f'signals.approved.{approval_event.strategy_id}',
+            data=event_data
+        )
+        await self.pubsub.publish(strategy_event)
     
     def _update_approval_statistics(self, approval_event: SignalApprovalEvent) -> None:
         """Update approval statistics for monitoring."""
@@ -3623,6 +3759,9 @@ class RiskManager:
                 }
             )
             
+            # Ensure rounded_sl_price is not None (it's required)
+            if rounded_sl_price is None:
+                raise SignalValidationStageError("Stop loss price is None after rounding", "Stage1_InitialValidation")
             return rounded_entry_price, rounded_sl_price, rounded_tp_price
             
         except SignalValidationStageError:
@@ -3639,6 +3778,8 @@ class RiskManager:
                 stage_name="Stage1_InitialValidation",
                 log_message=f"Stage 1 unexpected error: {str(e)}",
                 log_context={"signal_id": str(ctx.event.signal_id)})
+            # This line is unreachable but satisfies mypy
+            return None, Decimal("0"), None
 
     async def _get_current_market_price(self, trading_pair: str) -> Decimal | None:
         """Get current market price for a trading pair."""
@@ -3742,6 +3883,8 @@ class RiskManager:
                 stage_name="Stage2_MarketPriceChecks",
                 log_message=f"Stage 2 unexpected error: {str(e)}",
                 log_context={"signal_id": str(ctx.event.signal_id)})
+            # This line is unreachable but satisfies mypy
+            return None, None, None
 
     def _validate_and_raise_if_error(
         self,
@@ -3787,6 +3930,8 @@ class RiskManager:
                 )
             
             initial_calculated_qty = sizing_result.quantity
+            if initial_calculated_qty is None:
+                raise SignalValidationStageError("Position sizing returned None quantity", "Stage3_PositionSizing")
             
             # Check position scaling if needed
             position_scaling_ctx = PositionScalingContext(
@@ -3834,7 +3979,8 @@ class RiskManager:
                 }
             )
             
-            return final_quantity or initial_calculated_qty, state_values
+            # Since initial_calculated_qty is verified to be non-None above, this is safe
+            return final_quantity if final_quantity is not None else initial_calculated_qty, state_values
             
         except SignalValidationStageError:
             # Re-raise validation errors
@@ -3850,6 +3996,8 @@ class RiskManager:
                 stage_name="Stage3_PositionSizing",
                 log_message=f"Stage 3 unexpected error: {str(e)}",
                 log_context={"signal_id": str(ctx.event.signal_id)})
+            # This line is unreachable but satisfies mypy
+            return Decimal("0"), {}
 
     def _calculate_lot_size_with_fallback(
         self,
@@ -4132,7 +4280,15 @@ class RiskManager:
                     }
                 }
                 
-                await self.pubsub.publish("risk.threshold.alerts", alert_event)
+                threshold_alert_event = GenericEvent(
+                    source_module=self._source_module,
+                    event_id=uuid.uuid4(),
+                    timestamp=datetime.now(timezone.utc),
+                    event_type=EventType.RISK_LIMIT_ALERT,
+                    event_name="risk.threshold.alerts",
+                    data=alert_event
+                )
+                await self.pubsub.publish(threshold_alert_event)
                 
                 # Log critical alerts
                 for alert in alerts:
@@ -4157,20 +4313,19 @@ class RiskManager:
         try:
             # Handle different report formats
             if "event_type" in event_dict and event_dict["event_type"] == EventType.EXECUTION_REPORT.name:
-                # Standard ExecutionReportEvent format
-                event = ExecutionReportEvent.from_dict(event_dict)
+                # Standard ExecutionReportEvent format from dict
                 return ExecutionReport(
-                    order_id=event.exchange_order_id,
-                    symbol=event.trading_pair,
-                    side=OrderSide(event.side.upper()),
-                    status=OrderStatus(event.order_status.upper()),
-                    filled_quantity=Decimal(str(event.quantity_filled)),
-                    average_price=Decimal(str(event.average_fill_price)),
-                    commission=Decimal(str(event.commission)) if event.commission else Decimal("0"),
+                    order_id=event_dict.get("exchange_order_id", ""),
+                    symbol=event_dict.get("trading_pair", ""),
+                    side=OrderSide(event_dict.get("side", "BUY").upper()),
+                    status=OrderStatus(event_dict.get("order_status", "NEW").upper()),
+                    filled_quantity=Decimal(str(event_dict.get("quantity_filled", 0))),
+                    average_price=Decimal(str(event_dict.get("average_fill_price", 0))),
+                    commission=Decimal(str(event_dict.get("commission", 0))) if event_dict.get("commission") else Decimal("0"),
                     realized_pnl=None,  # Will be calculated separately
-                    timestamp=event.timestamp,
-                    signal_id=str(event.signal_id) if hasattr(event, 'signal_id') else None,
-                    strategy_id=event.strategy_id if hasattr(event, 'strategy_id') else None)
+                    timestamp=event_dict.get("timestamp", datetime.now(timezone.utc)),
+                    signal_id=str(event_dict.get("signal_id")) if event_dict.get("signal_id") else None,
+                    strategy_id=event_dict.get("strategy_id"))
             elif "txid" in event_dict:
                 # Kraken format
                 return self._parse_kraken_execution_report(event_dict)
@@ -4339,7 +4494,15 @@ class RiskManager:
                 }
             }
             
-            await self.pubsub.publish(f'risk.{event_type}', event_data)
+            risk_event_obj = GenericEvent(
+                source_module=self._source_module,
+                event_id=uuid.uuid4(),
+                timestamp=datetime.now(timezone.utc),
+                event_type=EventType.RISK_LIMIT_ALERT,
+                event_name=f'risk.{event_type}',
+                data=event_data
+            )
+            await self.pubsub.publish(risk_event_obj)
             
             self.logger.warning(
                 f"Risk event published: {event_type} for {report.symbol}",
@@ -4592,9 +4755,9 @@ class RiskManager:
             }
             
             # Index document in Elasticsearch
+            # Note: doc_type parameter was removed in Elasticsearch 7.x+
             await self._elasticsearch_client.index(
                 index=index_name,
-                doc_type=doc_type,
                 body=es_entry
             )
             
@@ -4679,7 +4842,7 @@ class RiskManager:
             )
             raise
 
-    async def _rotate_audit_files(self, audit_dir: Path, max_files: int) -> None:
+    async def _rotate_audit_files(self, audit_dir: "Path", max_files: int) -> None:
         """Rotate audit files to manage disk space."""
         try:
             # Get all audit files sorted by modification time
@@ -4707,15 +4870,33 @@ class RiskManager:
             # Try to import and initialize audit repository
             try:
                 from gal_friday.dal.repositories.audit_repository import AuditRepository
-                self._audit_repository = AuditRepository()
+                from gal_friday.dal.connection_pool import DatabaseConnectionPool
                 
-                # Test connection
-                await self._audit_repository.health_check()
+                # Get database connection pool
+                db_pool = DatabaseConnectionPool(self._config, self.logger)
+                session_maker = db_pool.get_session_maker()
                 
-                self.logger.info(
-                    "Audit repository initialized successfully",
-                    source_module=self._source_module
-                )
+                if session_maker:
+                    self._audit_repository = AuditRepository(session_maker, self.logger)
+                    
+                    # Test connection
+                    if await self._audit_repository.health_check():
+                        self.logger.info(
+                            "Audit repository initialized and connected successfully",
+                            source_module=self._source_module
+                        )
+                    else:
+                        self.logger.warning(
+                            "Audit repository initialized but health check failed",
+                            source_module=self._source_module
+                        )
+                        self._audit_repository = None
+                else:
+                    self.logger.warning(
+                        "Could not get database session maker for audit repository",
+                        source_module=self._source_module
+                    )
+                    self._audit_repository = None
                 
             except ImportError:
                 self.logger.warning(
@@ -4787,7 +4968,7 @@ class RiskManager:
                 return
             
             try:
-                import aioboto3
+                import aioboto3  # type: ignore[import-untyped]
                 
                 session = aioboto3.Session()
                 self._s3_client = session.client(
@@ -4925,7 +5106,15 @@ class RiskManager:
             'event_dict': event_dict,
         }
         
-        await self.pubsub.publish('risk.execution_report.error', error_event)
+        error_event_obj = GenericEvent(
+            source_module=self._source_module,
+            event_id=uuid.uuid4(),
+            timestamp=datetime.now(timezone.utc),
+            event_type=EventType.SYSTEM_ERROR,
+            event_name='risk.execution_report.error',
+            data=error_event
+        )
+        await self.pubsub.publish(error_event_obj)
 
     async def _calculate_daily_loss(self, symbol: str) -> Decimal:
         """Calculate total daily loss for a symbol."""

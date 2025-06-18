@@ -485,7 +485,7 @@ class CustomBackend(TechnicalAnalysisBackend):
         for i in range(timeperiod, len(tr)):
             atr[i] = alpha * tr[i] + (1 - alpha) * atr[i-1]
         
-        return atr
+        return np.asarray(atr, dtype=np.float64)
     
     def _calculate_rsi(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate RSI using custom NumPy implementation."""
@@ -518,7 +518,7 @@ class CustomBackend(TechnicalAnalysisBackend):
         rsi = 100 - (100 / (1 + rs))
         rsi[:timeperiod] = np.nan
         
-        return rsi
+        return np.asarray(rsi, dtype=np.float64)
     
     def _calculate_sma(self, data: Dict[str, np.ndarray[Any, Any]], params: Dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate SMA using custom NumPy implementation."""
@@ -560,7 +560,7 @@ class CustomBackend(TechnicalAnalysisBackend):
         
         vwap = cumulative_price_volume / (cumulative_volume + 1e-10)
         
-        return vwap
+        return np.asarray(vwap, dtype=np.float64)
     
     def get_backend_name(self) -> str:
         """Get backend name."""

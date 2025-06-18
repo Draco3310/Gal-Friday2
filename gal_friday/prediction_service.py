@@ -129,7 +129,7 @@ class PredictionService:
         """
         self._service_config = config.get("prediction_service", {})
         self.pubsub = pubsub_manager
-        self._process_pool_executor = process_pool_executor
+        self._process_pool_executor: Optional[ProcessPoolExecutor] = process_pool_executor
         self.logger = logger_service  # LoggerService is already initialized
         self._is_running = False
         self._source_module = self.__class__.__name__
@@ -153,7 +153,7 @@ class PredictionService:
         self._model_configs: list[dict[str, Any]] = self._service_config.get("models", [])
         self._predictors: dict[str, PredictorInterface] = {}
         self._predictor_runners: dict[str, Callable[..., Any]] = {}
-        self._lstm_feature_buffers: dict[str, deque] = {}  # Added for LSTM sequence buffering
+        self._lstm_feature_buffers: dict[str, deque[Any]] = {}  # Added for LSTM sequence buffering
 
         # Initialize ML pipeline for training and advanced predictions
         self._ml_pipeline = MLPredictionPipeline(
@@ -685,15 +685,7 @@ class PredictionService:
                    mapping feature names (strings) to their float values, typically
                    derived from `PublishedFeaturesV1.model_dump()`.
         """
-        if not isinstance(event, FeatureEvent):
-            event_type = type(event).__name__
-            log_msg = f"Received non-FeatureEvent: {event_type}"
-            self.logger.warning(
-                log_msg,
-                source_module=self._source_module,
-                context={"event_type": event_type})
-            return
-
+        # Type system guarantees event is a FeatureEvent
         if self._process_pool_executor is None:
             self.logger.error(
                 "ProcessPoolExecutor not available. Cannot run predictions.",
@@ -1384,21 +1376,9 @@ class PredictionService:
 
         Re-initializes predictors based on the new configuration from the event payload.
         """
-        if not isinstance(event, PredictionConfigUpdatedEvent):
-            self.logger.warning(
-                "Received incorrect event type for config update: %s. "
-                "Expected PredictionConfigUpdatedEvent.",
-                type(event))
-            return
-
+        # Type system guarantees event is a PredictionConfigUpdatedEvent
         # Get new config from well-typed event
         new_service_config = event.new_prediction_service_config
-        if not isinstance(new_service_config, dict):
-            self.logger.error(
-                "Invalid payload in PredictionConfigUpdatedEvent: "
-                "new_prediction_service_config is not a dict[str, Any]. Type: %s",
-                type(new_service_config))
-            return
 
         self.logger.info(
             "Prediction_service configuration update event received. Re-initializing predictors.")

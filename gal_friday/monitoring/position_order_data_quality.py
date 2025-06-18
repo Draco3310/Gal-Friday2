@@ -31,7 +31,7 @@ class DataQualityIssue:
     entity_type: str  # "ORDER", "POSITION", "RELATIONSHIP"
     entity_id: str
     description: str
-    details: dict = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
     discovered_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -53,7 +53,7 @@ class DataQualityReport:
     @property
     def issue_summary(self) -> dict[str, int]:
         """Get summary of issues by type."""
-        summary = {}
+        summary: dict[str, int] = {}
         for issue in self.issues_found:
             summary[issue.issue_type] = summary.get(issue.issue_type, 0) + 1
         return summary
@@ -432,7 +432,7 @@ class PositionOrderDataQualityMonitor:
         
         summary = f"🚨 {high_priority_count} high-priority data quality issues detected:\n\n"
         
-        issue_counts = {}
+        issue_counts: dict[str, int] = {}
         for issue in report.high_priority_issues:
             issue_counts[issue.issue_type] = issue_counts.get(issue.issue_type, 0) + 1
         

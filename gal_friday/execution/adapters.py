@@ -12,7 +12,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 import aiohttp
 
@@ -20,7 +20,6 @@ from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
 from gal_friday.utils.kraken_api import generate_kraken_signature
 from gal_friday.exceptions import ExecutionError as ExchangeError
-from gal_friday.models.order import Order
 
 
 @dataclass
@@ -34,13 +33,13 @@ class OrderRequest:
     client_order_id: str | None = None
     time_in_force: str | None = None
     stop_price: Decimal | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 @dataclass
 class OrderResponse:
     """Standardized order response from exchange."""
     success: bool
-    exchange_order_ids: list
+    exchange_order_ids: list[str]
     client_order_id: str | None
     error_message: str | None = None
     raw_response: dict[str, Any] | None = None
@@ -102,7 +101,7 @@ class ExecutionAdapter(ABC):
         ...
 
     @abstractmethod
-    async def place_batch_orders(self, orders: list[Order]) -> list[dict[str, Any]]:
+    async def place_batch_orders(self, orders: list[OrderRequest]) -> list[dict[str, Any]]:
         """Place multiple orders simultaneously (if supported).
 
         Args:
@@ -184,6 +183,10 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         self._last_api_call_time = 0.0
         self._api_call_delay = 1.0  # Minimum delay between API calls
         
+        # Optional enhanced components
+        self._error_classifier: Optional[Any] = None
+        self._batch_processor: Optional[Any] = None
+        
         # Initialize enhanced components
         try:
             from gal_friday.execution_handler_enhancements import (
@@ -244,7 +247,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 client_order_id=order_request.client_order_id,
                 error_message=f"Exception during order placement: {e!s}")
 
-    async def place_batch_orders(self, orders: list[Order]) -> list[dict[str, Any]]:
+    async def place_batch_orders(self, orders: list[OrderRequest]) -> list[dict[str, Any]]:
         """Place multiple orders on Kraken using AddOrderBatch."""
         responses: list[dict[str, Any]] = [
             {
@@ -270,6 +273,8 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             return responses
 
         try:
+            if self.kraken_api is None:
+                raise ExchangeError("Kraken API not initialized")
             batch_results = await self.kraken_api.add_order_batch(payloads)
         except Exception as e:  # noqa: BLE001
             self.logger.exception(
@@ -303,7 +308,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 return False
 
             count = result.get("result", {}).get("count", 0)
-            return count > 0
+            return bool(count > 0)
 
         except Exception as e:
             self.logger.exception(
@@ -327,7 +332,8 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 return None
 
             orders = result.get("result", {})
-            return orders.get(exchange_order_id)
+            order_data = orders.get(exchange_order_id)
+            return order_data if order_data is not None else None
 
         except Exception as e:
             self.logger.exception(
@@ -375,7 +381,8 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                     source_module=self.__class__.__name__)
                 return {}
 
-            return result.get("result", {})
+            positions = result.get("result", {})
+            return dict(positions)
 
         except Exception as e:
             self.logger.exception(
@@ -395,6 +402,8 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         try:
             url = f"{self.api_base_url}/0/public/AssetPairs"
 
+            if self._session is None:
+                raise ExchangeError("Session not initialized")
             async with self._session.get(url) as response:
                 response.raise_for_status()
                 data = await response.json()
@@ -541,7 +550,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 response.raise_for_status()
                 result = await response.json()
                 self._last_api_call_time = time.time()
-                return result
+                return dict(result)
 
         except Exception as e:
             self.logger.exception(
@@ -556,17 +565,9 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         quantizer = Decimal("1e-" + str(precision))
         return str(value.quantize(quantizer))
 
-    def _create_order_payload(self, order: Order) -> dict[str, Any] | None:
-        """Create Kraken API payload from an Order model."""
-        request = OrderRequest(
-            trading_pair=order.trading_pair,
-            side=order.side,
-            order_type=order.order_type,
-            quantity=Decimal(str(order.quantity_ordered)),
-            price=Decimal(str(order.limit_price)) if order.limit_price is not None else None,
-            client_order_id=str(order.client_order_id) if order.client_order_id else None,
-            stop_price=Decimal(str(order.stop_price)) if order.stop_price is not None else None)
-        return self._translate_order_request_to_kraken(request)
+    def _create_order_payload(self, order: OrderRequest) -> dict[str, Any] | None:
+        """Create Kraken API payload from an OrderRequest."""
+        return self._translate_order_request_to_kraken(order)
 
     def _are_all_contingent_orders(self, orders: list[OrderRequest]) -> bool:
         """Check if all orders are contingent (SL/TP) orders."""
@@ -581,7 +582,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
     async def _place_orders_individually(self, batch_request: BatchOrderRequest) -> BatchOrderResponse:
         """Place orders individually when batch placement is not available."""
         # Try to use OptimizedBatchProcessor if available
-        if hasattr(self, '_batch_processor'):
+        if hasattr(self, '_batch_processor') and self._batch_processor is not None:
             from gal_friday.execution_handler_enhancements import BatchStrategy
             
             # Use smart routing strategy for optimal performance
@@ -592,18 +593,20 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             
             # Convert to BatchOrderResponse format
             order_results = []
-            for order_result in batch_result.successful_orders + batch_result.failed_orders:
-                order_results.append(OrderResponse(
-                    success=order_result.get('success', False),
-                    exchange_order_ids=order_result.get('exchange_order_ids', []),
-                    client_order_id=order_result.get('client_order_id'),
-                    error_message=order_result.get('error')
-                ))
-            
-            return BatchOrderResponse(
-                success=batch_result.success_rate >= 0.5,  # Consider batch successful if at least 50% succeed
-                order_results=order_results,
-                error_message=f"Batch execution completed with {batch_result.success_rate:.1%} success rate" if batch_result.success_rate < 1.0 else None)
+            if hasattr(batch_result, 'successful_orders') and hasattr(batch_result, 'failed_orders'):
+                for order_result in batch_result.successful_orders + batch_result.failed_orders:
+                    order_results.append(OrderResponse(
+                        success=order_result.get('success', False),
+                        exchange_order_ids=order_result.get('exchange_order_ids', []),
+                        client_order_id=order_result.get('client_order_id'),
+                        error_message=order_result.get('error')
+                    ))
+                
+                success_rate = getattr(batch_result, 'success_rate', 0.0)
+                return BatchOrderResponse(
+                    success=success_rate >= 0.5,  # Consider batch successful if at least 50% succeed
+                    order_results=order_results,
+                    error_message=f"Batch execution completed with {success_rate:.1%} success rate" if success_rate < 1.0 else None)
         
         # Fallback to original individual placement
         results = []

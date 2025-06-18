@@ -3,7 +3,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeGuard
 
 from ..exceptions import PriceNotAvailableError
 from ..interfaces import MarketPriceService
@@ -291,32 +291,75 @@ class ValuationService:
 
         raise PriceNotAvailableError
 
+    def _is_position_like(self, obj: Any) -> TypeGuard[PositionLike]:
+        """Type guard to check if object implements PositionLike protocol."""
+        return (
+            hasattr(obj, "quantity") 
+            and hasattr(obj, "base_asset") 
+            and hasattr(obj, "quote_asset")
+        )
+    
+    def _extract_from_dict(self, pos_dict: dict[str, Any], pair: str) -> tuple[Decimal, str, str] | None:
+        """Extract position details from dictionary."""
+        try:
+            if "base_asset" in pos_dict and "quote_asset" in pos_dict:
+                quantity = Decimal(str(pos_dict.get("quantity", 0)))
+                base_asset = str(pos_dict["base_asset"])
+                quote_asset = str(pos_dict["quote_asset"])
+                return quantity, base_asset, quote_asset
+            else:
+                self.logger.warning(
+                    "Cannot determine base/quote for position %s from dict - missing required keys.",
+                    pair,
+                    source_module=self._source_module
+                )
+                return None
+        except (ValueError, TypeError) as e:
+            self.logger.warning(
+                "Invalid data types in position dict for %s: %s",
+                pair,
+                e,
+                source_module=self._source_module
+            )
+            return None
+    
+    def _extract_from_object(self, pos_obj: PositionLike) -> tuple[Decimal, str, str] | None:
+        """Extract position details from PositionLike object."""
+        try:
+            quantity = Decimal(str(pos_obj.quantity))
+            base_asset = str(pos_obj.base_asset)
+            quote_asset = str(pos_obj.quote_asset)
+            return quantity, base_asset, quote_asset
+        except (ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(
+                "Failed to extract position details from object: %s",
+                e,
+                source_module=self._source_module
+            )
+            return None
+
     def _extract_position_details(
         self,
         pair: str,
         pos_data_any: PositionInput) -> tuple[Decimal, str, str] | None:
         """Extract quantity, base_asset, and quote_asset from position data."""
-        if (
-            hasattr(pos_data_any, "quantity")
-            and hasattr(pos_data_any, "base_asset")
-            and hasattr(pos_data_any, "quote_asset")
-        ):
-            obj_quantity = Decimal(str(pos_data_any.quantity))  # Ensure Decimal type
-            obj_base_asset = str(pos_data_any.base_asset)  # Ensure str type
-            obj_quote_asset = str(pos_data_any.quote_asset)  # Ensure str type
-            return obj_quantity, obj_base_asset, obj_quote_asset
-        if isinstance(pos_data_any, dict):
-            dict_quantity = Decimal(str(pos_data_any.get("quantity", 0)))
-            if "base_asset" in pos_data_any and "quote_asset" in pos_data_any:
-                dict_base_asset = str(pos_data_any["base_asset"])
-                dict_quote_asset = str(pos_data_any["quote_asset"])
-                return dict_quantity, dict_base_asset, dict_quote_asset
+        # Handle PositionLike objects
+        if self._is_position_like(pos_data_any):
+            return self._extract_from_object(pos_data_any)
+        
+        # Handle dictionaries
+        elif isinstance(pos_data_any, dict):
+            return self._extract_from_dict(pos_data_any, pair)
+        
+        # Handle unexpected types
+        else:
             self.logger.warning(
-                "Cannot determine base/quote for position %s from dict[str, Any].",
-                pair)
+                "Unsupported position data type for %s: %s (expected PositionLike or dict)",
+                pair,
+                type(pos_data_any).__name__,
+                source_module=self._source_module
+            )
             return None
-        self.logger.warning("Unsupported position data type for %s.", pair)
-        return None
 
     async def calculate_position_value(
         self,
@@ -530,44 +573,76 @@ class ValuationService:
 
         return price_base_in_quote * conversion_to_valuation_curr
 
+    def _extract_quantity_and_base_asset(
+        self, 
+        pos_data_any: PositionInput, 
+        pair: str
+    ) -> tuple[Decimal, str] | None:
+        """Extract just quantity and base asset for valuation calculations."""
+        # Try object attributes first
+        if hasattr(pos_data_any, "quantity") and hasattr(pos_data_any, "base_asset"):
+            try:
+                quantity = Decimal(str(pos_data_any.quantity))
+                base_asset = str(pos_data_any.base_asset)
+                return quantity, base_asset
+            except (ValueError, TypeError, AttributeError) as e:
+                self.logger.debug(
+                    "Failed to extract from object attributes for %s: %s",
+                    pair,
+                    e,
+                    source_module=self._source_module
+                )
+        
+        # Try dictionary
+        if isinstance(pos_data_any, dict):
+            try:
+                raw_base_asset = pos_data_any.get("base_asset")
+                if raw_base_asset is None:
+                    self.logger.debug(
+                        "Skipping value calculation for %s, missing 'base_asset' in dict.",
+                        pair,
+                        source_module=self._source_module
+                    )
+                    return None
+                
+                raw_quantity = pos_data_any.get("quantity", 0)
+                quantity = Decimal(str(raw_quantity))
+                base_asset = str(raw_base_asset)
+                return quantity, base_asset
+            except (ValueError, TypeError) as e:
+                self.logger.debug(
+                    "Failed to extract from dict for %s: %s",
+                    pair,
+                    e,
+                    source_module=self._source_module
+                )
+        
+        # Unsupported type
+        self.logger.debug(
+            "Unsupported position data type for %s: %s",
+            pair,
+            type(pos_data_any).__name__,
+            source_module=self._source_module
+        )
+        return None
+
     async def _get_position_base_asset_value_in_valuation_currency(
         self,
         pair: str,
         pos_data_any: PositionInput,  # pair is used for the indirect strategy
     ) -> Decimal | None:
         """Get the value of a position's base asset in the valuation currency."""
-        quantity: Decimal
-        base_asset: str
-
-        # 1. Initial Parsing & Validation
-        if hasattr(pos_data_any, "quantity") and hasattr(pos_data_any, "base_asset"):
-            quantity = pos_data_any.quantity
-            base_asset = pos_data_any.base_asset
-        elif isinstance(pos_data_any, dict):
-            raw_quantity = pos_data_any.get("quantity", 0)
-            raw_base_asset = pos_data_any.get("base_asset")
-            if raw_base_asset is None:
-                self.logger.debug(
-                    "Skipping value calculation for %s, missing 'base_asset' in dict[str, Any].",
-                    pair,
-                    source_module=self._source_module)
-                return None
-            quantity = Decimal(str(raw_quantity))
-            base_asset = str(raw_base_asset)
-        else:
-            self.logger.debug(
-                "Unsupported position data type for %s: %s.",
-                pair,
-                type(pos_data_any).__name__,
-                source_module=self._source_module)
+        # Extract position data
+        position_data = self._extract_quantity_and_base_asset(pos_data_any, pair)
+        if position_data is None:
             return None
-
+        
+        quantity, base_asset = position_data
+        
         if quantity == Decimal(0):
             return Decimal(0)
 
-        # 2. Attempt valuation strategies
-        rate_in_valuation_currency: Decimal | None = None
-
+        # Attempt valuation strategies
         # Strategy 1: Direct to valuation currency
         rate_in_valuation_currency = await self._get_rate_direct_to_valuation_currency(base_asset)
 
@@ -577,12 +652,14 @@ class ValuationService:
                 "Direct valuation failed for %s. Trying via pair %s.",
                 base_asset,
                 pair,
-                source_module=self._source_module)
+                source_module=self._source_module
+            )
             rate_in_valuation_currency = await self._get_rate_via_pair_quote_asset(
                 base_asset,
-                pair)
+                pair
+            )
 
-        # 3. Calculate final value if rate was found
+        # Calculate final value if rate was found
         if rate_in_valuation_currency is not None:
             return abs(quantity * rate_in_valuation_currency)
 
@@ -591,7 +668,8 @@ class ValuationService:
             base_asset,
             pair,
             self.valuation_currency,
-            source_module=self._source_module)
+            source_module=self._source_module
+        )
         return None
 
     async def _calculate_exposure_percentage(

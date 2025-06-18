@@ -45,7 +45,7 @@ class BacktestPubSubManager:
         self._source_module = self.__class__.__name__
         
         # Event subscriptions
-        self._subscribers: Dict[EventType, List[EventHandler]] = defaultdict(list[Any])
+        self._subscribers: Dict[EventType, List[EventHandler[Any]]] = defaultdict(list)
         
         # Time simulation
         self._simulation_start = simulation_start
@@ -59,7 +59,7 @@ class BacktestPubSubManager:
         self._dropped_events: int = 0
         
         # Performance metrics
-        self._event_processing_times: deque = deque(maxlen=1000)
+        self._event_processing_times: deque[float] = deque(maxlen=1000)
         self._max_queue_size = config_manager.get_int("backtesting.max_queue_size", 100000)
         
         # State tracking
@@ -104,7 +104,7 @@ class BacktestPubSubManager:
             extra={"source_module": self._source_module}
         )
 
-    def subscribe(self, event_type: EventType, handler: EventHandler) -> None:
+    def subscribe(self, event_type: EventType, handler: EventHandler[Any]) -> None:
         """Subscribe to specific event types."""
         self._subscribers[event_type].append(handler)
         self.logger.debug(
@@ -114,7 +114,7 @@ class BacktestPubSubManager:
             extra={"source_module": self._source_module}
         )
 
-    def unsubscribe(self, event_type: EventType, handler: EventHandler) -> None:
+    def unsubscribe(self, event_type: EventType, handler: EventHandler[Any]) -> None:
         """Unsubscribe from specific event types."""
         if handler in self._subscribers[event_type]:
             self._subscribers[event_type].remove(handler)
@@ -224,7 +224,7 @@ class BacktestPubSubManager:
         processing_time = asyncio.get_event_loop().time() - start_time
         self._event_processing_times.append(processing_time)
 
-    async def _execute_handler(self, handler: EventHandler, event: Event) -> None:
+    async def _execute_handler(self, handler: EventHandler[Any], event: Event) -> None:
         """Execute a single event handler with error handling."""
         try:
             # Apply timeout to handler execution
@@ -344,11 +344,11 @@ class BacktestRiskManager:
         self._total_risk_checks += 1
         
         # Check position size limits
-        if order.quantity * order.price > self.risk_limits.max_position_size:
+        if order.quantity * order.limit_price > self.risk_limits.max_position_size:  # type: ignore[attr-defined]
             violation = {
                 "type": "position_size_exceeded",
-                "order_id": order.order_id,
-                "amount": order.quantity * order.price,
+                "order_id": order.id,  # type: ignore[attr-defined]
+                "amount": order.quantity * order.limit_price,  # type: ignore[attr-defined]
                 "limit": self.risk_limits.max_position_size
             }
             self._risk_violations.append(violation)
@@ -356,12 +356,12 @@ class BacktestRiskManager:
             
             return RiskCheckResult(
                 approved=False,
-                reason=f"Position size {order.quantity * order.price} exceeds limit {self.risk_limits.max_position_size}"
+                reason=f"Position size {order.quantity * order.limit_price} exceeds limit {self.risk_limits.max_position_size}"  # type: ignore[attr-defined]
             )
         
         # Check concentration limits
         symbol_exposure = self._calculate_symbol_exposure(cast(str, order.trading_pair))
-        new_exposure = symbol_exposure + (order.quantity * order.price)
+        new_exposure = symbol_exposure + (order.quantity * order.limit_price)  # type: ignore[attr-defined]
         concentration = new_exposure / self._current_value
         
         if concentration > self.risk_limits.max_concentration:
@@ -451,7 +451,7 @@ class BacktestRiskManager:
         """Remove position from tracking."""
         for symbol, positions in self._current_positions.items():
             self._current_positions[symbol] = [
-                p for p in positions if p.position_id != position_id
+                p for p in positions if p.id != position_id
             ]
 
     def _calculate_symbol_exposure(self, symbol: str) -> Decimal:
@@ -460,7 +460,7 @@ class BacktestRiskManager:
         total_exposure = Decimal("0")
         
         for position in positions:
-            total_exposure += position.quantity * position.average_price
+            total_exposure += position.quantity * position.entry_price
         
         return total_exposure
 

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional, TypeVar, cast
 
 import aiohttp
 
@@ -55,11 +55,11 @@ class CircuitBreaker:
         self.state = "closed"  # closed, open, half-open
         self._lock = asyncio.Lock()
     
-    async def call(self, func, *args, **kwargs):
+    async def call(self, func: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any) -> Any:
         """Execute function with circuit breaker protection."""
         async with self._lock:
             if self.state == "open":
-                if time.monotonic() - self.last_failure_time > self.recovery_timeout:
+                if self.last_failure_time is not None and time.monotonic() - self.last_failure_time > self.recovery_timeout:
                     self.state = "half-open"
                 else:
                     raise APIError("Circuit breaker is open")
@@ -173,7 +173,7 @@ class APIDataProvider(HistoricalDataProvider):
         cached_data = self._query_cache.get(cache_key)
         if cached_data and self._is_cache_valid(cached_data):
             self._api_metrics["cache_hits"] += 1
-            return cached_data["data"]
+            return cast(List[HistoricalDataPoint], cached_data["data"])
         
         # Rate limit check
         await self._rate_limiter.acquire()
@@ -205,7 +205,7 @@ class APIDataProvider(HistoricalDataProvider):
                 }
             )
             
-            return data_points
+            return cast(List[HistoricalDataPoint], data_points)
             
         except Exception as e:
             self._circuit_breaker.record_failure()
@@ -299,7 +299,7 @@ class APIDataProvider(HistoricalDataProvider):
                     error_msg = ", ".join(result["error"])
                     raise APIError(f"Kraken API error: {error_msg}")
                 
-                return result.get("result", {})
+                return cast(Dict[str, Any], result.get("result", {}))
                 
             except aiohttp.ClientError as e:
                 last_error = e
@@ -316,7 +316,7 @@ class APIDataProvider(HistoricalDataProvider):
         request: DataRequest
     ) -> List[HistoricalDataPoint]:
         """Parse Kraken OHLC response into HistoricalDataPoint objects."""
-        data_points = []
+        data_points: List[HistoricalDataPoint] = []
         
         # Find the pair data in response
         kraken_pair = self._map_to_kraken_pair(request.symbol)
@@ -376,7 +376,7 @@ class APIDataProvider(HistoricalDataProvider):
         if symbol in self._valid_symbols_cache:
             cache_entry = self._valid_symbols_cache[symbol]
             if self._is_cache_entry_valid(cache_entry):
-                return cache_entry["valid"]
+                return cast(bool, cache_entry["valid"])
         
         # Ensure initialized
         if not self._session:
@@ -519,7 +519,7 @@ class APIDataProvider(HistoricalDataProvider):
             return False
         
         age = (datetime.now(UTC) - cache_entry["timestamp"]).total_seconds()
-        return age < self._cache_ttl
+        return cast(bool, age < self._cache_ttl)
 
     def _is_cache_entry_valid(self, cache_entry: Dict[str, Any]) -> bool:
         """Check if symbol cache entry is still valid."""
@@ -527,7 +527,7 @@ class APIDataProvider(HistoricalDataProvider):
             return False
         
         age = (datetime.now(UTC) - cache_entry["timestamp"]).total_seconds()
-        return age < self._cache_ttl
+        return cast(bool, age < self._cache_ttl)
 
     def _cache_query_result(self, cache_key: str, data_points: List[HistoricalDataPoint]) -> None:
         """Cache query results with LRU eviction."""

@@ -3,9 +3,9 @@
 import os
 from collections.abc import Sequence
 
-from alembic import command  # type: ignore
-from alembic.config import Config  # type: ignore
-from alembic.script import ScriptDirectory  # type: ignore
+from alembic import command
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy.exc import SQLAlchemyError
 
 from gal_friday.exceptions import DatabaseConnectionError

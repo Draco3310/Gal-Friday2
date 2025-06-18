@@ -33,9 +33,9 @@ class SequenceTracker:
 
         # Track sequences per channel
         self.sequences: dict[str, int] = {}
-        self.gaps: dict[str, list[tuple]] = defaultdict(list[Any])
+        self.gaps: dict[str, list[tuple[int, int]]] = defaultdict(list)
 
-    def check_sequence(self, channel: str, sequence: int) -> list[tuple] | None:
+    def check_sequence(self, channel: str, sequence: int) -> list[tuple[int, int]] | None:
         """Check for sequence gaps.
 
         Returns:
@@ -65,7 +65,7 @@ class SequenceTracker:
             source_module=self._source_module)
         return None
 
-    def get_gaps(self, channel: str) -> list[tuple]:
+    def get_gaps(self, channel: str) -> list[tuple[int, int]]:
         """Get all gaps for a channel."""
         return self.gaps.get(channel, [])
 
@@ -222,7 +222,7 @@ class WebSocketMessageProcessor:
 
         return True
 
-    async def _handle_gaps(self, channel: str, gaps: list[tuple]) -> None:
+    async def _handle_gaps(self, channel: str, gaps: list[tuple[int, int]]) -> None:
         """Handle sequence gaps."""
         for start, end in gaps:
             self.logger.info(

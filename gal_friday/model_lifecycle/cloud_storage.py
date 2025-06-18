@@ -56,7 +56,7 @@ class GCSBackend(CloudStorageBackend):
     def _init_client(self) -> None:
         """Initialize GCS client."""
         try:
-            from google.cloud import storage  # type: ignore
+            import google.cloud.storage as storage  # type: ignore[import-untyped]
             self.client = storage.Client(project=self.project_id)
             self.bucket = self.client.bucket(self.bucket_name)
 
