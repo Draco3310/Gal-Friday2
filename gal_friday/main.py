@@ -1110,7 +1110,7 @@ def setup_logging(
                     log_dir_path.mkdir(parents=True, exist_ok=True)
                     log.info("Created log directory: %s", log_dir_path)
                 except OSError:
-                    log.exception("Could not create log directory %s", log_dir_path)
+                    log.exception("Could not create log directory")
                     log_filename = None  # Prevent handler creation if dir fails
 
             if log_filename:
@@ -1628,7 +1628,8 @@ class GalFridayApp:
         if DatabaseConnectionPool is not None and self.config is not None:
             # Create a basic logger instance for DatabaseConnectionPool if self.logger_service isn't fully ready
             # Or ensure LoggerService is instantiated in a basic mode first.
-            # For this step, assuming a basic logger from python's logging can be passed or self.logger_service is basic.
+            # For this step, assuming a basic logger from python's logging can be passed
+            # or self.logger_service is basic.
             # If LoggerService needs full setup for other services to use its get_logger, this order is tricky.
             # Let's assume self.logger_service is not yet the full DB-logging instance.
             # We will use a temporary logger for db_pool.

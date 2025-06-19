@@ -163,7 +163,9 @@ class TALibBackend(TechnicalAnalysisBackend):
         timeperiod = params.get("timeperiod", 14)
         return cast("np.ndarray[Any, Any]", talib.RSI(data["close"].astype(np.float64), timeperiod=timeperiod))
 
-    def _calculate_macd(self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any]) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    def _calculate_macd(
+        self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any],
+    ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using TA-Lib."""
         if talib is None:
             raise RuntimeError("TA-Lib not available")
@@ -178,7 +180,9 @@ class TALibBackend(TechnicalAnalysisBackend):
             signalperiod=signalperiod,
         ))
 
-    def _calculate_bbands(self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any]) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    def _calculate_bbands(
+        self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any],
+    ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using TA-Lib."""
         if talib is None:
             raise RuntimeError("TA-Lib not available")
@@ -209,7 +213,9 @@ class TALibBackend(TechnicalAnalysisBackend):
         timeperiod = params.get("timeperiod", 20)
         return cast("np.ndarray[Any, Any]", talib.EMA(data["close"].astype(np.float64), timeperiod=timeperiod))
 
-    def _calculate_stoch(self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any]) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    def _calculate_stoch(
+        self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any],
+    ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Stochastic using TA-Lib."""
         fastk_period = params.get("fastk_period", 14)
         slowk_period = params.get("slowk_period", 3)
@@ -226,7 +232,9 @@ class TALibBackend(TechnicalAnalysisBackend):
             slowd_period=slowd_period,
         ))
 
-    def _calculate_williams_r(self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any]) -> np.ndarray[Any, Any]:
+    def _calculate_williams_r(
+        self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any],
+    ) -> np.ndarray[Any, Any]:
         """Calculate Williams %R using TA-Lib."""
         timeperiod = params.get("timeperiod", 14)
         if talib is None:
@@ -343,7 +351,9 @@ class PandasTABackend(TechnicalAnalysisBackend):
         result = ta.rsi(df["close"], length=length)
         return cast("np.ndarray[Any, Any]", result.values)
 
-    def _calculate_macd(self, df: pd.DataFrame, params: dict[str, Any]) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    def _calculate_macd(
+        self, df: pd.DataFrame, params: dict[str, Any],
+    ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using pandas-ta."""
         if ta is None:
             raise RuntimeError("pandas-ta not available")
@@ -362,7 +372,9 @@ class PandasTABackend(TechnicalAnalysisBackend):
             cast("np.ndarray[Any, Any]", result[hist_col].values),
         )
 
-    def _calculate_bbands(self, df: pd.DataFrame, params: dict[str, Any]) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    def _calculate_bbands(
+        self, df: pd.DataFrame, params: dict[str, Any],
+    ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using pandas-ta."""
         if ta is None:
             raise RuntimeError("pandas-ta not available")
@@ -736,7 +748,9 @@ class TechnicalAnalysisManager:
 
         self.cache[cache_key] = result
 
-    def _create_fallback_result(self, config: IndicatorConfig, data: dict[str, np.ndarray[Any, Any]]) -> IndicatorResult:
+    def _create_fallback_result(
+        self, config: IndicatorConfig, data: dict[str, np.ndarray[Any, Any]],
+    ) -> IndicatorResult:
         """Create fallback result when all backends fail."""
         data_length = len(data.get("close", []))
         fallback_array = np.full(data_length, config.fallback_value)

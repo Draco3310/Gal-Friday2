@@ -204,7 +204,8 @@ class PredictionService:
 
     def _validate_model_config(
         self,
-        model_conf: dict[str, Any]) -> tuple[str, str, str, type[PredictorInterface], Callable[..., Any], dict[str, Any], bool]:
+        model_conf: dict[str, Any],
+    ) -> tuple[str, str, str, type[PredictorInterface], Callable[..., Any], dict[str, Any], bool]:
         """Validate model configuration and extract necessary fields."""
         model_id: str = str(model_conf.get("model_id", ""))
         predictor_type: str = str(model_conf.get("predictor_type", ""))
@@ -218,7 +219,7 @@ class PredictionService:
             )
             error_msg = f"{ModelConfigError.invalid_config}: {log_msg}"
             context = {"config": model_conf}
-            self.logger.error(
+            self.logger.exception(
                 error_msg,
                 source_module=self._source_module,
                 context=context)
@@ -310,8 +311,7 @@ class PredictionService:
                         "Failed to initialize predictor for model_id %(model_id)s "
                         "(Critical: %(is_critical)s)",
                         source_module=self._source_module,
-                        context={"model_id": model_id, "is_critical": is_critical},
-                        exc_info=True)
+                        context={"model_id": model_id, "is_critical": is_critical})
                     raise PredictorInitError(PredictorInitError.message) from e
                 self.logger.exception(
                     "Failed to initialize predictor for model_id %(model_id)s "
@@ -625,7 +625,8 @@ class PredictionService:
             if model_confidence is None:
                 # Policy: Assume predictions without confidence pass the floor
                 self.logger.debug(
-                    "Prediction from %(model_id)s%(target_context)s has no confidence score. Assuming it passes the floor.",
+                    "Prediction from %(model_id)s%(target_context)s has no confidence score. "
+                    "Assuming it passes the floor.",
                     source_module=self._source_module,
                     context={
                         "model_id": model_id,
@@ -638,7 +639,8 @@ class PredictionService:
                 passed_predictions.append(prediction)
             else:
                 self.logger.info(
-                    "Prediction from %(model_id)s%(target_context)s (confidence: %(confidence).3f) dropped. Below floor of %(floor).3f.",
+                    "Prediction from %(model_id)s%(target_context)s (confidence: %(confidence).3f) "
+                    "dropped. Below floor of %(floor).3f.",
                     source_module=self._source_module,
                     context={
                         "model_id": model_id,
@@ -689,7 +691,7 @@ class PredictionService:
         """
         # Type system guarantees event is a FeatureEvent
         if self._process_pool_executor is None:
-            self.logger.error(
+            self.logger.exception(
                 "ProcessPoolExecutor not available. Cannot run predictions.",
                 source_module=self._source_module,
                 context={"executor_status": "unavailable"})
@@ -1084,7 +1086,8 @@ class PredictionService:
 
                 if not filtered_preds:
                     self.logger.info(
-                        "No predictions for target %(target)s met confidence floor for ensembling. No ensemble prediction will be generated.",
+                        "No predictions for target %(target)s met confidence floor for ensembling. "
+                        "No ensemble prediction will be generated.",
                         source_module=self._source_module,
                         context={"target": target})
                     continue
@@ -1437,8 +1440,7 @@ class PredictionService:
             self.logger.critical(
                 log_msg,
                 source_module=self._source_module,
-                context={"error": str(e)},
-                exc_info=True)
+                context={"error": str(e)})
 
     async def _handle_reconfiguration_with_in_flight_tasks(self) -> None:
         """Handle in-flight tasks during reconfiguration more gracefully."""

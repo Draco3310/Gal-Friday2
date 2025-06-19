@@ -251,7 +251,7 @@ class HistoricalDataLoader:
 
                 self.logger.info("Initialized data provider: %s", name)
             except Exception as exc:  # pragma: no cover - initialization best effort
-                self.logger.exception("Failed to initialize provider %s: %s", name, exc)
+                self.logger.exception("Failed to initialize provider %s:", exc)
 
     async def load_historical_data(self, request: DataRequest) -> list[HistoricalDataPoint]:
         """Load historical data with intelligent caching
@@ -1327,7 +1327,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     extra={"source_module": self._source_module})
                 # Disable features that require missing columns
                 if self._price_column in missing_cols:
-                    self.logger.error(
+                    self.logger.exception(
                         "Critical: Price column '%s' missing for %s. "
                         "This pair may not function properly.",
                         self._price_column,
@@ -1917,7 +1917,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
         current_ask_for_level: Decimal,
         current_volume_for_level: Decimal,
         level_index: int,
-        context: BookLevelConstructionContext) -> tuple[list[str] | None, list[str] | None, bool]:  # (bid_entry, ask_entry, stop_gen)
+        context: BookLevelConstructionContext,
+    ) -> tuple[list[str] | None, list[str] | None, bool]:  # (bid_entry, ask_entry, stop_gen)
         """Create bid/ask entries for a single order book level and check for termination."""
         bid_entry: list[str] | None = None
         ask_entry: list[str] | None = None
@@ -2301,8 +2302,7 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "Error calculating volatility for %s: %s",
                 trading_pair,
                 str(e),
-                extra={"source_module": self._source_module},
-                exc_info=True)
+                extra={"source_module": self._source_module})
 
         # Fallback: calculate simple standard deviation of returns
         try:
@@ -2346,12 +2346,11 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             return float(annualized_volatility * 100)  # Return as percentage
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Error in fallback volatility calculation for %s: %s",
                 trading_pair,
                 str(e),
-                extra={"source_module": self._source_module},
-                exc_info=True)
+                extra={"source_module": self._source_module})
             return None
 
 

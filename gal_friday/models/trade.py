@@ -24,8 +24,12 @@ class Trade(Base):
     __tablename__ = "trades"
 
     trade_pk: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    trade_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4, index=True)
-    signal_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("signals.signal_id"), index=True, nullable=True)
+    trade_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4, index=True,
+    )
+    signal_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("signals.signal_id"), index=True, nullable=True,
+    )
 
     trading_pair: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     exchange: Mapped[str] = mapped_column(String(32), nullable=False)

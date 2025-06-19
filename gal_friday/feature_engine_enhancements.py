@@ -528,7 +528,10 @@ class IntelligentImputationEngine:
             elif regime == "low_volatility":
                 mask = rolling_vol < overall_vol / self._regime_threshold
             else:
-                mask = (rolling_vol >= overall_vol / self._regime_threshold) & (rolling_vol <= overall_vol * self._regime_threshold)
+                mask = (
+                    (rolling_vol >= overall_vol / self._regime_threshold) &
+                    (rolling_vol <= overall_vol * self._regime_threshold)
+                )
 
             return series[mask].dropna()
 
@@ -1160,7 +1163,10 @@ class AdvancedTemporalPatternEngine:
             return {
                 "volatility_autocorrelations": vol_autocorr,
                 "arch_test": arch_result,
-                "clustering_strength": max([abs(ac["autocorrelation"]) for ac in vol_autocorr[:5]]) if vol_autocorr else 0,
+                "clustering_strength": (
+                    max([abs(ac["autocorrelation"]) for ac in vol_autocorr[:5]])
+                    if vol_autocorr else 0
+                ),
             }
 
         except Exception:

@@ -28,7 +28,10 @@ class HaltCondition:
 class HaltCoordinator:
     """Central coordinator for all HALT conditions and triggers."""
 
-    def __init__(self, config_manager: ConfigManager, pubsub_manager: PubSubManager, logger_service: LoggerService) -> None:
+    def __init__(
+        self, config_manager: ConfigManager, pubsub_manager: PubSubManager,
+        logger_service: LoggerService,
+    ) -> None:
         """Initialize the instance."""
         self.config = config_manager
         self.pubsub = pubsub_manager
@@ -121,7 +124,9 @@ class HaltCoordinator:
         else:
             # Type[Any] mismatch or other comparison - log warning and don't trigger
             self.logger.warning(
-                f"Type[Any] mismatch in condition '{condition.name}': threshold type {type(condition.threshold).__name__} vs current_value type {type(current_value).__name__}",
+                f"Type[Any] mismatch in condition '{condition.name}': "
+                f"threshold type {type(condition.threshold).__name__} vs "
+                f"current_value type {type(current_value).__name__}",
                 source_module=self._source_module)
             condition.is_triggered = False
 

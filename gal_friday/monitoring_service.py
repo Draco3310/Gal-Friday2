@@ -266,7 +266,7 @@ class MetricsCollectionSystem:
             )
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 f"Failed to start MetricsCollectionSystem: {e}",
                 source_module=self._source_module,
                 exc_info=True,
@@ -1890,7 +1890,10 @@ class MonitoringService:
         self._metrics_system._portfolio_manager = self._portfolio_manager
         self._sync_metrics_system_state()
 
-        self.logger.info("MonitoringService initialized with enterprise metrics collection.", source_module=self._source)
+        self.logger.info(
+            "MonitoringService initialized with enterprise metrics collection.",
+            source_module=self._source,
+        )
 
     def _sync_metrics_system_state(self) -> None:
         """Synchronize shared state with the metrics collection system."""
@@ -2414,8 +2417,7 @@ class MonitoringService:
             self.logger.error(
                 "Failed to fetch position or portfolio data for risk check: %s",
                 e,
-                source_module=self._source,
-                exc_info=True)
+                source_module=self._source)
             return  # Cannot proceed without position data
 
         if not current_positions:
@@ -2477,7 +2479,8 @@ class MonitoringService:
 
                     if action_thresh_pct is not None and position_pct_of_portfolio > action_thresh_pct:
                         self.logger.critical(
-                            "Position Risk Breach: %s (%.2f%%) exceeds ACTION portfolio percentage (%.2f%%). Initiating reduction.",
+                            "Position Risk Breach: %s (%.2f%%) exceeds ACTION portfolio percentage "
+                            "(%.2f%%). Initiating reduction.",
                             trading_pair,
                             position_pct_of_portfolio * 100,
                             action_thresh_pct * 100,
@@ -2516,13 +2519,16 @@ class MonitoringService:
 
                 if action_thresh_notional is not None and position_value_usd > Decimal(str(action_thresh_notional)):
                     self.logger.critical(
-                        "Position Risk Breach: %s value ($%.2f) exceeds ACTION notional value ($%.2f). Initiating reduction.",
+                        "Position Risk Breach: %s value ($%.2f) exceeds ACTION notional "
+                        "value ($%.2f). Initiating reduction.",
                         trading_pair,
                         position_value_usd,
                         action_thresh_notional,
                         source_module=self._source)
 
-                    reduction_target_notional = global_max_pos_notional_usd_config.get("reduction_target_notional_value")
+                    reduction_target_notional = global_max_pos_notional_usd_config.get(
+                        "reduction_target_notional_value",
+                    )
                     if reduction_target_notional is not None:
                         await self._initiate_position_reduction(
                             position=position,
@@ -2556,9 +2562,13 @@ class MonitoringService:
 
                 await self._publish_position_risk_alert(alert_details, "WARNING")
 
-                if action_thresh_base_qty is not None and abs(position_base_quantity) > Decimal(str(action_thresh_base_qty)):
+                if (
+                    action_thresh_base_qty is not None
+                    and abs(position_base_quantity) > Decimal(str(action_thresh_base_qty))
+                ):
                     self.logger.critical(
-                        "Position Risk Breach: %s quantity (%.6f) exceeds specific pair ACTION base quantity (%.6f). Initiating reduction.",
+                        "Position Risk Breach: %s quantity (%.6f) exceeds specific pair ACTION "
+                        "base quantity (%.6f). Initiating reduction.",
                         trading_pair,
                         abs(position_base_quantity),
                         action_thresh_base_qty,
@@ -2594,11 +2604,10 @@ class MonitoringService:
                     positions.append(position)
             return positions
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Failed to get open positions: %s",
                 e,
-                source_module=self._source,
-                exc_info=True)
+                source_module=self._source)
             return []
 
     async def _get_portfolio_summary(self) -> dict[str, Any]:
@@ -2611,11 +2620,10 @@ class MonitoringService:
                 "total_unrealized_pnl": current_state.get("total_unrealized_pnl", 0),
             }
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Failed to get portfolio summary: %s",
                 e,
-                source_module=self._source,
-                exc_info=True)
+                source_module=self._source)
             return {"total_equity": 0, "available_balance": 0, "total_unrealized_pnl": 0}
 
     async def _publish_position_risk_alert(self, alert_details: dict[str, Any], severity: str) -> None:
@@ -2641,11 +2649,10 @@ class MonitoringService:
             # await self.pubsub_manager.publish(PositionRiskAlertEvent(**alert_event))
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Failed to publish position risk alert: %s",
                 e,
-                source_module=self._source,
-                exc_info=True)
+                source_module=self._source)
 
     async def _initiate_position_reduction(
         self,
@@ -2666,7 +2673,7 @@ class MonitoringService:
         elif reduction_type == "NOTIONAL_TARGET":
             # Convert target notional value to target quantity
             if not isinstance(trading_pair, str):
-                self.logger.error("Trading pair is not a string: %s", trading_pair)
+                self.logger.exception("Trading pair is not a string:")
                 return
             current_price = await self._get_current_market_price(trading_pair)
             if current_price is None:
@@ -2684,7 +2691,8 @@ class MonitoringService:
                 quantity_to_reduce = abs(current_quantity) - target_quantity
             else:
                 self.logger.info(
-                    "Current position %s (%.6f) is already below target notional (%.6f = $%.2f @ $%.4f). No reduction needed.",
+                    "Current position %s (%.6f) is already below target notional "
+                    "(%.6f = $%.2f @ $%.4f). No reduction needed.",
                     trading_pair,
                     abs(current_quantity),
                     target_quantity,
@@ -2724,7 +2732,11 @@ class MonitoringService:
         timestamp = datetime.now(UTC)
 
         # Determine order type for reduction
-        reduction_order_type = self.config_manager.get("monitoring", {}).get("position_risk_checks", {}).get("default_reduction_order_type", "MARKET")
+        reduction_order_type = (
+            self.config_manager.get("monitoring", {})
+            .get("position_risk_checks", {})
+            .get("default_reduction_order_type", "MARKET")
+        )
 
         try:
             # Create reduce position command (would need to be defined in events.py)
@@ -2759,8 +2771,7 @@ class MonitoringService:
                 str(command_id)[:8],
                 trading_pair,
                 e,
-                source_module=self._source,
-                exc_info=True)
+                source_module=self._source)
 
     # Duplicate method - commented out
     # async def _check_system_health(self) -> None:
@@ -2904,7 +2915,7 @@ class MonitoringService:
                         f"API connectivity failed "
                         f"{self._consecutive_api_failures} consecutive times."
                     )
-                    self.logger.error(reason, source_module=self._source)
+                    self.logger.exception(reason, source_module=self._source)
 
                     # Collect critical connectivity failure metric
                     await self.collect_metric(
@@ -2927,7 +2938,11 @@ class MonitoringService:
             await self.collect_batch_metrics([
                 {"name": "api.connectivity.status", "value": 0, "labels": {"status": "error"}},
                 {"name": "api.connectivity.consecutive_failures", "value": self._consecutive_api_failures},
-                {"name": "api.connectivity.response_time_ms", "value": api_response_time, "labels": {"endpoint": "status_check"}},
+                {
+                    "name": "api.connectivity.response_time_ms",
+                    "value": api_response_time,
+                    "labels": {"endpoint": "status_check"},
+                },
                 {"name": "api.connectivity.error_count", "value": 1, "labels": {"error_type": type(e).__name__}},
             ])
 
@@ -2988,7 +3003,8 @@ class MonitoringService:
                 else:
                     # Startup grace period has passed, and still no data. This is a concern.
                     self.logger.warning(
-                        "No market data received for active pair %s after initial grace period (%.2fs). Marking as stale.",
+                        "No market data received for active pair %s after initial grace period (%.2fs). "
+                        "Marking as stale.",
                         pair,
                         system_uptime_seconds,
                         source_module=self._source)
@@ -2998,12 +3014,16 @@ class MonitoringService:
                 stale_pairs.append(pair)
                 warning_msg = (
                     f"Market data for {pair} is stale (last update: {last_ts}, "
-                    f"threshold: {self._data_staleness_threshold_s}s, current age: {(now - last_ts).total_seconds():.2f}s)"
+                    f"threshold: {self._data_staleness_threshold_s}s, "
+                    f"current age: {(now - last_ts).total_seconds():.2f}s)"
                 )
                 self.logger.warning(warning_msg, source_module=self._source)
             else:
                 # Data is present and not stale
-                self.logger.debug(f"Market data for {pair} is current (last update: {last_ts}).", source_module=self._source)
+                self.logger.debug(
+                    f"Market data for {pair} is current (last update: {last_ts}).",
+                    source_module=self._source,
+                )
 
         if stale_pairs:
             self.logger.info(f"Identified stale pairs: {stale_pairs}", source_module=self._source)
@@ -3114,14 +3134,19 @@ class MonitoringService:
             self.logger.debug(f"Using GARCH method for volatility calculation for {pair}.", source_module=self._source)
             return await self._calculate_garch_volatility_internal(pair, vol_config)
         if calculation_method == "stddev":
-            self.logger.debug(f"Using standard deviation method for volatility calculation for {pair}.", source_module=self._source)
+            self.logger.debug(
+                f"Using standard deviation method for volatility calculation for {pair}.",
+                source_module=self._source,
+            )
             return await self._calculate_stddev_volatility_internal(pair, vol_config)
         self.logger.error(
             f"Unknown volatility calculation method configured: {calculation_method}. Defaulting to None.",
             source_module=self._source)
         return None
 
-    async def _calculate_stddev_volatility_internal(self, trading_pair: str, vol_config: dict[str, Any]) -> Decimal | None:
+    async def _calculate_stddev_volatility_internal(
+        self, trading_pair: str, vol_config: dict[str, Any],
+    ) -> Decimal | None:
         """Calculate standard deviation volatility for a trading pair.
 
         Args:
@@ -3149,8 +3174,9 @@ class MonitoringService:
                 periods_per_year = 365 * 24 * 60
             else:
                 self.logger.warning(
-                    f"Unsupported candle_interval_minutes ({candle_interval_minutes}) for default annualization factor. "
-                    "Volatility will not be annualized correctly without explicit 'annualization_periods_per_year' config.",
+                    f"Unsupported candle_interval_minutes ({candle_interval_minutes}) for default "
+                    f"annualization factor. Volatility will not be annualized correctly without "
+                    f"explicit 'annualization_periods_per_year' config.",
                     source_module=self._source)
                 periods_per_year = 1  # Effectively no annualization
             annualization_factor = (periods_per_year) ** 0.5
@@ -3166,7 +3192,8 @@ class MonitoringService:
             if price_history_candles is None or len(price_history_candles) < min_required_data_points + 1:
                 self.logger.warning(
                     f"StdDev Vol: Insufficient historical price data for {trading_pair}. "
-                    f"Required: {min_required_data_points + 1}, Got: {len(price_history_candles) if price_history_candles else 0}.",
+                    f"Required: {min_required_data_points + 1}, "
+                    f"Got: {len(price_history_candles) if price_history_candles else 0}.",
                     source_module=self._source)
                 return None
 
@@ -3174,8 +3201,7 @@ class MonitoringService:
         except Exception as e:
             self.logger.error(
                 f"StdDev Vol: Failed to fetch/process price history for {trading_pair}: {e}",
-                source_module=self._source,
-                exc_info=True)
+                source_module=self._source)
             return None
 
         # Convert to numpy for calculations
@@ -3184,7 +3210,10 @@ class MonitoringService:
 
         if use_log_returns:
             if np.any(np_closing_prices <= 0):
-                self.logger.error(f"StdDev Vol: Invalid prices for {trading_pair} for log returns.", source_module=self._source)
+                self.logger.exception(
+                    f"StdDev Vol: Invalid prices for {trading_pair} for log returns.",
+                    source_module=self._source,
+                )
                 return None
             returns = np.log(np_closing_prices[1:] / np_closing_prices[:-1])
         else:
@@ -3203,7 +3232,9 @@ class MonitoringService:
             source_module=self._source)
         return annualized_volatility_decimal.quantize(Decimal("0.0001"))
 
-    async def _calculate_garch_volatility_internal(self, trading_pair: str, vol_config: dict[str, Any]) -> Decimal | None:
+    async def _calculate_garch_volatility_internal(
+        self, trading_pair: str, vol_config: dict[str, Any],
+    ) -> Decimal | None:
         """Calculate GARCH volatility for a trading pair.
 
         Args:
@@ -3281,8 +3312,7 @@ class MonitoringService:
         except Exception as exc:  # pragma: no cover - model issues
             self.logger.error(
                 f"GARCH volatility calculation failed for {trading_pair}: {exc}",
-                source_module=self._source,
-                exc_info=True)
+                source_module=self._source)
             return None
 
     async def _get_historical_candles_for_volatility(
@@ -3301,10 +3331,9 @@ class MonitoringService:
         try:
             df = await self.history_repo.get_recent_ohlcv(trading_pair, num_candles, interval)
         except Exception as exc:  # pragma: no cover - fetch failures
-            self.logger.error(
+            self.logger.exception(
                 f"Failed to fetch historical candles for {trading_pair}: {exc}",
-                source_module=self._source,
-                exc_info=True)
+                source_module=self._source)
             return None
 
         if df is None or df.empty:
@@ -3414,7 +3443,8 @@ class MonitoringService:
                             mid_price = (bid_price + ask_price) / Decimal(2)
 
                             self.logger.debug(
-                                f"Got market price for {trading_pair} from orderbook mid: ${mid_price:.4f} (bid: ${bid_price:.4f}, ask: ${ask_price:.4f})",
+                                f"Got market price for {trading_pair} from orderbook mid: ${mid_price:.4f} "
+                                f"(bid: ${bid_price:.4f}, ask: ${ask_price:.4f})",
                                 source_module=self._source,
                             )
                             return mid_price
@@ -3737,7 +3767,10 @@ class MonitoringService:
                 },
                 "halt_coordinator": {
                     "active_conditions": self._halt_coordinator.check_all_conditions(),
-                    "summary": self._halt_coordinator.get_stage_summary() if hasattr(self._halt_coordinator, "get_stage_summary") else {},
+                    "summary": (
+                        self._halt_coordinator.get_stage_summary()
+                        if hasattr(self._halt_coordinator, "get_stage_summary") else {}
+                    ),
                 },
             }
 

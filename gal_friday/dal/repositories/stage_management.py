@@ -250,7 +250,10 @@ class ModelStageManager:
                 if metric in metadata:
                     actual_value = metadata.get(metric, 0)
                     if actual_value < threshold:
-                        return False, f"Performance metric '{metric}' ({actual_value}) below threshold ({threshold}) for stage {to_stage.value}"
+                        return False, (
+                            f"Performance metric '{metric}' ({actual_value}) below threshold "
+                            f"({threshold}) for stage {to_stage.value}"
+                        )
 
             # Check stage capacity
             if not self._check_stage_capacity(to_stage):

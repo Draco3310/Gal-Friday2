@@ -661,9 +661,13 @@ class MLPredictionPipeline:
 
             # Update stats
             current_count = self.prediction_stats.get("predictions_made", 0)
-            self.prediction_stats["predictions_made"] = (int(current_count) if isinstance(current_count, int | float) else 0) + 1
+            self.prediction_stats["predictions_made"] = (
+                (int(current_count) if isinstance(current_count, int | float) else 0) + 1
+            )
             success_count = self.prediction_stats.get("successful_predictions", 0)
-            self.prediction_stats["successful_predictions"] = (int(success_count) if isinstance(success_count, int | float) else 0) + 1
+            self.prediction_stats["successful_predictions"] = (
+                (int(success_count) if isinstance(success_count, int | float) else 0) + 1
+            )
             self.prediction_stats["last_prediction_time"] = datetime.now(UTC)
 
             result = PredictionResult(
@@ -694,7 +698,9 @@ class MLPredictionPipeline:
 
         except Exception as e:
             failed_count = self.prediction_stats.get("failed_predictions", 0)
-            self.prediction_stats["failed_predictions"] = (int(failed_count) if isinstance(failed_count, int | float) else 0) + 1
+            self.prediction_stats["failed_predictions"] = (
+                (int(failed_count) if isinstance(failed_count, int | float) else 0) + 1
+            )
             self.logger.error(
                 "Prediction failed for %(symbol)s: %(error)s",
                 source_module=self._source_module,

@@ -315,7 +315,10 @@ class StrategySelectionEvent(Base):
             "selection_scores": self.selection_scores,
             "market_conditions": self.market_conditions,
             "transition_phase": self.transition_phase,
-            "transition_completed_at": self.transition_completed_at.isoformat() if self.transition_completed_at else None,
+            "transition_completed_at": (
+                self.transition_completed_at.isoformat()
+                if self.transition_completed_at else None
+            ),
             "allocation_percentage": float(self.allocation_percentage),
             "triggered_by": self.triggered_by,
             "reason": self.reason,

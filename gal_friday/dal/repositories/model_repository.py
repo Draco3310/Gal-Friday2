@@ -53,9 +53,12 @@ class ModelRepository(BaseRepository[ModelVersion]):
         if "created_at" in model_version_data and isinstance(model_version_data["created_at"], datetime):
             if model_version_data["created_at"].tzinfo is None:
                  model_version_data["created_at"] = model_version_data["created_at"].replace(tzinfo=UTC)
-        if "training_completed_at" in model_version_data and isinstance(model_version_data["training_completed_at"], datetime):
+        if ("training_completed_at" in model_version_data
+                and isinstance(model_version_data["training_completed_at"], datetime)):
             if model_version_data["training_completed_at"].tzinfo is None:
-                 model_version_data["training_completed_at"] = model_version_data["training_completed_at"].replace(tzinfo=UTC)
+                 model_version_data["training_completed_at"] = (
+                     model_version_data["training_completed_at"].replace(tzinfo=UTC)
+                 )
 
         return await self.create(model_version_data)
 
@@ -242,7 +245,9 @@ class ModelRepository(BaseRepository[ModelVersion]):
             raise
 
     async def _create_deployment_record(
-        self, model_version: ModelVersion, deployed_by: str, deployment_config: dict[str, Any] | None = None) -> ModelDeployment:
+        self, model_version: ModelVersion, deployed_by: str,
+        deployment_config: dict[str, Any] | None = None,
+    ) -> ModelDeployment:
         """Internal helper to create a deployment record and deactivate old ones for the same model name."""
         async with self.session_maker() as session:
             # Deactivate previous active deployments for this model_name
@@ -291,17 +296,27 @@ class ModelRepository(BaseRepository[ModelVersion]):
             if deployment:
                  self.logger.debug(f"Found active deployment for model {model_name}", source_module=self._source_module)
             else:
-                 self.logger.debug(f"No active deployment found for model {model_name}", source_module=self._source_module)
+                 self.logger.debug(
+                     f"No active deployment found for model {model_name}",
+                     source_module=self._source_module,
+                 )
             return deployment
 
     async def get_deployments_for_model_version(self, model_id: uuid.UUID) -> Sequence[ModelDeployment]:
         """Get all deployment records for a specific model version ID."""
         # This uses a direct query on ModelDeployment, could also be BaseRepository[ModelDeployment].find_all
         async with self.session_maker() as session:
-            stmt = select(ModelDeployment).where(ModelDeployment.model_id == model_id).order_by(ModelDeployment.deployed_at.desc())
+            stmt = (
+                select(ModelDeployment)
+                .where(ModelDeployment.model_id == model_id)
+                .order_by(ModelDeployment.deployed_at.desc())
+            )
             result = await session.execute(stmt)
             deployments = result.scalars().all()
-            self.logger.debug(f"Found {len(deployments)} deployments for model_id {model_id}", source_module=self._source_module)
+            self.logger.debug(
+                f"Found {len(deployments)} deployments for model_id {model_id}",
+                source_module=self._source_module,
+            )
             return deployments
 
     # Enterprise-grade stage management methods

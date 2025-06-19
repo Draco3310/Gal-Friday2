@@ -602,8 +602,10 @@ class RiskManager:
         # New config values for pre-trade checks
         self._fat_finger_max_deviation_pct = Decimal(
             str(self._config.get("fat_finger_max_deviation_pct", "5.0")))
-        self._taker_fee_pct = Decimal(
-            str(self._config.get("exchange", {}).get("taker_fee_pct", "0.26"))) / Decimal(100)  # Convert percentage to decimal
+        self._taker_fee_pct = (
+            Decimal(str(self._config.get("exchange", {}).get("taker_fee_pct", "0.26")))
+            / Decimal(100)  # Convert percentage to decimal
+        )
         # Portfolio valuation currency (e.g., "USD")
         self._valuation_currency = str(self._config.get("portfolio_valuation_currency", "USD"))
 
@@ -622,7 +624,10 @@ class RiskManager:
         self._dynamic_risk_target_pairs = self._config.get("dynamic_risk_target_pairs", [])
 
         # Initialize monitored pairs - use dynamic risk target pairs or fall back to configured list[Any]
-        self._monitored_pairs = self._dynamic_risk_target_pairs or self._config.get("monitored_pairs", ["XRP/USD", "DOGE/USD"])
+        self._monitored_pairs = (
+            self._dynamic_risk_target_pairs
+            or self._config.get("monitored_pairs", ["XRP/USD", "DOGE/USD"])
+        )
 
         if self._enable_dynamic_risk_adjustment and not self._dynamic_risk_volatility_feature_key:
             self.logger.warning(
@@ -642,11 +647,14 @@ class RiskManager:
                     self._dynamic_risk_volatility_feature_key,
                     source_module=self._source_module)
             else:
-                definition = self.feature_registry_client.get_feature_definition(self._dynamic_risk_volatility_feature_key)
+                definition = self.feature_registry_client.get_feature_definition(
+                    self._dynamic_risk_volatility_feature_key,
+                )
                 if definition is None:
                     self.logger.warning(
-                        "The configured 'dynamic_risk_volatility_feature_key': '%s' was not found in the Feature Registry. "
-                        "Dynamic risk adjustment based on this feature may not work as expected.",
+                        "The configured 'dynamic_risk_volatility_feature_key': '%s' was not found "
+                        "in the Feature Registry. Dynamic risk adjustment based on this feature "
+                        "may not work as expected.",
                         self._dynamic_risk_volatility_feature_key,
                         source_module=self._source_module)
                 else:
@@ -785,11 +793,17 @@ class RiskManager:
             # start the fallback loop that uses MarketPriceService.get_volatility.
             # Otherwise, dynamic adjustments are primarily event-driven by _handle_feature_event.
             if not self._dynamic_risk_volatility_feature_key:
-                self.logger.info("No dynamic_risk_volatility_feature_key configured. Starting fallback dynamic risk adjustment loop.")
+                self.logger.info(
+                    "No dynamic_risk_volatility_feature_key configured. "
+                    "Starting fallback dynamic risk adjustment loop.",
+                )
                 self._dynamic_risk_adjustment_task = asyncio.create_task(
                     self._dynamic_risk_adjustment_loop_fallback())
             else:
-                self.logger.info(f"Dynamic risk adjustment configured with feature key: {self._dynamic_risk_volatility_feature_key}. Adjustments will be event-driven.")
+                self.logger.info(
+                    f"Dynamic risk adjustment configured with feature key: "
+                    f"{self._dynamic_risk_volatility_feature_key}. Adjustments will be event-driven.",
+                )
 
         # Start periodic risk check task
         self._periodic_check_task = asyncio.create_task(self._periodic_risk_check_loop())
@@ -953,20 +967,32 @@ class RiskManager:
                             # self._latest_volatility_features that _handle_feature_event would,
                             # so that _update_risk_parameters_based_on_volatility can use it.
                             if np.isnan(volatility_raw):
-                                self.logger.debug(f"Fallback: MarketPriceService returned NaN volatility for {trading_pair}. Skipping.")
+                                self.logger.debug(
+                                    f"Fallback: MarketPriceService returned NaN volatility for "
+                                    f"{trading_pair}. Skipping.",
+                                )
                                 continue
 
                             self._latest_volatility_features[trading_pair] = float(volatility_raw)
-                            self.logger.debug(f"Fallback: Updated latest volatility for {trading_pair} to {volatility_raw:.4f} from MarketPriceService.")
+                            self.logger.debug(
+                                f"Fallback: Updated latest volatility for {trading_pair} to "
+                                f"{volatility_raw:.4f} from MarketPriceService.",
+                            )
                             await self._update_risk_parameters_based_on_volatility(trading_pair)
                         else:
-                            self.logger.debug(f"Fallback: MarketPriceService returned None volatility for {trading_pair}.")
+                            self.logger.debug(
+                                f"Fallback: MarketPriceService returned None volatility for {trading_pair}.",
+                            )
 
                     except AttributeError:
-                        self.logger.warning("MarketPriceService does not implement get_volatility method (fallback loop).")
+                        self.logger.warning(
+                            "MarketPriceService does not implement get_volatility method (fallback loop).",
+                        )
                         return # Stop this loop if service doesn't support it
                     except Exception:
-                        self.logger.exception(f"Error fetching/processing volatility in fallback loop for {trading_pair}.")
+                        self.logger.exception(
+                            f"Error fetching/processing volatility in fallback loop for {trading_pair}.",
+                        )
             except asyncio.CancelledError:
                 break
             except Exception:
@@ -1493,7 +1519,8 @@ class RiskManager:
                             f"{current_risk_setting_before_adj:.3f}% "
                             f"to {new_risk_pct:.3f}% "
                             f"for {trading_pair} due to high volatility "
-                            f"({current_volatility:.4f} vs normal ~{normal_vol:.4f}). Volatility feature: {self._dynamic_risk_volatility_feature_key}"
+                            f"({current_volatility:.4f} vs normal ~{normal_vol:.4f}). "
+                            f"Volatility feature: {self._dynamic_risk_volatility_feature_key}"
                         ),
                         source_module=self._source_module)
                     self._risk_per_trade_pct = new_risk_pct
@@ -1511,18 +1538,21 @@ class RiskManager:
                             f"to {new_risk_pct:.3f}% "
                             f"for {trading_pair} due to low volatility "
                             f"({current_volatility:.4f} vs normal ~{normal_vol:.4f}). "
-                            f"Capped at {static_configured_risk_pct:.3f}%. Volatility feature: {self._dynamic_risk_volatility_feature_key}"
+                            f"Capped at {static_configured_risk_pct:.3f}%. "
+                        f"Volatility feature: {self._dynamic_risk_volatility_feature_key}"
                         ),
                         source_module=self._source_module)
                     self._risk_per_trade_pct = new_risk_pct
 
-            elif self._risk_per_trade_pct != static_configured_risk_pct: # Volatility is normal, ensure risk is at static config
+            elif self._risk_per_trade_pct != static_configured_risk_pct:
+                # Volatility is normal, ensure risk is at static config
                 self.logger.info(
                     (
                         f"DYNAMIC RISK: Volatility normal for {trading_pair} "
                         f"({current_volatility:.4f} vs normal ~{normal_vol:.4f}). "
                         f"Reverting risk per trade from {self._risk_per_trade_pct:.3f}% "
-                        f"to static configured {static_configured_risk_pct:.3f}%. Volatility feature: {self._dynamic_risk_volatility_feature_key}"
+                        f"to static configured {static_configured_risk_pct:.3f}%. "
+                        f"Volatility feature: {self._dynamic_risk_volatility_feature_key}"
                     ),
                     source_module=self._source_module)
                 self._risk_per_trade_pct = static_configured_risk_pct
@@ -1725,7 +1755,10 @@ class RiskManager:
                             "volatility_type": volatility_type,
                             "log_returns_count": len(log_returns),
                             "closing_prices_count": len(closing_prices),
-                            "lookback_period": f"{lookback_hours}h" if volatility_mode == "intraday" else f"{lookback_days}d",
+                            "lookback_period": (
+                                f"{lookback_hours}h" if volatility_mode == "intraday"
+                                else f"{lookback_days}d"
+                            ),
                         })
                     # Mark as calibrated
                     self._normal_volatility_logged_missing[trading_pair] = False
@@ -1801,7 +1834,11 @@ class RiskManager:
         if rounded_entry_price is not None and rounded_sl_price is not None:
             sl_distance_pct = abs((rounded_sl_price - rounded_entry_price) / rounded_entry_price) * Decimal(100)
             if sl_distance_pct < self._min_sl_distance_pct:
-                return False, f"SL distance {sl_distance_pct:.2f}% below minimum {self._min_sl_distance_pct}%", None, None, None
+                return (
+                    False,
+                    f"SL distance {sl_distance_pct:.2f}% below minimum {self._min_sl_distance_pct}%",
+                    None, None, None,
+                )
 
         # Calculate TP if not provided
         rounded_tp_price = None
@@ -1852,14 +1889,21 @@ class RiskManager:
             return None
 
     def _validate_prices_fat_finger_and_sl_distance(
-        self,
-        ctx: PriceValidationContext) -> tuple[bool, str | None]:
+        self, ctx: PriceValidationContext,
+    ) -> tuple[bool, str | None]:
         """Validate prices for fat finger and stop loss distance."""
         # Fat finger check for limit orders
         if ctx.entry_type == "LIMIT" and ctx.current_market_price is not None and ctx.rounded_entry_price is not None:
-            deviation_pct = abs((ctx.rounded_entry_price - ctx.current_market_price) / ctx.current_market_price) * Decimal(100)
+            deviation_pct = (
+                abs((ctx.rounded_entry_price - ctx.current_market_price) / ctx.current_market_price)
+                * Decimal(100)
+            )
             if deviation_pct > self._fat_finger_max_deviation_pct:
-                return False, f"Entry price deviates {deviation_pct:.2f}% from market (max {self._fat_finger_max_deviation_pct}%)"
+                return (
+                    False,
+                    f"Entry price deviates {deviation_pct:.2f}% from market "
+                    f"(max {self._fat_finger_max_deviation_pct}%)",
+                )
 
         # Validate SL distance
         effective_entry = ctx.rounded_entry_price or ctx.effective_entry_price_for_non_limit
@@ -1972,7 +2016,10 @@ class RiskManager:
                     position_pct = (total_value / portfolio_equity) * Decimal(100)
                     if position_pct > self._max_exposure_per_asset_pct:
                         # Scale down the new quantity
-                        max_additional_value = (portfolio_equity * self._max_exposure_per_asset_pct / Decimal(100)) - (existing_qty * ctx.ref_entry_price)
+                        max_additional_value = (
+                            (portfolio_equity * self._max_exposure_per_asset_pct / Decimal(100)) -
+                            (existing_qty * ctx.ref_entry_price)
+                        )
                         if max_additional_value <= 0:
                             return False, "Position already at maximum exposure", None, None
 
@@ -2106,7 +2153,9 @@ class RiskManager:
             await self._update_execution_audit_trail(execution_report, realized_pnl, risk_events)
 
             # Update comprehensive risk metrics
-            await self._update_risk_metrics_from_execution(execution_report, realized_pnl or Decimal(0), portfolio_state)
+            await self._update_risk_metrics_from_execution(
+                execution_report, realized_pnl or Decimal(0), portfolio_state,
+            )
 
             # Check consecutive loss thresholds
             await self._check_consecutive_loss_thresholds()
@@ -2126,7 +2175,10 @@ class RiskManager:
                 source_module=self._source_module,
                 context={"event": str(event)})
             # Publish error event for monitoring
-            await self._publish_execution_error_event(event.to_dict() if hasattr(event, "to_dict") else {"event": str(event)}, str(e))
+            await self._publish_execution_error_event(
+                event.to_dict() if hasattr(event, "to_dict") else {"event": str(event)},
+                str(e),
+            )
 
     async def _calculate_realized_pnl_from_execution(
         self,
@@ -2417,9 +2469,18 @@ class RiskManager:
                             source_module=self._source_module)
 
                 # Calculate exposure percentages
-                total_exposure_pct = (total_exposure / current_equity) * Decimal(100) if current_equity > 0 else Decimal(0)
-                long_exposure_pct = (long_exposure / current_equity) * Decimal(100) if current_equity > 0 else Decimal(0)
-                short_exposure_pct = (short_exposure / current_equity) * Decimal(100) if current_equity > 0 else Decimal(0)
+                total_exposure_pct = (
+                    (total_exposure / current_equity) * Decimal(100)
+                    if current_equity > 0 else Decimal(0)
+                )
+                long_exposure_pct = (
+                    (long_exposure / current_equity) * Decimal(100)
+                    if current_equity > 0 else Decimal(0)
+                )
+                short_exposure_pct = (
+                    (short_exposure / current_equity) * Decimal(100)
+                    if current_equity > 0 else Decimal(0)
+                )
 
                 # Calculate concentration risk (Herfindahl index)
                 concentration_risk = Decimal(0)
@@ -2434,8 +2495,14 @@ class RiskManager:
                 else:
                     self._peak_equity = max(self._peak_equity, current_equity)
 
-                current_drawdown = self._peak_equity - current_equity if self._peak_equity > current_equity else Decimal(0)
-                current_drawdown_pct = (current_drawdown / self._peak_equity) * Decimal(100) if self._peak_equity > 0 else Decimal(0)
+                current_drawdown = (
+                    self._peak_equity - current_equity
+                    if self._peak_equity > current_equity else Decimal(0)
+                )
+                current_drawdown_pct = (
+                    (current_drawdown / self._peak_equity) * Decimal(100)
+                    if self._peak_equity > 0 else Decimal(0)
+                )
 
                 # Update max drawdown tracking
                 if not hasattr(self, "_max_drawdown") or current_drawdown > self._max_drawdown:
@@ -2696,7 +2763,10 @@ class RiskManager:
                     "proposed_entry_price": event.proposed_entry_price,
                     "proposed_sl_price": event.proposed_sl_price,
                     "proposed_tp_price": event.proposed_tp_price,
-                    "triggering_prediction_event_id": str(event.triggering_prediction_event_id) if event.triggering_prediction_event_id else None,
+                    "triggering_prediction_event_id": (
+                        str(event.triggering_prediction_event_id)
+                        if event.triggering_prediction_event_id else None
+                    ),
                 },
                 risk_metrics={
                     "consecutive_losses": float(self._consecutive_loss_count),
@@ -2705,7 +2775,9 @@ class RiskManager:
                     "risk_per_trade_pct": float(self._risk_per_trade_pct),
                     "risk_score": float(self._calculate_composite_risk_score(
                         self._risk_metrics.current_drawdown_pct,
-                        self._risk_metrics.total_exposure / self._portfolio_manager.get_current_state().get("total_equity_usd", 1) * 100 if self._risk_metrics.total_exposure > 0 else Decimal(0),
+                        self._risk_metrics.total_exposure /
+                        self._portfolio_manager.get_current_state().get("total_equity_usd", 1) * 100
+                        if self._risk_metrics.total_exposure > 0 else Decimal(0),
                         self._consecutive_loss_count,
                         self._risk_metrics.win_rate,
                     )),
@@ -3439,7 +3511,10 @@ class RiskManager:
                 strategy_id=event.strategy_id,
                 approval_status=approval_status,
                 approved_position_size=approved_quantity,
-                original_position_size=Decimal(str(event.proposed_entry_price)) if event.proposed_entry_price else approved_quantity,
+                original_position_size=(
+                    Decimal(str(event.proposed_entry_price))
+                    if event.proposed_entry_price else approved_quantity
+                ),
                 approval_timestamp=datetime.now(UTC),
                 approval_conditions=approval_conditions,
                 portfolio_impact=portfolio_impact,
@@ -3503,7 +3578,9 @@ class RiskManager:
             existing_position = positions[trading_pair]
             existing_value = Decimal(str(existing_position.get("current_market_value", "0")))
             portfolio_impact["total_position_value"] = float(existing_value + position_value)
-            portfolio_impact["position_increase_pct"] = float((position_value / existing_value * 100) if existing_value > 0 else 100)
+            portfolio_impact["position_increase_pct"] = float(
+                (position_value / existing_value * 100) if existing_value > 0 else 100,
+            )
 
         return portfolio_impact
 
@@ -3567,7 +3644,9 @@ class RiskManager:
         return max(1, min(10, priority))
 
 
-    async def _log_approval_decision(self, approval_event: SignalApprovalEvent, original_event: TradeSignalProposedEvent) -> None:
+    async def _log_approval_decision(
+        self, approval_event: SignalApprovalEvent, original_event: TradeSignalProposedEvent,
+    ) -> None:
         """Log approval decision with comprehensive details."""
         log_data = {
             "event_type": "signal_approval",
@@ -3588,7 +3667,9 @@ class RiskManager:
         else:
             self.logger.info(f"Signal approved: {log_data}")
 
-    async def _publish_approval_event(self, approval_event: SignalApprovalEvent, original_event: TradeSignalProposedEvent) -> None:
+    async def _publish_approval_event(
+        self, approval_event: SignalApprovalEvent, original_event: TradeSignalProposedEvent,
+    ) -> None:
         """Publish approval event to interested subscribers."""
         event_data = {
             "type": "TradeSignalApproved",
@@ -3667,7 +3748,9 @@ class RiskManager:
             self._approval_stats["approvals_by_symbol"][symbol] = 0
         self._approval_stats["approvals_by_symbol"][symbol] += 1
 
-    async def _handle_post_approval_actions(self, approval_event: SignalApprovalEvent, original_event: TradeSignalProposedEvent) -> None:
+    async def _handle_post_approval_actions(
+        self, approval_event: SignalApprovalEvent, original_event: TradeSignalProposedEvent,
+    ) -> None:
         """Handle any post-approval actions."""
         # Log approval metrics
         self.logger.info(
@@ -3714,9 +3797,18 @@ class RiskManager:
                         "signal_id": str(ctx.event.signal_id),
                         "trading_pair": ctx.event.trading_pair,
                         "entry_type": ctx.event.entry_type,
-                        "proposed_entry": float(ctx.proposed_entry_price_decimal) if ctx.proposed_entry_price_decimal else None,
-                        "proposed_sl": float(ctx.proposed_sl_price_decimal) if ctx.proposed_sl_price_decimal else None,
-                        "proposed_tp": float(ctx.proposed_tp_price_decimal) if ctx.proposed_tp_price_decimal else None,
+                        "proposed_entry": (
+                            float(ctx.proposed_entry_price_decimal)
+                            if ctx.proposed_entry_price_decimal else None
+                        ),
+                        "proposed_sl": (
+                            float(ctx.proposed_sl_price_decimal)
+                            if ctx.proposed_sl_price_decimal else None
+                        ),
+                        "proposed_tp": (
+                            float(ctx.proposed_tp_price_decimal)
+                            if ctx.proposed_tp_price_decimal else None
+                        ),
                     },
                 )
 
@@ -3817,9 +3909,15 @@ class RiskManager:
                         "signal_id": str(ctx.event.signal_id),
                         "trading_pair": ctx.event.trading_pair,
                         "entry_type": ctx.event.entry_type,
-                        "rounded_entry_price": float(ctx.rounded_entry_price) if ctx.rounded_entry_price else None,
+                        "rounded_entry_price": (
+                            float(ctx.rounded_entry_price)
+                            if ctx.rounded_entry_price else None
+                        ),
                         "rounded_sl_price": float(ctx.rounded_sl_price),
-                        "current_market_price": float(ctx.current_market_price_for_validation) if ctx.current_market_price_for_validation else None,
+                        "current_market_price": (
+                            float(ctx.current_market_price_for_validation)
+                            if ctx.current_market_price_for_validation else None
+                        ),
                     },
                 )
 
@@ -3847,8 +3945,14 @@ class RiskManager:
                 source_module=self._source_module,
                 context={
                     "signal_id": str(ctx.event.signal_id),
-                    "effective_entry_price": float(effective_entry_price_for_non_limit) if effective_entry_price_for_non_limit else None,
-                    "ref_entry_for_calculation": float(ref_entry_for_calculation) if ref_entry_for_calculation else None,
+                    "effective_entry_price": (
+                        float(effective_entry_price_for_non_limit)
+                        if effective_entry_price_for_non_limit else None
+                    ),
+                    "ref_entry_for_calculation": (
+                        float(ref_entry_for_calculation)
+                        if ref_entry_for_calculation else None
+                    ),
                 },
             )
 
@@ -4231,7 +4335,10 @@ class RiskManager:
                 alerts.append({
                     "level": "WARNING",
                     "type": "HIGH_DRAWDOWN",
-                    "message": f"Drawdown {current_drawdown_pct:.2f}% approaching max {self._max_total_drawdown_pct:.2f}%",
+                    "message": (
+                        f"Drawdown {current_drawdown_pct:.2f}% approaching max "
+                        f"{self._max_total_drawdown_pct:.2f}%"
+                    ),
                     "threshold": float(drawdown_warning_threshold),
                     "value": float(current_drawdown_pct),
                 })
@@ -4242,7 +4349,10 @@ class RiskManager:
                 alerts.append({
                     "level": "WARNING",
                     "type": "HIGH_EXPOSURE",
-                    "message": f"Exposure {total_exposure_pct:.2f}% approaching max {self._max_total_exposure_pct:.2f}%",
+                    "message": (
+                        f"Exposure {total_exposure_pct:.2f}% approaching max "
+                        f"{self._max_total_exposure_pct:.2f}%"
+                    ),
                     "threshold": float(exposure_warning_threshold),
                     "value": float(total_exposure_pct),
                 })
@@ -4303,7 +4413,10 @@ class RiskManager:
                     status=OrderStatus(event_dict.get("order_status", "NEW").upper()),
                     filled_quantity=Decimal(str(event_dict.get("quantity_filled", 0))),
                     average_price=Decimal(str(event_dict.get("average_fill_price", 0))),
-                    commission=Decimal(str(event_dict.get("commission", 0))) if event_dict.get("commission") else Decimal(0),
+                    commission=(
+                        Decimal(str(event_dict.get("commission", 0)))
+                        if event_dict.get("commission") else Decimal(0)
+                    ),
                     realized_pnl=None,  # Will be calculated separately
                     timestamp=event_dict.get("timestamp", datetime.now(UTC)),
                     signal_id=str(event_dict.get("signal_id")) if event_dict.get("signal_id") else None,
@@ -4353,7 +4466,11 @@ class RiskManager:
                 average_price=Decimal(str(raw_report.get("fill_price", "0"))),
                 commission=Decimal(str(raw_report.get("commission", "0"))),
                 timestamp=datetime.fromisoformat(raw_report.get("timestamp", datetime.now(UTC).isoformat())),
-                realized_pnl=Decimal(str(raw_report.get("realized_pnl", "0"))) if "realized_pnl" in raw_report else None)
+                realized_pnl=(
+                    Decimal(str(raw_report.get("realized_pnl", "0")))
+                    if "realized_pnl" in raw_report else None
+                ),
+            )
         except Exception:
             self.logger.exception("Error parsing simulated execution report: ")
             return None
@@ -4780,7 +4897,10 @@ class RiskManager:
 
             # Generate S3 key with partitioning
             timestamp = datetime.now(UTC)
-            s3_key = f"audit-logs/year={timestamp.year}/month={timestamp.month:02d}/day={timestamp.day:02d}/{uuid.uuid4()}.json"
+            s3_key = (
+                f"audit-logs/year={timestamp.year}/month={timestamp.month:02d}/"
+                f"day={timestamp.day:02d}/{uuid.uuid4()}.json"
+            )
 
             # Prepare audit entry for S3
             s3_entry = {

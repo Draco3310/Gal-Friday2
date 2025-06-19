@@ -27,7 +27,9 @@ class Log(Base):
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     lineno: Mapped[int | None] = mapped_column(Integer, nullable=True)
     func_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    context_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True) # Stored as dict[str, Any], maps to JSONB
+    context_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True,
+    )  # Stored as dict[str, Any], maps to JSONB
     exception_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:

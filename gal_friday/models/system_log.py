@@ -18,7 +18,10 @@ class SystemLog(Base):
     __tablename__ = "system_logs"
 
     log_pk: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    log_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    log_timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=func.now(), index=True,
+    )
     source_module: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     log_level: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
     message: Mapped[str] = mapped_column(Text, nullable=False)

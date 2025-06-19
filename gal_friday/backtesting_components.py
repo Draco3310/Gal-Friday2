@@ -42,6 +42,7 @@ class BacktestPubSubManager:
         simulation_start: datetime,
         simulation_end: datetime,
     ) -> None:
+        """Initialize the instance."""
         self.logger = logger
         self.config = config_manager
         self._source_module = self.__class__.__name__
@@ -187,11 +188,9 @@ class BacktestPubSubManager:
                     delay = 0.001 / self._time_acceleration
                     await asyncio.sleep(delay)
 
-            except Exception as e:
-                self.logger.error(
-                    "Error in event processing loop: %s",
-                    str(e),
-                    exc_info=True,
+            except Exception:
+                self.logger.exception(
+                    "Error in event processing loop",
                     extra={"source_module": self._source_module},
                 )
                 await asyncio.sleep(0.1)
@@ -237,12 +236,10 @@ class BacktestPubSubManager:
                 event.__class__.__name__,
                 extra={"source_module": self._source_module},
             )
-        except Exception as e:
-            self.logger.error(
-                "Handler error for event %s: %s",
+        except Exception:
+            self.logger.exception(
+                "Handler error for event %s",
                 event.__class__.__name__,
-                str(e),
-                exc_info=True,
                 extra={"source_module": self._source_module},
             )
 
@@ -306,6 +303,7 @@ class BacktestRiskManager:
         config_manager: ConfigManager,
         initial_capital: Decimal,
     ) -> None:
+        """Initialize the instance."""
         self.logger = logger
         self.config = config_manager
         self.initial_capital = initial_capital
@@ -356,7 +354,10 @@ class BacktestRiskManager:
 
             return RiskCheckResult(
                 approved=False,
-                reason=f"Position size {order.quantity * order.limit_price} exceeds limit {self.risk_limits.max_position_size}",  # type: ignore[attr-defined]
+                reason=(
+                    f"Position size {order.quantity * order.limit_price} "
+                    f"exceeds limit {self.risk_limits.max_position_size}"
+                ),  # type: ignore[attr-defined]
             )
 
         # Check concentration limits
@@ -570,7 +571,11 @@ class BacktestExchangeInfoService:
     def set_maintenance_mode(self, enabled: bool) -> None:
         """Set maintenance mode status."""
         self._maintenance_mode = enabled
-        self.logger.info("Maintenance mode: %s", "enabled" if enabled else "disabled", extra={"source_module": self._source_module})
+        self.logger.info(
+            "Maintenance mode: %s",
+            "enabled" if enabled else "disabled",
+            extra={"source_module": self._source_module},
+        )
 
     def get_diagnostics(self) -> dict[str, Any]:
         """Get diagnostic information."""

@@ -118,7 +118,10 @@ class ConfigurationGuidance:
             ConfigValidationErrorCodes.PLACEHOLDER_CREDENTIALS: {
                 "title": "Placeholder Credentials Detected",
                 "description": "Configuration contains placeholder credentials that must be replaced",
-                "remediation_template": "Replace placeholder value for '{field}' with actual credentials or environment variable reference",
+                "remediation_template": (
+                    "Replace placeholder value for '{field}' with actual credentials "
+                    "or environment variable reference"
+                ),
                 "examples": [
                     {"field": "api_key", "placeholder": "YOUR_API_KEY", "correct": "${API_KEY}"},
                     {"field": "database_password", "placeholder": "YOUR_DB_PASSWORD", "correct": "${DB_PASSWORD}"},
@@ -377,7 +380,9 @@ class ConfigValidator:
                         # REPLACED: Enhanced formal validation replaces placeholder warning
                         self.warnings.append(
                             f"[CV204] Placeholder credentials detected for '{key_path}'. "
-                            f"Replace with environment variable reference like ${{{key_path.upper().replace('.', '_')}}}")
+                            f"Replace with environment variable reference like "
+                            f"${{{key_path.upper().replace('.', '_')}}}",
+                        )
                     elif isinstance(value, str) and not value.startswith("${"):
                         # Check if it looks like a real secret vs environment variable reference
                         env_var = f"{key_path.upper().replace('.', '_')}"

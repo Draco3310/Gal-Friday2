@@ -779,7 +779,8 @@ class KrakenWebSocketClient:
                     context={"message_length": len(message)})
                 return
 
-            # Kraken OHLC format: [channelID, [time, etime, open, high, low, close, vwap, volume, count], "ohlc-interval", pair]
+            # Kraken OHLC format:
+            # [channelID, [time, etime, open, high, low, close, vwap, volume, count], "ohlc-interval", pair]
             ohlc_data = message[1]
             pair = message[3]
 

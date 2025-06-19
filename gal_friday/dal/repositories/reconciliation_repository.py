@@ -21,7 +21,8 @@ from gal_friday.dal.base import BaseRepository
 from gal_friday.dal.models.position_adjustment import PositionAdjustment
 from gal_friday.dal.models.reconciliation_event import ReconciliationEvent
 
-# ReconciliationReport and ReconciliationStatus would now likely be service-layer or domain models, not directly handled by repo.
+# ReconciliationReport and ReconciliationStatus would now likely be service-layer
+# or domain models, not directly handled by repo.
 
 
 if TYPE_CHECKING:
@@ -346,7 +347,8 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             validated_data = PositionAdjustmentSchema(**adjustment_data)
 
             self.logger.debug(
-                f"Position adjustment data validated successfully for reconciliation {validated_data.reconciliation_id}",
+                f"Position adjustment data validated successfully for reconciliation "
+                f"{validated_data.reconciliation_id}",
                 source_module=self._source_module,
             )
 
@@ -472,7 +474,10 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
 
             result = await session.execute(stmt)
             events = result.scalars().all()
-            self.logger.debug(f"Found {len(events)} reconciliation events from last {days} days.", source_module=self._source_module)
+            self.logger.debug(
+                f"Found {len(events)} reconciliation events from last {days} days.",
+                source_module=self._source_module,
+            )
             return events
 
     async def save_position_adjustment(
@@ -520,12 +525,17 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
                         "trading_pair": validated_data.trading_pair,
                         "adjustment_type": validated_data.adjustment_type.value,
                         "authorized_by": validated_data.authorized_by,
-                        "reason": validated_data.reason[:100] + "..." if len(validated_data.reason) > 100 else validated_data.reason,
+                        "reason": (
+                            validated_data.reason[:100] + "..."
+                            if len(validated_data.reason) > 100
+                            else validated_data.reason
+                        ),
                     },
                 )
 
                 self.logger.info(
-                    f"Successfully saved position adjustment {instance.adjustment_id} for reconciliation {validated_data.reconciliation_id}",
+                    f"Successfully saved position adjustment {instance.adjustment_id} "
+                    f"for reconciliation {validated_data.reconciliation_id}",
                     source_module=self._source_module,
                 )
 
@@ -549,7 +559,10 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             )
             result = await session.execute(stmt)
             adjustments = result.scalars().all()
-            self.logger.debug(f"Found {len(adjustments)} adjustments for event {reconciliation_id}", source_module=self._source_module)
+            self.logger.debug(
+                f"Found {len(adjustments)} adjustments for event {reconciliation_id}",
+                source_module=self._source_module,
+            )
             return adjustments
 
     async def get_adjustment_history(

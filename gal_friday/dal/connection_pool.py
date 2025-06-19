@@ -53,7 +53,10 @@ class DatabaseConnectionPool:
                     # `pool_size` and `max_overflow` are common SQLAlchemy pool params.
                     # We can expose these via config if needed.
                     pool_size = self.config.get_int("database.pool.min_size", 5)
-                    max_overflow = self.config.get_int("database.pool.max_size", 10) - self.config.get_int("database.pool.min_size", 5)
+                    max_overflow = (
+                        self.config.get_int("database.pool.max_size", 10) -
+                        self.config.get_int("database.pool.min_size", 5)
+                    )
                     pool_recycle_seconds = 300
                     pool_timeout_seconds = 10
                     echo_sql = self.config.get_bool("database.echo_sql", default=False)

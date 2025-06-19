@@ -43,7 +43,8 @@ def sample_ohlcv_data_long() -> pd.DataFrame:
         "open": np.array([100 + i + np.sin(i/5) for i in range(data_len)], dtype="float64"),
         "high": np.array([102 + i + np.sin(i/5) + abs(np.random.randn()) for i in range(data_len)], dtype="float64"),
         "low": np.array([98 + i + np.sin(i/5) - abs(np.random.randn()) for i in range(data_len)], dtype="float64"),
-        "close": np.array([100 + i + np.cos(i/5) for i in range(data_len)], dtype="float64"), # Use 'close' from sample_close_prices_long for some tests
+        # Use 'close' from sample_close_prices_long for some tests
+        "close": np.array([100 + i + np.cos(i/5) for i in range(data_len)], dtype="float64"),
         "volume": np.array([1000 + i*10 + abs(np.random.randn()*100) for i in range(data_len)], dtype="float64"),
     }
     df = pd.DataFrame(data)
@@ -107,11 +108,26 @@ def sample_l2_books_series(sample_l2_book_valid, sample_l2_book_empty) -> pd.Ser
 @pytest.fixture
 def sample_trades_deque() -> deque:
     return deque([
-        {"timestamp": datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC), "price": Decimal("100.0"), "volume": Decimal("1.0"), "side": "buy"},
-        {"timestamp": datetime(2023, 1, 1, 12, 0, 10, tzinfo=UTC), "price": Decimal("100.1"), "volume": Decimal("0.5"), "side": "sell"},
-        {"timestamp": datetime(2023, 1, 1, 12, 0, 20, tzinfo=UTC), "price": Decimal("100.2"), "volume": Decimal("1.2"), "side": "buy"},
-        {"timestamp": datetime(2023, 1, 1, 12, 1, 0, tzinfo=UTC), "price": Decimal("100.3"), "volume": Decimal("0.8"), "side": "buy"}, # Next bar
-        {"timestamp": datetime(2023, 1, 1, 12, 1, 15, tzinfo=UTC), "price": Decimal("100.2"), "volume": Decimal("0.3"), "side": "sell"},
+        {
+            "timestamp": datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC), 
+            "price": Decimal("100.0"), "volume": Decimal("1.0"), "side": "buy"
+        },
+        {
+            "timestamp": datetime(2023, 1, 1, 12, 0, 10, tzinfo=UTC), 
+            "price": Decimal("100.1"), "volume": Decimal("0.5"), "side": "sell"
+        },
+        {
+            "timestamp": datetime(2023, 1, 1, 12, 0, 20, tzinfo=UTC), 
+            "price": Decimal("100.2"), "volume": Decimal("1.2"), "side": "buy"
+        },
+        {  # Next bar
+            "timestamp": datetime(2023, 1, 1, 12, 1, 0, tzinfo=UTC), 
+            "price": Decimal("100.3"), "volume": Decimal("0.8"), "side": "buy"
+        },
+        {
+            "timestamp": datetime(2023, 1, 1, 12, 1, 15, tzinfo=UTC), 
+            "price": Decimal("100.2"), "volume": Decimal("0.3"), "side": "sell"
+        },
     ])
 
 @pytest.fixture
@@ -172,7 +188,9 @@ class TestPipelineComputeMACD:
         signal = 9
 
         expected_macd_df = sample_close_prices_long.ta.macd(fast=fast, slow=slow, signal=signal)
-        actual_macd_df = FeatureEngine._pipeline_compute_macd(sample_close_prices_long, fast=fast, slow=slow, signal=signal)
+        actual_macd_df = FeatureEngine._pipeline_compute_macd(
+            sample_close_prices_long, fast=fast, slow=slow, signal=signal
+        )
         pd.testing.assert_frame_equal(actual_macd_df, expected_macd_df, check_dtype=True)
 
     def test_macd_insufficient_data(self, sample_close_prices_short):
@@ -180,7 +198,9 @@ class TestPipelineComputeMACD:
         slow = 26
         signal = 9
         expected_macd_df = sample_close_prices_short.ta.macd(fast=fast, slow=slow, signal=signal)
-        actual_macd_df = FeatureEngine._pipeline_compute_macd(sample_close_prices_short, fast=fast, slow=slow, signal=signal)
+        actual_macd_df = FeatureEngine._pipeline_compute_macd(
+            sample_close_prices_short, fast=fast, slow=slow, signal=signal
+        )
         pd.testing.assert_frame_equal(actual_macd_df, expected_macd_df, check_dtype=True)
         assert actual_macd_df.isna().all().all()
 
@@ -189,7 +209,9 @@ class TestPipelineComputeMACD:
         slow = 26
         signal = 9
         expected_macd_df = sample_close_prices_with_nan.ta.macd(fast=fast, slow=slow, signal=signal)
-        actual_macd_df = FeatureEngine._pipeline_compute_macd(sample_close_prices_with_nan, fast=fast, slow=slow, signal=signal)
+        actual_macd_df = FeatureEngine._pipeline_compute_macd(
+            sample_close_prices_with_nan, fast=fast, slow=slow, signal=signal
+        )
         pd.testing.assert_frame_equal(actual_macd_df, expected_macd_df, check_dtype=True)
 
     def test_macd_input_not_series(self):
@@ -235,7 +257,12 @@ class TestPipelineComputeROC:
 class TestPipelineComputeATR:
     def test_atr_basic_calculation(self, sample_ohlcv_data_long):
         length = 14
-        expected_series = ta.atr(high=sample_ohlcv_data_long["high"], low=sample_ohlcv_data_long["low"], close=sample_ohlcv_data_long["close"], length=length)
+        expected_series = ta.atr(
+            high=sample_ohlcv_data_long["high"], 
+            low=sample_ohlcv_data_long["low"], 
+            close=sample_ohlcv_data_long["close"], 
+            length=length
+        )
         expected_series.name = f"atr_{length}"
         actual_series = FeatureEngine._pipeline_compute_atr(sample_ohlcv_data_long, length=length)
         pd.testing.assert_series_equal(actual_series, expected_series, check_dtype=True)
@@ -274,11 +301,18 @@ class TestPipelineComputeVWAP_OHLCV:
         sum_tp_vol = tp_vol.rolling(window=length, min_periods=length).sum()
         sum_vol = volume_d.rolling(window=length, min_periods=length).sum()
         expected_vwap_decimal = sum_tp_vol / sum_vol
-        expected_vwap_float = expected_vwap_decimal.replace([Decimal("Infinity"), Decimal("-Infinity")], np.nan).astype("float64").fillna(np.nan)
+        expected_vwap_float = (
+            expected_vwap_decimal
+            .replace([Decimal("Infinity"), Decimal("-Infinity")], np.nan)
+            .astype("float64")
+            .fillna(np.nan)
+        )
         expected_vwap_float.name = f"vwap_ohlcv_{length}"
 
         actual_series = FeatureEngine._pipeline_compute_vwap_ohlcv(df, length=length) # df has float64
-        pd.testing.assert_series_equal(actual_series, expected_vwap_float, check_dtype=True, atol=1e-9) # Added atol for float precision
+        pd.testing.assert_series_equal(
+            actual_series, expected_vwap_float, check_dtype=True, atol=1e-9
+        )  # Added atol for float precision
         assert actual_series.name == f"vwap_ohlcv_{length}"
 
     def test_vwap_ohlcv_zero_volume(self, sample_ohlcv_data_long):
@@ -302,7 +336,9 @@ class TestPipelineL2Features:
         # Check valid book calculation
         valid_book = sample_l2_book_valid
         expected_abs = float(valid_book["asks"][0][0] - valid_book["bids"][0][0])
-        expected_pct = float((expected_abs / float(valid_book["bids"][0][0] + valid_book["asks"][0][0])*Decimal(2)) * 100)
+        expected_pct = float(
+            (expected_abs / float(valid_book["bids"][0][0] + valid_book["asks"][0][0])*Decimal(2)) * 100
+        )
         assert np.isclose(actual_df["abs_spread"].iloc[0], expected_abs)
         assert np.isclose(actual_df["pct_spread"].iloc[0], expected_pct)
         assert actual_df["abs_spread"].iloc[1:].isna().all() # None and empty book
@@ -353,13 +389,16 @@ class TestPipelineL2Features:
 class TestPipelineTradeBasedFeatures:
     def test_vwap_trades(self, sample_trades_deque, sample_bar_start_times):
         interval = 60
-        actual_series = FeatureEngine._pipeline_compute_vwap_trades(sample_trades_deque, sample_bar_start_times, interval)
+        actual_series = FeatureEngine._pipeline_compute_vwap_trades(
+            sample_trades_deque, sample_bar_start_times, interval
+        )
         assert isinstance(actual_series, pd.Series)
         assert actual_series.name == f"vwap_trades_{interval}s"
         assert actual_series.index.equals(sample_bar_start_times.index)
 
         # Bar 1: (100.0*1.0 + 100.1*0.5 + 100.2*1.2) / (1.0+0.5+1.2) = 270.35 / 2.7 = 100.1296...
-        # (Decimal('100.0') * Decimal('1.0') + Decimal('100.1') * Decimal('0.5') + Decimal('100.2') * Decimal('1.2')) / (Decimal('1.0') + Decimal('0.5') + Decimal('1.2'))
+        # (Decimal('100.0') * Decimal('1.0') + Decimal('100.1') * Decimal('0.5') + 
+        #  Decimal('100.2') * Decimal('1.2')) / (Decimal('1.0') + Decimal('0.5') + Decimal('1.2'))
         expected_bar1_vwap = float(Decimal("270.35") / Decimal("2.7"))
         assert np.isclose(actual_series.iloc[0], expected_bar1_vwap)
 
@@ -371,7 +410,9 @@ class TestPipelineTradeBasedFeatures:
 
     def test_volume_delta(self, sample_trades_deque, sample_bar_start_times):
         interval = 60
-        actual_series = FeatureEngine._pipeline_compute_volume_delta(sample_trades_deque, sample_bar_start_times, interval)
+        actual_series = FeatureEngine._pipeline_compute_volume_delta(
+            sample_trades_deque, sample_bar_start_times, interval
+        )
         assert isinstance(actual_series, pd.Series)
         assert actual_series.name == f"volume_delta_{interval}s"
 

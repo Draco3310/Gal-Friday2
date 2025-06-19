@@ -608,7 +608,11 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 return BatchOrderResponse(
                     success=success_rate >= 0.5,  # Consider batch successful if at least 50% succeed
                     order_results=order_results,
-                    error_message=f"Batch execution completed with {success_rate:.1%} success rate" if success_rate < 1.0 else None)
+                    error_message=(
+                        f"Batch execution completed with {success_rate:.1%} success rate"
+                        if success_rate < 1.0 else None
+                    ),
+                )
 
         # Fallback to original individual placement
         results = []

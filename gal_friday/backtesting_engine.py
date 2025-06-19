@@ -32,8 +32,19 @@ import asyncio
 import numpy as np
 import pandas as pd
 
+from .backtesting_components import (
+    BacktestExchangeInfoService,
+    BacktestPubSubManager,
+    BacktestRiskManager,
+)
+
 # Local application imports
 from .core.events import Event, EventType  # E402: Moved up
+from .technical_analysis_enhanced import (
+    IndicatorConfig,
+    IndicatorType,
+    TechnicalAnalysisManager,
+)
 
 # Type[Any] variables for generic types - defined at module level
 ConfigValue = str | int | float | bool | dict[str, Any] | list[Any] | None  # Type[Any] alias for config values
@@ -162,13 +173,6 @@ except ImportError:
     logging.getLogger(__name__).warning("Failed to import PubSubManager")
     PubSubManager = None  # type: ignore[assignment,misc]
 
-# Import enhanced technical analysis
-from .technical_analysis_enhanced import (
-    IndicatorConfig,
-    IndicatorType,
-    TechnicalAnalysisManager,
-)
-
 # Global technical analysis manager (will be initialized when needed)
 _ta_manager: TechnicalAnalysisManager | None = None
 
@@ -231,13 +235,6 @@ except ImportError:
 
     ta = TaLib()
 
-
-# Import production components from backtesting_components
-from .backtesting_components import (
-    BacktestExchangeInfoService,
-    BacktestPubSubManager,
-    BacktestRiskManager,
-)
 
 # Import optional dependencies if available
 PubSubManagerClass: type[Any] = BacktestPubSubManager  # Use production backtest implementation
@@ -1296,7 +1293,7 @@ class BacktestingEngine:
                         if asyncio.iscoroutine(service_start_result):
                             await service_start_result
                 except Exception:
-                    log.exception("Error starting service %s", service_name)
+                    log.exception("Error starting service")
                     raise
 
         try:
@@ -1368,7 +1365,7 @@ class BacktestingEngine:
                         await asyncio.sleep(0.001)  # Minimal delay
 
                 except Exception as e:  # Catch errors within loop step
-                    log.exception("Error processing timestamp %s", current_timestamp) # TRY400
+                    log.exception("Error processing timestamp") # TRY400
                     # Continue processing unless it's a critical error
                     if isinstance(e, KeyboardInterrupt | SystemExit):
                         raise
@@ -1412,7 +1409,7 @@ class BacktestingEngine:
                             if asyncio.iscoroutine(stop_result):
                                 await stop_result
                     except Exception:
-                        log.exception("Error stopping original service %s", service_name)
+                        log.exception("Error stopping original service")
 
             log.info("All services shut down.")
 
@@ -1503,7 +1500,7 @@ class BacktestingEngine:
             return matching_rows.iloc[0]
 
         except Exception:  # Data lookup can fail in various ways
-            log.exception("Error getting bar data for %s at %s", trading_pair, timestamp) # TRY400
+            log.exception("Error getting bar data for %s at", timestamp) # TRY400
             return None
 
     async def run_backtest(
@@ -1525,7 +1522,7 @@ class BacktestingEngine:
             Comprehensive backtest results including performance metrics and analytics
         """
         try:
-            start_time = dt.datetime.now()
+            start_time = dt.datetime.now(dt.UTC)
             self.logger.info("Starting comprehensive backtest")
             self.logger.info(f"Mode: {config.mode.value}")
             self.logger.info(f"Period: {config.start_date} to {config.end_date}")
@@ -1560,7 +1557,7 @@ class BacktestingEngine:
             results["enhanced_metrics"] = enhanced_metrics
 
             # Add execution metadata
-            execution_time = (dt.datetime.now() - start_time).total_seconds()
+            execution_time = (dt.datetime.now(dt.UTC) - start_time).total_seconds()
             results.update({
                 "config": config.__dict__,
                 "execution_time_seconds": execution_time,
@@ -1578,7 +1575,7 @@ class BacktestingEngine:
 
         except Exception as e:
             self.logger.exception("Comprehensive backtest failed: ")
-            raise BacktestError(f"Backtesting failed: {e}")
+            raise BacktestError(f"Backtesting failed: {e}") from e
 
     async def _create_default_services(self, run_config: dict[str, Any]) -> dict[str, Any]:
         """Create default services for backtesting with enterprise-grade initialization.
@@ -2168,7 +2165,11 @@ class BacktestingEngine:
                 if isinstance(result.values, tuple):
                     # For indicators like MACD, Bollinger Bands
                     for i, values in enumerate(result.values):
-                        suffix = ["", "_signal", "_hist"] if config.indicator_type == IndicatorType.MACD else [f"_{i}" for _ in result.values]
+                        suffix = (
+                            ["", "_signal", "_hist"]
+                            if config.indicator_type == IndicatorType.MACD
+                            else [f"_{i}" for _ in result.values]
+                        )
                         key = f"{indicator_name}{suffix[i] if i > 0 else ''}"
                         results[key] = pd.Series(values, index=df.index)
                 else:
@@ -2223,7 +2224,11 @@ class BacktestingEngine:
                 if len(time_diffs) > 1:
                     median_diff = time_diffs.median()
                     # Convert to numeric for comparison
-                    median_seconds = median_diff.total_seconds() if hasattr(median_diff, "total_seconds") else float(median_diff)
+                    median_seconds = (
+                        median_diff.total_seconds()
+                        if hasattr(median_diff, "total_seconds")
+                        else float(median_diff)
+                    )
                     time_diffs_seconds = time_diffs.dt.total_seconds() if hasattr(time_diffs, "dt") else time_diffs
                     large_gaps = (time_diffs_seconds > median_seconds * 10).sum()  # type: ignore[operator]
                     gap_ratio = large_gaps / len(time_diffs)
@@ -3200,8 +3205,8 @@ class DatabaseDataProviderAdapter:
 
             data_request = DataRequest(
                 symbol=request.get("symbol", "XRP/USD"),
-                start_date=request.get("start_date", dt.datetime.now() - dt.timedelta(days=30)),
-                end_date=request.get("end_date", dt.datetime.now()),
+                start_date=request.get("start_date", dt.datetime.now(dt.UTC) - dt.timedelta(days=30)),
+                end_date=request.get("end_date", dt.datetime.now(dt.UTC)),
                 frequency=request.get("frequency", "1m"),
             )
 
@@ -3212,16 +3217,17 @@ class DatabaseDataProviderAdapter:
                 return None
 
             # Convert to DataFrame format expected by backtesting
-            data = []
-            for point in historical_points:
-                data.append({
+            data = [
+                {
                     "timestamp": point.timestamp,
                     "open": point.open,
                     "high": point.high,
                     "low": point.low,
                     "close": point.close,
                     "volume": point.volume,
-                })
+                }
+                for point in historical_points
+            ]
 
             df = pd.DataFrame(data)
             if not df.empty:
@@ -3271,8 +3277,8 @@ class APIDataProviderAdapter:
 
             data_request = DataRequest(
                 symbol=request.get("symbol", "XRP/USD"),
-                start_date=request.get("start_date", dt.datetime.now() - dt.timedelta(days=30)),
-                end_date=request.get("end_date", dt.datetime.now()),
+                start_date=request.get("start_date", dt.datetime.now(dt.UTC) - dt.timedelta(days=30)),
+                end_date=request.get("end_date", dt.datetime.now(dt.UTC)),
                 frequency=request.get("frequency", "1m"),
             )
 
@@ -3283,16 +3289,17 @@ class APIDataProviderAdapter:
                 return None
 
             # Convert to DataFrame format expected by backtesting
-            data = []
-            for point in historical_points:
-                data.append({
+            data = [
+                {
                     "timestamp": point.timestamp,
                     "open": point.open,
                     "high": point.high,
                     "low": point.low,
                     "close": point.close,
                     "volume": point.volume,
-                })
+                }
+                for point in historical_points
+            ]
 
             df = pd.DataFrame(data)
             if not df.empty:

@@ -123,7 +123,7 @@ class DataInterpolator:
             # Validate interpolated results
             if self.config.validation_enabled:
                 if not self._validate_interpolated_data(interpolated_data, preceding_data, following_data):
-                    self.logger.error(
+                    self.logger.exception(
                         f"Interpolated data failed validation for {gap_info.symbol}",
                         source_module=self._source_module)
                     return None
@@ -144,8 +144,7 @@ class DataInterpolator:
         except Exception as e:
             self.logger.error(
                 f"Error interpolating data for {gap_info.symbol}: {e}",
-                source_module=self._source_module,
-                exc_info=True)
+                source_module=self._source_module)
             self._update_interpolation_stats(gap_info, None, success=False)
             return None
 
@@ -451,7 +450,7 @@ class DataInterpolator:
         try:
             # Check for NaN values
             if interpolated_data.isnull().any().any():
-                self.logger.error("Interpolated data contains NaN values", source_module=self._source_module)
+                self.logger.exception("Interpolated data contains NaN values", source_module=self._source_module)
                 return False
 
             # Check for reasonable value ranges
@@ -494,7 +493,8 @@ class DataInterpolator:
                     quantile_val: Any = combined_col.diff().abs().quantile(0.95)
                     typical_diff = float(quantile_val) if pd.notna(quantile_val) else 0.0
 
-                    if pd.notna(typical_diff) and pd.notna(max_diff) and max_diff > typical_diff * 3:  # Allow 3x typical movement
+                    if (pd.notna(typical_diff) and pd.notna(max_diff)
+                            and max_diff > typical_diff * 3):  # Allow 3x typical movement
                         self.logger.warning(
                             f"Interpolated {column} shows unusual jumps",
                             source_module=self._source_module)
@@ -506,7 +506,9 @@ class DataInterpolator:
             self.logger.exception("Error validating interpolated data: ", source_module=self._source_module)
             return False
 
-    def _add_interpolation_metadata(self, data: pd.DataFrame, method: InterpolationMethod, gap_info: GapInfo) -> pd.DataFrame:
+    def _add_interpolation_metadata(
+        self, data: pd.DataFrame, method: InterpolationMethod, gap_info: GapInfo,
+    ) -> pd.DataFrame:
         """Add metadata columns to mark interpolated data."""
         result = data.copy()
         result["_interpolated"] = True
@@ -823,8 +825,7 @@ class GapDetector:
         except Exception as e:
             self.logger.error(
                 f"Error in enterprise gap filling: {e}",
-                source_module=self._source_module,
-                exc_info=True)
+                source_module=self._source_module)
             return None
 
     def _calculate_data_quality(self, data: pd.DataFrame) -> float:
@@ -998,7 +999,10 @@ class GapDetector:
                     "day": day,
                     "day_name": day_names[int(day)] if isinstance(day, int | np.integer) else str(day),
                     "occurrences": count,
-                    "description": f"Frequent gaps on {day_names[int(day)] if isinstance(day, int | np.integer) else str(day)}",
+                    "description": (
+                        f"Frequent gaps on "
+                        f"{day_names[int(day)] if isinstance(day, int | np.integer) else str(day)}"
+                    ),
                 })
 
         return patterns

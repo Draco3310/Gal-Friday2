@@ -92,7 +92,9 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
             raise ImportError("pandas-ta library not installed. Run: pip install pandas-ta")
         self.logger = logging.getLogger(__name__)
 
-    def _validate_and_convert(self, data: np.ndarray[Any, Any] | pd.Series[Any] | list[float], min_length: int = 1) -> pd.Series[Any]:
+    def _validate_and_convert(
+        self, data: np.ndarray[Any, Any] | pd.Series[Any] | list[float], min_length: int = 1,
+    ) -> pd.Series[Any]:
         """Validate and convert input data to pandas Series.
 
         Args:
@@ -217,7 +219,10 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
             histogram = macd_line - signal_line
         else:
             # Extract columns - pandas-ta returns MACD_12_26_9, MACDh_12_26_9, MACDs_12_26_9
-            macd_col = next(col for col in macd_df.columns if col.startswith("MACD_") and not col.endswith("h") and not col.endswith("s"))
+            macd_col = next(
+                col for col in macd_df.columns
+                if col.startswith("MACD_") and not col.endswith("h") and not col.endswith("s")
+            )
             signal_col = next(col for col in macd_df.columns if col.endswith("s"))
             hist_col = next(col for col in macd_df.columns if col.endswith("h"))
 
@@ -258,7 +263,10 @@ class TALibImplementation(TechnicalAnalysisInterface):
     def __init__(self) -> None:
         """Initialize the instance."""
         if not TALIB_AVAILABLE:
-            raise ImportError("TA-Lib library not installed. See https://github.com/mrjbq7/ta-lib for installation instructions.")
+            raise ImportError(
+                "TA-Lib library not installed. "
+                "See https://github.com/mrjbq7/ta-lib for installation instructions.",
+            )
         self.logger = logging.getLogger(__name__)
 
     def _validate_input(self, data: np.ndarray[Any, Any] | list[float], min_length: int = 1) -> np.ndarray[Any, Any]:
@@ -299,8 +307,14 @@ class TALibImplementation(TechnicalAnalysisInterface):
     ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using TA-Lib."""
         close = self._validate_input(close, timeperiod)
-        upper, middle, lower = talib.BBANDS(close, timeperiod=timeperiod, nbdevup=nbdevup, nbdevdn=nbdevdn, matype=matype)
-        return (np.asarray(upper, dtype=np.float64), np.asarray(middle, dtype=np.float64), np.asarray(lower, dtype=np.float64))
+        upper, middle, lower = talib.BBANDS(
+            close, timeperiod=timeperiod, nbdevup=nbdevup, nbdevdn=nbdevdn, matype=matype,
+        )
+        return (
+            np.asarray(upper, dtype=np.float64),
+            np.asarray(middle, dtype=np.float64),
+            np.asarray(lower, dtype=np.float64),
+        )
 
     def ema(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate EMA using TA-Lib."""
@@ -323,8 +337,14 @@ class TALibImplementation(TechnicalAnalysisInterface):
     ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using TA-Lib."""
         close = self._validate_input(close, slowperiod)
-        macd, signal, hist = talib.MACD(close, fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod)
-        return (np.asarray(macd, dtype=np.float64), np.asarray(signal, dtype=np.float64), np.asarray(hist, dtype=np.float64))
+        macd, signal, hist = talib.MACD(
+            close, fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod,
+        )
+        return (
+            np.asarray(macd, dtype=np.float64),
+            np.asarray(signal, dtype=np.float64),
+            np.asarray(hist, dtype=np.float64),
+        )
 
     def atr(
         self,

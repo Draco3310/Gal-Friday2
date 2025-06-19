@@ -130,10 +130,9 @@ class DashboardService:
             }
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 f"Failed to get portfolio metrics: {e}",
-                source_module="DashboardService",
-                exc_info=True)
+                source_module="DashboardService")
             # Return safe defaults on error
             return {
                 "total_pnl": 0.0,
@@ -421,7 +420,10 @@ class RealTimeDashboard:
                 # Format for trading metrics widget
                 metrics_data = {
                     "total_trades": portfolio_metrics.get("total_trades", 0),
-                    "winning_trades": int(portfolio_metrics.get("total_trades", 0) * portfolio_metrics.get("win_rate", 0)),
+                    "winning_trades": int(
+                        portfolio_metrics.get("total_trades", 0) *
+                        portfolio_metrics.get("win_rate", 0),
+                    ),
                     "win_rate": portfolio_metrics.get("win_rate", 0) * 100,  # Convert to percentage
                     "sharpe_ratio": portfolio_metrics.get("sharpe_ratio", 0),
                     "max_drawdown": portfolio_metrics.get("max_drawdown", 0) * 100,  # Convert to percentage

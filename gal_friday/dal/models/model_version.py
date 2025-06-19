@@ -23,7 +23,9 @@ class ModelVersion(Base):
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False) # No server_default in schema
     training_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    stage: Mapped[str | None] = mapped_column(String(50), server_default="development", index=True) # Added index based on schema
+    stage: Mapped[str | None] = mapped_column(
+        String(50), server_default="development", index=True,
+    )  # Added index based on schema
     metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     hyperparameters: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     feature_importance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

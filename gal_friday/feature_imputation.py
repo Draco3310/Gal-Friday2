@@ -180,7 +180,10 @@ class ImputationStrategy(ABC):
         return {
             "avg_computation_time_ms": float(np.mean(self._computation_times)) if self._computation_times else 0.0,
             "avg_accuracy_score": float(np.mean(self._accuracy_scores)) if self._accuracy_scores else 0.0,
-            "cache_hit_rate": self._cache_hits / (self._cache_hits + self._cache_misses) if (self._cache_hits + self._cache_misses) > 0 else 0.0,
+            "cache_hit_rate": (
+                self._cache_hits / (self._cache_hits + self._cache_misses)
+                if (self._cache_hits + self._cache_misses) > 0 else 0.0
+            ),
             "total_computations": float(len(self._computation_times)),
         }
 

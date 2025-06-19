@@ -1170,7 +1170,8 @@ class StrategyArbitrator(ServiceProtocol):
         side: str,
         current_price: Decimal,
         # Optionally, tp_price can be provided to derive SL if sl_pct is not set
-        tp_price_for_rr_calc: Decimal | None = None) -> tuple[Decimal | None, Decimal | None]:  # Returns (sl_price, risk_amount_per_unit)
+        tp_price_for_rr_calc: Decimal | None = None,
+    ) -> tuple[Decimal | None, Decimal | None]:  # Returns (sl_price, risk_amount_per_unit)
         """Calculate stop-loss price and risk amount per unit."""
         sl_price: Decimal | None = None
         risk_amount_per_unit: Decimal | None = None

@@ -38,11 +38,15 @@ class Signal(Base):
     status: Mapped[str] = mapped_column(String(10), nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     risk_check_details: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True,
+    )
 
     # Relationships
     orders: Mapped[list["Order"]] = relationship("Order", back_populates="signal", cascade="all, delete-orphan")
-    trade: Mapped["Trade | None"] = relationship("Trade", back_populates="signal", uselist=False, cascade="all, delete-orphan")
+    trade: Mapped["Trade | None"] = relationship(
+        "Trade", back_populates="signal", uselist=False, cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str: # Added -> str
         return (

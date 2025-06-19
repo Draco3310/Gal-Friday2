@@ -105,7 +105,9 @@ class PortfolioManager:
 
         # Instantiate components
         self.funds_manager = FundsManager(logger_service, self.valuation_currency)
-        self.position_manager = PositionManager(logger_service, session_maker, config_manager) # Added session_maker and config_manager
+        self.position_manager = PositionManager(
+            logger_service, session_maker, config_manager,
+        )  # Added session_maker and config_manager
         self.valuation_service = ValuationService(
             logger_service,
             market_price_service,
@@ -166,7 +168,10 @@ class PortfolioManager:
 
             self.logger.info(
                 "Initial Positions: %s",
-                {p: {"qty": str(info.quantity), "aep": str(info.entry_price)} for p, info in self._cached_positions.items()},
+                {
+                    p: {"qty": str(info.quantity), "aep": str(info.entry_price)}
+                    for p, info in self._cached_positions.items()
+                },
                 source_module=self._source_module)
             self.logger.info(
                 "Initial Equity: %.2f %s",
@@ -375,9 +380,11 @@ class PortfolioManager:
                         self._cached_positions[updated_pos_model.trading_pair] = updated_pos_model
                     else: # Position closed or inactive
                         self._cached_positions.pop(updated_pos_model.trading_pair, None)
-            elif event.order_status in ["FILLED", "PARTIALLY_FILLED"]: # If update failed but should have happened
+            elif event.order_status in ["FILLED", "PARTIALLY_FILLED"]:
+                # If update failed but should have happened
                 self.logger.warning(
-                    f"Position model for {event.trading_pair} was not updated in cache after trade {event.exchange_order_id}.",
+                    f"Position model for {event.trading_pair} was not updated in cache "
+                    f"after trade {event.exchange_order_id}.",
                     source_module=self._source_module)
 
             if pnl != Decimal(0):

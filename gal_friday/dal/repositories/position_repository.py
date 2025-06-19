@@ -69,7 +69,10 @@ class PositionRepository(BaseRepository[Position]):
                     func.count(Position.id).filter(Position.is_active).label("active_positions"),
                     func.count(Position.id).filter(not Position.is_active).label("closed_positions"),
                     func.sum(cast(Position.realized_pnl, Numeric)).label("total_realized_pnl"),
-                    func.sum(cast(Position.unrealized_pnl, Numeric)).filter(Position.is_active).label("total_unrealized_pnl"))
+                    func.sum(cast(Position.unrealized_pnl, Numeric)).filter(
+                        Position.is_active,
+                    ).label("total_unrealized_pnl"),
+                )
                 result = await session.execute(stmt)
                 summary = result.one_or_none() # Using one_or_none() as SUM can return None if no rows
 

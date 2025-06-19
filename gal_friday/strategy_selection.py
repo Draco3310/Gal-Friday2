@@ -281,17 +281,35 @@ class StrategyPerformanceAnalyzer:
                             largest_win=metrics.largest_win,
                             largest_loss=metrics.largest_loss,
                             volatility=Decimal(str(metrics.volatility)),
-                            downside_deviation=Decimal(str(metrics.downside_deviation)) if metrics.downside_deviation else None,
+                            downside_deviation=(
+                                Decimal(str(metrics.downside_deviation))
+                                if metrics.downside_deviation else None
+                            ),
                             var_95=Decimal(str(metrics.var_95)) if metrics.var_95 else None,
                             cvar_95=Decimal(str(metrics.cvar_95)) if metrics.cvar_95 else None,
-                            max_drawdown_duration_days=Decimal(str(metrics.max_drawdown_duration_days)) if metrics.max_drawdown_duration_days else None,
-                            average_slippage_bps=Decimal(str(metrics.average_slippage_bps)) if metrics.average_slippage_bps else None,
+                            max_drawdown_duration_days=(
+                                Decimal(str(metrics.max_drawdown_duration_days))
+                                if metrics.max_drawdown_duration_days else None
+                            ),
+                            average_slippage_bps=(
+                        Decimal(str(metrics.average_slippage_bps))
+                        if metrics.average_slippage_bps else None
+                    ),
                             fill_rate=Decimal(str(metrics.fill_rate)),
-                            average_latency_ms=Decimal(str(metrics.average_latency_ms)) if metrics.average_latency_ms else None,
+                            average_latency_ms=(
+                        Decimal(str(metrics.average_latency_ms))
+                        if metrics.average_latency_ms else None
+                    ),
                             api_error_rate=Decimal(str(metrics.api_error_rate)),
                             cpu_usage_avg=Decimal(str(metrics.cpu_usage_avg)) if metrics.cpu_usage_avg else None,
-                            memory_usage_avg_mb=Decimal(str(metrics.memory_usage_avg_mb)) if metrics.memory_usage_avg_mb else None,
-                            signal_generation_rate=Decimal(str(metrics.signal_generation_rate)) if metrics.signal_generation_rate else None,
+                            memory_usage_avg_mb=(
+                        Decimal(str(metrics.memory_usage_avg_mb))
+                        if metrics.memory_usage_avg_mb else None
+                    ),
+                            signal_generation_rate=(
+                        Decimal(str(metrics.signal_generation_rate))
+                        if metrics.signal_generation_rate else None
+                    ),
                             halt_frequency=Decimal(str(metrics.halt_frequency)),
                         )
 
@@ -1462,7 +1480,10 @@ class StrategySelector:
                 continue
 
             # Check if improvement is significant enough
-            if current_eval and candidate.improvement_over_current >= self._selection_thresholds["improvement_required"]:
+            if (
+                current_eval
+                and candidate.improvement_over_current >= self._selection_thresholds["improvement_required"]
+            ):
                 return candidate
 
             # If no current eval (first run), take the best that meets criteria
@@ -1732,7 +1753,10 @@ class StrategyOrchestrator:
         )
 
         self._phase_start_time = datetime.now(UTC)
-        phase_duration = self._active_transition.phase_durations[phase] if self._active_transition else timedelta(hours=1)
+        phase_duration = (
+            self._active_transition.phase_durations[phase]
+            if self._active_transition else timedelta(hours=1)
+        )
 
         # Update traffic allocation
         await self._update_traffic_allocation(phase, strategy_id)
@@ -1905,7 +1929,11 @@ class StrategyOrchestrator:
             "transition_id": transition_plan.transition_id,
             "from_strategy": transition_plan.from_strategy,
             "to_strategy": transition_plan.to_strategy,
-            "duration": (transition_plan.completed_at - transition_plan.started_at).total_seconds() if transition_plan.completed_at and transition_plan.started_at else 0,
+            "duration": (
+                (transition_plan.completed_at - transition_plan.started_at).total_seconds()
+                if transition_plan.completed_at and transition_plan.started_at
+                else 0
+            ),
             "metrics": self._transition_metrics.get(transition_plan.to_strategy, []),
         }
 

@@ -39,8 +39,12 @@ class Order(Base):
     fills = relationship("Fill", back_populates="order", cascade="all, delete-orphan")
 
     # Relationships to Trade table (will be fully defined in Trade model via back_populates)
-    # trade_entry: Mapped[Optional["Trade"]] = relationship(foreign_keys="Trade.entry_order_pk", back_populates="entry_order")
-    # trade_exit: Mapped[Optional["Trade"]] = relationship(foreign_keys="Trade.exit_order_pk", back_populates="exit_order")
+    # trade_entry: Mapped[Optional["Trade"]] = relationship(
+    #     foreign_keys="Trade.entry_order_pk", back_populates="entry_order"
+    # )
+    # trade_exit: Mapped[Optional["Trade"]] = relationship(
+    #     foreign_keys="Trade.exit_order_pk", back_populates="exit_order"
+    # )
     # The above lines are commented out as they are defined by the 'Trade' model's back_populates
 
     def __repr__(self) -> str: # Added -> str
@@ -92,7 +96,9 @@ class Order(Base):
             "stop_price": self.stop_price,
             "commission": commission_val,
             "commission_asset": commission_asset_val,
-            "timestamp_exchange": self.last_updated_at or self.submitted_at or self.created_at, # Best available exchange-related timestamp
+            "timestamp_exchange": (
+                self.last_updated_at or self.submitted_at or self.created_at
+            ),  # Best available exchange-related timestamp
             "error_message": self.error_message,
         }
         # Return the properly typed ExecutionReportEvent

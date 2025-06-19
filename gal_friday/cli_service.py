@@ -9,6 +9,7 @@ halting/resuming trading, and gracefully shutting down the application.
 
 import argparse
 from collections.abc import Callable, Coroutine, Mapping
+import contextlib
 from datetime import UTC, datetime
 from decimal import Decimal
 import logging
@@ -696,7 +697,10 @@ class MockPubSubManager(PubSubManager):
     async def publish(self, event: Any) -> None:
         """Publish an event to subscribers."""
         event_type_obj = getattr(event, "event_type", None)
-        event_type_str = event_type_obj.name if event_type_obj and hasattr(event_type_obj, "name") else str(type(event).__name__)
+        event_type_str = (
+            event_type_obj.name if event_type_obj and hasattr(event_type_obj, "name")
+            else str(type(event).__name__)
+        )
 
         # Record published event
         with self._lock:
@@ -738,10 +742,8 @@ class MockPubSubManager(PubSubManager):
         event_type.name if hasattr(event_type, "name") else str(event_type)
         with self._lock:
             if event_type in self._subscribers:
-                try:
+                with contextlib.suppress(ValueError):
                     self._subscribers[event_type].remove(handler)
-                except ValueError:
-                    pass  # Handler not found
 
     def get_published_events(self, event_type: str | None = None) -> list[dict[str, Any]]:
         """Get published events, optionally filtered by type."""
@@ -1332,8 +1334,8 @@ Examples:
                 self.logger.info("Database connection pool initialized successfully")
 
             except Exception as e:
-                self.logger.error(
-                    f"Failed to initialize database connection pool: {e}", exc_info=True,
+                self.logger.exception(
+                    f"Failed to initialize database connection pool: {e}",
                 )
                 raise RuntimeError(f"Database initialization failed: {e}") from e
 
@@ -1347,7 +1349,7 @@ Examples:
                 self.logger.info("PubSub manager initialized and started successfully")
 
             except Exception as e:
-                self.logger.error(f"Failed to initialize PubSub manager: {e}", exc_info=True)
+                self.logger.exception("Failed to initialize PubSub manager:")
                 raise RuntimeError(f"PubSub manager initialization failed: {e}") from e
 
             # 3. Enhanced Logger Service (with database and enterprise features)
@@ -1363,8 +1365,8 @@ Examples:
                 self.logger.info("Enterprise logger service initialized successfully")
 
             except Exception as e:
-                self.logger.error(
-                    f"Failed to initialize enterprise logger service: {e}", exc_info=True,
+                self.logger.exception(
+                    f"Failed to initialize enterprise logger service: {e}",
                 )
                 # Continue with basic logger - don't fail startup
                 enterprise_logger = self.logger  # type: ignore[assignment]
@@ -1387,7 +1389,8 @@ Examples:
                 )
                 await market_price_service.start()
                 self.logger.info(
-                    f"Kraken market price service initialized successfully - Live market data active from {kraken_api_url}",
+                    f"Kraken market price service initialized successfully - "
+                    f"Live market data active from {kraken_api_url}",
                 )
 
                 # Test the connection with a simple price request
@@ -1407,7 +1410,7 @@ Examples:
                     )
 
             except Exception as e:
-                self.logger.error(f"Failed to initialize market price service: {e}", exc_info=True)
+                self.logger.exception("Failed to initialize market price service:")
                 # For CLI service, we can continue with a fallback instead of hard failing
                 self.logger.warning(
                     "Falling back to simulated market price service for development purposes",
@@ -1426,8 +1429,8 @@ Examples:
                     await market_price_service.start()
                     self.logger.info("Simulated market price service initialized as fallback")
                 except Exception as fallback_e:
-                    self.logger.error(
-                        f"Even fallback market price service failed: {fallback_e}", exc_info=True,
+                    self.logger.exception(
+                        f"Even fallback market price service failed: {fallback_e}",
                     )
                     raise RuntimeError(
                         f"All market price service initialization attempts failed: {e}, {fallback_e}",
@@ -1450,7 +1453,7 @@ Examples:
                 self.logger.info("Portfolio manager initialized successfully")
 
             except Exception as e:
-                self.logger.error(f"Failed to initialize portfolio manager: {e}", exc_info=True)
+                self.logger.exception("Failed to initialize portfolio manager:")
                 raise RuntimeError(f"Portfolio manager initialization failed: {e}") from e
 
             # 6. Monitoring Service (comprehensive system monitoring)
@@ -1470,7 +1473,7 @@ Examples:
                 self.logger.info("Monitoring service initialized successfully")
 
             except Exception as e:
-                self.logger.error(f"Failed to initialize monitoring service: {e}", exc_info=True)
+                self.logger.exception("Failed to initialize monitoring service:")
                 raise RuntimeError(f"Monitoring service initialization failed: {e}") from e
 
             # 7. Main Application Controller (GalFridayApp or compatible)
@@ -1492,8 +1495,8 @@ Examples:
                 self.logger.info("Main application controller initialized successfully")
 
             except Exception as e:
-                self.logger.error(
-                    f"Failed to initialize main application controller: {e}", exc_info=True,
+                self.logger.exception(
+                    f"Failed to initialize main application controller: {e}",
                 )
                 # Create a simplified controller as fallback
                 main_app_controller = MockMainAppController()  # type: ignore[assignment]
@@ -1552,7 +1555,7 @@ Examples:
             self.logger.info("All services shutdown completed successfully")
 
         except Exception as e:
-            self.logger.error(f"Error starting enterprise CLI service: {e}", exc_info=True)
+            self.logger.exception("Error starting enterprise CLI service:")
             console.print(f"❌ Failed to start enterprise CLI service: {e}")
             console.print("Check logs for detailed error information")
             raise
@@ -1664,7 +1667,7 @@ def main() -> None:
 
     except Exception as e:
         console.print(f"\n💥 Fatal error: {e}")
-        logging.getLogger(__name__).error(f"Fatal error: {e}", exc_info=True)
+        logging.getLogger(__name__).exception("Fatal error:")
         sys.exit(1)
 
 

@@ -17,7 +17,9 @@ class ExperimentAssignment(Base):
 
     experiment_id: Mapped[PythonUUID] = mapped_column(
         ForeignKey("experiments.experiment_id"), primary_key=True)
-    event_id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), primary_key=True) # Assuming this is a generic UUID for an event
+    event_id: Mapped[PythonUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+    )  # Assuming this is a generic UUID for an event
     variant: Mapped[str] = mapped_column(String(20), nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True) # Added index
 

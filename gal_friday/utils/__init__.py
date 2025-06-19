@@ -66,9 +66,9 @@ def handle_exceptions(
                 module_name = config.source_module or func.__module__
 
                 if config.include_traceback:
-                    logger.exception("[%s] %s", module_name, formatted_message)
+                    logger.exception("[%s]", formatted_message)
                 else:
-                    logger.exception("[%s] %s", module_name, formatted_message, exc_info=False)
+                    logger.exception("[%s]", formatted_message, exc_info=False)
 
                 if config.re_raise:
                     raise e.__class__(formatted_message) from e
@@ -82,7 +82,8 @@ def handle_exceptions(
 
 def handle_exceptions_async(
     logger: logging.Logger,
-    config: ExceptionHandlerConfig[T]) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
+    config: ExceptionHandlerConfig[T],
+) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
     """Handle exceptions in a standardized way for async functions.
 
     Args:
@@ -114,9 +115,9 @@ def handle_exceptions_async(
                 module_name = config.source_module or func.__module__
 
                 if config.include_traceback:
-                    logger.exception("[%s] %s", module_name, formatted_message)
+                    logger.exception("[%s]", formatted_message)
                 else:
-                    logger.exception("[%s] %s", module_name, formatted_message, exc_info=False)
+                    logger.exception("[%s]", formatted_message, exc_info=False)
 
                 if config.re_raise:
                     raise e.__class__(formatted_message) from e

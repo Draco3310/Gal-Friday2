@@ -518,7 +518,8 @@ class OrderStateTracker:
 
                 if self.logger:
                     self.logger.debug(
-                        f"Persisted order state for order {lifecycle_data.order_id} with state {lifecycle_data.current_state.value}",
+                        f"Persisted order state for order {lifecycle_data.order_id} "
+                        f"with state {lifecycle_data.current_state.value}",
                         source_module=self.__class__.__name__)
         except Exception:
             if self.logger:
@@ -648,7 +649,7 @@ class ConfigurableShutdownHandler:
             safety_check_passed = await self._perform_safety_checks(open_orders)
 
             if not safety_check_passed and self.config.safety_checks_enabled:
-                self.logger.error("Safety checks failed, aborting order cancellation")
+                self.logger.exception("Safety checks failed, aborting order cancellation")
                 return self._create_safety_failure_results(open_orders)
 
             # Process each order according to configuration
@@ -978,7 +979,8 @@ class ConfigurableShutdownHandler:
                     volume_float = float(volume)
                     if volume_float * current_price > 10000:  # $10k threshold
                         self.logger.warning(
-                            f"Large market order conversion: {volume_float} {pair} worth ~${volume_float * current_price:.0f}",
+                            f"Large market order conversion: {volume_float} {pair} "
+                            f"worth ~${volume_float * current_price:.0f}",
                         )
 
             # Prepare market order parameters
@@ -1203,7 +1205,7 @@ class AsyncOrderProcessor:
 
         except asyncio.QueueFull:
             if self.logger:
-                self.logger.exception(f"Order queue full for priority {priority.value}")
+                self.logger.exception("Order queue full for priority")
             raise OrderProcessingError(f"Queue full for priority {priority.value}")
 
     async def stop_processing(self) -> None:
@@ -1358,9 +1360,9 @@ class AsyncOrderProcessor:
                 if request.callback:
                     try:
                         await request.callback(result)
-                    except Exception as callback_error:
+                    except Exception:
                         if self.logger:
-                            self.logger.exception(f"Order callback failed: {callback_error}")
+                            self.logger.exception("Order callback failed:")
 
                 # Update processing metrics
                 self._update_processing_metrics(request, result)
@@ -1662,7 +1664,8 @@ class ExecutionHandler(ServiceProtocol):
         )
 
         self.logger.info(
-            f"ExecutionHandler initialized successfully with {len(features_enabled)} enterprise features: {', '.join(features_enabled)}",
+            f"ExecutionHandler initialized successfully with {len(features_enabled)} "
+            f"enterprise features: {', '.join(features_enabled)}",
             source_module=self.__class__.__name__)
 
     async def initialize(self) -> None:
@@ -4428,8 +4431,7 @@ class ExecutionHandler(ServiceProtocol):
         except Exception:
             self.logger.critical(
                 "Critical error during emergency position closure",
-                source_module=self.__class__.__name__,
-                exc_info=True)
+                source_module=self.__class__.__name__)
 
     async def _place_order_with_priority(self, params: dict[str, Any]) -> dict[str, Any]:
         """Place order with priority handling for emergencies.

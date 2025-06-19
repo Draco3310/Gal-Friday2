@@ -767,10 +767,9 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                 raise
             return False  # Non-retryable error
         except Exception as e:  # Catch any other unexpected errors
-            logging.getLogger(__name__).error(
+            logging.getLogger(__name__).exception(
                 "Unexpected error in _attempt_db_insert: %s",
-                str(e),
-                exc_info=True)
+                str(e))
             return False
 
     async def _process_queue_with_retry(self, record_data: dict[str, Any]) -> None:
@@ -789,11 +788,10 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                 # This exception is only raised for retryable errors
                 attempt += 1
                 if attempt >= max_retries:
-                    logging.getLogger(__name__).error(
+                    logging.getLogger(__name__).exception(
                         "AsyncPostgresHandler: Database operation failed after %d attempts: %s",
                         max_retries,
-                        str(db_err),
-                        exc_info=True)
+                        str(db_err))
                     return
                 # Exponential backoff with jitter
                 wait_time = min(base_backoff * (2 ** (attempt - 1)), 30.0)
@@ -809,11 +807,10 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
             except OSError as conn_err:  # Network/connection issues
                 attempt += 1
                 if attempt >= max_retries:
-                    logging.getLogger(__name__).error(
+                    logging.getLogger(__name__).exception(
                         "AsyncPostgresHandler: Network/OS error failed after %d attempts: %s",
                         max_retries,
-                        str(conn_err),
-                        exc_info=True)
+                        str(conn_err))
                     return
                 wait_time = min(base_backoff * (2 ** (attempt - 1)), 30.0)
                 wait_time += SystemRandom().uniform(0, wait_time * 0.1)
@@ -827,11 +824,10 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                 await asyncio.sleep(wait_time)
             except (RuntimeError, ValueError, TypeError) as e:
                 # Non-database errors, likely programming errors - don't retry
-                logging.getLogger(__name__).error(
+                logging.getLogger(__name__).exception(
                     "AsyncPostgresHandler: Non-retryable error for record: %s. Error: %s",
                     record_data.get("message", "N/A"),
-                    e,
-                    exc_info=True)
+                    e)
                 return  # Stop processing this record
 
     async def _process_queue(self) -> None:
@@ -855,10 +851,9 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                         self._queue.task_done()
                 break
             except Exception as e:
-                logging.getLogger(__name__).error(
+                logging.getLogger(__name__).exception(
                     "AsyncPostgresHandler: Error in outer processing loop: %s",
-                    e,
-                    exc_info=True)
+                    e)
                 if record_data is not None:
                     with contextlib.suppress(ValueError):
                         self._queue.task_done()
@@ -1387,8 +1382,8 @@ class LoggerService(ServiceProtocol):
                         f"Initialized enterprise handler: {config.name} ({config.handler_type.value})",
                     )
 
-            except Exception as e:
-                self.error(f"Failed to initialize enterprise handler: {e}")
+            except Exception:
+                self.exception("Failed to initialize enterprise handler:")
 
     def get_enterprise_handler(self, name: str) -> BaseLogHandler | None:
         """Get enterprise handler by name with proper type annotation."""
@@ -1510,8 +1505,7 @@ class LoggerService(ServiceProtocol):
             self.error(
                 "Failed to initialize InfluxDB client: %s",
                 e,
-                source_module="LoggerService",
-                exc_info=True)
+                source_module="LoggerService")
             self._influx_client = None
             self._influx_write_api = None  # Ensure write_api is also cleared
             return False
@@ -1557,7 +1551,7 @@ class LoggerService(ServiceProtocol):
             from influxdb_client import Point, WritePrecision
         except ImportError:
             # This case should ideally be caught by _initialize_influxdb_client
-            self.error(
+            self.exception(
                 "InfluxDB client library not found during point preparation.",
                 source_module="LoggerService")
             return None
@@ -1565,8 +1559,7 @@ class LoggerService(ServiceProtocol):
             self.error(
                 "Error preparing InfluxDB point: %s",
                 e,
-                source_module="LoggerService",
-                exc_info=True)
+                source_module="LoggerService")
             return None
         else:
             point = Point(measurement).time(timestamp, WritePrecision.MS)
@@ -1580,7 +1573,8 @@ class LoggerService(ServiceProtocol):
                 field_value: Any = value
 
                 # Handle specific types - check string last since it's the broadest type
-                if isinstance(field_value, bool | int | float):  # bool must come before int since bool is a subclass of int
+                # bool must come before int since bool is a subclass of int
+                if isinstance(field_value, bool | int | float):
                     valid_fields[key] = field_value
                 elif isinstance(field_value, Decimal):
                     valid_fields[key] = float(field_value)
@@ -1654,11 +1648,10 @@ class LoggerService(ServiceProtocol):
                 return
             self._influx_write_api.write(bucket=bucket, record=point)
         except Exception as e:
-            self.error(
+            self.exception(
                 "Failed to write time-series data to InfluxDB: %s",
                 e,
-                source_module="LoggerService",
-                exc_info=True)
+                source_module="LoggerService")
 
     async def start(self) -> None:
         """Initialize the logger service and set up required connections.
@@ -1704,11 +1697,10 @@ class LoggerService(ServiceProtocol):
                 "Subscribed to LOG_ENTRY events from event bus.",
                 source_module="LoggerService")
         except Exception as e:
-            self.error(
+            self.exception(
                 "Failed to subscribe to LOG_ENTRY events: %s",
                 e,
-                source_module="LoggerService",
-                exc_info=True)
+                source_module="LoggerService")
 
         # Start enterprise database handlers' internal processing tasks
         for handler in self._enterprise_handlers.values():
@@ -1728,7 +1720,7 @@ class LoggerService(ServiceProtocol):
             isinstance(h, EnterpriseAsyncPostgresHandler)
             for h in self._enterprise_handlers.values()
         ):
-            self.error(
+            self.exception(
                 "DB logging enabled, but no database handlers initialized in start().",
                 source_module="LoggerService")
 
@@ -1747,8 +1739,7 @@ class LoggerService(ServiceProtocol):
             self.error(
                 "Error unsubscribing from LOG_ENTRY events: %s",
                 e,
-                source_module="LoggerService",
-                exc_info=True)
+                source_module="LoggerService")
 
         # Close enterprise handlers first
         self.info("Closing enterprise handlers...", source_module="LoggerService")
@@ -1772,10 +1763,9 @@ class LoggerService(ServiceProtocol):
                     f"Timeout waiting for enterprise handler {name} to close.",
                     source_module="LoggerService")
             except Exception as e:
-                self.error(
+                self.exception(
                     f"Error closing enterprise handler {name}: {e}",
-                    source_module="LoggerService",
-                    exc_info=True)
+                    source_module="LoggerService")
 
         # Close the legacy SQLAlchemy handler
         if self._async_handler:
@@ -1796,11 +1786,10 @@ class LoggerService(ServiceProtocol):
                     "Timeout waiting for legacy SQLAlchemy database log handler queue to empty.",
                     source_module="LoggerService")
             except Exception as e:
-                self.error(
+                self.exception(
                     "Error waiting for legacy SQLAlchemy database log handler closure: %s",
                     e,
-                    source_module="LoggerService",
-                    exc_info=True)
+                    source_module="LoggerService")
 
         # Signal the log processing thread to stop (This thread is for the python logging queue, keep it)
         self._stop_event.set()
@@ -1820,7 +1809,7 @@ class LoggerService(ServiceProtocol):
 
         db_url: str | None = self._config_manager.get("logging.database.connection_string")
         if not db_url:
-            self.error(
+            self.exception(
                 "Database logging enabled but connection_string is missing. SQLAlchemy setup failed.",
                 source_module="LoggerService")
             self._db_enabled = False  # Disable DB logging if URL is missing
@@ -1858,8 +1847,7 @@ class LoggerService(ServiceProtocol):
             self.critical(
                 "Failed to initialize SQLAlchemy engine: %s. Disabling DB logging.",
                 e,
-                source_module="LoggerService",
-                exc_info=True)
+                source_module="LoggerService")
             self._sqlalchemy_engine = None
             self._sqlalchemy_session_factory = None
             self._db_enabled = False  # Disable DB logging on error

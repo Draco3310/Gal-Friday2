@@ -604,7 +604,10 @@ class KrakenHistoricalDataService(HistoricalDataService):
             response_data = await self._make_public_request("/0/public/OHLC", params)
 
             if not response_data or response_data.get("error"):
-                error_messages = response_data.get("error", ["Unknown API error"]) if response_data else ["No response from API"]
+                error_messages = (
+                    response_data.get("error", ["Unknown API error"]) if response_data
+                    else ["No response from API"]
+                )
                 self.logger.error(
                     "Kraken API error fetching OHLCV for %s (call %s): %s. Params: %s",
                     trading_pair, api_calls_count, error_messages, params,
@@ -631,7 +634,10 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
                     # Stop if we've fetched data beyond the requested end_time
                     if dt_object > end_time:
-                        self.logger.debug("Fetched OHLCV data beyond requested end_time for %s. Stopping pagination.", trading_pair)
+                        self.logger.debug(
+                            "Fetched OHLCV data beyond requested end_time for %s. Stopping pagination.",
+                            trading_pair,
+                        )
                         data_beyond_end = True
                         break
 
@@ -665,7 +671,8 @@ class KrakenHistoricalDataService(HistoricalDataService):
             # If the 'last' timestamp is not advancing, it means no more new data or stuck.
             if int(last_timestamp_in_response) <= current_since_timestamp and len(pair_data) < 720:
                 self.logger.info(
-                    "Kraken API 'last' timestamp (%s) did not advance from 'since' (%s) for %s and not a full page. Assuming end of data.",
+                    "Kraken API 'last' timestamp (%s) did not advance from 'since' (%s) for %s and "
+                    "not a full page. Assuming end of data.",
                     last_timestamp_in_response, current_since_timestamp, trading_pair,
                     source_module=self._source_module)
                 break
@@ -876,7 +883,8 @@ class KrakenHistoricalDataService(HistoricalDataService):
         required_cols = ["price", "volume", "side"]
         if not all(col in df.columns for col in required_cols):
             self.logger.error(
-                f"DataFrame for InfluxDB trade storage for {trading_pair} is missing one of required columns: {required_cols}. Columns present: {df.columns.tolist()}",
+                f"DataFrame for InfluxDB trade storage for {trading_pair} is missing one of required columns: "
+                f"{required_cols}. Columns present: {df.columns.tolist()}",
                 source_module=self._source_module)
             return False
 
@@ -1121,8 +1129,17 @@ class KrakenHistoricalDataService(HistoricalDataService):
 
                         if actual_gap_end > actual_gap_start:
                             missing_ranges.append((
-                                actual_gap_start.to_pydatetime() if hasattr(actual_gap_start, "to_pydatetime") else actual_gap_start,
-                                actual_gap_end.to_pydatetime() if hasattr(actual_gap_end, "to_pydatetime") else actual_gap_end))
+                                (
+                                    actual_gap_start.to_pydatetime()
+                                    if hasattr(actual_gap_start, "to_pydatetime")
+                                    else actual_gap_start
+                                ),
+                                (
+                                    actual_gap_end.to_pydatetime()
+                                    if hasattr(actual_gap_end, "to_pydatetime")
+                                    else actual_gap_end
+                                ),
+                            ))
                         else:
                             self.logger.debug(
                                 f"Skipping zero or negative duration detected gap: {gap_info}",

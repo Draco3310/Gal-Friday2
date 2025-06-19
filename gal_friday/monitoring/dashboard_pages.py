@@ -25,7 +25,10 @@ class EnhancedDashboardPages:
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: #f5f7fa; }
     .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
     .header { background: #2c3e50; color: white; padding: 1rem; border-radius: 5px 5px 0 0; margin-bottom: 1rem; }
-    .card { background: white; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 1rem; padding: 1rem; }
+    .card {
+        background: white; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        margin-bottom: 1rem; padding: 1rem;
+    }
     .row { display: flex; flex-wrap: wrap; margin: 0 -10px; }
     .col { flex: 1; padding: 0 10px; min-width: 250px; }
     table { width: 100%; border-collapse: collapse; }
@@ -43,15 +46,30 @@ class EnhancedDashboardPages:
     .bg-warning { background-color: #f6c23e; }
     .bg-danger { background-color: #e74a3b; }
     .bg-info { background-color: #36b9cc; }
-    .refresh-btn { background: #2c3e50; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; }
-    .btn { display: inline-block; font-weight: 400; text-align: center; white-space: nowrap; vertical-align: middle; user-select: none; border: 1px solid transparent; padding: .375rem .75rem; font-size: 1rem; line-height: 1.5; border-radius: .25rem; transition: color .15s ease-in-out,background-color .15s ease-in-out,border-color .15s ease-in-out,box-shadow .15s ease-in-out; }
+    .refresh-btn { 
+        background: #2c3e50; color: white; border: none; padding: 5px 10px; 
+        border-radius: 3px; cursor: pointer; 
+    }
+    .btn { 
+        display: inline-block; font-weight: 400; text-align: center; white-space: nowrap; 
+        vertical-align: middle; user-select: none; border: 1px solid transparent; 
+        padding: .375rem .75rem; font-size: 1rem; line-height: 1.5; border-radius: .25rem; 
+        transition: color .15s ease-in-out,background-color .15s ease-in-out,
+                   border-color .15s ease-in-out,box-shadow .15s ease-in-out; 
+    }
     .btn-primary { color: #fff; background-color: #4e73df; border-color: #4e73df; }
     .btn-danger { color: #fff; background-color: #e74a3b; border-color: #e74a3b; }
     .btn-success { color: #fff; background-color: #1cc88a; border-color: #1cc88a; }
     .toggle-switch { position: relative; display: inline-block; width: 60px; height: 34px; }
     .toggle-switch input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
-    .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+    .slider {
+        position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+        background-color: #ccc; transition: .4s; border-radius: 34px;
+    }
+    .slider:before {
+        position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px;
+        background-color: white; transition: .4s; border-radius: 50%;
+    }
     input:checked + .slider { background-color: #1cc88a; }
     input:checked + .slider:before { transform: translateX(26px); }
     </style>
@@ -309,7 +327,10 @@ class EnhancedDashboardPages:
                     </div>
                 </div>
                 <p><strong>Description:</strong> {model.description or 'No description'}</p>
-                <p><strong>Last Updated:</strong> {(model.updated_at.strftime('%Y-%m-%d %H:%M') if model.updated_at else 'N/A')}</p>
+                <p><strong>Last Updated:</strong> {
+                    (model.updated_at.strftime('%Y-%m-%d %H:%M')
+                     if model.updated_at else 'N/A')
+                }</p>
                 <p><strong>Training Data:</strong> {model.training_data_path or 'N/A'}</p>
                 <p><strong>Pairs:</strong> {
                     ', '.join(trading_pairs) if isinstance(trading_pairs, list)

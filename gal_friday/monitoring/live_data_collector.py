@@ -274,7 +274,10 @@ class LiveDataCollector:
             # Get strategy performance from strategy selection system
             strategy_metrics = {
                 "current_strategy": current_strategy,
-                "last_selection_time": self.strategy_selection._last_selection_time.isoformat() if self.strategy_selection._last_selection_time else None,
+                "last_selection_time": (
+                    self.strategy_selection._last_selection_time.isoformat()
+                    if self.strategy_selection._last_selection_time else None
+                ),
                 "in_transition": self.strategy_selection.strategy_orchestrator.is_in_transition(),
                 "active_transition": None,
             }
@@ -389,7 +392,10 @@ class LiveDataCollector:
             if hasattr(event, "fill_id"):  # Check if it's a FillEvent
                 # Add to recent trades
                 trade_data = LiveTradeData(
-                    trade_id=event.fill_id if hasattr(event, "fill_id") else f"trade_{int(event.timestamp.timestamp())}",
+                    trade_id=(
+                        event.fill_id if hasattr(event, "fill_id")
+                        else f"trade_{int(event.timestamp.timestamp())}"
+                    ),
                     order_id=event.order_id if hasattr(event, "order_id") else "unknown",
                     trading_pair=event.trading_pair if hasattr(event, "trading_pair") else "unknown",
                     side=event.side if hasattr(event, "side") else "unknown",
@@ -443,7 +449,10 @@ class LiveDataCollector:
             network_latency = await self._measure_network_latency()
 
             # Get application-specific metrics
-            active_connections = len(getattr(self.monitoring_service, "active_connections", [])) if self.monitoring_service else 0
+            active_connections = (
+                len(getattr(self.monitoring_service, "active_connections", []))
+                if self.monitoring_service else 0
+            )
             orders_per_minute = await self._calculate_orders_per_minute()
             api_error_rate = await self._calculate_api_error_rate()
 
@@ -484,7 +493,10 @@ class LiveDataCollector:
             status=raw_order.get("status", "unknown"),
             filled_quantity=Decimal(str(raw_order.get("filled", 0))),
             remaining_quantity=Decimal(str(raw_order.get("remaining", 0))),
-            average_fill_price=Decimal(str(raw_order.get("average_fill_price", 0))) if raw_order.get("average_fill_price") else None,
+            average_fill_price=(
+                Decimal(str(raw_order.get("average_fill_price", 0)))
+                if raw_order.get("average_fill_price") else None
+            ),
             created_at=raw_order.get("created_at", datetime.now(UTC)),
             updated_at=raw_order.get("updated_at", datetime.now(UTC)),
             strategy_id=raw_order.get("strategy_id", "unknown"),

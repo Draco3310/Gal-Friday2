@@ -36,9 +36,8 @@ class HistoryRepository:
         try:
             raw = await self.ts_db.query_ohlcv(trading_pair, interval, start_time, end_time)
         except Exception as exc:  # pragma: no cover - network/DB errors
-            self.logger.error(
-                "Failed to query OHLCV for %s: %s", trading_pair, exc, source_module=self._source_module, exc_info=True,
-            )
+            self.logger.exception(
+                "Failed to query OHLCV for %s: %s", trading_pair, exc, source_module=self._source_module)
             return None
 
         if not raw:

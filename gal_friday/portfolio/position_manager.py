@@ -90,7 +90,8 @@ class PositionManager:
         self.order_repository = OrderRepository(session_maker, logger_service)
         self.config_manager = config_manager
         # self._positions: dict[str, PositionInfo] = {} # In-memory store removed
-        self._lock = asyncio.Lock() # Lock can still be useful for critical async operations on a single position if needed
+        self._lock = asyncio.Lock()  # Lock can still be useful for critical async
+        # operations on a single position if needed
 
     # The `positions` property and `get_open_positions` will now fetch from DB.
     # `get_position` will also fetch from DB.
@@ -182,9 +183,10 @@ class PositionManager:
         commission: Decimal | float | str
         commission_asset: str | None
 
-    async def update_position_for_trade( # Keep public interface
+    async def update_position_for_trade(  # Keep public interface
         self,
-        **kwargs: Unpack[_UpdatePositionKwargs]) -> tuple[Decimal, PositionModel | None]: # Returns SQLAlchemy PositionModel
+        **kwargs: Unpack[_UpdatePositionKwargs],
+    ) -> tuple[Decimal, PositionModel | None]:  # Returns SQLAlchemy PositionModel
         """Update position based on a new trade.
 
         Args:
@@ -207,7 +209,8 @@ class PositionManager:
             fee_arg = kwargs.get("fee", Decimal(0))
             commission_arg = kwargs.get("commission", Decimal(0))
 
-            # Ensure required fields are present (those not in _UpdatePositionKwargs or without defaults in _UpdatePositionParams)
+            # Ensure required fields are present (those not in _UpdatePositionKwargs
+            # or without defaults in _UpdatePositionParams)
             if qty_arg is None or price_arg is None:
                 raise ValueError("Quantity and price must be provided.")
 
@@ -227,7 +230,10 @@ class PositionManager:
                 commission=Decimal(str(commission_arg)) if not isinstance(commission_arg, Decimal) else commission_arg,
                 commission_asset=kwargs.get("commission_asset"))
         except (TypeError, ValueError, KeyError):
-            self.logger.exception("Invalid parameters for update_position_for_trade: ", source_module=self._source_module, context=kwargs)
+            self.logger.exception(
+                "Invalid parameters for update_position_for_trade: ",
+                source_module=self._source_module, context=kwargs,
+            )
             return Decimal(0), None
 
         return await self._update_position_for_trade_impl(params)
@@ -283,8 +289,9 @@ class PositionManager:
             elif params.side.upper() == "SELL":
                 if current_quantity < params.quantity:
                     self.logger.warning(
-                        f"Selling {params.quantity} of {params.trading_pair}, but current position is {current_quantity}. "
-                        "Position will go negative or this represents a short sale opening/extension.",
+                        f"Selling {params.quantity} of {params.trading_pair}, but current position is "
+                        f"{current_quantity}. Position will go negative or this represents a short sale "
+                        f"opening/extension.",
                         source_module=self._source_module)
 
                 # Realized PnL = (sell_price - avg_entry_price) * sell_quantity
@@ -318,7 +325,10 @@ class PositionManager:
                 }
                 updated_pos = await self.position_repository.update(str(position_model.id), update_data)
                 if not updated_pos:
-                    self.logger.error(f"Failed to update position {position_model.id} in DB.", source_module=self._source_module)
+                    self.logger.error(
+                        f"Failed to update position {position_model.id} in DB.",
+                        source_module=self._source_module,
+                    )
                     return realized_pnl_trade, None
 
                 # NEW: Link the order to this position for audit trail
@@ -332,7 +342,10 @@ class PositionManager:
                     source_module=self._source_module)
                 return realized_pnl_trade, updated_pos
             except Exception:
-                self.logger.exception(f"Error updating position in DB for {params.trading_pair}: ", source_module=self._source_module)
+                self.logger.exception(
+                    f"Error updating position in DB for {params.trading_pair}: ",
+                    source_module=self._source_module,
+                )
                 return realized_pnl_trade, None
 
     async def _link_order_to_position(self, order_id: str, position_id: str) -> None:
@@ -389,7 +402,11 @@ class PositionManager:
         position = await self.position_repository.get_position_by_pair(trading_pair)
         if position:
             if not position.is_active: # Reactivating a closed position? Or new one?
-                 self.logger.warning(f"Position for {trading_pair} exists but is inactive. Treating as new for this context.", source_module=self._source_module)
+                 self.logger.warning(
+                    f"Position for {trading_pair} exists but is inactive. "
+                    "Treating as new for this context.",
+                    source_module=self._source_module,
+                )
                  # This logic might need refinement: should we reactivate or error?
                  # For now, assume we create a new one if the existing is inactive.
                  # This implies `get_position_by_pair` should only return active ones, or this logic handles it.
@@ -401,7 +418,10 @@ class PositionManager:
             return position
 
         # Position not found or inactive, create a new one
-        self.logger.info(f"No active position found for {trading_pair}. Creating new one.", source_module=self._source_module)
+        self.logger.info(
+            f"No active position found for {trading_pair}. Creating new one.",
+            source_module=self._source_module,
+        )
 
         # Asset splitting logic - assuming it's from config or a utility
         # base_asset, quote_asset = self.config_manager.split_trading_pair(trading_pair) # Example
@@ -427,10 +447,16 @@ class PositionManager:
         }
         try:
             created_position = await self.position_repository.create(new_pos_data)
-            self.logger.info(f"Created new position in DB for {trading_pair} with ID {created_position.id}", source_module=self._source_module)
+            self.logger.info(
+                f"Created new position in DB for {trading_pair} with ID {created_position.id}",
+                source_module=self._source_module,
+            )
             return created_position
         except Exception as e:
-            self.logger.exception(f"Error creating new position in DB for {trading_pair}: ", source_module=self._source_module)
+            self.logger.exception(
+                f"Error creating new position in DB for {trading_pair}: ",
+                source_module=self._source_module,
+            )
             # Re-raise with additional context for proper error handling upstream
             raise PositionCreationError(f"Failed to create position for {trading_pair}: {e!s}") from e
 

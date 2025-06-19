@@ -33,7 +33,7 @@ class LocalFileDataProvider(HistoricalDataProvider):
                 self.logger.error("Unsupported file format: %s", path.suffix)
                 return []
         except Exception as exc:  # pragma: no cover - simple logging
-            self.logger.exception("Failed reading %s: %s", path, exc)
+            self.logger.exception("Failed reading %s:", exc)
             return []
 
         if "symbol" in df.columns:

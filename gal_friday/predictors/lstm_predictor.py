@@ -314,7 +314,7 @@ class LSTMPredictor(PredictorInterface):
         except Exception as e:
             if isinstance(e, InvalidDimensionsError | UnsupportedFrameworkError):
                 raise
-            self.logger.exception(f"Error during prediction for model {self.model_id}")
+            self.logger.exception("Error during prediction for model")
             raise PredictionError(f"Failed to generate prediction: {e}") from e
 
     @property
@@ -337,7 +337,7 @@ class LSTMPredictor(PredictorInterface):
             logger.debug("TF Model %s loaded from %s", model_id, model_path)
         except Exception as e_load:
             error_msg = f"Failed to load TF model {model_path}: {e_load!s}"
-            logger.exception("Error loading TF model: %s", error_msg)
+            logger.exception("Error loading TF model:")
             return {"error": error_msg, "model_id": model_id}
         return model_asset, ""
 
@@ -378,7 +378,7 @@ class LSTMPredictor(PredictorInterface):
                 model_path)
         except Exception as e_load:
             error_msg = f"Failed to load PyTorch model {model_path}: {e_load!s}"
-            logger.exception("Error loading PyTorch model: %s", error_msg)
+            logger.exception("Error loading PyTorch model:")
             return {"error": error_msg, "model_id": model_id}
         return model_asset, ""
 
@@ -399,7 +399,7 @@ class LSTMPredictor(PredictorInterface):
             logger.debug("Scaler for %s loaded from %s", model_id, scaler_path)
         except Exception as e_scale_load:
             error_msg = f"Failed to load scaler {scaler_path}: {e_scale_load!s}"
-            logger.exception("Error loading scaler: %s", error_msg)
+            logger.exception("Error loading scaler:")
             return None, error_msg
         else:
             return scaler_asset, ""
@@ -557,7 +557,7 @@ class LSTMPredictor(PredictorInterface):
                 predictor_config=predictor_specific_config)
         except Exception as e:
             error_msg = f"LSTM Inference failed: {e!s}"
-            logger.exception("Error during inference: %s", error_msg)
+            logger.exception("Error during inference:")
             return {"error": error_msg, "model_id": model_id}
         else:
             logger.debug(

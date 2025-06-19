@@ -13,6 +13,7 @@ These mocks are designed to be:
 
 import builtins
 from collections.abc import Callable, Coroutine
+import contextlib
 from datetime import UTC, datetime
 from decimal import Decimal
 import threading
@@ -282,11 +283,17 @@ class PortfolioManager:
 
             if profit_loss > 0:
                 current_winning_raw = self._current_state.get("winning_trades", 0)
-                current_winning = current_winning_raw if isinstance(current_winning_raw, int) else int(str(current_winning_raw))
+                current_winning = (
+                    current_winning_raw if isinstance(current_winning_raw, int)
+                    else int(str(current_winning_raw))
+                )
                 self._current_state["winning_trades"] = current_winning + 1
             else:
                 current_losing_raw = self._current_state.get("losing_trades", 0)
-                current_losing = current_losing_raw if isinstance(current_losing_raw, int) else int(str(current_losing_raw))
+                current_losing = (
+                    current_losing_raw if isinstance(current_losing_raw, int)
+                    else int(str(current_losing_raw))
+                )
                 self._current_state["losing_trades"] = current_losing + 1
 
 
@@ -580,10 +587,8 @@ class PubSubManager:
         """Unsubscribe from an event type."""
         with self._lock:
             if event_type in self._subscribers:
-                try:
+                with contextlib.suppress(ValueError):
                     self._subscribers[event_type].remove(handler)
-                except ValueError:
-                    pass  # Handler not found
 
     def get_published_events(self, event_type: str | None = None) -> list[dict[str, Any]]:
         """Get published events, optionally filtered by type."""

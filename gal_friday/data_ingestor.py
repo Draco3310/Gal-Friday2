@@ -267,7 +267,7 @@ class DataIngestor:
                 }
 
         if not subscriptions_params:
-            self.logger.error(
+            self.logger.exception(
                 "No valid subscriptions configured.",
                 source_module=self.__class__.__name__)
             return None
@@ -511,8 +511,7 @@ class DataIngestor:
                     "Error during reconnection attempt %d: %s",
                     attempt,
                     str(e),
-                    source_module=self._source_module,
-                    exc_info=True)
+                    source_module=self._source_module)
 
                 # If this is the last attempt, trigger HALT consideration
                 if attempt == self._max_reconnect_attempts:
@@ -774,7 +773,10 @@ class DataIngestor:
             timestamp=datetime.now(UTC),
             # Map Kraken status to internal state if needed
             new_state=str(status) if status is not None else "unknown", # Ensure str
-            reason=f"Kraken WS Status Update: {str(status) if status is not None else 'unknown'}", # Ensure str in f-string part
+            reason=(
+                f"Kraken WS Status Update: "
+                f"{str(status) if status is not None else 'unknown'}"
+            ),  # Ensure str in f-string part
         )
         try:
             await self.pubsub.publish(event)
@@ -1518,7 +1520,10 @@ class DataIngestor:
             # Parse timestamp
             try:
                 # Kraken uses Unix timestamp (float seconds)
-                timestamp_exchange = datetime.fromtimestamp(float(timestamp_str) if timestamp_str is not None else 0, tz=UTC)
+                timestamp_exchange = datetime.fromtimestamp(
+                    float(timestamp_str) if timestamp_str is not None else 0,
+                    tz=UTC,
+                )
             except (ValueError, TypeError):
                 self.logger.warning(
                     "Could not parse trade timestamp, using current time",

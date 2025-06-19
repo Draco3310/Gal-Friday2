@@ -152,7 +152,10 @@ class MigrationManager:
 
     def generate_revision(self, message: str, autogenerate: bool = True, revision_id: str | None = None) -> None:
         """Generate a new revision file."""
-        self.logger.info(f"Generating new revision: '{message}' (autogenerate={autogenerate})", source_module=self._source_module)
+        self.logger.info(
+            f"Generating new revision: '{message}' (autogenerate={autogenerate})",
+            source_module=self._source_module,
+        )
         try:
             alembic_cfg = self._get_alembic_config()
             command.revision(

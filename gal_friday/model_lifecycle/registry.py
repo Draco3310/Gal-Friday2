@@ -506,10 +506,12 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             model_version_model: ModelVersionModel | None = None
             if version:
                 versions = await self.model_repo.get_model_versions_by_name(model_name, version)
-                if versions: model_version_model = versions[0]
+                if versions:
+                    model_version_model = versions[0]
             elif stage:
                 stages = await self.model_repo.get_model_versions_by_stage(model_name, stage.value)
-                if stages: model_version_model = stages[0]
+                if stages:
+                    model_version_model = stages[0]
             else:
                 model_version_model = await self.model_repo.get_latest_model_version_by_name(model_name)
 
@@ -518,7 +520,9 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
 
             metadata_dto = self._model_version_to_metadata_dto(model_version_model)
 
-            deployments = await self.model_repo.get_deployments_for_model_version(uuid.UUID(str(model_version_model.model_id)))
+            deployments = await self.model_repo.get_deployments_for_model_version(
+                uuid.UUID(str(model_version_model.model_id)),
+            )
             metadata_dto.deployment_history = [
                 {
                     "deployed_at": dep.deployed_at.isoformat(),
@@ -632,14 +636,23 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                  self.logger.error(f"Failed to archive model {model_id}", source_module=self._source_module)
                  return False
 
-            if self.config_manager.get_bool("model_registry.delete_archived_artifacts", default=False) and model_version.artifact_path:
+            if (
+                self.config_manager.get_bool("model_registry.delete_archived_artifacts", default=False)
+                and model_version.artifact_path
+            ):
                 artifact_path = Path(model_version.artifact_path)
                 if artifact_path.exists() and artifact_path.is_dir():
                     try:
                         shutil.rmtree(artifact_path)
-                        self.logger.info(f"Deleted local artifacts for archived model {model_id} at {artifact_path}", source_module=self._source_module)
+                        self.logger.info(
+                            f"Deleted local artifacts for archived model {model_id} at {artifact_path}",
+                            source_module=self._source_module,
+                        )
                     except OSError:
-                        self.logger.exception(f"Error deleting artifacts for model {model_id} at {artifact_path}: ", source_module=self._source_module)
+                        self.logger.exception(
+                            f"Error deleting artifacts for model {model_id} at {artifact_path}: ",
+                            source_module=self._source_module,
+                        )
             return True
         except Exception:
             self.logger.exception(
@@ -704,7 +717,9 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
         model_id_uuid = model_version.model_id
 
         # Ensure created_at and training_completed_at are timezone-aware (UTC)
-        created_at_utc = model_version.created_at.replace(tzinfo=UTC if model_version.created_at.tzinfo is None else None)
+        created_at_utc = model_version.created_at.replace(
+            tzinfo=UTC if model_version.created_at.tzinfo is None else None,
+        )
         training_completed_at_utc = None
         if model_version.training_completed_at:
             training_completed_at_utc = model_version.training_completed_at.replace(

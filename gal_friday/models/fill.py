@@ -286,7 +286,9 @@ class Fill(Base):
     fill_pk: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     fill_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # Exchange fill ID
     order_pk: Mapped[int] = mapped_column(Integer, ForeignKey("orders.order_pk"), nullable=False, index=True)
-    exchange_order_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True) # From Order, denormalized for easier query
+    exchange_order_id: Mapped[str | None] = mapped_column(
+        String(64), index=True, nullable=True,
+    )  # From Order, denormalized for easier query
 
     trading_pair: Mapped[str] = mapped_column(String(16), nullable=False)
     exchange: Mapped[str] = mapped_column(String(32), nullable=False)

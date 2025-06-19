@@ -33,6 +33,7 @@ Predictors downstream expect features to be pre-scaled and numerical, as handled
 from __future__ import annotations
 
 from collections import defaultdict, deque
+import contextlib
 from dataclasses import dataclass, field  # Added for InternalFeatureSpec
 from datetime import datetime
 from decimal import Decimal
@@ -117,18 +118,29 @@ L2BookValue = Union[L2BookSnapshot, float, None]
 # Define InternalFeatureSpec
 @dataclass
 class InternalFeatureSpec:
-    key: str  # Unique key for the feature. Used for activation via app config and as a base for published feature names.
-    calculator_type: str # Defines the core calculation logic (e.g., "rsi", "macd"). Maps to a `_pipeline_compute_{calculator_type}` method.
-    input_type: str # Specifies the type of input data required by the calculator (e.g., 'close_series', 'ohlcv_df', 'l2_book_series').
-    category: FeatureCategory = FeatureCategory.TECHNICAL # Categorizes the feature (e.g., TECHNICAL, L2_ORDER_BOOK, TRADE_DATA).
-    parameters: dict[str, Any] = field(default_factory=dict[str, Any]) # Dictionary of parameters passed to the feature calculator function.
-    imputation: dict[str, Any] | str | None = None # Configuration for the output imputation step in the pipeline (e.g., `{"strategy": "constant", "fill_value": 0.0}`). Applied as a final fallback.
-    scaling: dict[str, Any] | str | None = None    # Configuration for the output scaling step (e.g., `{"method": "standard"}`). Applied by FeatureEngine.
+    key: str  # Unique key for the feature. Used for activation via app config
+    # and as a base for published feature names.
+    calculator_type: str  # Defines the core calculation logic (e.g., "rsi", "macd").
+    # Maps to a `_pipeline_compute_{calculator_type}` method.
+    input_type: str  # Specifies the type of input data required by the calculator
+    # (e.g., 'close_series', 'ohlcv_df', 'l2_book_series').
+    category: FeatureCategory = FeatureCategory.TECHNICAL  # Categorizes the feature
+    # (e.g., TECHNICAL, L2_ORDER_BOOK, TRADE_DATA).
+    parameters: dict[str, Any] = field(default_factory=dict[str, Any])  # Dictionary of
+    # parameters passed to the feature calculator function.
+    imputation: dict[str, Any] | str | None = None  # Configuration for the output
+    # imputation step in the pipeline (e.g., `{"strategy": "constant", "fill_value": 0.0}`).
+    # Applied as a final fallback.
+    scaling: dict[str, Any] | str | None = None  # Configuration for the output scaling
+    # step (e.g., `{"method": "standard"}`). Applied by FeatureEngine.
     imputation_model_key: str | None = None  # Key referencing ML model for imputation
     imputation_model_version: str | None = None  # Optional version of the imputation model
-    description: str = "" # Human-readable description of the feature and its configuration.
-    version: str | None = None # Version string for the feature definition, loaded from the registry.
-    output_properties: dict[str, Any] = field(default_factory=dict[str, Any]) # Dictionary describing expected output characteristics (e.g., `{"value_type": "float", "range": [0, 1]}`).
+    description: str = ""  # Human-readable description of the feature and its
+    # configuration.
+    version: str | None = None  # Version string for the feature definition,
+    # loaded from the registry.
+    output_properties: dict[str, Any] = field(default_factory=dict[str, Any])  # Dictionary
+    # describing expected output characteristics (e.g., `{"value_type": "float", "range": [0, 1]}`).
 
     # Enhanced fields for comprehensive output handling and multiple outputs
     output_specs: list[OutputSpec] = field(default_factory=list[Any]) # Detailed specifications for each output
@@ -277,7 +289,10 @@ class FeatureOutputHandler:
             output_dict = {}
             for i, spec in enumerate(self.spec.output_specs):
                 if i < len(raw_outputs):
-                    output_dict[spec.name] = raw_outputs[i] if isinstance(raw_outputs[i], list | np.ndarray) else [raw_outputs[i]]
+                    output_dict[spec.name] = (
+                        raw_outputs[i] if isinstance(raw_outputs[i], list | np.ndarray)
+                        else [raw_outputs[i]]
+                    )
             return pd.DataFrame(output_dict)
 
         # Single scalar value
@@ -630,7 +645,12 @@ class AdvancedFeatureExtractor:
             raise ValueError("Input data is empty")
 
         # Check for sufficient data
-        min_periods = max(20, *(spec.required_lookback_periods for spec in self.feature_registry.values() if hasattr(spec, "required_lookback_periods")))
+        min_periods = max(
+            20,
+            *(spec.required_lookback_periods
+              for spec in self.feature_registry.values()
+              if hasattr(spec, "required_lookback_periods")),
+        )
         if len(data) < min_periods:
             raise ValueError(f"Insufficient data: need at least {min_periods} periods, got {len(data)}")
 
@@ -742,7 +762,9 @@ class AdvancedFeatureExtractor:
         tr = self._calculate_true_range(data)
         return tr.ewm(span=period).mean()  # Use exponential moving average
 
-    def _calculate_volatility_ratio(self, data: pd.DataFrame, short_period: int = 10, long_period: int = 30) -> pd.Series[Any]:
+    def _calculate_volatility_ratio(
+        self, data: pd.DataFrame, short_period: int = 10, long_period: int = 30,
+    ) -> pd.Series[Any]:
         """Calculate volatility ratio."""
         short_vol = data["close"].pct_change().rolling(window=short_period).std()
         long_vol = data["close"].pct_change().rolling(window=long_period).std()
@@ -775,7 +797,9 @@ class AdvancedFeatureExtractor:
         money_ratio = positive_mf / negative_mf
         return 100 - (100 / (1 + money_ratio))
 
-    def _calculate_volume_oscillator(self, data: pd.DataFrame, short_period: int = 14, long_period: int = 28) -> pd.Series[Any]:
+    def _calculate_volume_oscillator(
+        self, data: pd.DataFrame, short_period: int = 14, long_period: int = 28,
+    ) -> pd.Series[Any]:
         """Calculate Volume Oscillator."""
         short_vol_avg = data["volume"].rolling(window=short_period).mean()
         long_vol_avg = data["volume"].rolling(window=long_period).mean()
@@ -835,7 +859,9 @@ class AdvancedFeatureExtractor:
             return pd.Series([ask_price - bid_price], index=[data.index[-1]])
         return pd.Series([], dtype=float)
 
-    def _calculate_depth_imbalance(self, data: pd.DataFrame, l2_data: dict[str, Any], levels: int = 5) -> pd.Series[Any]:
+    def _calculate_depth_imbalance(
+        self, data: pd.DataFrame, l2_data: dict[str, Any], levels: int = 5,
+    ) -> pd.Series[Any]:
         """Calculate order book depth imbalance."""
         if "bids" in l2_data and "asks" in l2_data:
             bid_depth = sum(float(level[1]) for level in l2_data["bids"][:levels])
@@ -1154,7 +1180,8 @@ class FeatureEngine:
         self.l2_books_history: dict[str, deque[dict[str, Any]]] = defaultdict(
             lambda: deque(maxlen=l2_history_maxlen))
 
-        self.feature_pipelines: dict[str, dict[str, Any]] = {} # Stores {'pipeline': Pipeline, 'spec': InternalFeatureSpec}
+        self.feature_pipelines: dict[str, dict[str, Any]] = {}  # Stores {'pipeline': Pipeline,
+        # 'spec': InternalFeatureSpec}
 
         # Initialize enhanced components
         self.output_handlers: dict[str, FeatureOutputHandler] = {}
@@ -1181,7 +1208,9 @@ class FeatureEngine:
 
         self.logger.info("FeatureEngine with enhanced capabilities initialized.", source_module=self._source_module)
 
-    def _determine_calculator_type_and_input(self, feature_key: str, raw_cfg: dict[str, Any]) -> tuple[str | None, str | None]:
+    def _determine_calculator_type_and_input(
+        self, feature_key: str, raw_cfg: dict[str, Any],
+    ) -> tuple[str | None, str | None]:
         """Determines calculator type and input type from feature key and raw config.
 
         This method attempts to infer the type of calculation (e.g., "rsi", "macd")
@@ -1209,19 +1238,32 @@ class FeatureEngine:
 
         # Infer from key if not explicitly provided
         key_lower = feature_key.lower()
-        if "rsi" in key_lower: return "rsi", "close_series"
-        if "macd" in key_lower: return "macd", "close_series"
-        if "bbands" in key_lower: return "bbands", "close_series"
-        if "roc" in key_lower: return "roc", "close_series"
-        if "atr" in key_lower: return "atr", "ohlcv_df"
-        if "stdev" in key_lower: return "stdev", "close_series"
-        if "vwap_ohlcv" in key_lower: return "vwap_ohlcv", "ohlcv_df"
-        if "l2_spread" in key_lower: return "l2_spread", "l2_book_series"
-        if "l2_imbalance" in key_lower: return "l2_imbalance", "l2_book_series"
-        if "l2_wap" in key_lower: return "l2_wap", "l2_book_series"
-        if "l2_depth" in key_lower: return "l2_depth", "l2_book_series"
-        if "vwap_trades" in key_lower: return "vwap_trades", "trades_and_bar_starts"
-        if "volume_delta" in key_lower: return "volume_delta", "trades_and_bar_starts"
+        if "rsi" in key_lower:
+            return "rsi", "close_series"
+        if "macd" in key_lower:
+            return "macd", "close_series"
+        if "bbands" in key_lower:
+            return "bbands", "close_series"
+        if "roc" in key_lower:
+            return "roc", "close_series"
+        if "atr" in key_lower:
+            return "atr", "ohlcv_df"
+        if "stdev" in key_lower:
+            return "stdev", "close_series"
+        if "vwap_ohlcv" in key_lower:
+            return "vwap_ohlcv", "ohlcv_df"
+        if "l2_spread" in key_lower:
+            return "l2_spread", "l2_book_series"
+        if "l2_imbalance" in key_lower:
+            return "l2_imbalance", "l2_book_series"
+        if "l2_wap" in key_lower:
+            return "l2_wap", "l2_book_series"
+        if "l2_depth" in key_lower:
+            return "l2_depth", "l2_book_series"
+        if "vwap_trades" in key_lower:
+            return "vwap_trades", "trades_and_bar_starts"
+        if "volume_delta" in key_lower:
+            return "volume_delta", "trades_and_bar_starts"
 
         self.logger.warning("Could not determine calculator_type or input_type for feature key: %s", feature_key)
         return None, None
@@ -1285,7 +1327,10 @@ class FeatureEngine:
             # or could be at the top level of raw_cfg_dict.
             parameters = raw_cfg_dict.get("parameters", raw_cfg_dict.get("params", {}))
             # If common params like 'period' or 'length' are top-level, merge them in:
-            for common_param_key in ["period", "length", "fast", "slow", "signal", "levels", "std_dev", "length_seconds", "bar_interval_seconds"]:
+            for common_param_key in [
+                "period", "length", "fast", "slow", "signal", "levels",
+                "std_dev", "length_seconds", "bar_interval_seconds",
+            ]:
                 if common_param_key in raw_cfg_dict and common_param_key not in parameters:
                     parameters[common_param_key] = raw_cfg_dict[common_param_key]
 
@@ -1312,7 +1357,11 @@ class FeatureEngine:
                 imputation=imputation_cfg,
                 scaling=scaling_cfg,
                 imputation_model_key=raw_cfg_dict.get("imputation_model_key"),
-                imputation_model_version=str(raw_cfg_dict.get("imputation_model_version")) if raw_cfg_dict.get("imputation_model_version") is not None else None,
+                imputation_model_version=(
+                    str(raw_cfg_dict.get("imputation_model_version"))
+                    if raw_cfg_dict.get("imputation_model_version") is not None
+                    else None
+                ),
                 description=description)
             parsed_specs[key] = spec_val
 
@@ -1344,7 +1393,10 @@ class FeatureEngine:
         elif isinstance(app_feature_config, dict): # Case 2: Dict of feature names with overrides or ad-hoc
             for key, overrides_or_activation in app_feature_config.items():
                 if not isinstance(overrides_or_activation, dict):
-                    self.logger.warning("Override/activation config for feature '%s' is not a dict[str, Any]. Skipping.", key)
+                    self.logger.warning(
+                        "Override/activation config for feature '%s' is not a dict[str, Any]. Skipping.",
+                        key,
+                    )
                     continue
 
                 base_config = registry_definitions.get(key)
@@ -1356,11 +1408,17 @@ class FeatureEngine:
                         continue
                     final_config_dict = self._deep_merge_configs(base_config.copy(), overrides_or_activation)
                 else: # Key not in registry - treat as ad-hoc definition
-                    self.logger.info("Feature '%s' not found in registry, treating as ad-hoc definition from app config.", key)
+                    self.logger.info(
+                        "Feature '%s' not found in registry, treating as ad-hoc definition from app config.",
+                        key,
+                    )
                     final_config_dict = overrides_or_activation.copy()
                     # Ad-hoc definitions must provide all necessary fields like calculator_type, input_type
                     if "calculator_type" not in final_config_dict or "input_type" not in final_config_dict:
-                        self.logger.warning("Ad-hoc feature '%s' missing 'calculator_type' or 'input_type'. Skipping.", key)
+                        self.logger.warning(
+                            "Ad-hoc feature '%s' missing 'calculator_type' or 'input_type'. Skipping.",
+                            key,
+                        )
                         continue
 
                 spec_result = self._parse_single_feature_definition(key, final_config_dict)
@@ -1368,11 +1426,17 @@ class FeatureEngine:
                     final_parsed_specs[key] = spec_result
 
         else:
-            self.logger.warning("App-level 'features' config is neither a list[Any] nor a dict[str, Any]. No features will be configured based on it.")
+            self.logger.warning(
+                "App-level 'features' config is neither a list[Any] nor a dict[str, Any]. "
+                "No features will be configured based on it.",
+            )
 
         self._feature_configs = final_parsed_specs
         if not self._feature_configs:
-            self.logger.warning("No features were successfully parsed or activated. FeatureEngine might not produce any features.")
+            self.logger.warning(
+                "No features were successfully parsed or activated. "
+                "FeatureEngine might not produce any features.",
+            )
 
 
     def _deep_merge_configs(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -1399,7 +1463,9 @@ class FeatureEngine:
                 merged[key] = value
         return merged
 
-    def _parse_single_feature_definition(self, feature_key: str, config_dict: dict[str, Any]) -> InternalFeatureSpec | None:
+    def _parse_single_feature_definition(
+        self, feature_key: str, config_dict: dict[str, Any],
+    ) -> InternalFeatureSpec | None:
         """Parses a single, consolidated feature configuration dictionary into an
         `InternalFeatureSpec` data object.
 
@@ -1437,13 +1503,16 @@ class FeatureEngine:
 
         if not calculator_type or not input_type:
             # Try to infer if they are missing (e.g. for ad-hoc definitions)
-            inferred_calc_type, inferred_input_type = self._determine_calculator_type_and_input(feature_key, config_dict)
+            inferred_calc_type, inferred_input_type = self._determine_calculator_type_and_input(
+                feature_key, config_dict,
+            )
             if not calculator_type: calculator_type = inferred_calc_type
             if not input_type: input_type = inferred_input_type
 
             if not calculator_type or not input_type:
                 self.logger.warning(
-                    "Could not determine calculator_type or input_type for feature '%s' even after inference. Skipping.",
+                    "Could not determine calculator_type or input_type for feature '%s' "
+                    "even after inference. Skipping.",
                     feature_key)
                 return None
 
@@ -1452,7 +1521,10 @@ class FeatureEngine:
         if not isinstance(parameters, dict): parameters = {}
 
         # Merge top-level common param keys if they exist and aren't already in 'parameters'
-        for common_param_key in ["period", "length", "fast", "slow", "signal", "levels", "std_dev", "length_seconds", "bar_interval_seconds"]:
+        for common_param_key in [
+            "period", "length", "fast", "slow", "signal", "levels",
+            "std_dev", "length_seconds", "bar_interval_seconds",
+        ]:
             if common_param_key in config_dict and common_param_key not in parameters:
                 parameters[common_param_key] = config_dict[common_param_key]
 
@@ -1567,7 +1639,10 @@ class FeatureEngine:
             elif imputation_cfg is None: # Use provided default_fill_value directly
                  pass # strategy remains 'default' -> use default_fill_value
             else: # Invalid config, treat as passthrough or log warning
-                self.logger.warning("Unrecognized imputation config for %s: %s. No imputer added.", spec_key, imputation_cfg)
+                self.logger.warning(
+                    "Unrecognized imputation config for %s: %s. No imputer added.",
+                    spec_key, imputation_cfg,
+                )
                 return None
 
             step_name_suffix = ""
@@ -1593,8 +1668,19 @@ class FeatureEngine:
                 self.logger.warning("Unknown imputation strategy '%s' for %s. No imputer added.", strategy, spec_key)
                 return None
 
-            self.logger.debug("Using output imputer strategy '%s' (fill: %s) for %s", strategy if strategy != "default" else f"default_fill({default_fill_value})", fill_value if strategy == "constant" else "N/A", spec_key)
-            return (f"{spec_key}_output_imputer_{step_name_suffix}", FunctionTransformer(transform_func, validate=False))
+            imputer_name = (
+                strategy if strategy != "default"
+                else f"default_fill({default_fill_value})"
+            )
+            fill_desc = fill_value if strategy == "constant" else "N/A"
+            self.logger.debug(
+                "Using output imputer strategy '%s' (fill: %s) for %s",
+                imputer_name, fill_desc, spec_key,
+            )
+            return (
+                f"{spec_key}_output_imputer_{step_name_suffix}",
+                FunctionTransformer(transform_func, validate=False),
+            )
 
 
         # Helper for output scaler step
@@ -1624,7 +1710,11 @@ class FeatureEngine:
                 elif method != "standard":
                     self.logger.warning("Unknown scaling method '%s' for %s. Using StandardScaler.", method, spec_key)
             elif isinstance(scaling_cfg, str) and scaling_cfg not in ["standard", "passthrough"]: # e.g. just "minmax"
-                 self.logger.warning("Simple string for scaling method '%s' for %s is ambiguous. Use dict[str, Any] config or 'passthrough'. Defaulting to StandardScaler.", scaling_cfg, spec_key)
+                 self.logger.warning(
+                    "Simple string for scaling method '%s' for %s is ambiguous. "
+                    "Use dict[str, Any] config or 'passthrough'. Defaulting to StandardScaler.",
+                    scaling_cfg, spec_key,
+                )
 
 
             self.logger.debug("Using %s for scaling for %s", type(scaler_instance).__name__, spec_key)
@@ -1649,7 +1739,10 @@ class FeatureEngine:
             # Calculator step based on spec.calculator_type
             calculator_func = getattr(FeatureEngine, f"_pipeline_compute_{spec.calculator_type}", None)
             if not calculator_func:
-                self.logger.error("No _pipeline_compute function found for calculator_type: %s (feature key: %s)", spec.calculator_type, spec.key)
+                self.logger.error(
+                    "No _pipeline_compute function found for calculator_type: %s (feature key: %s)",
+                    spec.calculator_type, spec.key,
+                )
                 continue
 
             # Prepare kw_args for the calculator from spec.parameters
@@ -1659,39 +1752,57 @@ class FeatureEngine:
             if spec.calculator_type in ["rsi", "roc", "stdev"]:
                 default_period = 14 if spec.calculator_type == "rsi" else 10 if spec.calculator_type == "roc" else 20
                 calc_kw_args["period"] = spec.parameters.get("period", default_period)
-                if spec.parameters.get("period") is None: self.logger.debug("Using default period %s for %s ('%s')", calc_kw_args["period"], spec.calculator_type, spec.key)
+                if spec.parameters.get("period") is None:
+                    self.logger.debug(
+                        "Using default period %s for %s ('%s')",
+                        calc_kw_args["period"], spec.calculator_type, spec.key,
+                    )
 
             elif spec.calculator_type == "macd":
                 calc_kw_args["fast"] = spec.parameters.get("fast", 12)
                 calc_kw_args["slow"] = spec.parameters.get("slow", 26)
                 calc_kw_args["signal"] = spec.parameters.get("signal", 9)
                 if any(p not in spec.parameters for p in ["fast", "slow", "signal"]):
-                    self.logger.debug("Using default MACD params (f:%s,s:%s,sig:%s) for %s", calc_kw_args["fast"], calc_kw_args["slow"], calc_kw_args["signal"], spec.key)
+                    self.logger.debug(
+                        "Using default MACD params (f:%s,s:%s,sig:%s) for %s",
+                        calc_kw_args["fast"], calc_kw_args["slow"], calc_kw_args["signal"], spec.key,
+                    )
 
             elif spec.calculator_type == "bbands":
                 calc_kw_args["length"] = spec.parameters.get("length", 20)
                 calc_kw_args["std_dev"] = float(spec.parameters.get("std_dev", 2.0))
                 if "length" not in spec.parameters or "std_dev" not in spec.parameters:
-                     self.logger.debug("Using default BBands params (l:%s,s:%.1f) for %s", calc_kw_args["length"], calc_kw_args["std_dev"], spec.key)
+                     self.logger.debug(
+                         "Using default BBands params (l:%s,s:%.1f) for %s",
+                         calc_kw_args["length"], calc_kw_args["std_dev"], spec.key,
+                     )
 
             elif spec.calculator_type == "atr":
                 calc_kw_args["length"] = spec.parameters.get("length", 14)
                 # high_col, low_col, close_col default in function signature of _pipeline_compute_atr
-                if "length" not in spec.parameters: self.logger.debug("Using default ATR length %s for %s", calc_kw_args["length"], spec.key)
+                if "length" not in spec.parameters:
+                    self.logger.debug("Using default ATR length %s for %s", calc_kw_args["length"], spec.key)
 
             elif spec.calculator_type == "vwap_ohlcv":
                 calc_kw_args["length"] = spec.parameters.get("length", 14)
-                if "length" not in spec.parameters: self.logger.debug("Using default VWAP_OHLCV length %s for %s", calc_kw_args["length"], spec.key)
+                if "length" not in spec.parameters:
+                    self.logger.debug("Using default VWAP_OHLCV length %s for %s", calc_kw_args["length"], spec.key)
 
             elif spec.calculator_type in ["l2_imbalance", "l2_depth", "l2_wap"]:
                 # `ohlcv_close_prices` is NOT included here; it's passed dynamically for l2_wap.
                 default_levels = 5
-                if spec.calculator_type == "l2_wap": default_levels = 1
-                elif spec.calculator_type == "l2_spread": default_levels = 0 # Not applicable for spread
+                if spec.calculator_type == "l2_wap":
+                    default_levels = 1
+                elif spec.calculator_type == "l2_spread":
+                    default_levels = 0 # Not applicable for spread
 
                 if default_levels > 0: # Only add 'levels' if applicable
                     calc_kw_args["levels"] = spec.parameters.get("levels", default_levels)
-                    if "levels" not in spec.parameters: self.logger.debug("Using default levels %s for %s ('%s')", calc_kw_args["levels"], spec.calculator_type, spec.key)
+                    if "levels" not in spec.parameters:
+                        self.logger.debug(
+                            "Using default levels %s for %s ('%s')",
+                            calc_kw_args["levels"], spec.calculator_type, spec.key,
+                        )
 
             elif spec.calculator_type in {"vwap_trades", "volume_delta"}:
                 # `ohlcv_close_prices` is NOT included here; it's passed dynamically.
@@ -1700,25 +1811,38 @@ class FeatureEngine:
                 calc_kw_args["bar_interval_seconds"] = spec.parameters.get("bar_interval_seconds",
                                                                          spec.parameters.get("length_seconds", 60))
                 if "bar_interval_seconds" not in spec.parameters and "length_seconds" not in spec.parameters:
-                    self.logger.debug("Using default bar_interval_seconds %s for %s ('%s')", calc_kw_args["bar_interval_seconds"], spec.calculator_type, spec.key)
+                    self.logger.debug(
+                        "Using default bar_interval_seconds %s for %s ('%s')",
+                        calc_kw_args["bar_interval_seconds"], spec.calculator_type, spec.key,
+                    )
                 # `bar_start_times` will be passed dynamically during the call in _calculate_and_publish_features
 
             # l2_spread currently has no parameters in its _pipeline_compute_l2_spread signature other than X.
 
-            pipeline_steps.append((f"{spec.key}_calculator", FunctionTransformer(calculator_func, kw_args=calc_kw_args, validate=False)))
+            pipeline_steps.append((
+                f"{spec.key}_calculator",
+                FunctionTransformer(calculator_func, kw_args=calc_kw_args, validate=False),
+            ))
 
             # Output Imputation & Scaling using helpers
             is_df_output = spec.calculator_type in ["macd", "bbands", "l2_spread", "l2_depth"]
             # Define default fill values based on feature type characteristics
             default_fill = 0.0 # General default
-            if spec.calculator_type == "rsi": default_fill = 50.0
-            elif spec.calculator_type in ["atr", "vwap_ohlcv", "l2_wap", "vwap_trades", "stdev"]: default_fill = np.nan # Will be filled by mean then
+            if spec.calculator_type == "rsi":
+                default_fill = 50.0
+            elif spec.calculator_type in ["atr", "vwap_ohlcv", "l2_wap", "vwap_trades", "stdev"]:
+                default_fill = np.nan # Will be filled by mean then
 
-            imputer_step = get_output_imputer_step(spec.imputation, default_fill_value=default_fill, is_dataframe_output=is_df_output, spec_key=spec.key)
-            if imputer_step: pipeline_steps.append(imputer_step)
+            imputer_step = get_output_imputer_step(
+                spec.imputation, default_fill_value=default_fill,
+                is_dataframe_output=is_df_output, spec_key=spec.key,
+            )
+            if imputer_step:
+                pipeline_steps.append(imputer_step)
 
             scaler_step = get_output_scaler_step(spec.scaling, spec_key=spec.key)
-            if scaler_step: pipeline_steps.append(scaler_step)
+            if scaler_step:
+                pipeline_steps.append(scaler_step)
 
             if pipeline_steps:
                 final_pipeline = Pipeline(steps=pipeline_steps)
@@ -2728,7 +2852,8 @@ class FeatureEngine:
 
     @staticmethod
     def _pipeline_compute_vwap_trades(
-        trade_history_deque: deque[dict[str, Any]],  # Deque of trade dicts {"price": Decimal, "volume": Decimal, "timestamp": datetime}
+        trade_history_deque: deque[dict[str, Any]],  # Deque of trade dicts
+        # {"price": Decimal, "volume": Decimal, "timestamp": datetime}
         bar_start_times: Any, # Series[Any] of datetime objects
         bar_interval_seconds: int,
         ohlcv_close_prices: pd.Series[Any] | None = None, # For fallback
@@ -2760,8 +2885,12 @@ class FeatureEngine:
                     trades_df = pd.DataFrame(list[Any](trade_history_deque))
 
                 if not trades_df.empty: # Proceed with type conversion only if DataFrame is not empty
-                    trades_df["price"] = trades_df["price"].apply(lambda x: Decimal(str(x)))  # type: ignore[arg-type,return-value]
-                    trades_df["volume"] = trades_df["volume"].apply(lambda x: Decimal(str(x)))  # type: ignore[arg-type,return-value]
+                    trades_df["price"] = trades_df["price"].apply(
+                        lambda x: Decimal(str(x)),
+                    )  # type: ignore[arg-type,return-value]
+                    trades_df["volume"] = trades_df["volume"].apply(
+                        lambda x: Decimal(str(x)),
+                    )  # type: ignore[arg-type,return-value]
                     trades_df["timestamp"] = pd.to_datetime(trades_df["timestamp"])
                 else: # trades_df is empty (e.g. deque was empty or contained non-dict[str, Any] items)
                     trades_df = None # Ensure it's None to trigger fallback for all bars
@@ -3142,12 +3271,20 @@ class FeatureEngine:
                     # Check integrity of levels up to 'levels'
                     valid_bids = True
                     for i in range(levels):
-                        if not (isinstance(book["bids"][i], list | tuple) and len(book["bids"][i]) == 2 and book["bids"][i][1] is not None):
+                        if not (
+                            isinstance(book["bids"][i], list | tuple)
+                            and len(book["bids"][i]) == 2
+                            and book["bids"][i][1] is not None
+                        ):
                             valid_bids = False; break
 
                     valid_asks = True
                     for i in range(levels):
-                        if not (isinstance(book["asks"][i], list | tuple) and len(book["asks"][i]) == 2 and book["asks"][i][1] is not None):
+                        if not (
+                            isinstance(book["asks"][i], list | tuple)
+                            and len(book["asks"][i]) == 2
+                            and book["asks"][i][1] is not None
+                        ):
                             valid_asks = False; break
 
                     if valid_bids and valid_asks:
@@ -3327,12 +3464,20 @@ class FeatureEngine:
 
                     valid_bids = True
                     for i in range(levels):
-                        if not (isinstance(book["bids"][i], list | tuple) and len(book["bids"][i]) == 2 and book["bids"][i][1] is not None):
+                        if not (
+                            isinstance(book["bids"][i], list | tuple)
+                            and len(book["bids"][i]) == 2
+                            and book["bids"][i][1] is not None
+                        ):
                             valid_bids = False; break
 
                     valid_asks = True
                     for i in range(levels):
-                        if not (isinstance(book["asks"][i], list | tuple) and len(book["asks"][i]) == 2 and book["asks"][i][1] is not None):
+                        if not (
+                            isinstance(book["asks"][i], list | tuple)
+                            and len(book["asks"][i]) == 2
+                            and book["asks"][i][1] is not None
+                        ):
                             valid_asks = False; break
 
                     if valid_bids and valid_asks:
@@ -3358,7 +3503,8 @@ class FeatureEngine:
         trade_history_deque: deque[dict[str, Any]], # Deque of trade dicts
         bar_start_times: pd.Series[Any], # Series[Any] of bar start datetime objects
         bar_interval_seconds: int,
-        ohlcv_close_prices: pd.Series[Any] | None = None, # Added for signature consistency, not used by this specific function
+        ohlcv_close_prices: pd.Series[Any] | None = None,  # Added for signature consistency,
+        # not used by this specific function
     ) -> pd.Series[Any]:
         """Computes Volume Delta from trade data for specified bar start times.
         If no trades for a bar, delta is 0.0.
@@ -3369,7 +3515,11 @@ class FeatureEngine:
         series_name = f"volume_delta_{bar_interval_seconds}s"
         if not isinstance(bar_start_times, pd.Series) or not isinstance(trade_history_deque, deque):
             # Early return for invalid input
-            return pd.Series(dtype="float64", index=bar_start_times.index if isinstance(bar_start_times, pd.Series) else None, name=series_name)  # type: ignore[unreachable]
+            return pd.Series(
+                dtype="float64",
+                index=bar_start_times.index if isinstance(bar_start_times, pd.Series) else None,
+                name=series_name,
+            )  # type: ignore[unreachable]
 
         if not trade_history_deque: # No trades in entire history
             return pd.Series(0.0, index=bar_start_times.index, dtype="float64", name=series_name)
@@ -3397,7 +3547,10 @@ class FeatureEngine:
             sell_volume = relevant_trades[relevant_trades["side"] == "sell"]["volume"].sum()
             deltas.append(float(buy_volume - sell_volume))
 
-        return pd.Series(deltas, index=bar_start_times.index, dtype="float64", name=f"volume_delta_{bar_interval_seconds}s")
+        return pd.Series(
+            deltas, index=bar_start_times.index, dtype="float64",
+            name=f"volume_delta_{bar_interval_seconds}s",
+        )
 
 
     # --- Existing feature calculation methods (some may be deprecated/refactored) ---
@@ -3474,7 +3627,8 @@ class FeatureEngine:
             ohlcv_close_for_dynamic_injection = close_series_for_pipelines.loc[[bar_start_datetime]]
         else:
             self.logger.warning(
-                "Could not find close price for current bar %s in historical data. Features needing this fallback may fail or use 0.0.",
+                "Could not find close price for current bar %s in historical data. "
+                "Features needing this fallback may fail or use 0.0.",
                 bar_start_datetime)
             # Create an empty series with the right index to prevent downstream errors if it's expected
             ohlcv_close_for_dynamic_injection = pd.Series(dtype="float64", index=[bar_start_datetime])
@@ -3498,7 +3652,10 @@ class FeatureEngine:
                 # For these, X is the trade_history_deque. bar_start_times is injected dynamically.
                 pipeline_input_data = trades_deque
             else:
-                self.logger.warning("Unknown input_type '%s' for pipeline %s. Skipping.", spec.input_type, pipeline_name)
+                self.logger.warning(
+                    "Unknown input_type '%s' for pipeline %s. Skipping.",
+                    spec.input_type, pipeline_name,
+                )
                 continue
 
             try:
@@ -3514,10 +3671,13 @@ class FeatureEngine:
                         current_kw_args = calculator_transformer.kw_args.copy()
 
                         # Inject ohlcv_close_prices (aligned to the specific input type's index)
-                        if ohlcv_close_for_dynamic_injection is not None and not ohlcv_close_for_dynamic_injection.empty:
+                        if (ohlcv_close_for_dynamic_injection is not None and
+                                not ohlcv_close_for_dynamic_injection.empty):
                             current_kw_args["ohlcv_close_prices"] = ohlcv_close_for_dynamic_injection
                         else: # Pass None or an empty series if not available, function should handle it
-                            current_kw_args["ohlcv_close_prices"] = pd.Series(dtype="float64", index=[bar_start_datetime])
+                            current_kw_args["ohlcv_close_prices"] = pd.Series(
+                                dtype="float64", index=[bar_start_datetime],
+                            )
 
 
                         # For trade-based features, also inject bar_start_times
@@ -3526,7 +3686,10 @@ class FeatureEngine:
 
                         calculator_transformer.kw_args = current_kw_args
                     else:
-                        self.logger.error("Calculator step %s not found in cloned pipeline %s. Skipping dynamic args.", calculator_step_name, pipeline_name)
+                        self.logger.error(
+                            "Calculator step %s not found in cloned pipeline %s. Skipping dynamic args.",
+                            calculator_step_name, pipeline_name,
+                        )
 
                 # Execute the pipeline (original or cloned-and-modified)
                 if pipeline_input_data is not None:
@@ -3537,7 +3700,7 @@ class FeatureEngine:
                     continue # Skip to next pipeline if input data is None
 
             except Exception as e:
-                self.logger.exception("Error executing pipeline %s: %s", pipeline_name, e)
+                self.logger.exception("Error executing pipeline %s:", e)
                 continue # Skip this pipeline on error
 
             # Process pipeline outputs using enhanced output handlers
@@ -3567,16 +3730,24 @@ class FeatureEngine:
                     latest_features_values: Any = None
                     if isinstance(raw_pipeline_output, pd.Series):
                         if not raw_pipeline_output.empty:
-                            if spec.input_type not in ["l2_book_series", "trades_and_bar_starts"] or len(raw_pipeline_output) > 1:
+                            if (spec.input_type not in ["l2_book_series", "trades_and_bar_starts"] or
+                                    len(raw_pipeline_output) > 1):
                                 latest_features_values = raw_pipeline_output.iloc[-1]
                             else:
-                                latest_features_values = raw_pipeline_output.iloc[0] if len(raw_pipeline_output) == 1 else np.nan
+                                latest_features_values = (
+                                    raw_pipeline_output.iloc[0]
+                                    if len(raw_pipeline_output) == 1 else np.nan
+                                )
                     elif isinstance(raw_pipeline_output, pd.DataFrame):
                         if not raw_pipeline_output.empty:
                             if spec.input_type not in ["l2_book_series"] or len(raw_pipeline_output) > 1:
                                 latest_features_values = raw_pipeline_output.iloc[-1]
                             else:
-                                latest_features_values = raw_pipeline_output.iloc[0] if len(raw_pipeline_output) == 1 else pd.Series(dtype="float64")
+                                latest_features_values = (
+                                    raw_pipeline_output.iloc[0]
+                                    if len(raw_pipeline_output) == 1
+                                    else pd.Series(dtype="float64")
+                                )
                     elif isinstance(raw_pipeline_output, np.ndarray):
                         if raw_pipeline_output.ndim == 1 and raw_pipeline_output.size > 0:
                             latest_features_values = raw_pipeline_output[-1]
@@ -3601,7 +3772,10 @@ class FeatureEngine:
                 # Fall back to simple processing
                 if pd.notna(raw_pipeline_output):
                     feature_output_name = pipeline_name.replace("_pipeline","")
-                    all_generated_features[feature_output_name] = float(raw_pipeline_output) if hasattr(raw_pipeline_output, "__float__") else 0.0
+                    all_generated_features[feature_output_name] = (
+                        float(raw_pipeline_output)
+                        if hasattr(raw_pipeline_output, "__float__") else 0.0
+                    )
 
         # Extract advanced features if configured
         try:
@@ -3624,7 +3798,11 @@ class FeatureEngine:
                 # Add advanced features to the main feature set
                 if not advanced_result.features.empty:
                     # Get the latest row of advanced features
-                    latest_advanced = advanced_result.features.iloc[-1] if len(advanced_result.features) > 1 else advanced_result.features.iloc[0]
+                    latest_advanced = (
+                        advanced_result.features.iloc[-1]
+                        if len(advanced_result.features) > 1
+                        else advanced_result.features.iloc[0]
+                    )
 
                     for feature_name, value in latest_advanced.items():
                         if pd.notna(value):
@@ -3663,7 +3841,10 @@ class FeatureEngine:
 
         # Fallback for any old handlers if no pipelines were built (mostly for transition)
         if not self.feature_pipelines and not features_for_payload:
-            self.logger.debug("No pipelines executed, attempting feature calculation with remaining old handlers.", source_module=self._source_module)
+            self.logger.debug(
+                "No pipelines executed, attempting feature calculation with remaining old handlers.",
+                source_module=self._source_module,
+            )
             # ... (old handler logic can be here if needed, but it's mostly empty now) ...
 
 
@@ -4224,7 +4405,14 @@ class FeatureEngine:
                 imputation_engine = IntelligentImputationEngine(self.logger)
                 feature_metadata = {
                     feature_name: {
-                        "type": "technical" if any(ind in feature_name.lower() for ind in ["rsi", "macd", "bb", "sma", "ema"]) else "volume" if "volume" in feature_name.lower() else "unknown",
+                        "type": (
+                            "technical" if any(
+                                ind in feature_name.lower()
+                                for ind in ["rsi", "macd", "bb", "sma", "ema"]
+                            )
+                            else "volume" if "volume" in feature_name.lower()
+                            else "unknown"
+                        ),
                         "category": "indicator",
                     },
                 }
@@ -4489,7 +4677,10 @@ class FeatureEngine:
                 if regime == "trending_down":
                     return max(0.0, base_value - (adjustment_factor * 20))  # type: ignore[no-any-return]
                 if volatility == "high":
-                    return base_value + (adjustment_factor * 10) if base_value > 50 else base_value - (adjustment_factor * 10)  # type: ignore[no-any-return]
+                    return (
+                        base_value + (adjustment_factor * 10) if base_value > 50
+                        else base_value - (adjustment_factor * 10)
+                    )  # type: ignore[no-any-return]
 
             elif "spread" in feature_name.lower():
                 if volatility == "high":
@@ -4695,7 +4886,7 @@ class FeatureEngine:
             # Get historical data if available
             historical_data = None
             if hasattr(self, "history_repo") and self.history_repo:
-                try:
+                with contextlib.suppress(Exception):
                     # TODO: get_feature_history method not implemented in HistoryRepository
                     # When implemented, uncomment the code below:
                     # hist_features = await self.history_repo.get_feature_history(
@@ -4710,8 +4901,6 @@ class FeatureEngine:
                     #         values='value'
                     #     )
                     pass  # Method not implemented yet
-                except Exception:
-                    pass  # Continue without historical data
 
             # Comprehensive validation
             validated_features, validation_report = validator.validate_features(
@@ -4725,7 +4914,10 @@ class FeatureEngine:
                 consistency = validation_report["statistical_tests"].get("consistency", {})
 
                 # Check spread consistency
-                if "spread_consistency" in consistency and not consistency["spread_consistency"].get("consistent", True):
+                if (
+                    "spread_consistency" in consistency
+                    and not consistency["spread_consistency"].get("consistent", True)
+                ):
                     business_violations.append("inconsistent_spreads")
 
                 # Check RSI bounds
@@ -5050,7 +5242,9 @@ class FeatureEngine:
                 max_gap_minutes=input_imputation_config.get("max_gap_minutes", 10),  # Conservative for crypto
                 knn_neighbors=input_imputation_config.get("knn_neighbors", 5),
                 confidence_threshold=input_imputation_config.get("confidence_threshold", 0.7),
-                max_computation_time_ms=input_imputation_config.get("max_computation_time_ms", 50.0),  # Fast for real-time
+                max_computation_time_ms=input_imputation_config.get(
+                    "max_computation_time_ms", 50.0,
+                ),  # Fast for real-time
                 cache_results=True,
                 consider_market_session=False,  # Crypto trades 24/7
                 consider_volatility_regime=True,  # Important for crypto

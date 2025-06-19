@@ -103,7 +103,8 @@ class RetrainingRepository(BaseRepository[RetrainingJob]):
         if "detected_at" in event_data and isinstance(event_data["detected_at"], str):
             dt_obj = datetime.fromisoformat(event_data["detected_at"])
             event_data["detected_at"] = dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
-        elif "detected_at" in event_data and isinstance(event_data["detected_at"], datetime) and event_data["detected_at"].tzinfo is None:
+        elif ("detected_at" in event_data and isinstance(event_data["detected_at"], datetime) and
+              event_data["detected_at"].tzinfo is None):
             event_data["detected_at"] = event_data["detected_at"].replace(tzinfo=UTC)
 
 

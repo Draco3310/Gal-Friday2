@@ -52,7 +52,8 @@ class ExperimentRepository(BaseRepository[Experiment]):
                 if dt_obj.tzinfo is None:
                     dt_obj = dt_obj.replace(tzinfo=UTC)
                 experiment_data[key] = dt_obj
-            elif key in experiment_data and isinstance(experiment_data[key], datetime) and experiment_data[key].tzinfo is None:
+            elif (key in experiment_data and isinstance(experiment_data[key], datetime) and
+                  experiment_data[key].tzinfo is None):
                  experiment_data[key] = experiment_data[key].replace(tzinfo=UTC)
 
 
@@ -71,7 +72,8 @@ class ExperimentRepository(BaseRepository[Experiment]):
                 for key, value in experiment_data.items():
                     if hasattr(existing_exp, key):
                         setattr(existing_exp, key, value)
-                if hasattr(existing_exp, "updated_at") and "updated_at" not in experiment_data : # Assuming an updated_at field
+                if (hasattr(existing_exp, "updated_at") and
+                        "updated_at" not in experiment_data):  # Assuming an updated_at field
                     existing_exp.updated_at = datetime.now(UTC)
                 session.add(existing_exp)
                 exp_to_return = existing_exp

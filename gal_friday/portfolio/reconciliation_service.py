@@ -679,7 +679,9 @@ class ReconciliationService:
         self._consecutive_failures = 0
         self._current_reconciliation_type: ReconciliationType | None = None
 
-    def _load_reconciliation_config(self, reconciliation_type: ReconciliationType | None = None) -> ReconciliationConfig:
+    def _load_reconciliation_config(
+        self, reconciliation_type: ReconciliationType | None = None,
+    ) -> ReconciliationConfig:
         """Load reconciliation configuration from config manager.
 
         Args:
@@ -718,7 +720,9 @@ class ReconciliationService:
             emergency_alert_threshold=config_dict.get("emergency_alert_threshold", 0.10),
         )
 
-    async def perform_configurable_reconciliation(self, reconciliation_type: ReconciliationType | None = None) -> ReconciliationResult:
+    async def perform_configurable_reconciliation(
+        self, reconciliation_type: ReconciliationType | None = None,
+    ) -> ReconciliationResult:
         """Perform reconciliation with configurable type using strategy pattern.
         This replaces the hardcoded "full" reconciliation approach.
 
@@ -1190,7 +1194,9 @@ class ReconciliationService:
                 report.error_messages.append(
                     f"Auto-correction failed: {correction['type']} - {e!s}")
 
-    async def _add_missing_db_position(self, pair: str, exchange_pos_data: dict[str, Any], report: ReconciliationReport) -> None:
+    async def _add_missing_db_position(
+        self, pair: str, exchange_pos_data: dict[str, Any], report: ReconciliationReport,
+    ) -> None:
         """Marks for auto-correction: Add position that exists on exchange but not internally.
         Actual DB write happens via portfolio_manager or directly if this service owns position creation logic.
         For now, this method prepares the 'correction' dict[str, Any] for the report.
@@ -1229,10 +1235,15 @@ class ReconciliationService:
             "adjustment_type": DiscrepancyType.QUANTITY_MISMATCH.value,
         }
         report.auto_corrections.append(correction_data)
-        self.logger.info(f"Marked position {internal_pos_model.trading_pair} for quantity adjustment.", source_module=self._source_module)
+        self.logger.info(
+            f"Marked position {internal_pos_model.trading_pair} for quantity adjustment.",
+            source_module=self._source_module,
+        )
 
-    async def _adjust_balance( # This method's DB interaction is via PortfolioManager
-        self, currency: str, internal_balance: Decimal, exchange_balance: Decimal, report: ReconciliationReport) -> None:
+    async def _adjust_balance(  # This method's DB interaction is via PortfolioManager
+        self, currency: str, internal_balance: Decimal, exchange_balance: Decimal,
+        report: ReconciliationReport,
+    ) -> None:
         """Marks for auto-correction: Adjust internal balance to match exchange."""
         # This method now just prepares the correction for the report.
         # Actual DB update via portfolio_manager.adjust_balance(...)
@@ -1261,10 +1272,16 @@ class ReconciliationService:
                 "auto_corrected": len(report.auto_corrections),
                 "manual_review_required": len(report.manual_review_required),
                 "report": report.to_dict(), # Full report as JSON
-                "duration_seconds": Decimal(str(report.duration_seconds)) if report.duration_seconds is not None else None,
+                "duration_seconds": (
+                    Decimal(str(report.duration_seconds))
+                    if report.duration_seconds is not None else None
+                ),
             }
             created_event = await self.reconciliation_repository.save_reconciliation_event(event_data)
-            self.logger.info(f"Saved reconciliation event {created_event.reconciliation_id}", source_module=self._source_module)
+            self.logger.info(
+                f"Saved reconciliation event {created_event.reconciliation_id}",
+                source_module=self._source_module,
+            )
 
             # Save all adjustments (auto-corrections and those needing manual review if they are stored)
             # For now, only saving auto_corrections as explicit adjustments.
@@ -1285,10 +1302,18 @@ class ReconciliationService:
                         adjustment_to_save[key] = Decimal(adjustment_to_save[key])
 
                 await self.reconciliation_repository.save_position_adjustment(adjustment_to_save)
-            self.logger.info(f"Saved {len(report.auto_corrections)} adjustments for event {created_event.reconciliation_id}", source_module=self._source_module)
+            self.logger.info(
+                f"Saved {len(report.auto_corrections)} adjustments for event "
+                f"{created_event.reconciliation_id}",
+                source_module=self._source_module,
+            )
 
         except Exception:
-            self.logger.exception(f"Error saving reconciliation report/adjustments for event {report.reconciliation_id}: ", source_module=self._source_module)
+            self.logger.exception(
+                f"Error saving reconciliation report/adjustments for event "
+                f"{report.reconciliation_id}: ",
+                source_module=self._source_module,
+            )
             # Decide if this should re-raise or just log
 
     async def _send_reconciliation_alerts(self, report: ReconciliationReport) -> None:

@@ -260,7 +260,10 @@ class EnterpriseConfigurationManager:
             symbol_config = self.config_manager.get(f"market_simulation.{symbol}", {})
 
             # Apply defaults
-            default_config = self._default_configs.get(symbol.lower().replace("/", "_"), self._default_configs["doge_usd"])
+            default_config = self._default_configs.get(
+                symbol.lower().replace("/", "_"),
+                self._default_configs["doge_usd"],
+            )
             merged_config = {**default_config, **symbol_config}
 
             # Validate configuration

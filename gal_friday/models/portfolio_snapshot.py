@@ -10,7 +10,10 @@ class PortfolioSnapshot(Base):
     __tablename__ = "portfolio_snapshots"
 
     snapshot_pk = Column(Integer, primary_key=True, autoincrement=True)
-    snapshot_timestamp = Column(DateTime(timezone=True), unique=True, nullable=False, server_default=func.now(), index=True)
+    snapshot_timestamp = Column(
+        DateTime(timezone=True), unique=True, nullable=False,
+        server_default=func.now(), index=True,
+    )
     total_equity = Column(Numeric(18, 8), nullable=False)
     available_balance = Column(Numeric(18, 8), nullable=False)
     total_exposure_pct = Column(Float, nullable=False)

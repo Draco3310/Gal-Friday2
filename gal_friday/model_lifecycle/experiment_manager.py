@@ -227,7 +227,9 @@ class SubscriptionManager:
                         resources_freed=resources_freed,
                     )
 
-                    self.unsubscribe_stats["successful_unsubscribes"] = self.unsubscribe_stats.get("successful_unsubscribes", 0) + 1
+                    self.unsubscribe_stats["successful_unsubscribes"] = (
+                        self.unsubscribe_stats.get("successful_unsubscribes", 0) + 1
+                    )
                     self.logger.info(
                         f"Successfully unsubscribed handler: {subscription_id}",
                         source_module=self._source_module,
@@ -265,9 +267,11 @@ class SubscriptionManager:
 
                 except Exception as e:
                     subscription.state = HandlerState.ERROR
-                    self.unsubscribe_stats["failed_unsubscribes"] = self.unsubscribe_stats.get("failed_unsubscribes", 0) + 1
+                    self.unsubscribe_stats["failed_unsubscribes"] = (
+                        self.unsubscribe_stats.get("failed_unsubscribes", 0) + 1
+                    )
 
-                    self.logger.error(
+                    self.logger.exception(
                         f"Error unsubscribing handler {subscription_id}: {e}",
                         source_module=self._source_module,
                         exc_info=True,
@@ -780,7 +784,10 @@ class ExperimentManager:
                     """Cleanup prediction handler resources."""
                     # Mark as cleaned up instead of setting to None
                     self._cleaned_up = True
-                    self.logger.info("Prediction handler resources cleaned up", source_module="PredictionHandlerWrapper")
+                    self.logger.info(
+                        "Prediction handler resources cleaned up",
+                        source_module="PredictionHandlerWrapper",
+                    )
 
                 def get_subscription_info(self) -> dict[str, Any]:
                     """Get subscription information."""
@@ -816,7 +823,9 @@ class ExperimentManager:
             # Enterprise-grade unsubscribe logic replacing the pass statement
             try:
                 # Unsubscribe specific prediction handler
-                unsubscribe_success = await self._unsubscriber.unsubscribe_prediction_handler("experiment_prediction_router")
+                unsubscribe_success = await self._unsubscriber.unsubscribe_prediction_handler(
+                    "experiment_prediction_router",
+                )
 
                 if unsubscribe_success:
                     self.logger.info(
@@ -981,14 +990,20 @@ class ExperimentManager:
                         return val.hex # type: ignore
 
                     err_msg = f"Cannot convert {name} (type: {type(val)}) to UUID hex: {e}"
-                    self.logger.error(err_msg, source_module=self._source_module, exc_info=True)
+                    self.logger.error(err_msg, source_module=self._source_module)
                     raise TypeError(err_msg) from e
 
             exp_id_hex = safe_hex(
                 created_experiment_model.experiment_id,
                 "created_experiment_model.experiment_id")
-            control_id_hex = safe_hex(created_experiment_model.control_model_id, "created_experiment_model.control_model_id")
-            treatment_id_hex = safe_hex(created_experiment_model.treatment_model_id, "created_experiment_model.treatment_model_id")
+            control_id_hex = safe_hex(
+                created_experiment_model.control_model_id,
+                "created_experiment_model.control_model_id",
+            )
+            treatment_id_hex = safe_hex(
+                created_experiment_model.treatment_model_id,
+                "created_experiment_model.treatment_model_id",
+            )
 
             # Add to active experiments
             self.active_experiments[exp_id_hex] = created_experiment_model
@@ -1180,7 +1195,11 @@ class ExperimentManager:
                 uuid.UUID(experiment_id), uuid.UUID(event_id), # Ensure UUIDs
             )
             if not assignment_model:
-                self.logger.warning(f"No assignment found for experiment {experiment_id}, event {event_id}. Cannot record outcome.", source_module=self._source_module)
+                self.logger.warning(
+                    f"No assignment found for experiment {experiment_id}, event {event_id}. "
+                    f"Cannot record outcome.",
+                    source_module=self._source_module,
+                )
                 return
 
             variant = assignment_model.variant
@@ -1192,7 +1211,11 @@ class ExperimentManager:
                     performance = self.experiment_performance[experiment_id][variant]
                     performance.update_metrics(outcome)
                 else:
-                    self.logger.warning(f"Variant '{variant}' not found in performance tracking for experiment {experiment_id}.", source_module=self._source_module)
+                    self.logger.warning(
+                        f"Variant '{variant}' not found in performance tracking for experiment "
+                        f"{experiment_id}.",
+                        source_module=self._source_module,
+                    )
 
             # Save outcome to database (repo takes a dictionary)
             outcome_data_for_db = {
@@ -1451,7 +1474,11 @@ class ExperimentManager:
             if not exp_data:
                 return {"error": "Experiment not found"}
             return {
-                "experiment_id": exp_data.experiment_id.hex if hasattr(exp_data.experiment_id, "hex") else str(exp_data.experiment_id),
+                "experiment_id": (
+                    exp_data.experiment_id.hex
+                    if hasattr(exp_data.experiment_id, "hex")
+                    else str(exp_data.experiment_id)
+                ),
                 "name": exp_data.name,
                 "status": exp_data.status,
                 "start_time": exp_data.start_time.isoformat(),
@@ -1472,13 +1499,21 @@ class ExperimentManager:
             "status": "active",
             "start_time": config.start_time.isoformat(),
             "control": {
-                "model_id": config.control_model_id.hex if hasattr(config.control_model_id, "hex") else str(config.control_model_id),
+                "model_id": (
+                    config.control_model_id.hex
+                    if hasattr(config.control_model_id, "hex")
+                    else str(config.control_model_id)
+                ),
                 "samples": control_perf.sample_count,
                 "accuracy": control_perf.mean_accuracy,
                 "signals": control_perf.signals_generated,
             },
             "treatment": {
-                "model_id": config.treatment_model_id.hex if hasattr(config.treatment_model_id, "hex") else str(config.treatment_model_id),
+                "model_id": (
+                    config.treatment_model_id.hex
+                    if hasattr(config.treatment_model_id, "hex")
+                    else str(config.treatment_model_id)
+                ),
                 "samples": treatment_perf.sample_count,
                 "accuracy": treatment_perf.mean_accuracy,
                 "signals": treatment_perf.signals_generated,

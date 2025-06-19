@@ -78,7 +78,7 @@ class KrakenMarketPriceService(MarketPriceService):
         try:
             kraken_pair = self._map_internal_to_kraken_pair(trading_pair)
             if not kraken_pair:
-                self.logger.error(
+                self.logger.exception(
                     "Could not map trading pair %s to Kraken format",
                     trading_pair,
                     source_module=self._source_module)
@@ -611,6 +611,5 @@ class KrakenMarketPriceService(MarketPriceService):
         except Exception as e:
             self.logger.error(
                 f"Failed to calculate volatility for {trading_pair}: {e}",
-                source_module=self._source_module,
-                exc_info=True)
+                source_module=self._source_module)
             return None

@@ -202,7 +202,7 @@ class PubSubManager:
                 # Clear the failure count after unsubscribing
                 del self._handler_failure_counts[handler]
             except Exception:
-                self._logger.exception("Error auto-unsubscribing handler %s", handler_name)
+                self._logger.exception("Error auto-unsubscribing handler")
         else:
             self._logger.warning(
                 "Handler %s failure %s/%s for event type %s. Error: %s",

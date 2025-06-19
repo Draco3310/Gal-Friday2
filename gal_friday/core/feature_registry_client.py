@@ -128,7 +128,7 @@ class FeatureRegistryClient:
                     }
 
                 except Exception as e:
-                    logging.exception(f"Error processing feature '{feature_key}': {e}")
+                    logging.exception("Error processing feature '{feature_key}':")
                     continue
 
             return results
@@ -229,12 +229,14 @@ class FeatureRegistryClient:
 
                     # Validate result against output properties
                     if expected_range and not (expected_range[0] <= result <= expected_range[1]):
-                        logging.warning(f"Feature {feature_key} result {result} outside expected range {expected_range}")
+                        logging.warning(
+                            f"Feature {feature_key} result {result} outside expected range {expected_range}"
+                        )
 
                     return result
 
                 except Exception as e:
-                    logging.exception(f"Error computing feature {feature_key}: {e}")
+                    logging.exception("Error computing feature {feature_key}:")
                     return None
 
             def _compute_rsi(self, data: Dict, period: int) -> float:
@@ -1010,7 +1012,7 @@ class FeatureRegistryClient:
             ...         return True
             ...
             ...     except Exception as e:
-            ...         logger.exception(f"Registry reload failed: {e}")
+            ...         logger.exception("Registry reload failed:")
             ...         return False
 
             File watcher integration:

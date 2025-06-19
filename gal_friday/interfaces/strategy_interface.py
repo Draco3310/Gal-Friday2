@@ -1134,7 +1134,9 @@ class StrategyInterface(ABC):
 
         # Portfolio-specific validation
         if action.action_type in [ActionType.SELL, ActionType.CLOSE_LONG]:
-            asset_spec_or_default_dict: AssetSpecification | dict[str, Any] = self.asset_specifications.get(action.symbol, {})
+            asset_spec_or_default_dict: AssetSpecification | dict[str, Any] = (
+                self.asset_specifications.get(action.symbol, {})
+            )
             if isinstance(asset_spec_or_default_dict, dict):
                 current_position = asset_spec_or_default_dict.get("position", 0)
             else:
@@ -1643,7 +1645,10 @@ class EnsembleStrategyInterface(StrategyInterface):
             strategy_analytics[strategy_id] = {
                 "current_weight": self.strategy_weights.get(strategy_id, 0),
                 "observation_count": len(self.strategy_performance_history.get(strategy_id, [])),
-                "has_sufficient_data": len(self.strategy_performance_history.get(strategy_id, [])) >= self.reweighting_config.min_observations,
+                "has_sufficient_data": (
+                    len(self.strategy_performance_history.get(strategy_id, [])) >=
+                    self.reweighting_config.min_observations
+                ),
             }
 
         analytics["strategy_analytics"] = strategy_analytics
