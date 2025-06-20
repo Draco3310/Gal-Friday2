@@ -79,7 +79,6 @@ def compare_type(
 # Import ConfigManager to get database URL
 from gal_friday.config_manager import ConfigManager
 
-# from gal_friday.logger_service import LoggerService # Not strictly used here
 
 def get_db_url() -> str:
     try:

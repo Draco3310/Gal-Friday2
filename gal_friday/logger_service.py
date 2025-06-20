@@ -42,7 +42,6 @@ from pythonjsonlogger import jsonlogger  # Add missing import for JSON logging
 from .interfaces.service_protocol import ServiceProtocol
 
 # Runtime imports
-# from influxdb_client import Point as InfluxDBPoint # Moved into methods
 
 if TYPE_CHECKING:
     # For type hinting InfluxDBClient and WriteApi if needed at class/method signature level
@@ -220,7 +219,6 @@ class DBConnection(Protocol):
 
 
 # Define a proper type alias for the Pool type
-# PoolType = TypeVar("PoolType", bound=PoolProtocol) # Replaced by async_sessionmaker
 # PoolProtocol and DBConnection might be removable if AsyncpgPoolAdapter is removed.
 
 # ========================================
@@ -1014,7 +1012,6 @@ class LoggerService(ServiceProtocol):
         self._async_handler: EnterpriseAsyncPostgresHandler | None = (
             None  # Updated to enterprise handler
         )
-        # self._db_pool: PoolType | None = None # Removed, using session_maker
 
         # Queue and thread for handling synchronous logging calls from async context
         self._queue: queue.Queue[tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any]]] = (

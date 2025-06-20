@@ -87,10 +87,6 @@ class XGBoostPredictor(PredictorInterface):
         self.scaler = None # Scaler is no longer loaded or used by this predictor.
         self.logger.info(
             "Scaler attribute is set to None. Features are expected to be pre-scaled.")
-        # if self.scaler_path: # Removed scaler loading logic
-        # else:
-        #     self.logger.info("No scaler_path provided. Proceeding without a scaler.")
-        #     self.scaler = None
 
     def predict(self, features: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Generate predictions using the XGBoost model.
@@ -310,7 +306,6 @@ class XGBoostPredictor(PredictorInterface):
         result: dict[str, Any] = {"model_id": model_id, "error": None}
         model = None
         # Scaler is no longer loaded or used in this static method.
-        # scaler = None
         processed_features = None
 
         try:
@@ -321,11 +316,6 @@ class XGBoostPredictor(PredictorInterface):
                 return result
 
             # 2. Scaler loading is removed.
-            # if scaler_path:
-            #     scaler, error = cls._load_scaler(scaler_path, model_id, logger)
-            #     if error:
-            #         result["error"] = error.get("error", "Failed to load scaler")
-            #         return result
             if scaler_path:
                 logger.info("scaler_path provided but will be ignored as features are expected pre-scaled.")
 

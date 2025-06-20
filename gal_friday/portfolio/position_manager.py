@@ -89,7 +89,6 @@ class PositionManager:
         self.position_repository = PositionRepository(session_maker, logger_service)
         self.order_repository = OrderRepository(session_maker, logger_service)
         self.config_manager = config_manager
-        # self._positions: dict[str, PositionInfo] = {} # In-memory store removed
         self._lock = asyncio.Lock()  # Lock can still be useful for critical async
         # operations on a single position if needed
 

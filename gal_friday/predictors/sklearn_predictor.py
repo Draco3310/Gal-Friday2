@@ -176,10 +176,6 @@ class SKLearnPredictor(PredictorInterface):
         self.scaler = None # Scaler is no longer loaded or used by this predictor.
         self.logger.info(
             "Scaler attribute is set to None. Features are expected to be pre-scaled.")
-        # if self.scaler_path: # Removed scaler loading logic
-        # else:
-        #     self.logger.info("No scaler_path provided. Proceeding without a scaler.")
-        #     self.scaler = None
 
     def predict(self, features: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Generate predictions using the scikit-learn model.
