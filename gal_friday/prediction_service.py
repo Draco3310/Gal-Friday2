@@ -1291,13 +1291,6 @@ class PredictionService:
             # Value should be a float if it's not None and not NaN
             # No explicit float() conversion needed here as it comes from Pydantic model dump.
             ordered_feature_values.append(value)
-            # try:
-            #     # value = float(str(event_features[feature_name])) # Old way
-            #     # No conversion needed, it's already float
-            #     ordered_feature_values.append(value)
-            # except (ValueError, TypeError) as e: # Should be rare now
-            #     type_errors_log.append(f"{feature_name}: {e!s}")
-            #     ordered_feature_values.append(np.nan)
 
 
         # Log any issues
