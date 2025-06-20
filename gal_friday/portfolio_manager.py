@@ -708,14 +708,14 @@ class PortfolioManager:
                 f"(limit: {limit}, offset: {offset})",
                 source_module=self._source_module)
 
-            return trade_history
-
         except Exception:
             self.logger.exception(
                 f"Error retrieving trade history for {pair}: ",
                 source_module=self._source_module)
             # Return empty list[Any] on error to maintain API compatibility
             return []
+        else:
+            return trade_history
 
     async def get_trade_analytics(
         self,
@@ -752,8 +752,6 @@ class PortfolioManager:
                 f"volume: {analytics['total_volume']}",
                 source_module=self._source_module)
 
-            return analytics
-
         except Exception as e:
             self.logger.exception(
                 f"Error generating trade analytics for {pair}: ",
@@ -768,6 +766,8 @@ class PortfolioManager:
                 "sell_trades": 0,
                 "error": str(e),
             }
+        else:
+            return analytics
 
     async def clear_trade_history_cache(self) -> None:
         """Clear the trade history cache.

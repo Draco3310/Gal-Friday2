@@ -2602,13 +2602,14 @@ class MonitoringService:
                         **pos_data,  # Include all other position data
                     }
                     positions.append(position)
-            return positions
         except Exception as e:
             self.logger.exception(
                 "Failed to get open positions: %s",
                 e,
                 source_module=self._source)
             return []
+        else:
+            return positions
 
     async def _get_portfolio_summary(self) -> dict[str, Any]:
         """Get portfolio summary from portfolio manager."""
@@ -3462,14 +3463,14 @@ class MonitoringService:
                 f"Unable to determine current market price for {trading_pair} from any available source",
                 source_module=self._source,
             )
-            return None
-
         except Exception as e:
             self.logger.error(
                 f"Error getting current market price for {trading_pair}: {e}",
                 source_module=self._source,
                 exc_info=True,
             )
+            return None
+        else:
             return None
 
     async def _handle_execution_report(self, event: "ExecutionReportEvent") -> None:
@@ -3888,9 +3889,6 @@ class MonitoringService:
                 {"name": "performance.disk_usage_pct", "value": performance.disk_usage_pct},
                 {"name": "performance.active_connections", "value": performance.active_connections},
             ])
-
-            return performance
-
         except Exception as e:
             self.logger.error(
                 f"Error creating performance snapshot: {e}",
@@ -3909,6 +3907,8 @@ class MonitoringService:
                 error_rates={},
                 throughput_metrics={},
             )
+        else:
+            return performance
 
     def _calculate_response_times(self) -> dict[str, float]:
         """Calculate response times from metrics history."""

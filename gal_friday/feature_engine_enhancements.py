@@ -123,8 +123,6 @@ class AdvancedSpreadCalculator:
             impact_metrics = self._calculate_market_impact_spread(microstructure_data)
             spreads.update(impact_metrics)
 
-            return spreads
-
         except Exception as e:
             self.logger.error(
                 f"Failed to calculate effective spread: {e}",
@@ -132,6 +130,8 @@ class AdvancedSpreadCalculator:
                 exc_info=True,
             )
             return {}
+        else:
+            return spreads
 
     def _calculate_trade_based_effective_spread(
         self,
@@ -165,8 +165,8 @@ class AdvancedSpreadCalculator:
                     "effective_spread_bps_mean": float(np.mean(effective_spreads) / midpoint * 10000),
                     "trade_count": len(effective_spreads),
                 }
-
-            return {}
+            else:
+                return {}
 
         except Exception:
             self.logger.exception(
@@ -174,6 +174,14 @@ class AdvancedSpreadCalculator:
                 source_module=self._source_module,
             )
             return {}
+        else:
+            return {
+                "effective_spread_mean": float(np.mean(effective_spreads)),
+                "effective_spread_median": float(np.median(effective_spreads)),
+                "effective_spread_std": float(np.std(effective_spreads)),
+                "effective_spread_bps_mean": float(np.mean(effective_spreads) / midpoint * 10000),
+                "trade_count": len(effective_spreads),
+            }
 
     def _calculate_liquidity_weighted_spread(
         self,
@@ -224,8 +232,10 @@ class AdvancedSpreadCalculator:
                         "total_bid_volume": total_bid_volume,
                         "total_ask_volume": total_ask_volume,
                     }
-
-            return {}
+                else:
+                    return {}
+            else:
+                return {}
 
         except Exception:
             self.logger.exception(
@@ -233,6 +243,15 @@ class AdvancedSpreadCalculator:
                 source_module=self._source_module,
             )
             return {}
+        else:
+            return {
+                "liquidity_weighted_spread_abs": liquidity_weighted_spread,
+                "liquidity_weighted_spread_bps": float(liquidity_weighted_spread / midpoint * 10000),
+                "vwap_bid": vwap_bid,
+                "vwap_ask": vwap_ask,
+                "total_bid_volume": total_bid_volume,
+                "total_ask_volume": total_ask_volume,
+            }
 
     def _calculate_market_impact_spread(
         self,
@@ -278,14 +297,14 @@ class AdvancedSpreadCalculator:
                     imbalance = (total_bid_size - total_ask_size) / (total_bid_size + total_ask_size)
                     impact_metrics["order_book_imbalance"] = imbalance
 
-            return impact_metrics
-
         except Exception:
             self.logger.exception(
                 "Failed to calculate market impact spread: ",
                 source_module=self._source_module,
             )
             return {}
+        else:
+            return impact_metrics
 
     def _calculate_side_impact(
         self,
@@ -326,8 +345,8 @@ class AdvancedSpreadCalculator:
             if total_quantity > 0:
                 avg_execution_price = total_cost / total_quantity
                 return abs(avg_execution_price - best_price) / best_price * 10000
-
-            return None
+            else:
+                return None
 
         except Exception:
             self.logger.exception(
@@ -391,8 +410,6 @@ class IntelligentImputationEngine:
                         }
                         imputation_report["imputation_quality"][feature_name] = quality_metrics
 
-            return imputed_data, imputation_report
-
         except Exception as e:
             self.logger.error(
                 f"Failed to impute features: {e}",
@@ -400,6 +417,8 @@ class IntelligentImputationEngine:
                 exc_info=True,
             )
             return data, {"error": str(e)}
+        else:
+            return imputed_data, imputation_report
 
     def _impute_single_feature(
         self,
@@ -507,9 +526,10 @@ class IntelligentImputationEngine:
 
             if current_vol > historical_vol * self._regime_threshold:
                 return "high_volatility"
-            if current_vol < historical_vol / self._regime_threshold:
+            elif current_vol < historical_vol / self._regime_threshold:
                 return "low_volatility"
-            return "normal"
+            else:
+                return "normal"
 
         except Exception:
             return "normal"
@@ -778,8 +798,6 @@ class ComprehensiveFeatureValidator:
             )
             validation_report["corrections_applied"] = corrections
 
-            return validated_features, validation_report
-
         except Exception as e:
             self.logger.error(
                 f"Feature validation failed: {e}",
@@ -787,6 +805,8 @@ class ComprehensiveFeatureValidator:
                 exc_info=True,
             )
             return features, {"error": str(e)}
+        else:
+            return validated_features, validation_report
 
     def _detect_statistical_outliers(
         self,
@@ -997,8 +1017,6 @@ class AdvancedTemporalPatternEngine:
             # 6. Regime persistence patterns
             patterns["regime_persistence"] = self._analyze_regime_persistence(data, target_feature)
 
-            return patterns
-
         except Exception as e:
             self.logger.error(
                 f"Failed to extract temporal patterns: {e}",
@@ -1006,6 +1024,8 @@ class AdvancedTemporalPatternEngine:
                 exc_info=True,
             )
             return {}
+        else:
+            return patterns
 
     def _analyze_time_of_day_effects(
         self,
@@ -1111,14 +1131,14 @@ class AdvancedTemporalPatternEngine:
 
                     session_effects[session_name] = session_stats
 
-            return session_effects
-
         except Exception:
             self.logger.exception(
                 "Failed to analyze market session effects: ",
                 source_module=self._source_module,
             )
             return {}
+        else:
+            return session_effects
 
     def _analyze_volatility_clustering(
         self,

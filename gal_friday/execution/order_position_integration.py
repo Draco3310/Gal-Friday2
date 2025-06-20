@@ -114,13 +114,14 @@ class OrderPositionIntegrationService:
             self.logger.error(
                 f"Failed to update position for order {order_id}",
                 source_module=self._source_module)
-            return False
 
         except Exception as e:
             self.logger.exception(
                 f"Error processing execution report for order "
                 f"{getattr(execution_report, 'client_order_id', 'unknown')}: {e}",
                 source_module=self._source_module)
+            return False
+        else:
             return False
 
     async def link_existing_order_to_position(
@@ -163,12 +164,13 @@ class OrderPositionIntegrationService:
             self.logger.error(
                 f"Failed to link order {order_id_str} to position {position_id_str}",
                 source_module=self._source_module)
-            return False
 
         except Exception:
             self.logger.exception(
                 f"Error linking order {order_id} to position {position_id}: ",
                 source_module=self._source_module)
+            return False
+        else:
             return False
 
     async def unlink_order_from_position(self, order_id: str | UUID) -> bool:
@@ -193,12 +195,13 @@ class OrderPositionIntegrationService:
             self.logger.warning(
                 f"Order {order_id_str} not found or already unlinked",
                 source_module=self._source_module)
-            return False
 
         except Exception:
             self.logger.exception(
                 f"Error unlinking order {order_id} from position: ",
                 source_module=self._source_module)
+            return False
+        else:
             return False
 
     async def reconcile_order_position_relationships(
@@ -261,13 +264,13 @@ class OrderPositionIntegrationService:
                 f"fixed {results['issues_fixed']}",
                 source_module=self._source_module)
 
-            return results
-
         except Exception as e:
             self.logger.exception(
                 "Error during order-position reconciliation: ",
                 source_module=self._source_module)
             return {"error": str(e)}
+        else:
+            return results
 
     async def get_position_audit_trail(self, position_id: str | UUID) -> dict[str, Any]:
         """Get complete audit trail for a position.
@@ -327,13 +330,13 @@ class OrderPositionIntegrationService:
                 "quantity_consistency": abs(position.quantity - total_order_quantity) < Decimal("0.00000001"),
             }
 
-            return audit_trail
-
         except Exception as e:
             self.logger.exception(
                 f"Error generating audit trail for position {position_id}: ",
                 source_module=self._source_module)
             return {"error": str(e)}
+        else:
+            return audit_trail
 
     async def _verify_order_position_consistency(self, order_id: str, position_id: str) -> bool:
         """Verify that linking an order to a position makes sense."""
@@ -361,13 +364,13 @@ class OrderPositionIntegrationService:
                     f"Order {order_id} status is {order.status} - may not affect position",
                     source_module=self._source_module)
 
-            return True
-
         except Exception:
             self.logger.exception(
                 "Error verifying order-position consistency: ",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def _can_auto_fix_unlinked_order(self, order: "Order") -> bool:
         """Determine if an unlinked order can be safely auto-fixed."""
@@ -409,12 +412,13 @@ class OrderPositionIntegrationService:
             self.logger.warning(
                 f"Cannot auto-fix order {order.id} - no suitable position found",
                 source_module=self._source_module)
-            return False
 
         except Exception:
             self.logger.exception(
                 f"Error auto-fixing unlinked order {order.id}: ",
                 source_module=self._source_module)
+            return False
+        else:
             return False
 
     async def _check_orphaned_position_references(self, results: dict[str, Any], auto_fix: bool) -> int:

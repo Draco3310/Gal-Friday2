@@ -168,8 +168,6 @@ class FeatureEngineer:
                 context={"features": len(features_df.columns)},
             )
 
-            return features_df
-
         except Exception as e:
             self.logger.error(
                 "Feature engineering failed: %(error)s",
@@ -178,6 +176,8 @@ class FeatureEngineer:
                 exc_info=True,
             )
             raise FeatureEngineeringError(f"Feature engineering failed: {e}") from e
+        else:
+            return features_df
 
     def _add_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Add technical indicators."""
@@ -417,8 +417,6 @@ class ModelTrainer:
                 },
             )
 
-            return result
-
         except Exception as e:
             self.logger.error(
                 "Model training failed for %(symbol)s: %(error)s",
@@ -427,6 +425,8 @@ class ModelTrainer:
                 exc_info=True,
             )
             raise ModelTrainingError(f"Model training failed: {e}") from e
+        else:
+            return result
 
     def _prepare_training_data(self,
                               data: pd.DataFrame,
@@ -601,8 +601,6 @@ class MLPredictionPipeline:
                 context={"symbol": symbol, "version": model_version},
             )
 
-            return model_version
-
         except Exception as e:
             self.logger.error(
                 "ML pipeline failed for %(symbol)s: %(error)s",
@@ -611,6 +609,8 @@ class MLPredictionPipeline:
                 exc_info=True,
             )
             raise MLPipelineError(f"ML pipeline failed: {e}") from e
+        else:
+            return model_version
 
     async def predict_price(self, request: PredictionRequest) -> PredictionResult:
         """Generate price prediction with confidence intervals.
@@ -694,8 +694,6 @@ class MLPredictionPipeline:
                 },
             )
 
-            return result
-
         except Exception as e:
             failed_count = self.prediction_stats.get("failed_predictions", 0)
             self.prediction_stats["failed_predictions"] = (
@@ -708,6 +706,8 @@ class MLPredictionPipeline:
                 exc_info=True,
             )
             raise MLPipelineError(f"Prediction failed: {e}") from e
+        else:
+            return result
 
     async def _deploy_model(self, symbol: str, training_result: dict[str, Any]) -> str:
         """Deploy trained model to production."""

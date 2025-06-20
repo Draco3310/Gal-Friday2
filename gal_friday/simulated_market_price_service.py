@@ -304,11 +304,12 @@ class HistoricalDataLoader:
                 await self.disk_cache.set(cache_key, data)
 
             self.logger.info(f"Loaded {len(data)} data points for {request.symbol}")
-            return data
 
         except Exception as e:
             self.logger.exception(f"Error loading historical data for {request.symbol}: ")
             raise DataLoadingError(f"Failed to load historical data: {e}")
+        else:
+            return data
 
     async def _load_from_provider(self, request: DataRequest) -> list[HistoricalDataPoint]:
         """Load data from appropriate provider."""
@@ -494,11 +495,11 @@ class PriceInterpolator:
                 f"quality={quality_score:.2f}, filled {len(gaps)} gaps",
             )
 
-            return result
-
         except Exception as e:
             self.logger.exception(f"Error during interpolation for {symbol}: ")
             raise InterpolationError(f"Interpolation failed: {e}")
+        else:
+            return result
 
     async def _detect_gaps(self, df: pd.DataFrame, symbol: str, frequency: str) -> list[DataGap]:
         """Detect gaps in price data."""
@@ -2404,8 +2405,6 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     f"Successfully loaded {len(data_points)} data points for {symbol}",
                     extra={"source_module": self._source_module})
 
-            return data_points
-
         except DataLoadingError:
             self.logger.exception(
                 f"Failed to load historical data for {symbol}: ",
@@ -2416,6 +2415,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 f"Unexpected error loading historical data for {symbol}: ",
                 extra={"source_module": self._source_module})
             return None
+        else:
+            return data_points
 
     async def interpolate_missing_prices(
         self,
@@ -2476,8 +2477,6 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                     interpolated_df.set_index("timestamp", inplace=True)
                     self.historical_data[trading_pair] = interpolated_df
 
-            return result
-
         except InterpolationError:
             self.logger.exception(
                 f"Failed to interpolate prices for {trading_pair}: ",
@@ -2488,6 +2487,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 f"Unexpected error during price interpolation for {trading_pair}: ",
                 extra={"source_module": self._source_module})
             return None
+        else:
+            return result
 
     async def start_real_time_simulation(
         self,
@@ -2532,7 +2533,6 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self.logger.info(
                 "Real-time simulation started successfully",
                 extra={"source_module": self._source_module})
-            return True
 
         except SimulationError:
             self.logger.exception(
@@ -2544,6 +2544,8 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "Unexpected error starting simulation: ",
                 extra={"source_module": self._source_module})
             return False
+        else:
+            return True
 
     async def stop_real_time_simulation(self) -> bool:
         """Stop the real-time simulation engine.
@@ -2557,13 +2559,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self.logger.info(
                 "Real-time simulation stopped successfully",
                 extra={"source_module": self._source_module})
-            return True
 
         except Exception:
             self.logger.exception(
                 "Error stopping simulation: ",
                 extra={"source_module": self._source_module})
             return False
+        else:
+            return True
 
     async def set_simulation_speed(self, speed: SimulationSpeed) -> bool:
         """Change the simulation replay speed during runtime.
@@ -2580,13 +2583,14 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
             self.logger.info(
                 f"Simulation speed changed to {speed.value}",
                 extra={"source_module": self._source_module})
-            return True
 
         except Exception:
             self.logger.exception(
                 "Error changing simulation speed: ",
                 extra={"source_module": self._source_module})
             return False
+        else:
+            return True
 
     def get_simulation_state(self) -> SimulationState:
         """Get the current state of the simulation engine.
@@ -2685,6 +2689,12 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 f"score={quality_score:.2f}, issues={len(issues)}",
                 extra={"source_module": self._source_module})
 
+        except Exception:
+            self.logger.exception(
+                f"Error validating data quality for {trading_pair}: ",
+                extra={"source_module": self._source_module})
+            return None
+        else:
             return {
                 "quality_score": quality_score,
                 "completeness": completeness,
@@ -2696,11 +2706,5 @@ class SimulatedMarketPriceService(MarketPriceService):  # Inherit from MarketPri
                 "recommendations": recommendations,
                 "meets_threshold": quality_score >= quality_threshold,
             }
-
-        except Exception:
-            self.logger.exception(
-                f"Error validating data quality for {trading_pair}: ",
-                extra={"source_module": self._source_module})
-            return None
 
 # === END ENTERPRISE-GRADE METHODS ===

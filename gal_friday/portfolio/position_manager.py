@@ -340,13 +340,14 @@ class PositionManager:
                     params.trading_pair, params.side, params.quantity, params.price,
                     updated_pos.quantity, updated_pos.entry_price, realized_pnl_trade, params.order_id,
                     source_module=self._source_module)
-                return realized_pnl_trade, updated_pos
             except Exception:
                 self.logger.exception(
                     f"Error updating position in DB for {params.trading_pair}: ",
                     source_module=self._source_module,
                 )
                 return realized_pnl_trade, None
+            else:
+                return realized_pnl_trade, updated_pos
 
     async def _link_order_to_position(self, order_id: str, position_id: str) -> None:
         """Link an order to a position for audit trail purposes.
@@ -451,7 +452,6 @@ class PositionManager:
                 f"Created new position in DB for {trading_pair} with ID {created_position.id}",
                 source_module=self._source_module,
             )
-            return created_position
         except Exception as e:
             self.logger.exception(
                 f"Error creating new position in DB for {trading_pair}: ",
@@ -459,6 +459,8 @@ class PositionManager:
             )
             # Re-raise with additional context for proper error handling upstream
             raise PositionCreationError(f"Failed to create position for {trading_pair}: {e!s}") from e
+        else:
+            return created_position
 
     async def get_total_realized_pnl(self, trading_pair: str | None = None) -> Decimal:
         """Get total realized PnL for a specific pair or all pairs from database."""

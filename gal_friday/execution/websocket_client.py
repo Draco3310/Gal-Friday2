@@ -413,8 +413,6 @@ class KrakenWebSocketClient:
                 source_module=self._source_module,
                 context={"expires_in": 900})
 
-            return token
-
         except Exception as e:
             self.logger.exception(
                 "Failed to retrieve WebSocket token: %s",
@@ -423,6 +421,8 @@ class KrakenWebSocketClient:
                 context={"error_type": type(e).__name__})
             raise ExecutionHandlerAuthenticationError(
                 f"WebSocket token retrieval failed: {e}") from e
+        else:
+            return token
 
     async def subscribe_market_data(self, pairs: list[str], channels: list[str]) -> None:
         """Subscribe to market data channels."""
@@ -872,8 +872,6 @@ class KrakenWebSocketClient:
                 # Publish order book event
                 await self._publish_order_book_event(symbol, is_snapshot)
 
-            return success
-
         except Exception as e:
             await self._handle_processing_error(
                 ProcessingError.MALFORMED_MESSAGE,
@@ -881,6 +879,8 @@ class KrakenWebSocketClient:
                 symbol=symbol,
             )
             return False
+        else:
+            return success
 
     async def _process_snapshot_data(self, symbol: str, data: dict[str, Any]) -> bool:
         """Process order book snapshot data."""
@@ -912,11 +912,11 @@ class KrakenWebSocketClient:
                 },
             )
 
-            return True
-
         except Exception:
             self.logger.exception(f"Error processing snapshot data for {symbol}: ")
             return False
+        else:
+            return True
 
     async def _process_incremental_data(self, symbol: str, data: dict[str, Any]) -> bool:
         """Process incremental order book updates."""
@@ -942,11 +942,11 @@ class KrakenWebSocketClient:
             # Update timestamp
             order_book.timestamp = time.time()
 
-            return True
-
         except Exception:
             self.logger.exception(f"Error processing incremental data for {symbol}: ")
             return False
+        else:
+            return True
 
     async def _process_bid_levels(self, order_book: OrderBookSnapshot, bids: list[Any]) -> bool:
         """Process bid levels for snapshot data."""
@@ -980,11 +980,11 @@ class KrakenWebSocketClient:
             if len(order_book.bids) > self.max_order_book_depth:
                 order_book.bids = order_book.bids[:self.max_order_book_depth]
 
-            return processed_count > 0
-
         except Exception:
             self.logger.exception("Error processing bid levels: ")
             return False
+        else:
+            return processed_count > 0
 
     async def _process_ask_levels(self, order_book: OrderBookSnapshot, asks: list[Any]) -> bool:
         """Process ask levels for snapshot data."""
@@ -1018,11 +1018,11 @@ class KrakenWebSocketClient:
             if len(order_book.asks) > self.max_order_book_depth:
                 order_book.asks = order_book.asks[:self.max_order_book_depth]
 
-            return processed_count > 0
-
         except Exception:
             self.logger.exception("Error processing ask levels: ")
             return False
+        else:
+            return processed_count > 0
 
     async def _process_bid_updates(self, order_book: OrderBookSnapshot, updates: list[Any]) -> bool:
         """Process bid updates for incremental data."""
@@ -1044,11 +1044,11 @@ class KrakenWebSocketClient:
                     self.logger.warning(f"Error processing bid update: {e}")
                     continue
 
-            return processed_count > 0
-
         except Exception:
             self.logger.exception("Error processing bid updates: ")
             return False
+        else:
+            return processed_count > 0
 
     async def _process_ask_updates(self, order_book: OrderBookSnapshot, updates: list[Any]) -> bool:
         """Process ask updates for incremental data."""
@@ -1070,11 +1070,11 @@ class KrakenWebSocketClient:
                     self.logger.warning(f"Error processing ask update: {e}")
                     continue
 
-            return processed_count > 0
-
         except Exception:
             self.logger.exception("Error processing ask updates: ")
             return False
+        else:
+            return processed_count > 0
 
     async def _extract_price_quantity(self, level_data: list[Any]) -> tuple[Decimal | None, Decimal | None]:
         """Extract and validate price and quantity from level data."""
@@ -1102,11 +1102,11 @@ class KrakenWebSocketClient:
                 self.logger.warning(f"Invalid quantity format: {level_data[1]}")
                 return None, None
 
-            return price, quantity
-
         except Exception:
             self.logger.exception("Error extracting price/quantity: ")
             return None, None
+        else:
+            return price, quantity
 
     async def _apply_bid_update(self, order_book: OrderBookSnapshot, price: Decimal, quantity: Decimal) -> None:
         """Apply bid update to order book."""
@@ -1219,11 +1219,11 @@ class KrakenWebSocketClient:
                 self.logger.error(f"Duplicate ask prices detected for {symbol}")
                 return False
 
-            return True
-
         except Exception:
             self.logger.exception(f"Error validating order book consistency for {symbol}: ")
             return False
+        else:
+            return True
 
     async def _publish_order_book_event(self, symbol: str, is_snapshot: bool) -> None:
         """Publish MarketDataL2Event to PubSub."""

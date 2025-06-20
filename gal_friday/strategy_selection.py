@@ -331,14 +331,14 @@ class StrategyPerformanceAnalyzer:
                 source_module=self._source_module,
             )
 
-            return metrics
-
         except Exception:
             self.logger.exception(
                 f"Error analyzing performance for strategy {strategy_id}: ",
                 source_module=self._source_module,
             )
             raise
+        else:
+            return metrics
 
     def _calculate_financial_metrics(self, trades: list[dict[str, Any]]) -> dict[str, Any]:
         """Calculate financial performance metrics from trades."""
@@ -738,14 +738,14 @@ class MarketConditionMonitor:
                 source_module=self._source_module,
             )
 
-            return snapshot
-
         except Exception:
             self.logger.exception(
                 "Error assessing market conditions: ",
                 source_module=self._source_module,
             )
             raise
+        else:
+            return snapshot
 
     def _classify_volatility_regime(self, volatility: float) -> MarketRegime:
         """Classify volatility regime based on thresholds."""
@@ -959,14 +959,14 @@ class RiskEvaluator:
                 source_module=self._source_module,
             )
 
-            return risk_evaluation
-
         except Exception:
             self.logger.exception(
                 f"Error evaluating risk for strategy {strategy_id}: ",
                 source_module=self._source_module,
             )
             raise
+        else:
+            return risk_evaluation
 
     def _assess_drawdown_risk(
         self,
@@ -1232,8 +1232,6 @@ class StrategySelector:
                 source_module=self._source_module,
             )
 
-            return selected_evaluation
-
         except Exception:
             self.logger.exception(
                 "Error in strategy selection: ",
@@ -1241,6 +1239,8 @@ class StrategySelector:
             )
             # Return conservative decision on error
             return self._create_fallback_evaluation(selection_context.current_strategy_id)
+        else:
+            return selected_evaluation
 
     async def _evaluate_strategy(
         self,
@@ -1681,8 +1681,6 @@ class StrategyOrchestrator:
             # Complete transition
             await self._complete_transition(transition_plan)
 
-            return transition_plan
-
         except Exception as e:
             self.logger.exception(
                 "Error during strategy transition: ",
@@ -1691,6 +1689,8 @@ class StrategyOrchestrator:
             if self._active_transition:
                 await self._rollback_transition(self._active_transition, str(e))
             raise
+        else:
+            return transition_plan
 
     def _create_transition_plan(
         self,
@@ -2098,14 +2098,14 @@ class StrategySelectionSystem:
                     evaluation_result,
                 )
 
-            return evaluation_result
-
         except Exception:
             self.logger.exception(
                 "Error in strategy selection: ",
                 source_module=self._source_module,
             )
             return None
+        else:
+            return evaluation_result
 
     async def _create_selection_context(self) -> StrategySelectionContext:
         """Create context for strategy selection."""

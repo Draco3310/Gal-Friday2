@@ -148,8 +148,6 @@ class KrakenMarketDataProvider(MarketDataProvider):
                 # Update price history for volatility calculations
                 await self._update_price_history(symbol, price_data.price)
 
-            return price_data
-
         except Exception as e:
             self.logger.error(
                 f"Failed to get price for {symbol}: {e}",
@@ -157,6 +155,8 @@ class KrakenMarketDataProvider(MarketDataProvider):
                 exc_info=True,
             )
             return None
+        else:
+            return price_data
 
     async def get_volatility(self, symbol: str) -> VolatilityData | None:
         """Calculate volatility from historical price data."""
@@ -317,8 +317,6 @@ class ExchangeCalendarManager:
             # Update cache
             self._status_cache[cache_key] = (session, time.time())
 
-            return session
-
         except Exception as e:
             self.logger.error(
                 f"Failed to get market session for {exchange}: {e}",
@@ -326,6 +324,8 @@ class ExchangeCalendarManager:
                 exc_info=True,
             )
             return MarketSession.CLOSED
+        else:
+            return session
 
     async def is_market_open(self, exchange: str) -> bool:
         """Check if market is currently open."""
@@ -426,7 +426,6 @@ class EnhancedMarketDataService:
 
                 return price_data.price
             self._connection_failures += 1
-            return None
 
         except Exception as e:
             self.logger.error(
@@ -435,6 +434,8 @@ class EnhancedMarketDataService:
                 exc_info=True,
             )
             self._connection_failures += 1
+            return None
+        else:
             return None
 
     async def is_market_open(self, symbol: str) -> bool:
@@ -454,8 +455,6 @@ class EnhancedMarketDataService:
             if exchange.lower() == "kraken":
                 return True
 
-            return session in [MarketSession.REGULAR, MarketSession.PRE_MARKET, MarketSession.AFTER_MARKET]
-
         except Exception as e:
             self.logger.error(
                 f"Failed to check market status for {symbol}: {e}",
@@ -463,6 +462,8 @@ class EnhancedMarketDataService:
                 exc_info=True,
             )
             return True  # Default to open on error
+        else:
+            return session in [MarketSession.REGULAR, MarketSession.PRE_MARKET, MarketSession.AFTER_MARKET]
 
     async def get_volatility(self, symbol: str) -> float | None:
         """Get current volatility for symbol."""
@@ -473,14 +474,14 @@ class EnhancedMarketDataService:
                 # Return 30-day realized volatility as primary measure
                 return vol_data.realized_vol_30d
 
-            return None
-
         except Exception as e:
             self.logger.error(
                 f"Failed to get volatility for {symbol}: {e}",
                 source_module=self._source_module,
                 exc_info=True,
             )
+            return None
+        else:
             return None
 
     async def get_market_status(self, symbol: str) -> dict[str, Any]:
@@ -539,8 +540,6 @@ class EnhancedMarketDataService:
                     source_module=self._source_module,
                 )
 
-            return health_status
-
         except Exception as e:
             self.logger.error(
                 f"Health check failed: {e}",
@@ -548,6 +547,8 @@ class EnhancedMarketDataService:
                 exc_info=True,
             )
             return {"healthy": False, "error": str(e)}
+        else:
+            return health_status
 
     def _get_exchange_from_symbol(self, symbol: str) -> str:
         """Extract exchange from symbol or return default."""
@@ -752,6 +753,22 @@ class KrakenErrorClassifier:
 
                     return error_instance
 
+        except Exception as e:
+            self.logger.error(
+                f"Failed to classify error: {e}",
+                source_module=self._source_module,
+                exc_info=True,
+            )
+
+            # Return safe default
+            return ErrorInstance(
+                message=error_message,
+                category=ErrorCategory.UNKNOWN,
+                severity=ErrorSeverity.HIGH,
+                timestamp=time.time(),
+                context=context or {},
+            )
+        else:
             # Unknown error
             error_instance = ErrorInstance(
                 message=error_message,
@@ -770,22 +787,6 @@ class KrakenErrorClassifier:
             )
 
             return error_instance
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to classify error: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
-
-            # Return safe default
-            return ErrorInstance(
-                message=error_message,
-                category=ErrorCategory.UNKNOWN,
-                severity=ErrorSeverity.HIGH,
-                timestamp=time.time(),
-                context=context or {},
-            )
 
     def get_retry_strategy(self, error_instance: ErrorInstance) -> dict[str, Any] | None:
         """Get retry strategy for an error."""
@@ -1025,8 +1026,6 @@ class OptimizedBatchProcessor:
                 source_module=self._source_module,
             )
 
-            return batch_result
-
         except Exception as e:
             execution_time = time.time() - start_time
             self.logger.error(
@@ -1044,6 +1043,8 @@ class OptimizedBatchProcessor:
                 total_orders=len(orders),
                 success_rate=0.0,
             )
+        else:
+            return batch_result
 
     async def _preprocess_orders(self, orders: list[Any]) -> list[Any]:
         """Preprocess orders for batch execution."""
@@ -1205,19 +1206,19 @@ class OptimizedBatchProcessor:
             # Use the existing adapter's place_order method
             result = await self.adapter.place_order(order)
 
+        except Exception as e:
+            return {
+                "success": False,
+                "order": order,
+                "error": str(e),
+            }
+        else:
             return {
                 "success": result.success,
                 "order": order,
                 "exchange_order_ids": result.exchange_order_ids,
                 "client_order_id": result.client_order_id,
                 "error": result.error_message if not result.success else None,
-            }
-
-        except Exception as e:
-            return {
-                "success": False,
-                "order": order,
-                "error": str(e),
             }
 
     async def _validate_order(self, order: Any) -> bool:
@@ -1234,10 +1235,11 @@ class OptimizedBatchProcessor:
                 return False
 
             # Additional validations can be added here
-            return True
 
         except Exception:
             return False
+        else:
+            return True
 
     async def _record_batch_metrics(self, result: BatchExecutionResult, strategy: BatchStrategy) -> None:
         """Record batch execution metrics for analysis."""

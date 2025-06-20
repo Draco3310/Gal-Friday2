@@ -313,7 +313,6 @@ class ValuationService:
                 pair,
                 source_module=self._source_module,
             )
-            return None
         except (ValueError, TypeError) as e:
             self.logger.warning(
                 "Invalid data types in position dict for %s: %s",
@@ -322,6 +321,8 @@ class ValuationService:
                 source_module=self._source_module,
             )
             return None
+        else:
+            return None
 
     def _extract_from_object(self, pos_obj: PositionLike) -> tuple[Decimal, str, str] | None:
         """Extract position details from PositionLike object."""
@@ -329,7 +330,6 @@ class ValuationService:
             quantity = Decimal(str(pos_obj.quantity))
             base_asset = str(pos_obj.base_asset)
             quote_asset = str(pos_obj.quote_asset)
-            return quantity, base_asset, quote_asset
         except (ValueError, TypeError, AttributeError) as e:
             self.logger.warning(
                 "Failed to extract position details from object: %s",
@@ -337,6 +337,8 @@ class ValuationService:
                 source_module=self._source_module,
             )
             return None
+        else:
+            return quantity, base_asset, quote_asset
 
     def _extract_position_details(
         self,
@@ -583,7 +585,6 @@ class ValuationService:
             try:
                 quantity = Decimal(str(pos_data_any.quantity))
                 base_asset = str(pos_data_any.base_asset)
-                return quantity, base_asset
             except (ValueError, TypeError, AttributeError) as e:
                 self.logger.debug(
                     "Failed to extract from object attributes for %s: %s",
@@ -591,6 +592,8 @@ class ValuationService:
                     e,
                     source_module=self._source_module,
                 )
+            else:
+                return quantity, base_asset
 
         # Try dictionary
         if isinstance(pos_data_any, dict):
@@ -607,7 +610,6 @@ class ValuationService:
                 raw_quantity = pos_data_any.get("quantity", 0)
                 quantity = Decimal(str(raw_quantity))
                 base_asset = str(raw_base_asset)
-                return quantity, base_asset
             except (ValueError, TypeError) as e:
                 self.logger.debug(
                     "Failed to extract from dict for %s: %s",
@@ -615,6 +617,8 @@ class ValuationService:
                     e,
                     source_module=self._source_module,
                 )
+            else:
+                return quantity, base_asset
 
         # Unsupported type
         self.logger.debug(

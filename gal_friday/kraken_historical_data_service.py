@@ -521,13 +521,13 @@ class KrakenHistoricalDataService(HistoricalDataService):
                     if not atr.empty:
                         return Decimal(str(atr.iloc[-1]))
 
-            return None
-
         except Exception:
             self.logger.exception(
                 "Error calculating ATR for %s:",
                 trading_pair,
                 source_module=self._source_module)
+            return None
+        else:
             return None
 
     async def _fetch_ohlcv_data(
@@ -710,12 +710,13 @@ class KrakenHistoricalDataService(HistoricalDataService):
             self.logger.info(
                 "Successfully fetched and processed %s OHLCV data points from API for %s.",
                 len(df), trading_pair, source_module=self._source_module)
-            return df
         except Exception as e:
             self.logger.error(
                 "Failed to create DataFrame from fetched OHLCV data for %s: %s",
                 trading_pair, e, exc_info=True, source_module=self._source_module)
             return None
+        else:
+            return df
 
     def _map_interval_to_kraken_code(self, interval_str: str) -> int | None:
         """Maps human-readable interval string to Kraken API integer code."""
@@ -858,13 +859,14 @@ class KrakenHistoricalDataService(HistoricalDataService):
                 len(points),
                 trading_pair,
                 source_module=self._source_module)
-            return True
 
         except Exception:
             self.logger.exception(
                 "Error storing OHLCV data in InfluxDB:",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def _store_trades_data_in_influxdb(self, df: pd.DataFrame, trading_pair: str) -> bool:
         """Store trade data in InfluxDB.
@@ -922,13 +924,15 @@ class KrakenHistoricalDataService(HistoricalDataService):
                     "Stored %s trade points in InfluxDB for %s",
                     len(points), trading_pair,
                     source_module=self._source_module)
-                return True
-            return False
         except Exception as e:
             self.logger.exception(
                 "Error storing trade data in InfluxDB for %s: %s",
                 trading_pair, e,
                 source_module=self._source_module)
+            return False
+        else:
+            if points:
+                return True
             return False
 
     async def _query_ohlcv_data_from_influxdb(
@@ -978,13 +982,13 @@ class KrakenHistoricalDataService(HistoricalDataService):
             df = pd.DataFrame(records)
             df.set_index("timestamp", inplace=True)
 
-            return df
-
         except Exception:
             self.logger.exception(
                 "Error querying OHLCV data from InfluxDB:",
                 source_module=self._source_module)
             return None
+        else:
+            return df
 
     async def _query_trades_data_from_influxdb(
         self,
@@ -1029,13 +1033,13 @@ class KrakenHistoricalDataService(HistoricalDataService):
             df = pd.DataFrame(records)
             df.set_index("timestamp", inplace=True)
 
-            return df
-
         except Exception:
             self.logger.exception(
                 "Error querying trade data from InfluxDB:",
                 source_module=self._source_module)
             return None
+        else:
+            return df
 
     def _get_missing_ranges(
         self,
@@ -1246,12 +1250,12 @@ class KrakenHistoricalDataService(HistoricalDataService):
                         source_module=self._source_module)
                     return None
 
-            return None
-
         except Exception:
             self.logger.exception(
                 "Error getting latest timestamp from InfluxDB:",
                 source_module=self._source_module)
+            return None
+        else:
             return None
 
     async def fetch_trades(
@@ -1351,13 +1355,13 @@ class KrakenHistoricalDataService(HistoricalDataService):
                     "until": until.isoformat() if until else None,
                 })
 
-            return all_trades
-
         except Exception:
             self.logger.exception(
                 f"Failed to fetch trades for {trading_pair}",
                 source_module=self._source_module)
             return None
+        else:
+            return all_trades
 
     async def _make_public_request(
         self,

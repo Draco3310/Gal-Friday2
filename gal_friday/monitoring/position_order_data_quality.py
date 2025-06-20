@@ -140,13 +140,13 @@ class PositionOrderDataQualityMonitor:
                 f"({len(report.high_priority_issues)} high priority)",
                 source_module=self._source_module)
 
-            return report
-
         except Exception:
             self.logger.exception(
                 "Error during comprehensive data quality check: ",
                 source_module=self._source_module)
             raise
+        else:
+            return report
 
     async def _check_unlinked_filled_orders(self, hours_back: int) -> list[DataQualityIssue]:
         """Check for filled orders that are not linked to positions."""

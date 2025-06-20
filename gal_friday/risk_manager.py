@@ -1880,13 +1880,14 @@ class RiskManager:
             if tick_size and tick_size > 0:
                 result_price: Decimal = (price / tick_size).quantize(Decimal(1), rounding=ROUND_DOWN) * tick_size
                 return result_price
-            return price
         except Exception as e:
             self.logger.exception(
                 f"Error rounding price to tick size for {trading_pair}",
                 source_module=self._source_module,
                 context={"trading_pair": trading_pair, "price": price, "tick_size": tick_size, "error": str(e)})
             return None
+        else:
+            return price
 
     def _validate_prices_fat_finger_and_sl_distance(
         self, ctx: PriceValidationContext,
@@ -2225,13 +2226,13 @@ class RiskManager:
             # Update execution report with calculated PnL
             execution_report.realized_pnl = realized_pnl
 
-            return realized_pnl
-
         except Exception:
             self.logger.exception(
                 "Error calculating realized P&L: ",
                 source_module=self._source_module)
             return None
+        else:
+            return realized_pnl
 
     async def _update_risk_metrics_from_execution(
         self,
@@ -3233,8 +3234,6 @@ class RiskManager:
                 },
             )
 
-            return success_rate >= success_threshold
-
         except Exception as e:
             self.logger.error(
                 f"Error checking retry conditions: {e}",
@@ -3242,6 +3241,8 @@ class RiskManager:
                 exc_info=True,
             )
             return False
+        else:
+            return success_rate >= success_threshold
 
     async def _evaluate_retry_condition(
         self,
@@ -3342,7 +3343,6 @@ class RiskManager:
                 f"Unknown retry condition: {condition}",
                 source_module=self._source_module,
             )
-            return False
 
         except Exception as e:
             self.logger.error(
@@ -3350,6 +3350,8 @@ class RiskManager:
                 source_module=self._source_module,
                 exc_info=True,
             )
+            return False
+        else:
             return False
 
     async def _publish_retry_scheduled_event(self, retry_entry: dict[str, Any]) -> None:
@@ -3839,7 +3841,6 @@ class RiskManager:
             # Ensure rounded_sl_price is not None (it's required)
             if rounded_sl_price is None:
                 raise SignalValidationStageError("Stop loss price is None after rounding", "Stage1_InitialValidation")
-            return rounded_entry_price, rounded_sl_price, rounded_tp_price
 
         except SignalValidationStageError:
             # Re-raise validation errors
@@ -3849,6 +3850,8 @@ class RiskManager:
                 "Unexpected error in Stage 1 validation",
                 source_module=self._source_module,
                 context={"signal_id": str(ctx.event.signal_id)})
+        else:
+            return rounded_entry_price, rounded_sl_price, rounded_tp_price
             self._validate_and_raise_if_error(
                 error_condition=True,
                 failure_reason=f"Stage 1 error: {e!s}",
@@ -3956,8 +3959,6 @@ class RiskManager:
                 },
             )
 
-            return effective_entry_price_for_non_limit, ref_entry_for_calculation, ctx.rounded_entry_price
-
         except SignalValidationStageError:
             # Re-raise validation errors
             raise
@@ -3966,6 +3967,8 @@ class RiskManager:
                 "Unexpected error in Stage 2 validation",
                 source_module=self._source_module,
                 context={"signal_id": str(ctx.event.signal_id)})
+        else:
+            return effective_entry_price_for_non_limit, ref_entry_for_calculation, ctx.rounded_entry_price
             self._validate_and_raise_if_error(
                 error_condition=True,
                 failure_reason=f"Stage 2 error: {e!s}",
@@ -4068,9 +4071,6 @@ class RiskManager:
                 },
             )
 
-            # Since initial_calculated_qty is verified to be non-None above, this is safe
-            return final_quantity if final_quantity is not None else initial_calculated_qty, state_values
-
         except SignalValidationStageError:
             # Re-raise validation errors
             raise
@@ -4079,6 +4079,9 @@ class RiskManager:
                 "Unexpected error in Stage 3 validation",
                 source_module=self._source_module,
                 context={"signal_id": str(ctx.event.signal_id)})
+        else:
+            # Since initial_calculated_qty is verified to be non-None above, this is safe
+            return final_quantity if final_quantity is not None else initial_calculated_qty, state_values
             self._validate_and_raise_if_error(
                 error_condition=True,
                 failure_reason=f"Stage 3 error: {e!s}",
@@ -4178,8 +4181,6 @@ class RiskManager:
                 },
             )
 
-            return rounded_qty, True
-
         except Exception:
             self.logger.exception(
                 "Error calculating lot size: ",
@@ -4191,6 +4192,8 @@ class RiskManager:
             )
             # Return raw quantity as fallback
             return raw_quantity, False
+        else:
+            return rounded_qty, True
 
     def _calculate_composite_risk_score(
         self,
@@ -4276,14 +4279,14 @@ class RiskManager:
                 },
             )
 
-            return composite_score
-
         except Exception:
             self.logger.exception(
                 "Error calculating composite risk score: ",
                 source_module=self._source_module)
             # Return high risk score on error
             return Decimal(75)
+        else:
+            return composite_score
 
     async def _check_risk_thresholds(
         self,
@@ -4753,7 +4756,6 @@ class RiskManager:
                             "order_id": audit_entry.get("order_id"),
                         },
                     )
-                    return  # Success, exit retry loop
 
                 except Exception as db_error:
                     if attempt < max_retries - 1:
@@ -4765,6 +4767,8 @@ class RiskManager:
                         retry_delay *= 2  # Exponential backoff
                     else:
                         raise  # Re-raise on final attempt
+                else:
+                    return  # Success, exit retry loop
 
         except Exception as e:
             self.logger.error(

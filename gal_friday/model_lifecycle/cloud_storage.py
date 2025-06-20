@@ -125,13 +125,14 @@ class GCSBackend(CloudStorageBackend):
                     "size_bytes": local_path.stat().st_size,
                     "checksum": local_checksum,
                 })
-            return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to upload file to GCS: {remote_path}",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def _upload_directory(self, local_path: Path, remote_path: str) -> bool:
         """Upload directory recursively to GCS."""
@@ -160,13 +161,14 @@ class GCSBackend(CloudStorageBackend):
                 f"Successfully uploaded directory to GCS: {remote_path}",
                 source_module=self._source_module,
                 context={"file_count": len(results)})
-            return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to upload directory to GCS: {remote_path}",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def download(self, remote_path: str, local_path: Path) -> bool:
         """Download from GCS."""
@@ -207,13 +209,13 @@ class GCSBackend(CloudStorageBackend):
                     source_module=self._source_module)
                 return False
 
-            return True
-
         except Exception:
             self.logger.exception(
                 f"Failed to download from GCS: {remote_path}",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def _download_file(self, blob: Any, local_path: Path) -> bool:
         """Download single file from GCS."""
@@ -238,13 +240,13 @@ class GCSBackend(CloudStorageBackend):
                         source_module=self._source_module)
                     return False
 
-            return True
-
         except Exception:
             self.logger.exception(
                 f"Failed to download file from GCS: {blob.name}",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def delete(self, remote_path: str) -> bool:
         """Delete from GCS."""
@@ -263,13 +265,14 @@ class GCSBackend(CloudStorageBackend):
             self.logger.info(
                 f"Deleted {len(blobs)} files from GCS: {remote_path}",
                 source_module=self._source_module)
-            return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to delete from GCS: {remote_path}",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def exists(self, remote_path: str) -> bool:
         """Check if exists in GCS."""
@@ -368,13 +371,14 @@ class S3Backend(CloudStorageBackend):
                     "size_bytes": local_path.stat().st_size,
                     "checksum": local_checksum,
                 })
-            return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to upload file to S3: {remote_path}",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def _upload_directory_s3(self, s3: Any, local_path: Path, remote_path: str) -> bool:
         """Upload directory recursively to S3."""
@@ -403,13 +407,14 @@ class S3Backend(CloudStorageBackend):
                 f"Successfully uploaded directory to S3: {remote_path}",
                 source_module=self._source_module,
                 context={"file_count": len(results)})
-            return True
 
         except Exception:
             self.logger.exception(
                 f"Failed to upload directory to S3: {remote_path}",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def download(self, remote_path: str, local_path: Path) -> bool:
         """Download from S3."""
@@ -480,13 +485,13 @@ class S3Backend(CloudStorageBackend):
                         source_module=self._source_module)
                     return False
 
-            return True
-
         except Exception:
             self.logger.exception(
                 f"Failed to download file from S3: {key}",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def delete(self, remote_path: str) -> bool:
         """Delete from S3."""
@@ -526,9 +531,10 @@ class S3Backend(CloudStorageBackend):
             async with self.session.client("s3", region_name=self.region) as s3:
                 try:
                     await s3.head_object(Bucket=self.bucket_name, Key=remote_path)
-                    return True
                 except s3.exceptions.NoSuchKey:
                     return False
+                else:
+                    return True
         except Exception:
             return False
 

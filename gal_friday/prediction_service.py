@@ -1559,8 +1559,6 @@ class PredictionService:
                 context={"symbol": symbol, "version": model_version},
             )
 
-            return model_version
-
         except Exception as e:
             self.logger.error(
                 "Model training failed for %(symbol)s: %(error)s",
@@ -1569,6 +1567,8 @@ class PredictionService:
                 exc_info=True,
             )
             raise
+        else:
+            return model_version
 
     async def predict_with_ml_pipeline(self,
                                      symbol: str,
@@ -1613,6 +1613,15 @@ class PredictionService:
                 },
             )
 
+        except Exception as e:
+            self.logger.error(
+                "ML pipeline prediction failed for %(symbol)s: %(error)s",
+                source_module=self._source_module,
+                context={"symbol": symbol, "error": str(e)},
+                exc_info=True,
+            )
+            raise
+        else:
             return {
                 "symbol": result.symbol,
                 "predicted_price": result.predicted_price,
@@ -1625,15 +1634,6 @@ class PredictionService:
                 "accuracy_metrics": result.accuracy_metrics,
                 "confidence_level": confidence_level,
             }
-
-        except Exception as e:
-            self.logger.error(
-                "ML pipeline prediction failed for %(symbol)s: %(error)s",
-                source_module=self._source_module,
-                context={"symbol": symbol, "error": str(e)},
-                exc_info=True,
-            )
-            raise
 
     def get_ml_pipeline_status(self) -> dict[str, Any]:
         """Get comprehensive ML pipeline status and metrics.
@@ -1715,8 +1715,6 @@ class PredictionService:
                 await self.train_model(symbol, current_data)
                 return True
 
-            return False
-
         except Exception as e:
             self.logger.error(
                 "Failed to check/retrain model for %(symbol)s: %(error)s",
@@ -1724,4 +1722,6 @@ class PredictionService:
                 context={"symbol": symbol, "error": str(e)},
                 exc_info=True,
             )
+            return False
+        else:
             return False

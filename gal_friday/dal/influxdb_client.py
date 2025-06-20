@@ -55,12 +55,13 @@ class TimeSeriesDB:
         try:
             for point in points:
                 self.write_api.write(bucket=self.bucket, record=point)
-            return True
         except InfluxDBError:
             self.logger.exception(
                 "Error writing points to InfluxDB",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def write_market_data(
         self,
@@ -154,13 +155,13 @@ class TimeSeriesDB:
                         "values": record.values,
                     })
 
-            return results
-
         except InfluxDBError:
             self.logger.exception(
                 "Error querying data from InfluxDB",
                 source_module=self._source_module)
             return []
+        else:
+            return results
 
     async def query_ohlcv(self,
                          trading_pair: str,
@@ -194,13 +195,13 @@ class TimeSeriesDB:
                         "volume": record.values.get("volume"),
                     })
 
-            return candles
-
         except Exception:
             self.logger.exception(
                 "Error querying OHLCV data from InfluxDB",
                 source_module=self._source_module)
             return []
+        else:
+            return candles
 
     def close(self) -> None:
         """Close InfluxDB client."""

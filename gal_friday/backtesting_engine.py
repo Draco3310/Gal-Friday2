@@ -1571,11 +1571,11 @@ class BacktestingEngine:
                 self.logger.info(f"Sharpe ratio: {enhanced_metrics.sharpe_ratio:.2f}")
                 self.logger.info(f"Max drawdown: {enhanced_metrics.max_drawdown:.2%}")
 
-            return results
-
         except Exception as e:
             self.logger.exception("Comprehensive backtest failed: ")
             raise BacktestError(f"Backtesting failed: {e}") from e
+        else:
+            return results
 
     async def _create_default_services(self, run_config: dict[str, Any]) -> dict[str, Any]:
         """Create default services for backtesting with enterprise-grade initialization.
@@ -1727,7 +1727,6 @@ class BacktestingEngine:
                     self.logger.debug(f"Started service: {service_name}")
 
             self.logger.info(f"Successfully initialized {len(services)} services for backtesting")
-            return services
 
         except Exception as e:
             self.logger.exception("Failed to create default services: ")
@@ -1739,6 +1738,8 @@ class BacktestingEngine:
                     except Exception:
                         self.logger.exception(f"Error stopping service {service_name} during cleanup")
             raise BacktestError(f"Failed to initialize services: {e}")
+        else:
+            return services
 
     async def _load_historical_data_for_symbols(
         self,
@@ -2435,11 +2436,11 @@ class BacktestingEngine:
                     returns = equity_curve.pct_change().dropna()
                     enhanced.volatility = float(returns.std() * np.sqrt(252))  # Annualized
 
-            return enhanced
-
         except Exception:
             self.logger.exception("Error calculating enhanced metrics: ")
             return None
+        else:
+            return enhanced
 
     def run_strategy_comparison(
         self,
@@ -2935,12 +2936,12 @@ class EnterpriseHistoricalDataLoader:
             if result:
                 self._stats["total_data_points_loaded"] += len(result.get("data", []))
 
-            return result
-
         except Exception:
             self._stats["failed_requests"] += 1
             self.logger.exception(f"Failed to load data for {request.get('symbol', 'unknown')}: ")
             return None
+        else:
+            return result
 
     async def _load_from_providers(self, request: dict[str, Any]) -> dict[str, Any] | None:
         """Load data from available providers with fallback logic."""
@@ -3048,10 +3049,11 @@ class EnterpriseHistoricalDataLoader:
 
                     # Store in memory cache for next time
                     self._memory_cache[cache_key] = cached_data
-                    return cached_data  # type: ignore[no-any-return]
 
                 except Exception as e:
                     self.logger.warning(f"Failed to load from disk cache: {e}")
+                else:
+                    return cached_data  # type: ignore[no-any-return]
 
         return None
 
@@ -3166,11 +3168,11 @@ class LocalFileDataProvider:
                 self.logger.warning(f"No data found for {symbol} in specified date range")
                 return None
 
-            return {"data": df, "source": "local_file"}
-
         except Exception:
             self.logger.exception("Failed to load data from local file: ")
             return None
+        else:
+            return {"data": df, "source": "local_file"}
 
 
 class DatabaseDataProviderAdapter:
@@ -3233,11 +3235,11 @@ class DatabaseDataProviderAdapter:
             if not df.empty:
                 df.set_index("timestamp", inplace=True)
 
-            return {"data": df, "source": "database"}
-
         except Exception:
             self.logger.exception("Failed to load data from database: ")
             return None
+        else:
+            return {"data": df, "source": "database"}
 
     async def cleanup(self) -> None:
         """Clean up database connections."""
@@ -3305,11 +3307,11 @@ class APIDataProviderAdapter:
             if not df.empty:
                 df.set_index("timestamp", inplace=True)
 
-            return {"data": df, "source": "api"}
-
         except Exception:
             self.logger.exception("Failed to load data from API: ")
             return None
+        else:
+            return {"data": df, "source": "api"}
 
     async def cleanup(self) -> None:
         """Clean up API connections."""

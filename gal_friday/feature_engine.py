@@ -246,12 +246,12 @@ class FeatureOutputHandler:
                     f"Successfully processed {len(final_outputs.columns)} outputs for feature {self.spec.key}",
                 )
 
-            return final_outputs
-
         except Exception as e:
             if self.logger:
                 self.logger.exception(f"Error processing outputs for feature {self.spec.key}: ")
             raise FeatureProcessingError(f"Failed to process feature outputs: {e}")
+        else:
+            return final_outputs
 
     def _standardize_raw_outputs(self, raw_outputs: Any) -> pd.DataFrame:
         """Convert various output formats to standardized DataFrame."""
@@ -555,12 +555,12 @@ class AdvancedFeatureExtractor:
             if self.logger:
                 self.logger.info(f"Advanced feature extraction completed in {extraction_time:.2f}s")
 
-            return result
-
         except Exception as e:
             if self.logger:
                 self.logger.exception("Advanced feature extraction failed: ")
             raise FeatureProcessingError(f"Advanced feature extraction failed: {e}")
+        else:
+            return result
 
     async def _extract_category_features(
         self,
@@ -4329,8 +4329,6 @@ class FeatureEngine:
                 f"enhanced_contextual_{feature_name}",
             )
 
-            return adjusted_value
-
         except Exception as e:
             self.logger.debug(
                 "Enhanced contextual imputation failed for %s: %s",
@@ -4338,6 +4336,8 @@ class FeatureEngine:
                 source_module=self._source_module,
             )
             return self._get_contextual_default(feature_name)
+        else:
+            return adjusted_value
 
     async def _impute_from_historical_analysis(
         self,
@@ -4460,9 +4460,10 @@ class FeatureEngine:
                 )
                 return float(vol_ma) if pd.notna(vol_ma) else None
 
-            return None
         except Exception as e:
             self.logger.debug(f"Historical analysis imputation failed for {feature_name}: {e}")
+            return None
+        else:
             return None
 
     async def _impute_from_correlation_analysis(
@@ -4503,14 +4504,14 @@ class FeatureEngine:
                     source_module=self._source_module)
                 return imputed_value  # type: ignore[no-any-return]
 
-            return None
-
         except Exception as e:
             self.logger.debug(
                 "Correlation analysis imputation failed: %s",
                 e,
                 source_module=self._source_module,
                 context={"feature_name": feature_name, "trading_pair": trading_pair})
+            return None
+        else:
             return None
 
     async def _impute_from_market_regime_analysis(
@@ -4544,13 +4545,13 @@ class FeatureEngine:
                     return 1200.0  # Moderate volume in trends
                 return 800.0  # Lower volume in ranging markets
 
-            return None
-
         except Exception as e:
             self.logger.debug(
                 "Market regime analysis failed: %s",
                 e, source_module=self._source_module,
             )
+            return None
+        else:
             return None
 
     async def _impute_from_ml_patterns(
@@ -4597,7 +4598,6 @@ class FeatureEngine:
             self.logger.info(
                 f"Imputed {feature_name} using ML model {model_key}: {imputed_value:.4f}",
                 source_module=self._source_module)
-            return imputed_value
 
         except Exception as e:
             self.logger.debug(
@@ -4607,6 +4607,8 @@ class FeatureEngine:
                 source_module=self._source_module,
                 context={"feature_spec": feature_spec})
             return None
+        else:
+            return imputed_value
 
     async def _analyze_current_market_conditions(self, trading_pair: str) -> dict[str, Any]:
         """Analyzes current market conditions to inform imputation strategies."""
@@ -4694,13 +4696,13 @@ class FeatureEngine:
                 if volatility == "high":
                     return base_value * (1 + adjustment_factor * 1.5)  # type: ignore[no-any-return]
 
-            return base_value
-
         except Exception as e:
             self.logger.debug(
                 "Market context adjustment failed: %s",
                 e, source_module=self._source_module,
             )
+            return base_value
+        else:
             return base_value
 
     def _calculate_imputation_confidence(
@@ -4999,8 +5001,6 @@ class FeatureEngine:
                 "validation_method": "pydantic_strict",
             })
 
-            return schema_compliant
-
         except Exception as pydantic_error:
             self.logger.warning(
                 "Strict Pydantic validation failed, applying intelligent schema adaptation: %s",
@@ -5031,8 +5031,6 @@ class FeatureEngine:
                     "error": "No adaptation possible",
                     "original_error": str(pydantic_error),
                 })
-                return {}
-
             except Exception as adaptation_error:
                 self.logger.exception(
                     "Schema adaptation also failed: %s",
@@ -5049,6 +5047,10 @@ class FeatureEngine:
 
                 # Return empty dict as a last resort to satisfy return type
                 return {}
+            else:
+                return {}
+        else:
+            return schema_compliant
 
     def _adapt_to_schema(
         self,
@@ -5071,8 +5073,6 @@ class FeatureEngine:
                     adapted[field_name] = default_val
                     validation_context["fallbacks_applied"].append(f"schema_default_{field_name}")
 
-            return adapted
-
         except Exception as e:
             self.logger.exception(
                 "Schema adaptation failed: %s",
@@ -5080,6 +5080,8 @@ class FeatureEngine:
                 source_module=self._source_module,
             )
             return None
+        else:
+            return adapted
 
     def _finalize_and_report_validation(
         self,
@@ -5338,8 +5340,6 @@ class FeatureEngine:
                 source_module=self._source_module,
             )
 
-            return (step_name, transformer)
-
         except Exception as e:
             self.logger.exception(
                 "Error creating advanced input imputation step for %s: %s. Using simple fallback.",
@@ -5348,6 +5348,8 @@ class FeatureEngine:
             )
             # Fallback to simple mean imputation
             return (f"{spec.key}_simple_input_imputer", SimpleImputer(strategy="mean"))
+        else:
+            return (step_name, transformer)
 
     def _infer_data_type_from_spec(self, spec: InternalFeatureSpec) -> DataType:
         """Infer the data type for imputation based on feature specification."""

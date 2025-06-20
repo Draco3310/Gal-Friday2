@@ -368,12 +368,13 @@ class OrderStateTracker:
 
             if self.logger:
                 self.logger.info(f"Order tracking created for {order_id}")
-            return lifecycle_data
 
         except Exception as e:
             if self.logger:
                 self.logger.exception(f"Error creating order tracking for {order_id}: ")
             raise OrderStateError(f"Failed to create order tracking: {e}")
+        else:
+            return lifecycle_data
 
     async def update_order_state(
         self, order_id: str, new_state: OrderState, **kwargs: Any,
@@ -426,12 +427,12 @@ class OrderStateTracker:
                     f"Order {order_id} state updated: {current_state.value} -> {new_state.value}",
                 )
 
-            return lifecycle_data
-
         except Exception as e:
             if self.logger:
                 self.logger.exception(f"Error updating order state for {order_id}: ")
             raise OrderStateError(f"Failed to update order state: {e}")
+        else:
+            return lifecycle_data
 
     def _is_valid_transition(self, from_state: OrderState, to_state: OrderState) -> bool:
         """Validate order state transitions."""
@@ -574,13 +575,13 @@ class OrderStateTracker:
 
                     return lifecycle_data
 
-            return None
-
         except Exception:
             if self.logger:
                 self.logger.exception(
                     f"Failed to load order state for order {order_id}: ",
                     source_module=self.__class__.__name__)
+            return None
+        else:
             return None
 
     async def _publish_state_event(self, event_type: str, event_data: OrderStateEvent) -> None:
@@ -670,11 +671,11 @@ class ConfigurableShutdownHandler:
             # Wait for cancellations to complete
             await self._wait_for_cancellation_completion(cancellation_results)
 
-            return cancellation_results
-
         except Exception:
             self.logger.exception("Critical error in shutdown order handling: ")
             return []
+        else:
+            return cancellation_results
 
         finally:
             self.shutdown_in_progress = False
@@ -695,10 +696,11 @@ class ConfigurableShutdownHandler:
                     )
                     return False
 
-            return True
         except Exception:
             self.logger.exception("Error in safety checks: ")
             return False
+        else:
+            return True
 
     def _create_safety_failure_results(
         self, open_orders: list[dict[str, Any]],
@@ -892,7 +894,6 @@ class ConfigurableShutdownHandler:
                 return should_cancel, reason
 
             # Default behavior for other order types
-            return True, "Standard conditional cancellation"
 
         except Exception as e:
             self.logger.exception(
@@ -900,6 +901,8 @@ class ConfigurableShutdownHandler:
             )
             # Conservative approach: don't cancel if we can't evaluate properly
             return False, f"Evaluation error: {e}"
+        else:
+            return True, "Standard conditional cancellation"
 
     async def _verify_cancellation_completion(
         self, cancellation_results: list[OrderCancellationResult], max_wait_time: int,
@@ -1021,11 +1024,11 @@ class ConfigurableShutdownHandler:
             error_msg = (
                 result.get("error", ["Unknown error"]) if result else ["API request failed"]
             )
-            return False, f"Market order placement failed: {error_msg}"
-
         except Exception as e:
             self.logger.exception(f"Error converting order {order.get('order_id')} to market: ")
             return False, f"Conversion error: {e}"
+        else:
+            return False, f"Market order placement failed: {error_msg}"
 
     async def _evaluate_take_profit_order(
         self, order_id: str, current_price: float, symbol: str,
@@ -1109,14 +1112,14 @@ class ConfigurableShutdownHandler:
                 return (
                     True,
                     f"Take-profit order too far from market ({price_diff_pct:.1%}) - cancelling")
-            return (
-                False,
-                f"Take-profit order reasonably positioned ({price_diff_pct:.1%}) - preserving")
-
         except Exception as e:
             self.logger.exception(f"Error evaluating take-profit order {order_id}: ")
             # Conservative approach: don't cancel if we can't evaluate properly
             return False, f"Evaluation error: {e}"
+        else:
+            return (
+                False,
+                f"Take-profit order reasonably positioned ({price_diff_pct:.1%}) - preserving")
 
     async def _get_order_age_hours(self, order_details: dict[str, Any]) -> float | None:
         """Calculate order age in hours."""
@@ -1129,10 +1132,11 @@ class ConfigurableShutdownHandler:
                 current_time = datetime.now(UTC)
                 age_delta = current_time - order_time
                 return age_delta.total_seconds() / 3600  # Return hours
-            return None
 
         except Exception as e:
             self.logger.debug(f"Could not calculate order age: {e}")
+            return None
+        else:
             return None
 
 
@@ -1367,8 +1371,6 @@ class AsyncOrderProcessor:
                 # Update processing metrics
                 self._update_processing_metrics(request, result)
 
-                return result
-
             except Exception as e:
                 if self.logger:
                     self.logger.exception(
@@ -1406,6 +1408,8 @@ class AsyncOrderProcessor:
                     "retry_count": request.retry_count,
                     "max_retries_exceeded": request.retry_count >= request.max_retries,
                 }
+            else:
+                return result
 
     async def _schedule_retry(self, request: AsyncOrderRequest, delay: float) -> None:
         """Schedule order retry with delay."""
@@ -1737,13 +1741,13 @@ class ExecutionHandler(ServiceProtocol):
                 "Persistence service initialized successfully",
                 source_module=self.__class__.__name__)
 
-            return persistence_service
-
         except Exception:
             self.logger.exception(
                 "Failed to initialize persistence service: . Operating without persistence.",
                 source_module=self.__class__.__name__)
             return None
+        else:
+            return persistence_service
 
     def _initialize_market_data_service(self) -> Any:
         """Initialize market data service for intelligent shutdown decisions."""
@@ -1762,13 +1766,13 @@ class ExecutionHandler(ServiceProtocol):
                 "Market data service initialized for shutdown decisions",
                 source_module=self.__class__.__name__)
 
-            return market_data_service
-
         except Exception:
             self.logger.exception(
                 "Failed to initialize market data service: . Operating with basic shutdown logic.",
                 source_module=self.__class__.__name__)
             return None
+        else:
+            return market_data_service
 
     async def _load_persisted_order_states(self) -> None:
         """Load any persisted order states during startup."""
@@ -2623,8 +2627,6 @@ class ExecutionHandler(ServiceProtocol):
                         },
                     }
 
-            return result
-
         except Exception:
             self.logger.exception(
                 f"Error placing batch order for signal {event.signal_id}: ",
@@ -2632,6 +2634,8 @@ class ExecutionHandler(ServiceProtocol):
             # Fallback to single order placement
             uri_path = "/0/private/AddOrder"
             return await self._make_private_request_with_retry(uri_path, base_params)
+        else:
+            return result
 
     async def _prepare_sl_order(
         self, base_params: dict[str, Any], event: TradeSignalApprovedEvent,
@@ -3364,13 +3368,13 @@ class ExecutionHandler(ServiceProtocol):
                     return cast("dict[str, Any]", result)
                 return None
 
-            return None
-
         except Exception as e:
             self.logger.exception(
                 "Error extracting order data from message: %s",
                 str(e),
                 source_module=self.__class__.__name__)
+            return None
+        else:
             return None
 
     def _extract_trade_data_from_message(self, message: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
@@ -3389,13 +3393,13 @@ class ExecutionHandler(ServiceProtocol):
                 if isinstance(trades, dict):
                     return [trades]
 
-            return []
-
         except Exception as e:
             self.logger.exception(
                 "Error extracting trade data from message: %s",
                 str(e),
                 source_module=self.__class__.__name__)
+            return []
+        else:
             return []
 
     def _update_order_id_mapping(self, client_order_id: str, exchange_order_id: str) -> None:
@@ -3547,8 +3551,9 @@ class ExecutionHandler(ServiceProtocol):
                             return datetime.fromtimestamp(float(timestamp_value), tz=UTC)
                         except ValueError:
                             continue
-            return None
         except Exception:
+            return None
+        else:
             return None
 
     async def cancel_order(self, exchange_order_id: str) -> bool:
@@ -3864,12 +3869,13 @@ class ExecutionHandler(ServiceProtocol):
             self.logger.warning(
                 f"No approved signal event found for signal_id: {signal_id}",
                 source_module=self.__class__.__name__)
-            return None
 
         except Exception:
             self.logger.exception(
                 f"Error retrieving signal event for {signal_id}",
                 source_module=self.__class__.__name__)
+            return None
+        else:
             return None
 
     async def _publish_error_execution_report(
