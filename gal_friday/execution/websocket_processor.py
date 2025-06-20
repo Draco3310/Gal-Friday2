@@ -202,13 +202,15 @@ class WebSocketMessageProcessor:
                     # Store task reference to prevent garbage collection
                     task.add_done_callback(lambda t: t.result() if t.cancelled() else None)
 
-            return message
+            # return message moved to else block
 
         except Exception:
             self.logger.exception(
                 "Error processing WebSocket message",
                 source_module=self._source_module)
             return None
+        else:
+            return message
 
     def _validate_message(self, channel: str, data: dict[str, Any]) -> bool:
         """Validate message has required fields."""

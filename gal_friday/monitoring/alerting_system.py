@@ -179,11 +179,12 @@ class EmailChannel(AlertDeliveryChannel):
                     source_module=self._source_module,
                     context={"alert_id": alert.alert_id})
                 return True
-            self.logger.error(
-                f"Failed to send email: {response.status_code}",
-                source_module=self._source_module,
-                context={"response": response.body})
-            return False
+            else:
+                self.logger.error(
+                    f"Failed to send email: {response.status_code}",
+                    source_module=self._source_module,
+                    context={"response": response.body})
+                return False
 
         except Exception:
             self.logger.exception(
@@ -313,13 +314,14 @@ class SMSChannel(AlertDeliveryChannel):
                 f"SMS alert sent to {recipient.phone}",
                 source_module=self._source_module,
                 context={"alert_id": alert.alert_id, "sid": result.sid})
-            return True
 
         except Exception:
             self.logger.exception(
                 "Error sending SMS alert",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def test_connection(self) -> bool:
         """Test Twilio connection."""

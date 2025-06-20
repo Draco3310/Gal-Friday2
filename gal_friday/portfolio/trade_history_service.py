@@ -211,13 +211,13 @@ class TradeHistoryService:
                 f"(total: {total_count}, query_time: {query_time:.3f}s)",
                 source_module=self._source_module)
 
-            return response
-
         except Exception:
             self.logger.exception(
                 f"Error retrieving trade history for {request.trading_pair}: ",
                 source_module=self._source_module)
             raise
+        else:
+            return response
 
     async def get_trade_history_for_pair(
         self,

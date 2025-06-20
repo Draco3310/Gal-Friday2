@@ -349,14 +349,14 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                         f"Invalid balance value for {currency}: {balance_str}",
                         source_module=self.__class__.__name__)
 
-            return balances
-
         except Exception as e:
             await self._trigger_halt_if_needed(e, {"operation": "get_account_balance"})
             self.logger.exception(
                 f"Failed to get account balance: {e!s}",
                 source_module=self.__class__.__name__)
             return {}
+        else:
+            return balances
 
     async def get_positions(
         self, symbol: str | None = None) -> list[PositionInfo]:
@@ -395,14 +395,14 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                         f"Failed to parse position {pos_id}: {e!s}",
                         source_module=self.__class__.__name__)
 
-            return positions
-
         except Exception as e:
             await self._trigger_halt_if_needed(e, {"operation": "get_positions"})
             self.logger.exception(
                 f"Failed to get positions: {e!s}",
                 source_module=self.__class__.__name__)
             return []
+        else:
+            return positions
 
     # Market data and exchange info
 
@@ -438,14 +438,14 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                         f"Failed to parse asset pair {pair_name}: {e!s}",
                         source_module=self.__class__.__name__)
 
-            return assets
-
         except Exception as e:
             await self._trigger_halt_if_needed(e, {"operation": "get_supported_assets"})
             self.logger.exception(
                 f"Failed to get supported assets: {e!s}",
                 source_module=self.__class__.__name__)
             return []
+        else:
+            return assets
 
     async def get_trading_fees(
         self, symbol: str) -> dict[str, Decimal]:
@@ -514,11 +514,12 @@ class KrakenExecutionHandler(ExecutionHandlerInterface):
                     "Successfully connected to Kraken exchange",
                     source_module=self.__class__.__name__)
                 return True
-            self._connected = False
-            self.logger.error(
-                f"Failed to connect to Kraken: {result.get('error') if result else 'No response'}",
-                source_module=self.__class__.__name__)
-            return False
+            else:
+                self._connected = False
+                self.logger.error(
+                    f"Failed to connect to Kraken: {result.get('error') if result else 'No response'}",
+                    source_module=self.__class__.__name__)
+                return False
 
         except Exception as e:
             self._connected = False

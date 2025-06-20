@@ -708,7 +708,7 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                 session.add(log_entry)
                 # Commit happens automatically with session.begin() context manager,
                 # or call await session.commit() if not using begin()
-            return True
+            # return True moved to else block
         except SQLAlchemyError as e:  # Catch specific SQLAlchemy errors
             # Improved error analysis to determine retryability
             error_msg = str(e)
@@ -771,6 +771,8 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                 "Unexpected error in _attempt_db_insert: %s",
                 str(e))
             return False
+        else:
+            return True
 
     async def _process_queue_with_retry(self, record_data: dict[str, Any]) -> None:
         """Process a single record with retry logic using SQLAlchemy."""
@@ -783,7 +785,7 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                 if await self._attempt_db_insert(record_data):
                     return  # Success
                 # Non-retryable error, stop trying
-                return
+                # return moved to else block
             except SQLAlchemyError as db_err:
                 # This exception is only raised for retryable errors
                 attempt += 1
@@ -829,6 +831,9 @@ class EnterpriseAsyncPostgresHandler(BaseLogHandler):
                     record_data.get("message", "N/A"),
                     e)
                 return  # Stop processing this record
+            else:
+                # Success or non-retryable error, stop trying
+                return
 
     async def _process_queue(self) -> None:
         """Continuously processes log records from the queue."""
@@ -936,10 +941,12 @@ class LogHandlerFactory:
                 if log_filter:
                     handler.addFilter(log_filter)
 
-            return handler
+            # return handler moved to else block
 
         except Exception as e:
             raise RuntimeError(f"Failed to create handler {config.name}: {e}")
+        else:
+            return handler
 
     @classmethod
     def register_handler_class(
@@ -1414,11 +1421,13 @@ class LoggerService(ServiceProtocol):
             self._root_logger.addHandler(handler)
 
             self.info(f"Added enterprise handler: {config.name}")
-            return True
+            # return True moved to else block
 
         except Exception as e:
             self.error(f"Failed to add enterprise handler {config.name}: {e}")
             return False
+        else:
+            return True
 
     def remove_enterprise_handler(self, name: str) -> bool:
         """Remove enterprise handler by name."""

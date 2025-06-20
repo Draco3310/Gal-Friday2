@@ -81,7 +81,9 @@ class OrderRepository(BaseRepository[Order]):
             self.logger.exception(
                 "Error retrieving recent orders: ",
                 source_module=self._source_module)
-            raise # Or return empty list[Any]: return []
+            raise
+        else:
+            return orders # Or return empty list[Any]: return []
 
     async def find_by_exchange_id(self, exchange_order_id: str) -> Order | None:
         """Find order by exchange order ID."""
@@ -120,7 +122,6 @@ class OrderRepository(BaseRepository[Order]):
             self.logger.debug(
                 f"Found {len(orders)} orders linked to position {position_id_str}",
                 source_module=self._source_module)
-            return orders
 
         except Exception:
             self.logger.exception(
@@ -222,13 +223,13 @@ class OrderRepository(BaseRepository[Order]):
                     f"Order {order_id_str} not found for position linking",
                     source_module=self._source_module)
 
-            return updated_order
-
         except Exception:
             self.logger.exception(
                 f"Failed to link order {order_id} to position {position_id}: ",
                 source_module=self._source_module)
             return None
+        else:
+            return updated_order
 
     async def unlink_order_from_position(self, order_id: str | UUID) -> Order | None:
         """Remove position link from an order.
@@ -256,10 +257,10 @@ class OrderRepository(BaseRepository[Order]):
                     f"Order {order_id_str} not found for position unlinking",
                     source_module=self._source_module)
 
-            return updated_order
-
         except Exception:
             self.logger.exception(
                 f"Failed to unlink order {order_id} from position: ",
                 source_module=self._source_module)
             return None
+        else:
+            return updated_order

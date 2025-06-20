@@ -60,10 +60,12 @@ async def test_dashboard_service() -> bool:
         await dashboard_service.get_all_metrics()
 
 
-        return True
+        # return True moved to else block
 
     except Exception:
         return False
+    else:
+        return True
 
 
 async def test_real_time_dashboard() -> bool:
@@ -124,10 +126,12 @@ async def test_real_time_dashboard() -> bool:
         # Stop the dashboard
         await real_time_dashboard.stop_dashboard()
 
-        return True
+        # return True moved to else block
 
     except Exception:
         return False
+    else:
+        return True
 
 
 async def test_websocket_connection(port: int = 8000) -> bool:
@@ -177,10 +181,12 @@ async def test_http_endpoints(port: int = 8000) -> bool:
                 if response.status == 200:
                     await response.json()
 
-        return True
+        # return True moved to else block
 
     except Exception:
         return False
+    else:
+        return True
 
 
 async def run_all_tests() -> bool:

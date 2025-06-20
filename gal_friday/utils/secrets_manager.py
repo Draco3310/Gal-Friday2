@@ -193,25 +193,26 @@ class GCPSecretsBackend(SecretsBackend):
                         "payload": {"data": value.encode("UTF-8")},
                     })
 
-            return True
-
         except Exception:
             self.logger.exception(
                 "Error storing secret in GCP: ",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     def delete_secret(self, key: str) -> bool:
         """Delete secret from GCP Secrets Manager."""
         try:
             name = f"projects/{self.project_id}/secrets/{key}"
             self.client.delete_secret(request={"name": name})
-            return True
         except Exception:
             self.logger.exception(
                 "Error deleting secret from GCP: ",
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
 
 class SecretsManager:

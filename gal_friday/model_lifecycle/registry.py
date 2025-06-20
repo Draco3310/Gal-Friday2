@@ -489,13 +489,14 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                 f"Model registered: {model_name} v{version}",
                 source_module=self._source_module,
                 context={"model_id": model_id_uuid.hex})
-            return model_id_uuid.hex
 
         except Exception:
             self.logger.exception(
                 "Failed to register model",
                 source_module=self._source_module)
             raise
+        else:
+            return model_id_uuid.hex
 
     async def get_model(
         self,
@@ -544,13 +545,13 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
             artifact = ModelArtifact.load(artifact_path)
             artifact.metadata = metadata_dto
 
-            return artifact
-
         except Exception:
             self.logger.exception(
                 f"Failed to get model: {model_name}",
                 source_module=self._source_module)
             raise
+        else:
+            return artifact
 
     async def list_models(
         self,
@@ -605,13 +606,16 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                     f"Model promoted: {model_version.model_name} v{model_version.version} "
                     f"from {from_stage.value} to {to_stage.value}",
                     source_module=self._source_module)
-                return True
-            return False
+
         except Exception:
             self.logger.exception(
                 "Failed to promote model",
                 source_module=self._source_module)
             raise
+        else:
+            if updated_model:
+                return True
+            return False
 
     async def delete_model(
         self,
@@ -653,12 +657,14 @@ class Registry: # Renamed from ModelRegistry for clarity as per plan
                             f"Error deleting artifacts for model {model_id} at {artifact_path}: ",
                             source_module=self._source_module,
                         )
-            return True
+
         except Exception:
             self.logger.exception(
                 "Failed to delete model",
                 source_module=self._source_module)
             raise
+        else:
+            return True
 
     async def _generate_version(self, model_name: str) -> str:
         latest_model_version = await self.model_repo.get_latest_model_version_by_name(model_name)

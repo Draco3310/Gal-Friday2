@@ -308,14 +308,14 @@ class ConfigValidator:
 
             self.logger.info(f"Configuration validation completed in {result.validation_time:.3f}s")
 
-            return result
-
         except Exception as e:
             self.logger.exception("Configuration validation failed: ")
             return ValidationResult(
                 is_valid=False,
                 errors=[self._create_critical_error("CV999", "Validation system error", str(e))],
             )
+        else:
+            return result
 
     def get_errors(self) -> list[str]:
         """Get all validation errors."""

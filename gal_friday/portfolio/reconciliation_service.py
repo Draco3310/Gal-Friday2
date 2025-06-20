@@ -230,11 +230,12 @@ class BaseReconciliationStrategy(ABC):
                                 source_module=self.service._source_module)
                 return False
 
-            return True
         except Exception:
             self.logger.exception("Prerequisites validation failed: ",
                             source_module=self.service._source_module)
             return False
+        else:
+            return True
 
 
 class FullReconciliationStrategy(BaseReconciliationStrategy):
@@ -300,7 +301,6 @@ class FullReconciliationStrategy(BaseReconciliationStrategy):
 
             self.logger.info(f"Full reconciliation {reconciliation_id} completed successfully",
                            source_module=self.service._source_module)
-            return result
 
         except Exception as e:
             self.logger.exception(f"Full reconciliation {reconciliation_id} failed: ",
@@ -318,6 +318,8 @@ class FullReconciliationStrategy(BaseReconciliationStrategy):
                 summary={},
                 errors=[str(e)],
             )
+        else:
+            return result
 
 
 class IncrementalReconciliationStrategy(BaseReconciliationStrategy):
@@ -781,13 +783,13 @@ class ReconciliationService:
             self._last_reconciliation = datetime.now(UTC)
             self._consecutive_failures = 0
 
-            return result
-
         except Exception:
             self.logger.exception("Configurable reconciliation failed: ",
                             source_module=self._source_module)
             self._consecutive_failures += 1
             raise
+        else:
+            return result
 
     def _log_reconciliation_result(self, result: ReconciliationResult) -> None:
         """Log reconciliation result with strategy-specific details."""
@@ -908,8 +910,6 @@ class ReconciliationService:
             # Send alerts using legacy method for compatibility
             await self._send_reconciliation_alerts(legacy_report)
 
-            return legacy_report
-
         except Exception as e:
             # Create a failed legacy report for backward compatibility
             failed_report = ReconciliationReport()
@@ -924,6 +924,8 @@ class ReconciliationService:
 
             await self._send_critical_alert(f"Reconciliation failed: {e!s}")
             return failed_report
+        else:
+            return legacy_report
 
     def _convert_result_to_legacy_report(self, result: ReconciliationResult) -> ReconciliationReport:
         """Convert ReconciliationResult to legacy ReconciliationReport format."""
@@ -1447,6 +1449,19 @@ class ReconciliationService:
             self.logger.exception("Error getting reconciliation config: ",
                             source_module=self._source_module)
             return {"error": str(e)}
+        else:
+            return {
+                "reconciliation_type": config.reconciliation_type.value,
+                "max_discrepancy_threshold": config.max_discrepancy_threshold,
+                "auto_resolve_threshold": config.auto_resolve_threshold,
+                "enable_alerts": config.enable_alerts,
+                "batch_size": config.batch_size,
+                "timeout_seconds": config.timeout_seconds,
+                "retry_attempts": config.retry_attempts,
+                "real_time_cutoff_minutes": config.real_time_cutoff_minutes,
+                "incremental_cutoff_hours": config.incremental_cutoff_hours,
+                "emergency_alert_threshold": config.emergency_alert_threshold,
+            }
 
     async def perform_emergency_reconciliation(self) -> ReconciliationResult:
         """Perform emergency reconciliation with critical alerting.
@@ -1471,13 +1486,13 @@ class ReconciliationService:
             # Send emergency alert regardless of outcome
             await self._send_emergency_alert(result)
 
-            return result
-
         except Exception as e:
             self.logger.exception("Emergency reconciliation failed: ",
                             source_module=self._source_module)
             await self._send_critical_alert(f"Emergency reconciliation failed: {e!s}")
             raise
+        else:
+            return result
 
     async def _send_emergency_alert(self, result: ReconciliationResult) -> None:
         """Send emergency alert for reconciliation results."""

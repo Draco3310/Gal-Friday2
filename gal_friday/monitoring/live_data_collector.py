@@ -196,8 +196,6 @@ class LiveDataCollector:
                 source_module=self._source_module,
             )
 
-            return active_orders
-
         except Exception as e:
             self.logger.error(
                 f"Failed to get active orders: {e}",
@@ -205,6 +203,8 @@ class LiveDataCollector:
                 exc_info=True,
             )
             return []
+        else:
+            return active_orders
 
     async def get_recent_trades(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get recent trades from execution handler."""
@@ -231,8 +231,6 @@ class LiveDataCollector:
                 source_module=self._source_module,
             )
 
-            return recent_trades
-
         except Exception as e:
             self.logger.error(
                 f"Failed to get recent trades: {e}",
@@ -240,6 +238,8 @@ class LiveDataCollector:
                 exc_info=True,
             )
             return []
+        else:
+            return recent_trades
 
     async def get_portfolio_metrics(self) -> dict[str, Any]:
         """Get current portfolio metrics."""
@@ -253,8 +253,6 @@ class LiveDataCollector:
             performance_metrics = await self._calculate_portfolio_performance()
             portfolio_state.update(performance_metrics)
 
-            return portfolio_state
-
         except Exception as e:
             self.logger.error(
                 f"Failed to get portfolio metrics: {e}",
@@ -262,6 +260,8 @@ class LiveDataCollector:
                 exc_info=True,
             )
             return {}
+        else:
+            return portfolio_state
 
     async def get_strategy_metrics(self) -> dict[str, Any]:
         """Get current strategy performance metrics."""
@@ -293,8 +293,6 @@ class LiveDataCollector:
                     "started_at": active_transition.started_at.isoformat() if active_transition.started_at else None,
                 }
 
-            return strategy_metrics
-
         except Exception as e:
             self.logger.error(
                 f"Failed to get strategy metrics: {e}",
@@ -302,6 +300,8 @@ class LiveDataCollector:
                 exc_info=True,
             )
             return {}
+        else:
+            return strategy_metrics
 
     async def get_risk_metrics(self) -> dict[str, Any]:
         """Get current risk management metrics."""
@@ -323,8 +323,6 @@ class LiveDataCollector:
                 if halt_status:
                     risk_metrics["halt_details"] = halt_status.get_halt_status()
 
-            return risk_metrics
-
         except Exception as e:
             self.logger.error(
                 f"Failed to get risk metrics: {e}",
@@ -332,6 +330,8 @@ class LiveDataCollector:
                 exc_info=True,
             )
             return {}
+        else:
+            return risk_metrics
 
     async def get_system_health(self) -> dict[str, Any]:
         """Get current system health metrics."""
@@ -342,16 +342,16 @@ class LiveDataCollector:
                 now - self._last_metrics_update > self._metrics_cache_ttl):
                 await self._update_system_metrics()
 
-            if self._system_metrics:
-                return self._system_metrics.to_dict()
-            return {}
-
         except Exception as e:
             self.logger.error(
                 f"Failed to get system health: {e}",
                 source_module=self._source_module,
                 exc_info=True,
             )
+            return {}
+        else:
+            if self._system_metrics:
+                return self._system_metrics.to_dict()
             return {}
 
     async def _handle_execution_report(self, event: Event) -> None:

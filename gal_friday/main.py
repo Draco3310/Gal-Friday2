@@ -252,14 +252,14 @@ class OperationalModeManager:
                 f"{[mode.value for mode in supported_modes]}",
             )
 
-            return supported_modes
-
         except Exception:
             self.logger.exception("Error loading supported modes from configuration: ")
             # Fallback to safe default
             fallback_modes = [OperationalMode.PAPER_TRADING, OperationalMode.DATA_COLLECTION]
             self.logger.warning(f"Using fallback modes: {[mode.value for mode in fallback_modes]}")
             return fallback_modes
+        else:
+            return supported_modes
 
     def detect_environment(self) -> EnvironmentType:
         """Detect current environment based on various indicators."""
@@ -323,11 +323,11 @@ class OperationalModeManager:
                 f"Operational mode initialization complete: {mode.value} in {environment.value} environment",
             )
 
-            return mode
-
         except Exception:
             self.logger.exception("Error in operational mode selection: ")
             raise
+        else:
+            return mode
 
     async def _determine_operational_mode(
         self, environment: EnvironmentType, explicit_mode: str | None = None,
@@ -338,9 +338,10 @@ class OperationalModeManager:
             try:
                 mode = OperationalMode(explicit_mode)
                 self.logger.debug(f"Using explicit mode configuration: {mode.value}")
-                return mode
             except ValueError:
                 self.logger.warning(f"Invalid explicit mode configuration: {explicit_mode}")
+            else:
+                return mode
 
         # Check configuration file mode
         config_mode = self.config_manager.get("operational_mode", "").lower()
@@ -348,9 +349,10 @@ class OperationalModeManager:
             try:
                 mode = OperationalMode(config_mode)
                 self.logger.debug(f"Using configuration file mode: {mode.value}")
-                return mode
             except ValueError:
                 self.logger.warning(f"Invalid mode in configuration: {config_mode}")
+            else:
+                return mode
 
         # Environment-based defaults
         if environment == EnvironmentType.PRODUCTION:

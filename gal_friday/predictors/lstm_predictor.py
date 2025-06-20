@@ -310,12 +310,13 @@ class LSTMPredictor(PredictorInterface):
                     f"expected dimensions for model {self.model_id}")
                 raise InvalidDimensionsError(
                     "Model output dimensions do not match expected format")
-            return model_output
         except Exception as e:
             if isinstance(e, InvalidDimensionsError | UnsupportedFrameworkError):
                 raise
             self.logger.exception("Error during prediction for model")
             raise PredictionError(f"Failed to generate prediction: {e}") from e
+        else:
+            return model_output
 
     @property
     def expected_feature_names(self) -> list[str] | None:

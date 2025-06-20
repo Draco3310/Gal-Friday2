@@ -606,10 +606,10 @@ class KrakenMarketPriceService(MarketPriceService):
 
                 return float(annualized_volatility)
 
-            return None
-
         except Exception as e:
             self.logger.error(
                 f"Failed to calculate volatility for {trading_pair}: {e}",
                 source_module=self._source_module)
+            return None
+        else:
             return None

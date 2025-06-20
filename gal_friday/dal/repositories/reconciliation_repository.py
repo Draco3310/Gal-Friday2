@@ -309,7 +309,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
                 source_module=self._source_module,
             )
 
-            return validated_data
+            # return validated_data moved to else block
 
         except PydanticValidationError as e:
             error_details = {}
@@ -330,6 +330,8 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
                 f"Invalid reconciliation event data: {e!s}",
                 validation_errors=error_details,
             ) from e
+        else:
+            return validated_data
 
     def _validate_position_adjustment_data(self, adjustment_data: dict[str, Any]) -> PositionAdjustmentSchema:
         """Validate incoming position adjustment data.
@@ -352,7 +354,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
                 source_module=self._source_module,
             )
 
-            return validated_data
+            # return validated_data moved to else block
 
         except PydanticValidationError as e:
             error_details = {}
@@ -373,6 +375,8 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
                 f"Invalid position adjustment data: {e!s}",
                 validation_errors=error_details,
             ) from e
+        else:
+            return validated_data
 
     async def _create_audit_trail(self, operation: str, entity_type: str,
                                 entity_id: str, details: dict[str, Any]) -> None:
@@ -439,7 +443,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
                 source_module=self._source_module,
             )
 
-            return reconciliation_event
+            # return reconciliation_event moved to else block
 
         except Exception as e:
             self.logger.exception(
@@ -447,6 +451,8 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
                 source_module=self._source_module,
             )
             raise ValueError(f"Database operation failed: {e!s}") from e
+        else:
+            return reconciliation_event
 
     async def get_reconciliation_event(
         self, reconciliation_id: uuid.UUID) -> ReconciliationEvent | None:

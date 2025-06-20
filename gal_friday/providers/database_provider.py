@@ -174,8 +174,6 @@ class DatabaseDataProvider(HistoricalDataProvider):
                 },
             )
 
-            return data_points
-
         except Exception as e:
             self.logger.error(
                 f"Failed to fetch data: {e}",
@@ -186,6 +184,8 @@ class DatabaseDataProvider(HistoricalDataProvider):
                 exc_info=True,
             )
             raise
+        else:
+            return data_points
 
     async def _fetch_from_influxdb(self, request: DataRequest) -> list[HistoricalDataPoint]:
         """Fetch time-series data from InfluxDB."""
@@ -380,9 +380,10 @@ class DatabaseDataProvider(HistoricalDataProvider):
         if frequency.endswith("m"):  # minutes
             try:
                 minutes = int(frequency[:-1])
-                return minutes < 5
             except ValueError:
                 pass
+            else:
+                return minutes < 5
         return False
 
     def _convert_frequency_to_interval(self, frequency: str) -> str:

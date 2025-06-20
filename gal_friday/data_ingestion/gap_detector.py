@@ -139,14 +139,14 @@ class DataInterpolator:
                 f"using {method.value} method for {gap_info.symbol}",
                 source_module=self._source_module)
 
-            return interpolated_data
-
         except Exception as e:
             self.logger.error(
                 f"Error interpolating data for {gap_info.symbol}: {e}",
                 source_module=self._source_module)
             self._update_interpolation_stats(gap_info, None, success=False)
             return None
+        else:
+            return interpolated_data
 
     def _validate_interpolation_feasibility(self, gap_info: GapInfo,
                                           preceding_data: pd.DataFrame,
@@ -500,11 +500,11 @@ class DataInterpolator:
                             source_module=self._source_module)
                         return False
 
-            return True
-
         except Exception:
             self.logger.exception("Error validating interpolated data: ", source_module=self._source_module)
             return False
+        else:
+            return True
 
     def _add_interpolation_metadata(
         self, data: pd.DataFrame, method: InterpolationMethod, gap_info: GapInfo,

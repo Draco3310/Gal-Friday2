@@ -671,8 +671,6 @@ class TechnicalAnalysisManager:
                 # Update statistics
                 self._update_statistics(backend.get_backend_name(), result.calculation_time_ms)
 
-                return result
-
             except Exception as e:
                 last_error = e
                 self.logger.warning(
@@ -680,6 +678,8 @@ class TechnicalAnalysisManager:
                     extra={"source_module": self._source_module},
                 )
                 continue
+            else:
+                return result
 
         # All backends failed
         if indicator_config.fallback_value is not None:

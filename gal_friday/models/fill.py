@@ -76,11 +76,11 @@ class ExecutionEventBuilder:
                 f"{event.quantity_filled} {event.trading_pair} @ {event.average_fill_price}",
             )
 
-            return event
-
         except Exception:
             self.logger.exception(f"Error creating execution event for fill {getattr(fill, 'fill_id', 'unknown')}: ")
             raise
+        else:
+            return event
 
     def _validate_fill_data(self, fill: "Fill") -> None:
         """Validate fill data before event creation."""
@@ -255,8 +255,6 @@ class ExecutionEventPublisher:
                 f"Published execution event {event.event_id} for order {event.exchange_order_id}",
             )
 
-            return True
-
         except Exception as e:
             self.failed_publications += 1
             self.logger.error(
@@ -264,6 +262,8 @@ class ExecutionEventPublisher:
                 exc_info=True,
             )
             return False
+        else:
+            return True
 
     def get_publication_stats(self) -> dict[str, Any]:
         """Get publication statistics for monitoring."""

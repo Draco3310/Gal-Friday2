@@ -68,13 +68,14 @@ class CircuitBreaker:
                 if self.state == "half-open":
                     self.state = "closed"
                     self.failure_count = 0
-                return result
             except Exception:
                 self.failure_count += 1
                 self.last_failure_time = time.monotonic()
                 if self.failure_count >= self.failure_threshold:
                     self.state = "open"
                 raise
+            else:
+                return result
 
     def is_open(self) -> bool:
         """Check if circuit breaker is open."""
@@ -402,8 +403,6 @@ class APIDataProvider(HistoricalDataProvider):
                 "kraken_pair": kraken_pair if valid else None,
             }
 
-            return valid
-
         except Exception as e:
             self.logger.warning(
                 f"Failed to validate symbol {symbol}: {e}",
@@ -411,6 +410,8 @@ class APIDataProvider(HistoricalDataProvider):
             )
             # Default to true on error to avoid blocking
             return True
+        else:
+            return valid
 
     async def get_symbol_info(self, symbol: str) -> dict[str, Any]:
         """Get detailed information about a trading pair from Kraken."""
@@ -440,7 +441,8 @@ class APIDataProvider(HistoricalDataProvider):
                         "margin_stop": info.get("margin_stop"),
                     }
 
-            return {"symbol": symbol, "error": "Pair not found"}
+            # return moved to else block
+            # return {"symbol": symbol, "error": "Pair not found"}
 
         except Exception as e:
             self.logger.exception(
@@ -448,6 +450,8 @@ class APIDataProvider(HistoricalDataProvider):
                 extra={"source_module": self._source_module},
             )
             return {"symbol": symbol, "error": str(e)}
+        else:
+            return {"symbol": symbol, "error": "Pair not found"}
 
     def _map_to_kraken_pair(self, symbol: str) -> str:
         """Map internal symbol format to Kraken pair format."""

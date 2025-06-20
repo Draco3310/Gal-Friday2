@@ -486,9 +486,11 @@ class ConfigManager:
                 value = self._config
                 for k in keys:
                     value = value[k]
-                return value
+                # return value moved to else block
             except (KeyError, TypeError):
                 return default
+            else:
+                return value
 
     def get_int(self, key: str, default: int = 0) -> int:
         """Get an integer configuration value."""

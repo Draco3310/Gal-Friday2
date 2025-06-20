@@ -429,12 +429,13 @@ class ConnectionPool:
             # For connections with ping method
             try:
                 await conn.ping()
-                return True
             except Exception as e:
                 self.logger.debug(
                     f"Connection ping failed: {e}",
                     source_module=self._source_module)
                 return False
+            else:
+                return True
         else:
             # Unknown connection type - log warning once
             if not hasattr(self, "_health_check_warned"):
@@ -1042,8 +1043,6 @@ class TypedTimingDecorator(Generic[P, T]):
                         f"{function_name} completed in {execution_time:.3f}s",
                         source_module="TypedTimingDecorator")
 
-                return result
-
             except Exception as e:
                 execution_time = time.time() - start_time
 
@@ -1054,6 +1053,8 @@ class TypedTimingDecorator(Generic[P, T]):
                         source_module="TypedTimingDecorator")
 
                 raise
+            else:
+                return result
 
         return wrapper
 
@@ -1084,8 +1085,6 @@ class AsyncTypedTimingDecorator(Generic[AsyncP, AsyncT]):
                         f"{function_name} completed in {execution_time:.3f}s",
                         source_module="AsyncTypedTimingDecorator")
 
-                return result
-
             except Exception as e:
                 execution_time = time.time() - start_time
 
@@ -1096,6 +1095,8 @@ class AsyncTypedTimingDecorator(Generic[AsyncP, AsyncT]):
                         source_module="AsyncTypedTimingDecorator")
 
                 raise
+            else:
+                return result
 
         return async_wrapper
 

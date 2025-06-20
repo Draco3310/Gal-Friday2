@@ -335,7 +335,7 @@ class KrakenExecutionAdapter(ExecutionAdapter):
 
             orders = result.get("result", {})
             order_data = orders.get(exchange_order_id)
-            return order_data if order_data is not None else None
+            # return order_data if order_data is not None else None moved to else block
 
         except Exception as e:
             self.logger.exception(
@@ -344,6 +344,8 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 str(e),
                 source_module=self.__class__.__name__)
             return None
+        else:
+            return order_data if order_data is not None else None
 
     async def get_account_balances(self) -> dict[str, Decimal]:
         """Get account balances from Kraken."""

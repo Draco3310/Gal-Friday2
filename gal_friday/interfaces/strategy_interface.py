@@ -721,11 +721,11 @@ class StatisticalReweighting:
             self.performance_cache.update(metrics)
             self.weight_history.append(weights.copy())
 
-            return weights
-
         except Exception:
             self.logger.exception("Error in weight calculation: ")
             return self._equal_weights(list[Any](strategy_performances.keys()))
+        else:
+            return weights
 
     def _sharpe_ratio_weighting(self, metrics: dict[str, PerformanceMetrics]) -> dict[str, float]:
         """Calculate weights based on Sharpe ratio."""

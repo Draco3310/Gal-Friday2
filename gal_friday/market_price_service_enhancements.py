@@ -293,8 +293,6 @@ class EnterpriseConfigurationManager:
             self._config_cache[cache_key] = market_params
             self._cache_timestamps[cache_key] = datetime.now(UTC)
 
-            return market_params
-
         except Exception as e:
             self.logger.error(
                 f"Error getting market parameters for {symbol}: {e}",
@@ -307,6 +305,8 @@ class EnterpriseConfigurationManager:
                 drift_rate=0.25,
                 volatility=1.2,
             )
+        else:
+            return market_params
 
     async def get_simulation_settings(self) -> dict[str, Any]:
         """Get simulation settings with validation."""
@@ -335,8 +335,6 @@ class EnterpriseConfigurationManager:
             self._config_cache[cache_key] = merged_config
             self._cache_timestamps[cache_key] = datetime.now(UTC)
 
-            return merged_config
-
         except Exception as e:
             self.logger.error(
                 f"Error getting simulation settings: {e}",
@@ -344,6 +342,8 @@ class EnterpriseConfigurationManager:
                 exc_info=True,
             )
             return self._default_configs["simulation"]
+        else:
+            return merged_config
 
     async def update_configuration(
         self,
@@ -382,8 +382,6 @@ class EnterpriseConfigurationManager:
                 source_module=self._source_module,
             )
 
-            return True
-
         except Exception as e:
             self.logger.error(
                 f"Error updating configuration {config_path}: {e}",
@@ -391,6 +389,8 @@ class EnterpriseConfigurationManager:
                 exc_info=True,
             )
             return False
+        else:
+            return True
 
     def register_change_listener(self, config_path: str, callback: Callable[..., Any]) -> None:
         """Register a callback for configuration changes."""
@@ -596,8 +596,6 @@ class AdvancedPriceGenerator:
                 source_module=self._source_module,
             )
 
-            return price_series
-
         except Exception as e:
             self.logger.error(
                 f"Error generating price series for {symbol}: {e}",
@@ -605,6 +603,8 @@ class AdvancedPriceGenerator:
                 exc_info=True,
             )
             return []
+        else:
+            return price_series
 
     async def _geometric_brownian_motion(
         self,
@@ -1071,8 +1071,6 @@ class RealisticHistoricalDataGenerator:
                 source_module=self._source_module,
             )
 
-            return df
-
         except Exception as e:
             self.logger.error(
                 f"Error generating historical dataset for {symbol}: {e}",
@@ -1080,6 +1078,8 @@ class RealisticHistoricalDataGenerator:
                 exc_info=True,
             )
             return pd.DataFrame()
+        else:
+            return df
 
     def _parse_timeframe(self, timeframe: str) -> int:
         """Parse timeframe string to seconds."""

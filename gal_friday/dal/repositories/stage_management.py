@@ -263,10 +263,12 @@ class ModelStageManager:
             if stage_config.requires_approval and not metadata.get("approval_id"):
                 return False, f"Stage {to_stage.value} requires approval"
 
-            return True, None
+            # return True, None moved to else block
 
         except Exception as e:
             return False, f"Validation error: {e!s}"
+        else:
+            return True, None
 
     def _check_stage_capacity(self, stage: ModelStage) -> bool:
         """Check if stage has capacity for new models."""

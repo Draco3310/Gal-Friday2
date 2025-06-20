@@ -239,7 +239,7 @@ class SubscriptionManager:
                         },
                     )
 
-                    return result
+                    # return result moved to else block
 
                 except TimeoutError:
                     # Force shutdown if timeout
@@ -283,6 +283,8 @@ class SubscriptionManager:
                         error_message=str(e),
                         cleanup_time=time.time() - start_time,
                     )
+                else:
+                    return result
 
         except Exception as e:
             self.logger.error(
@@ -426,7 +428,7 @@ class ExperimentShutdownManager:
             # Force cleanup any remaining subscriptions
             await self._cleanup_remaining_subscriptions()
 
-            return results
+            # return results moved to else block
 
         except Exception as e:
             self.logger.error(
@@ -437,6 +439,8 @@ class ExperimentShutdownManager:
             # Emergency cleanup
             await self._emergency_cleanup()
             raise
+        else:
+            return results
 
         finally:
             self.subscription_manager.shutdown_in_progress = False
@@ -543,7 +547,7 @@ class PredictionHandlerUnsubscriber:
                     source_module=self._source_module,
                 )
 
-            return result.success
+            # return result.success moved to else block
 
         except Exception as e:
             self.logger.error(
@@ -552,6 +556,8 @@ class PredictionHandlerUnsubscriber:
                 exc_info=True,
             )
             return False
+        else:
+            return result.success
 
     async def shutdown(self) -> None:
         """Complete shutdown with comprehensive unsubscribe logic.
@@ -1027,13 +1033,13 @@ class ExperimentManager:
                     "treatment": treatment_id_hex,
                 })
 
-            return exp_id_hex # Return UUID as hex string
-
         except Exception:
             self.logger.exception(
                 "Failed to create experiment",
                 source_module=self._source_module)
             raise
+        else:
+            return exp_id_hex # Return UUID as hex string
 
     async def _validate_experiment_config(
         self,

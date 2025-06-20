@@ -273,14 +273,14 @@ class SimpleImputationStrategy(ImputationStrategy):
             if self.config.cache_results:
                 self._cache[cache_key] = result
 
-            return result
-
         except Exception:
             self.logger.exception(
                 f"Error in simple imputation for {self.config.feature_key}: ",
                 source_module=self._source_module,
             )
             raise
+        else:
+            return result
 
     def _apply_fallback(self, imputed_data: pd.Series[Any], original_data: pd.Series[Any]) -> pd.Series[Any]:
         """Apply fallback method for remaining missing values."""
@@ -376,14 +376,14 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
             if self.config.cache_results:
                 self._cache[cache_key] = result
 
-            return result
-
         except Exception:
             self.logger.exception(
                 f"Error in time series imputation for {self.config.feature_key}: ",
                 source_module=self._source_module,
             )
             raise
+        else:
+            return result
 
     def _calculate_interpolation_confidence(
         self,
@@ -770,8 +770,6 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
                 # Final fallback
                 imputed_data = data.ffill()
 
-            return imputed_data
-
         except ImportError:
             # Fallback to simple implementation
             imputed_data = data.copy()
@@ -790,6 +788,8 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
                 # Fallback
                 imputed_data = data.ffill()
 
+            return imputed_data
+        else:
             return imputed_data
 
     def validate_parameters(self) -> bool:
@@ -889,14 +889,14 @@ class ImputationManager:
                 source_module=self._source_module,
             )
 
-            return result
-
         except Exception:
             self.logger.exception(
                 f"Error imputing feature {feature_key}: ",
                 source_module=self._source_module,
             )
             raise
+        else:
+            return result
 
     async def _get_strategy_instance(
         self,

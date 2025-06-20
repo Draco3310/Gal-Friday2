@@ -226,7 +226,7 @@ class ModelRepository(BaseRepository[ModelVersion]):
                     error_message="Database update failed",
                 )
 
-            return updated_model
+            # return updated_model moved to else block
 
         except ValueError as e:
             error_msg = f"Invalid stage value '{new_stage}': {e}"
@@ -243,6 +243,8 @@ class ModelRepository(BaseRepository[ModelVersion]):
                 context={"model_id": str(model_id), "new_stage": new_stage},
             )
             raise
+        else:
+            return updated_model
 
     async def _create_deployment_record(
         self, model_version: ModelVersion, deployed_by: str,

@@ -536,7 +536,6 @@ class SKLearnPredictor(PredictorInterface):
                 "Prediction successful: %s, Confidence: %s",
                 prediction,
                 confidence)
-            return result
 
         except FileNotFoundError as e:
             result["error"] = f"File not found: {e!s}"
@@ -545,4 +544,6 @@ class SKLearnPredictor(PredictorInterface):
         except Exception as e:
             result["error"] = f"Inference failed: {e!s}"
             logger.exception(result["error"])
+            return result
+        else:
             return result

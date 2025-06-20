@@ -483,13 +483,13 @@ class ConfigurableProbabilityValidator:
             else:
                 self.validation_stats["successful_validations"] += 1
 
-            return validation_results
-
         except Exception:
             if self.logger:
                 self.logger.exception("Error during prediction validation: ")
             self.validation_stats["failed_validations"] += 1
             return []
+        else:
+            return validation_results
 
     def _check_rule_conditions(self, rule: ValidationRule, context: ValidationContext) -> bool:
         """Check if rule conditions are met for context-aware validation."""
@@ -668,13 +668,14 @@ class PredictionInterpretationEngine:
             }
 
             self.interpretation_stats["successful_interpretations"] += 1
-            return interpreted_result
 
         except Exception:
             self.interpretation_stats["interpretation_errors"] += 1
             if self.logger:
                 self.logger.exception("Error interpreting prediction: ")
             raise
+        else:
+            return interpreted_result
 
     def _apply_fallback_rules(self, field_name: str, prediction: dict[str, Any]) -> Any:
         """Apply fallback rules when interpretation fails."""
@@ -1156,14 +1157,14 @@ class StrategyArbitrator(ServiceProtocol):
                     source_module=self._source_module)
                 return False
 
-            return True
-
         except ValueError:
             self.logger.warning(
                 "Prediction_value %s is not a valid numeric value.",
                 event.prediction_value,
                 source_module=self._source_module)
             return False
+        else:
+            return True
 
     def _calculate_stop_loss_price_and_risk(
         self,
@@ -1617,7 +1618,6 @@ class StrategyArbitrator(ServiceProtocol):
                 self._prediction_interpretation,
                 trading_pair,
                 source_module=self._source_module)
-            return None
 
         except Exception as e:
             self.logger.warning(
@@ -1625,6 +1625,8 @@ class StrategyArbitrator(ServiceProtocol):
                 trading_pair,
                 str(e),
                 source_module=self._source_module)
+        else:
+            return None
 
             # Fallback to legacy interpretation logic for backward compatibility
             return self._legacy_calculate_signal_side(prediction_event)
@@ -1926,8 +1928,6 @@ class StrategyArbitrator(ServiceProtocol):
                     f"SL: {self._sl_pct}, TP: {self._tp_pct}, Entry: {self._entry_type}",
                     source_module=self._source_module)
 
-                return True
-
             except Exception as validation_error:
                 # Rollback on validation failure
                 self.logger.exception(
@@ -1955,6 +1955,8 @@ class StrategyArbitrator(ServiceProtocol):
                 ]
 
                 return False
+            else:
+                return True
 
         except Exception:
             self.logger.exception(

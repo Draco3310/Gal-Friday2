@@ -777,9 +777,10 @@ class MockConfigManager(ConfigManager):
                         value = value[k]
                     else:
                         return default
-                return value
             except (KeyError, TypeError):
                 return default
+            else:
+                return value
 
     def get_int(self, key: str, default: int = 0) -> int:
         """Get an integer configuration value."""
@@ -1256,11 +1257,12 @@ Examples:
                     # Don't fail for missing sections, just warn
 
                 self.logger.info(f"Configuration validation successful: {config_path}")
-                return True
 
             except Exception:
                 self.logger.exception("Error loading configuration: ")
                 return False
+            else:
+                return True
 
         except Exception:
             self.logger.exception("Configuration validation failed: ")
@@ -1300,11 +1302,12 @@ Examples:
                     dir_path.mkdir(parents=True, exist_ok=True)
 
             self.logger.info("Health check completed successfully")
-            return True
 
         except Exception:
             self.logger.exception("Health check failed: ")
             return False
+        else:
+            return True
 
     async def start_cli_service(self, args: argparse.Namespace) -> None:
         """Start the CLI service with proper initialization."""
