@@ -172,8 +172,102 @@ cython_debug/
 .ruff_cache/
 
 # PyPI configuration file
-<<<<<<< HEAD
 .pypirc
-=======
-.pypirc
->>>>>>> 07611cf8c7e9042128077d1f581f2c421f7d2118
+
+# ============ Gal-Friday Trading Bot Specific ============
+
+# Configuration files with sensitive data
+config/local.yaml
+config/production.yaml
+config/*.local.yaml
+config/secrets/
+*.secrets.yaml
+*.credentials.json
+
+# API Keys and Environment files
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+data/
+influxdb_data/
+postgres_data/
+redis_data/
+
+# Trading data and logs
+logs/
+*.log
+trading_logs/
+backtest_results/
+model_artifacts/
+models/*.pkl
+models/*.h5
+models/*.joblib
+
+# Temporary files
+tmp/
+temp/
+cache/
+.cache/
+
+# IDE specific - uncommented for better security
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Credentials and keys
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx
+ssh_keys/
+certificates/
+
+# Jupyter notebooks with potential sensitive output
+*.ipynb
+!examples/*.ipynb
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Test coverage and reports
+htmlcov/
+test_results/
+pytest_results/
+
+# Documentation build
+docs/_build/
+docs/site/
+
+# Package files
+dist/
+build/
+*.egg-info/
+
+# Virtual environments - already included but being explicit
+.venv/
+venv/
+virtualenv/
+ENV/
+
+# Trading specific sensitive files
+strategies/*_secret.py
+order_history/
+position_history/
+wallet_data/
