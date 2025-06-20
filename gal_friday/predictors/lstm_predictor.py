@@ -272,11 +272,6 @@ class LSTMPredictor(PredictorInterface):
             raise InvalidDimensionsError("Invalid input dimensions")
 
         # Apply scaling if available - REMOVED as features are pre-scaled
-        # try:
-        #     scaled_sequence = self.scaler.transform(features) if self.scaler else features
-        # except Exception as e:
-        #     self.logger.exception("Error applying scaler transform in LSTMPredictor.predict")
-        #     raise ValueError(f"Scaling failed: {e}") from e
         scaled_sequence = features # Use features directly
         self.logger.debug("Using pre-scaled features directly for LSTM prediction.")
 
