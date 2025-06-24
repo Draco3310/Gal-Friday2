@@ -170,16 +170,6 @@ class ConfigManager:
 
     def get_decimal(self, key: str, default: Decimal = Decimal("0.0")) -> Decimal:
         """Retrieve a config value and attempt to cast it to a Decimal."""
-        # Ensure default is Decimal if provided otherwise
-        # Type[Any] annotation ensures default is Decimal
-        # try:
-        # default = Decimal(str(default))
-        # except (ValueError, TypeError): # BLE001
-        # self._logger.warning(
-        # "Invalid default value '%s' for get_decimal, using 0.0",
-        # default,
-        # )
-        # default = Decimal("0.0")
 
         value = self.get(key, default)
         try:
