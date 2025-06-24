@@ -441,8 +441,6 @@ class APIDataProvider(HistoricalDataProvider):
                         "margin_stop": info.get("margin_stop"),
                     }
 
-            # return moved to else block
-            # return {"symbol": symbol, "error": "Pair not found"}
 
         except Exception as e:
             self.logger.exception(

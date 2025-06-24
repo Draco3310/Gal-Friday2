@@ -1136,18 +1136,6 @@ class FeatureEngine:
             str,
             Callable[..., dict[str, Any] | dict[str, str] | None],
         ] = {
-            # "rsi": self._process_rsi_feature, # To be replaced by pipeline
-            # "macd": self._process_macd_feature, # To be replaced by pipeline
-            # "bbands": self._process_bbands_feature, # To be replaced by pipeline
-            # "vwap": self._process_vwap_feature,  # To be replaced by pipeline
-            # "roc": self._process_roc_feature, # To be replaced by pipeline
-            # "atr": self._process_atr_feature, # To be replaced by pipeline
-            # "stdev": self._process_stdev_feature, # To be replaced by pipeline
-            # "spread": self._process_l2_spread_feature, # To be replaced by pipeline
-            # "imbalance": self._process_l2_imbalance_feature, # To be replaced by pipeline
-            # "wap": self._process_l2_wap_feature, # To be replaced by pipeline
-            # "depth": self._process_l2_depth_feature, # To be replaced by pipeline
-            # "volume_delta": self._process_volume_delta_feature, # To be replaced by pipeline
             # Note: vwap_ohlcv and vwap_trades are handled by _process_vwap_feature
         }
 
@@ -1365,7 +1353,6 @@ class FeatureEngine:
                 description=description)
             parsed_specs[key] = spec_val
 
-        # self._feature_configs = parsed_specs # Old logic replaced by new registry-based logic below
 
         registry_definitions = self._load_feature_registry(DEFAULT_FEATURE_REGISTRY_PATH)
         app_feature_config = self.config.get("features", {}) # This is the app-level config for features
