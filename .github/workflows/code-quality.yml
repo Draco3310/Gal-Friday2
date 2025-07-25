@@ -14,17 +14,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+        wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+        tar -xzf ta-lib-0.4.0-src.tar.gz
+        cd ta-lib/
+        ./configure --prefix=/usr
+        make
+        sudo make install
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install ruff mypy bandit pytest pytest-cov memory_profiler
+        pip install -r requirements-test.txt
         pip install -e .
 
     - name: Run Ruff
@@ -90,7 +101,7 @@ jobs:
         ls -la memory_profile_*.log 2>/dev/null || echo "No memory profiles available" >> $GITHUB_STEP_SUMMARY
 
     - name: Upload reports as artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: code-quality-reports
         path: |

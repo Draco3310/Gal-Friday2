@@ -10,22 +10,40 @@ repos:
       - id: debug-statements
       - id: check-merge-conflict
 
-  # Only run basic hooks that won't block commits
-  # More intensive linting/formatting can be run manually
+  # Ruff linting and formatting
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.6
+    rev: v0.12.5
     hooks:
-      # Only check critical errors, no formatting
+      # Comprehensive linting aligned with pyproject.toml configuration
       - id: ruff
-        args: [--select=E9,F63,F7,F82]
+        name: ruff-lint
+        description: Run ruff linter with comprehensive checks
+        args: [--fix, --exit-non-zero-on-fix]
+        files: ^gal_friday/|^tests/
 
-  # Local hooks that won't block commits
-  - repo: local
+      # Code formatting
+      - id: ruff-format
+        name: ruff-format
+        description: Run ruff formatter
+        files: ^gal_friday/|^tests/
+
+  # Type checking with MyPy (graduated enforcement)
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
     hooks:
-      - id: pytest-check
-        name: pytest-check
-        description: Run pytest (non-blocking)
-        entry: python -c "import sys; sys.exit(0)"
-        language: system
-        pass_filenames: false
-        always_run: true
+      - id: mypy
+        name: mypy-check
+        description: Static type checking with MyPy
+        args: [--ignore-missing-imports, --no-strict-optional]
+        files: ^gal_friday/
+        additional_dependencies: [types-requests, types-redis, types-setuptools]
+
+  # Security scanning with Bandit
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.6
+    hooks:
+      - id: bandit
+        name: bandit-security
+        description: Security vulnerability scanner
+        args: [-r, gal_friday/, -f, json, --skip, B101,B601]
+        files: ^gal_friday/

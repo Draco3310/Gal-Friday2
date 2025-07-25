@@ -17,10 +17,12 @@ class ModelStage:
     PRODUCTION = "production"
     ARCHIVED = "archived"
 
+
 class ModelStatus:
     TRAINING = "training"
     READY = "ready"
     DEPLOYED = "deployed"
+
 
 class ModelMetadata:
     def __init__(self):
@@ -53,8 +55,10 @@ class ModelMetadata:
             "features": self.features,
         }
 
+
 class SimpleModel:
     """A simple mock model for testing."""
+
     def __init__(self, name):
         self.name = name
         self.params = {"learning_rate": 0.1, "n_estimators": 100}
@@ -62,7 +66,8 @@ class SimpleModel:
     def predict(self, X):
         return [0.5] * len(X)
 
-def demonstrate_model_registry():
+
+def demonstrate_model_registry():  # noqa: PLR0915 - demo-pattern: comprehensive demonstration requires extensive setup and examples
     """Demonstrate the Model Registry structure and workflow."""
     rich_print("=== Gal-Friday Model Registry Demonstration ===\n")
 
@@ -97,15 +102,15 @@ def demonstrate_model_registry():
     artifact_path.mkdir(parents=True, exist_ok=True)
 
     # Save model
-    with open(artifact_path / "model.pkl", "wb") as f:
+    with (artifact_path / "model.pkl").open("wb") as f:
         pickle.dump(model, f)
 
     # Save metadata
-    with open(artifact_path / "metadata.json", "w") as f:
+    with (artifact_path / "metadata.json").open("w") as f:
         json.dump(metadata.to_dict(), f, indent=2)
 
     # Save features
-    with open(artifact_path / "features.json", "w") as f:
+    with (artifact_path / "features.json").open("w") as f:
         json.dump(metadata.features, f)
 
     metadata.artifact_path = str(artifact_path)
@@ -142,11 +147,11 @@ def demonstrate_model_registry():
     rich_print("\n=== Loading Model from Registry ===")
 
     # Load model
-    with open(artifact_path / "model.pkl", "rb") as f:
-        loaded_model = pickle.load(f)
+    with (artifact_path / "model.pkl").open("rb") as f:
+        loaded_model = pickle.load(f)  # noqa: S301 - demo-pattern: controlled pickle usage in demonstration with known safe data
 
     # Load metadata
-    with open(artifact_path / "metadata.json") as f:
+    with (artifact_path / "metadata.json").open() as f:
         loaded_metadata = json.load(f)
 
     rich_print(f"✓ Loaded model: {loaded_metadata['model_name']} v{loaded_metadata['version']}")

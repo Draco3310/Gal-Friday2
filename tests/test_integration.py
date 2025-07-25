@@ -27,19 +27,9 @@ from gal_friday.core.events import (
 class TestFullSignalLifecycle:
     """Test complete signal lifecycle from data to execution."""
 
-    @pytest.mark.asyncio
-    async def test_market_data_to_execution(self, integrated_system):
-        """Test full flow: Market Data → Prediction → Signal → Execution."""
-        # Track events through the pipeline
-        events_captured = {
-            "market_data": [],
-            "predictions": [],
-            "proposed_signals": [],
-            "approved_signals": [],
-            "execution_reports": [],
-        }
+    def _setup_event_capture(self, integrated_system, events_captured):  # noqa: C901 - test-complexity: event capture setup requires multiple callback definitions
+        """Set up event capture callbacks."""
 
-        # Set up event capture
         async def capture_market_data(event):
             if isinstance(event, MarketDataL2Event | MarketDataOHLCVEvent):
                 events_captured["market_data"].append(event)
@@ -67,7 +57,8 @@ class TestFullSignalLifecycle:
         integrated_system.pubsub.subscribe(EventType.TRADE_SIGNAL_APPROVED, capture_approved_signals)
         integrated_system.pubsub.subscribe(EventType.EXECUTION_REPORT, capture_execution_reports)
 
-        # 1. Inject market data
+    async def _inject_market_data(self, integrated_system):
+        """Inject market data event."""
         market_data = MarketDataL2Event(
             source_module="DataIngestion",
             event_id=uuid.uuid4(),
@@ -79,11 +70,11 @@ class TestFullSignalLifecycle:
             timestamp_exchange=datetime.now(UTC),
             sequence_number=1000,
         )
-
         await integrated_system.pubsub.publish(market_data)
-        await asyncio.sleep(0.1)  # Allow processing
+        await asyncio.sleep(0.1)
 
-        # 2. Inject prediction (simulating ML model output)
+    async def _inject_prediction(self, integrated_system):
+        """Inject prediction event."""
         prediction = PredictionEvent(
             source_module="PredictionService",
             event_id=uuid.uuid4(),
@@ -98,11 +89,11 @@ class TestFullSignalLifecycle:
                 "volume_ratio": 1.2,
             },
         )
-
         await integrated_system.pubsub.publish(prediction)
         await asyncio.sleep(0.1)
 
-        # 3. Generate trade signal (simulating strategy arbitrator)
+    async def _inject_trade_signal(self, integrated_system):
+        """Inject trade signal and approval."""
         proposed_signal = TradeSignalProposedEvent(
             source_module="StrategyArbitrator",
             event_id=uuid.uuid4(),
@@ -117,11 +108,10 @@ class TestFullSignalLifecycle:
             proposed_tp_price=Decimal("0.5200"),
             strategy_id="momentum_breakout",
         )
-
         await integrated_system.pubsub.publish(proposed_signal)
         await asyncio.sleep(0.1)
 
-        # 4. Approve signal (simulating risk manager)
+        # Approve signal
         approved_signal = TradeSignalApprovedEvent(
             source_module="RiskManager",
             event_id=uuid.uuid4(),
@@ -136,9 +126,28 @@ class TestFullSignalLifecycle:
             sl_price=Decimal("0.4900"),
             tp_price=Decimal("0.5200"),
         )
-
         await integrated_system.pubsub.publish(approved_signal)
-        await asyncio.sleep(0.5)  # Allow execution
+        await asyncio.sleep(0.5)
+
+    @pytest.mark.asyncio
+    async def test_market_data_to_execution(self, integrated_system):
+        """Test full flow: Market Data → Prediction → Signal → Execution."""
+        # Track events through the pipeline
+        events_captured = {
+            "market_data": [],
+            "predictions": [],
+            "proposed_signals": [],
+            "approved_signals": [],
+            "execution_reports": [],
+        }
+
+        # Set up event capture
+        self._setup_event_capture(integrated_system, events_captured)
+
+        # Execute test flow
+        await self._inject_market_data(integrated_system)
+        await self._inject_prediction(integrated_system)
+        await self._inject_trade_signal(integrated_system)
 
         # Verify complete flow
         assert len(events_captured["market_data"]) > 0
@@ -305,8 +314,8 @@ class TestPerformanceIntegration:
                 timestamp=datetime.now(UTC),
                 trading_pair="XRP/USD" if i % 2 == 0 else "DOGE/USD",
                 exchange="kraken",
-                bids=[[Decimal("0.5000") + Decimal(f"0.000{i%10}"), Decimal(1000)]],
-                asks=[[Decimal("0.5001") + Decimal(f"0.000{i%10}"), Decimal(1000)]],
+                bids=[[Decimal("0.5000") + Decimal(f"0.000{i % 10}"), Decimal(1000)]],
+                asks=[[Decimal("0.5001") + Decimal(f"0.000{i % 10}"), Decimal(1000)]],
                 timestamp_exchange=datetime.now(UTC),
                 sequence_number=1000 + i,
             )
@@ -349,11 +358,14 @@ class TestPerformanceIntegration:
         execution_received = asyncio.Event()
 
         async def track_execution(event):
-            if isinstance(event, ExecutionReportEvent):
-                if hasattr(event, "metadata") and event.metadata.get("correlation_id") == str(correlation_id):
-                    latency = (datetime.now(UTC) - start_time).total_seconds() * 1000
-                    latencies.append(latency)
-                    execution_received.set()
+            if (
+                isinstance(event, ExecutionReportEvent)
+                and hasattr(event, "metadata")
+                and event.metadata.get("correlation_id") == str(correlation_id)
+            ):
+                latency = (datetime.now(UTC) - start_time).total_seconds() * 1000
+                latencies.append(latency)
+                execution_received.set()
 
         integrated_system.pubsub.subscribe(EventType.EXECUTION_REPORT, track_execution)
 
@@ -481,19 +493,3 @@ class TestStressScenarios:
         # - Proper volatility detection
         # - Appropriate trading decisions
         assert True  # Placeholder
-
-
-# Extension for PredictionEvent creation
-class PredictionEvent:
-    """Mock prediction event for testing."""
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-        self.event_type = EventType.PREDICTION
-
-
-# Extension for TradeSignalRejectedEvent
-class TradeSignalRejectedEvent:
-    """Mock rejected signal event for testing."""
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-        self.event_type = EventType.TRADE_SIGNAL_REJECTED
