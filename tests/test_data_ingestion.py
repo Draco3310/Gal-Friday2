@@ -6,10 +6,12 @@ market data processing, validation, and performance.
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+import gc
 import time
 import uuid
 
 import asyncio
+import psutil
 import pytest
 
 from gal_friday.core.events import (
@@ -17,8 +19,6 @@ from gal_friday.core.events import (
     MarketDataL2Event,
     MarketDataOHLCVEvent,
 )
-from gal_friday.data_ingestion.data_validator import DataValidator
-from gal_friday.data_ingestion.market_data_processor import MarketDataProcessor
 
 
 class TestMarketDataL2:
@@ -200,7 +200,6 @@ class TestMarketDataOHLCV:
         # Valid data
         assert validator.validate_ohlcv_data(sample_ohlcv_data)
 
-        # Invalid: high < low
         invalid_data = sample_ohlcv_data.copy()
         invalid_data["high"] = Decimal("0.4900")
         invalid_data["low"] = Decimal("0.5100")
@@ -349,10 +348,6 @@ class TestDataIngestionPerformance:
     @pytest.mark.asyncio
     async def test_memory_efficiency(self):
         """Test memory usage during data ingestion."""
-        import gc
-
-        import psutil
-
         process = psutil.Process()
 
         # Baseline memory
@@ -380,7 +375,7 @@ class TestDataIngestionPerformance:
         memory_leaked = final_memory - baseline_memory
 
         assert memory_growth < 100  # Less than 100MB growth
-        assert memory_leaked < 10   # Less than 10MB leaked
+        assert memory_leaked < 10  # Less than 10MB leaked
 
 
 class MarketDataProcessor:
@@ -409,13 +404,15 @@ class MarketDataProcessor:
         gaps = []
 
         for i in range(1, len(timestamps)):
-            actual_gap = (timestamps[i] - timestamps[i-1]).total_seconds()
+            actual_gap = (timestamps[i] - timestamps[i - 1]).total_seconds()
             if actual_gap > expected_interval * 1.5:  # 50% tolerance
-                gaps.append({
-                    "start": timestamps[i-1],
-                    "end": timestamps[i],
-                    "duration": actual_gap,
-                })
+                gaps.append(
+                    {
+                        "start": timestamps[i - 1],
+                        "end": timestamps[i],
+                        "duration": actual_gap,
+                    },
+                )
 
         return gaps
 
@@ -488,6 +485,7 @@ def create_test_event(cls, pair: str, **kwargs):
             sequence_number=kwargs.get("sequence_number", 1),
         )
     return None
+
 
 # Monkey patch for testing
 MarketDataL2Event.create_test_event = classmethod(lambda cls, pair, **kwargs: create_test_event(cls, pair, **kwargs))
