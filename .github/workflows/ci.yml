@@ -39,13 +39,13 @@ jobs:
       run: |
         ruff check gal_friday tests
     
-    - name: Check formatting with black
+    - name: Check formatting with ruff
       run: |
-        black --check gal_friday tests
+        ruff format --check gal_friday tests
     
-    - name: Check import sorting with isort
+    - name: Check import sorting with ruff
       run: |
-        isort --check-only gal_friday tests
+        ruff check --select I gal_friday tests
     
     - name: Type check with mypy
       run: |
