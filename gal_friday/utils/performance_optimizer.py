@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import functools
 import gc
 import hashlib
+import re
 import threading
 import time
 from typing import (
@@ -43,18 +44,41 @@ AsyncT_co = TypeVar("AsyncT_co", covariant=True)  # Covariant for async protocol
 @runtime_checkable
 class CacheableFunction(Protocol[P, T_co]):
     """Protocol for cacheable functions."""
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> T_co: ...
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> T_co:
+        """Call the cacheable function with given arguments.
+
+        Args:
+            *args: Positional arguments.
+            **kwargs: Keyword arguments.
+
+        Returns:
+            Function result.
+        """
+        ...
 
 
 @runtime_checkable
 class AsyncCacheableFunction(Protocol[AsyncP, AsyncT_co]):
     """Protocol for async cacheable functions."""
-    def __call__(self, *args: AsyncP.args, **kwargs: AsyncP.kwargs) -> Awaitable[AsyncT_co]: ...
+
+    def __call__(self, *args: AsyncP.args, **kwargs: AsyncP.kwargs) -> Awaitable[AsyncT_co]:
+        """Call the async cacheable function with given arguments.
+
+        Args:
+            *args: Positional arguments.
+            **kwargs: Keyword arguments.
+
+        Returns:
+            Awaitable function result.
+        """
+        ...
 
 
 @dataclass
 class CacheEntry(Generic[V]):
     """Type-safe cache entry with metadata."""
+
     value: V
     timestamp: float
     access_count: int = 0
@@ -76,6 +100,7 @@ class CacheEntry(Generic[V]):
 @dataclass
 class CacheConfig:
     """Type-safe cache configuration."""
+
     max_size: int | None = 128
     ttl: float | None = None
     typed_keys: bool = True
@@ -168,9 +193,7 @@ class TypeSafeCache(Generic[K, V]):
         """Put value in cache with type safety."""
         with self._lock if self._lock else contextlib.nullcontext():
             # Check if eviction is needed
-            if (self.config.max_size is not None and
-                len(self._cache) >= self.config.max_size and
-                key not in self._cache):
+            if self.config.max_size is not None and len(self._cache) >= self.config.max_size and key not in self._cache:
                 self._evict_entries()
 
             # Create cache entry
@@ -287,10 +310,11 @@ class ConnectionPool:
     def __init__(
         self,
         create_conn: Callable[[], Any],
-        logger_service: LoggerService, # Added logger_service
+        logger_service: LoggerService,  # Added logger_service
         max_connections: int = 10,
         min_connections: int = 2,
-        health_check_interval: int = 30) -> None:
+        health_check_interval: int = 30,
+    ) -> None:
         """Initialize the connection pool.
 
         Args:
@@ -301,7 +325,7 @@ class ConnectionPool:
             health_check_interval: Interval in seconds between health checks.
         """
         self.create_conn = create_conn
-        self.logger = logger_service # Initialize self.logger
+        self.logger = logger_service  # Initialize self.logger
         self._source_module = self.__class__.__name__
         self.max_connections = max_connections
         self.min_connections = min_connections
@@ -408,8 +432,7 @@ class ConnectionPool:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self.logger.warning(
-                    f"Health check error: {e}")
+                self.logger.warning(f"Health check error: {e}")
 
     async def _is_healthy(self, conn: object) -> bool:
         """Check if connection is healthy.
@@ -430,9 +453,7 @@ class ConnectionPool:
             try:
                 await conn.ping()
             except Exception as e:
-                self.logger.debug(
-                    f"Connection ping failed: {e}",
-                    source_module=self._source_module)
+                self.logger.debug(f"Connection ping failed: {e}", source_module=self._source_module)
                 return False
             else:
                 return True
@@ -443,7 +464,8 @@ class ConnectionPool:
                     "Unable to determine health check method for connection type: %s. "
                     "Consider implementing a specific health check.",
                     type(conn).__name__,
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 self._health_check_warned = True
             return True  # Assume healthy if we can't check
 
@@ -469,11 +491,10 @@ class ConnectionPool:
                 self.logger.warning(
                     "Unable to close connection of type: %s",
                     type(conn).__name__,
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
         except Exception as e:
-            self.logger.warning(
-                f"Error closing connection: {e}",
-                source_module=self._source_module)
+            self.logger.warning(f"Error closing connection: {e}", source_module=self._source_module)
 
     def get_stats(self) -> dict[str, Any]:
         """Get pool statistics."""
@@ -500,82 +521,161 @@ class QueryOptimizer:
         self.slow_query_threshold = 1.0  # seconds
         self.query_stats: dict[str, dict[str, Any]] = {}
 
-    async def analyze_query(
-        self, query: str, params: tuple[Any, ...] | None = None) -> dict[str, Any]:
+    async def analyze_query(self, query: str, params: tuple[Any, ...] | None = None) -> dict[str, Any]:
         """Analyze query performance and provide optimization suggestions."""
         start_time = time.time()
 
-        # Normalize query for analysis
+        # Normalize query and determine type
         normalized_query = query.strip().upper()
-        suggestions: list[str] = []
+        query_type = self._determine_query_type(normalized_query)
 
-        # Analyze query structure
-        query_type = "UNKNOWN"
-        if normalized_query.startswith("SELECT"):
-            query_type = "SELECT"
-        elif normalized_query.startswith("INSERT"):
-            query_type = "INSERT"
-        elif normalized_query.startswith("UPDATE"):
-            query_type = "UPDATE"
-        elif normalized_query.startswith("DELETE"):
-            query_type = "DELETE"
-
-        # Estimate complexity based on query structure
+        # Initialize analysis components
         estimated_cost = self._estimate_query_cost(normalized_query)
         estimated_rows = self._estimate_result_rows(normalized_query)
         uses_index = self._check_index_usage(normalized_query)
+        suggestions: list[str] = []
 
-        # Common performance issues and suggestions
+        # Analyze various query aspects
+        cost_multiplier, index_impact = self._analyze_select_patterns(
+            normalized_query,
+            suggestions,
+        )
+        estimated_cost *= cost_multiplier
+        uses_index = uses_index and index_impact
+
+        # Analyze joins and subqueries
+        join_count = self._analyze_joins(normalized_query, suggestions)
+        estimated_cost *= self._analyze_subqueries(normalized_query, suggestions)
+
+        # Check for dangerous patterns
+        estimated_rows = self._check_dangerous_patterns(
+            query_type,
+            normalized_query,
+            suggestions,
+            estimated_rows,
+        )
+
+        # Analyze function usage in WHERE clause
+        func_cost, func_index = self._analyze_function_usage(normalized_query, suggestions)
+        estimated_cost *= func_cost
+        uses_index = uses_index and func_index
+
+        # Build analysis result
+        execution_time = time.time() - start_time
+        analysis = self._build_analysis_result(
+            query,
+            query_type,
+            estimated_cost,
+            estimated_rows,
+            uses_index,
+            join_count,
+            execution_time,
+            suggestions,
+        )
+
+        # Track and log statistics
+        await self._track_query_statistics(query, execution_time, suggestions)
+
+        return analysis
+
+    def _determine_query_type(self, normalized_query: str) -> str:
+        """Determine the type of SQL query."""
+        if normalized_query.startswith("SELECT"):
+            return "SELECT"
+        if normalized_query.startswith("INSERT"):
+            return "INSERT"
+        if normalized_query.startswith("UPDATE"):
+            return "UPDATE"
+        if normalized_query.startswith("DELETE"):
+            return "DELETE"
+        return "UNKNOWN"
+
+    def _analyze_select_patterns(self, normalized_query: str, suggestions: list[str]) -> tuple[float, bool]:
+        """Analyze SELECT query patterns and provide suggestions."""
+        cost_multiplier = 1.0
+        index_intact = True
+
         if "SELECT *" in normalized_query:
             suggestions.append("Avoid SELECT *, specify needed columns to reduce data transfer")
-            estimated_cost *= 1.5  # Penalize for SELECT *
+            cost_multiplier *= 1.5
 
         if "NOT IN" in normalized_query:
             suggestions.append("Consider using NOT EXISTS instead of NOT IN for better null handling")
-            estimated_cost *= 1.2
+            cost_multiplier *= 1.2
 
         if " OR " in normalized_query and normalized_query.count(" OR ") > 2:
             suggestions.append("Multiple OR conditions can prevent index usage, consider UNION")
-            uses_index = False
-            estimated_cost *= 1.3
+            index_intact = False
+            cost_multiplier *= 1.3
 
         if "LIKE '%%" in normalized_query or "LIKE '%" in normalized_query:
             suggestions.append("Leading wildcard in LIKE prevents index usage")
-            uses_index = False
-            estimated_cost *= 2.0
+            index_intact = False
+            cost_multiplier *= 2.0
 
-        # Join analysis
+        return cost_multiplier, index_intact
+
+    def _analyze_joins(self, normalized_query: str, suggestions: list[str]) -> int:
+        """Analyze JOIN usage in query."""
         join_count = normalized_query.count(" JOIN ")
         if join_count > 3:
             suggestions.append(f"{join_count} JOINs detected, consider denormalization or materialized views")
-            estimated_cost *= (1.1 ** join_count)
+        return join_count
 
-        # Subquery analysis
+    def _analyze_subqueries(self, normalized_query: str, suggestions: list[str]) -> float:
+        """Analyze subquery usage and return cost multiplier."""
         if "SELECT" in normalized_query[7:]:  # Skip the first SELECT
             subquery_count = normalized_query.count("SELECT") - 1
             if subquery_count > 0:
                 suggestions.append(f"{subquery_count} subqueries detected, consider using JOINs or CTEs")
-                estimated_cost *= (1.2 ** subquery_count)
+                return 1.2**subquery_count
+        return 1.0
 
-        # Check for missing WHERE clause in UPDATE/DELETE
+    def _check_dangerous_patterns(
+        self,
+        query_type: str,
+        normalized_query: str,
+        suggestions: list[str],
+        estimated_rows: int,
+    ) -> int:
+        """Check for dangerous query patterns."""
         if query_type in ["UPDATE", "DELETE"] and " WHERE " not in normalized_query:
             suggestions.append(f"WARNING: {query_type} without WHERE clause affects all rows!")
-            estimated_rows = 999999  # Indicate large impact
+            return 999999  # Indicate large impact
+        return estimated_rows
 
-        # Function usage that prevents index
+    def _analyze_function_usage(self, normalized_query: str, suggestions: list[str]) -> tuple[float, bool]:
+        """Analyze function usage that might prevent index usage."""
+        cost_multiplier = 1.0
+        index_intact = True
+
+        if " WHERE " not in normalized_query:
+            return cost_multiplier, index_intact
+
         problematic_functions = ["UPPER(", "LOWER(", "COALESCE(", "CAST(", "CONVERT("]
+        where_clause = normalized_query.split(" WHERE ")[1].split(" ORDER BY ")[0]
+
         for func in problematic_functions:
-            if func in normalized_query and " WHERE " in normalized_query:
-                # Check if function is used in WHERE clause
-                where_clause = normalized_query.split(" WHERE ")[1].split(" ORDER BY ")[0]
-                if func in where_clause:
-                    suggestions.append(f"{func.rstrip('(')} in WHERE clause may prevent index usage")
-                    uses_index = False
-                    estimated_cost *= 1.3
+            if func in where_clause:
+                suggestions.append(f"{func.rstrip('(')} in WHERE clause may prevent index usage")
+                index_intact = False
+                cost_multiplier *= 1.3
 
-        execution_time = time.time() - start_time
+        return cost_multiplier, index_intact
 
-        analysis = {
+    def _build_analysis_result(
+        self,
+        query: str,
+        query_type: str,
+        estimated_cost: float,
+        estimated_rows: int,
+        uses_index: bool,
+        join_count: int,
+        execution_time: float,
+        suggestions: list[str],
+    ) -> dict[str, Any]:
+        """Build the analysis result dictionary."""
+        return {
             "query": query,
             "query_type": query_type,
             "estimated_cost": round(estimated_cost, 2),
@@ -586,8 +686,15 @@ class QueryOptimizer:
             "suggestions": suggestions,
         }
 
-        # Track query statistics
+    async def _track_query_statistics(
+        self,
+        query: str,
+        execution_time: float,
+        suggestions: list[str],
+    ) -> None:
+        """Track query statistics and log slow queries."""
         query_key = self._normalize_query(query)
+
         if query_key not in self.query_stats:
             self.query_stats[query_key] = {
                 "count": 0,
@@ -607,9 +714,8 @@ class QueryOptimizer:
             self.logger.warning(
                 f"Slow query analysis: {execution_time:.2f}s",
                 source_module=self._source_module,
-                context={"query": query_key, "suggestions": suggestions})
-
-        return analysis
+                context={"query": query_key, "suggestions": suggestions},
+            )
 
     def _estimate_query_cost(self, normalized_query: str) -> float:
         """Estimate relative cost of query execution."""
@@ -646,7 +752,10 @@ class QueryOptimizer:
                 limit_part = normalized_query.split(" LIMIT ")[1].split()[0]
                 return int(limit_part)
             except (IndexError, ValueError):
-                pass
+                self.logger.debug(
+                    "Unable to parse LIMIT value from query",
+                    source_module=self._source_module,
+                )
 
         # Aggregate without GROUP BY usually returns 1 row
         if any(f in normalized_query for f in ["COUNT(", "SUM(", "AVG("]) and " GROUP BY " not in normalized_query:
@@ -681,17 +790,13 @@ class QueryOptimizer:
 
         # Remove parameter values for grouping
         # This is simplified - real implementation would parse SQL
-        import re
         normalized = re.sub(r"=\s*\$\d+", "= ?", normalized)
         normalized = re.sub(r"=\s*\d+", "= ?", normalized)
         return re.sub(r"=\s*'[^']+'", "= ?", normalized)
 
     def get_slow_queries(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get slowest queries."""
-        sorted_queries = sorted(
-            self.query_stats.items(),
-            key=lambda x: x[1]["avg_time"],
-            reverse=True)
+        sorted_queries = sorted(self.query_stats.items(), key=lambda x: x[1]["avg_time"], reverse=True)
 
         return [
             {
@@ -724,6 +829,15 @@ class MemoryOptimizer:
         self._last_gc_time = time.time()
         self._gc_interval = 300  # 5 minutes
 
+    @property
+    def last_gc_time(self) -> float:
+        """Get the timestamp of the last garbage collection.
+
+        Returns:
+            The timestamp of the last GC run
+        """
+        return self._last_gc_time
+
     def get_memory_usage(self) -> dict[str, Any]:
         """Get current memory usage."""
         process = psutil.Process()
@@ -744,7 +858,8 @@ class MemoryOptimizer:
         if usage["rss_mb"] > self.gc_threshold_mb:
             self.logger.info(
                 f"Memory usage high ({usage['rss_mb']:.1f}MB), running garbage collection",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
             # Force garbage collection
             gc.collect()
@@ -753,9 +868,7 @@ class MemoryOptimizer:
             new_usage = self.get_memory_usage()
             freed_mb = usage["rss_mb"] - new_usage["rss_mb"]
 
-            self.logger.info(
-                f"Garbage collection freed {freed_mb:.1f}MB",
-                source_module=self._source_module)
+            self.logger.info(f"Garbage collection freed {freed_mb:.1f}MB", source_module=self._source_module)
 
             self._last_gc_time = time.time()
 
@@ -802,9 +915,7 @@ class PerformanceOptimizer:
 
     async def start(self) -> None:
         """Start performance optimizer."""
-        self.logger.info(
-            "Starting performance optimizer",
-            source_module=self._source_module)
+        self.logger.info("Starting performance optimizer", source_module=self._source_module)
 
         # Start monitoring
         self._monitor_task = asyncio.create_task(self._monitor_performance())
@@ -843,7 +954,8 @@ class PerformanceOptimizer:
                     context={
                         "memory": memory_usage,
                         "caches": cache_stats,
-                    })
+                    },
+                )
 
                 # Check for issues
                 if memory_usage["rss_mb"] > self.memory_optimizer.memory_limit_mb:
@@ -851,14 +963,13 @@ class PerformanceOptimizer:
                         "Memory limit exceeded: "
                         f"{memory_usage['rss_mb']:.1f}MB > "
                         f"{self.memory_optimizer.memory_limit_mb}MB",
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
 
             except asyncio.CancelledError:
                 break
             except Exception:
-                self.logger.exception(
-                    "Error in performance monitoring",
-                    source_module=self._source_module)
+                self.logger.exception("Error in performance monitoring", source_module=self._source_module)
 
     def get_performance_report(self) -> dict[str, Any]:
         """Get comprehensive performance report."""
@@ -871,7 +982,7 @@ class PerformanceOptimizer:
             },
             "slow_queries": self.query_optimizer.get_slow_queries(),
             "optimizations": {
-                "last_gc": time.time() - self.memory_optimizer._last_gc_time,
+                "last_gc": time.time() - self.memory_optimizer.last_gc_time,
                 "gc_threshold_mb": self.memory_optimizer.gc_threshold_mb,
                 "memory_limit_mb": self.memory_optimizer.memory_limit_mb,
             },
@@ -879,6 +990,7 @@ class PerformanceOptimizer:
 
 
 # Type-safe decorators for performance optimization
+
 
 class TypedCacheDecorator(Generic[P, T]):
     """Type-safe caching decorator that preserves function signatures."""
@@ -1041,16 +1153,18 @@ class TypedTimingDecorator(Generic[P, T]):
                 if self.logger:
                     self.logger.debug(
                         f"{function_name} completed in {execution_time:.3f}s",
-                        source_module="TypedTimingDecorator")
+                        source_module="TypedTimingDecorator",
+                    )
 
-            except Exception as e:
+            except Exception:
                 execution_time = time.time() - start_time
 
                 # Log error with timing
                 if self.logger:
                     self.logger.exception(
-                        f"{function_name} failed after {execution_time:.3f}s: {e!s}",
-                        source_module="TypedTimingDecorator")
+                        "{function_name} failed after {execution_time:.3f}s",
+                        source_module="TypedTimingDecorator",
+                    )
 
                 raise
             else:
@@ -1083,16 +1197,18 @@ class AsyncTypedTimingDecorator(Generic[AsyncP, AsyncT]):
                 if self.logger:
                     self.logger.debug(
                         f"{function_name} completed in {execution_time:.3f}s",
-                        source_module="AsyncTypedTimingDecorator")
+                        source_module="AsyncTypedTimingDecorator",
+                    )
 
-            except Exception as e:
+            except Exception:
                 execution_time = time.time() - start_time
 
                 # Log error with timing
                 if self.logger:
                     self.logger.exception(
-                        f"{function_name} failed after {execution_time:.3f}s: {e!s}",
-                        source_module="AsyncTypedTimingDecorator")
+                        "{function_name} failed after {execution_time:.3f}s",
+                        source_module="AsyncTypedTimingDecorator",
+                    )
 
                 raise
             else:
@@ -1103,20 +1219,26 @@ class AsyncTypedTimingDecorator(Generic[AsyncP, AsyncT]):
 
 # Public API with overloads for comprehensive type safety
 
+
 @overload
 def cache() -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
 
 @overload
 def cache(*, max_size: int | None = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
+
 @overload
 def cache(*, ttl: float | None = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
 
 @overload
 def cache(*, max_size: int | None = ..., ttl: float | None = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
+
 @overload
 def cache(config: CacheConfig) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
 
 def cache(
     config: CacheConfig | None = None,
@@ -1192,16 +1314,17 @@ def async_timed(
 # Legacy compatibility decorators (deprecated but maintained for backward compatibility)
 F = TypeVarT("F", bound=Callable[..., Any])
 
+
 def cached(cache_name: str = "default", ttl: int = 300) -> Callable[[F], F]:
     """Legacy caching decorator for backward compatibility.
 
     DEPRECATED: Use @cache() decorator with proper generic typing instead.
     This decorator is maintained for backward compatibility but lacks proper type safety.
     """
+
     def decorator(func: F) -> F:
         @functools.wraps(func)
-        async def wrapper(
-            self: "PerformanceOptimizer", *args: object, **kwargs: object) -> object:
+        async def wrapper(self: "PerformanceOptimizer", *args: object, **kwargs: object) -> object:
             # Generate cache key
             cache_key = f"{func.__name__}:{args!s}:{kwargs!s}"
 
@@ -1222,7 +1345,8 @@ def cached(cache_name: str = "default", ttl: int = 300) -> Callable[[F], F]:
 
             return result
 
-        return wrapper # type: ignore[return-value]
+        return wrapper  # type: ignore[return-value]
+
     return decorator
 
 
@@ -1250,7 +1374,7 @@ class MethodCacheDescriptor(Generic[T]):
     def __get__(self, instance: Any, owner: type[Any] | None = None) -> Callable[..., T]:
         """Get the cached method for the instance."""
         if instance is None:
-            return self  # type: ignore
+            return self  # type: ignore[return-value]
 
         if self.original_method is None:
             raise RuntimeError("Method cache descriptor not properly initialized")
@@ -1400,7 +1524,8 @@ class DatabaseConnectionPool(ConnectionPool):
         max_connections: int = 10,
         min_connections: int = 2,
         health_check_interval: int = 30,
-        health_check_query: str = "SELECT 1") -> None:
+        health_check_query: str = "SELECT 1",
+    ) -> None:
         """Initialize database connection pool with health check query.
 
         Args:

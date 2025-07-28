@@ -112,7 +112,7 @@ from gal_friday.monitoring.position_order_data_quality import PositionOrderDataQ
 
 async def setup_monitoring():
     monitor = PositionOrderDataQualityMonitor(session_maker, logger)
-    
+
     # Schedule regular checks
     scheduler.add_job(
         monitor.run_comprehensive_check,
@@ -129,10 +129,10 @@ async def setup_monitoring():
 # Configure alerts for high-priority issues
 async def setup_alerting():
     monitor = PositionOrderDataQualityMonitor(session_maker, logger)
-    
+
     # Run check and send alerts if needed
     report = await monitor.run_comprehensive_check()
-    
+
     if len(report.high_priority_issues) > 0:
         alert_summary = await monitor.generate_alert_summary(report)
         await send_slack_alert(alert_summary)
@@ -282,7 +282,7 @@ from gal_friday.monitoring.position_order_data_quality import PositionOrderDataQ
 monitor = PositionOrderDataQualityMonitor(session_maker, logger)
 report = await monitor.run_comprehensive_check(hours_back=24)
 
-unlinked_issues = [issue for issue in report.issues_found 
+unlinked_issues = [issue for issue in report.issues_found
                   if issue.issue_type == "UNLINKED_FILLED_ORDER"]
 print(f"Found {len(unlinked_issues)} unlinked filled orders")
 ```
@@ -298,7 +298,7 @@ from gal_friday.execution.order_position_integration import OrderPositionIntegra
 
 integration_service = OrderPositionIntegrationService(...)
 await integration_service.reconcile_order_position_relationships(
-    hours_back=24, 
+    hours_back=24,
     auto_fix=True
 )
 ```
@@ -341,8 +341,8 @@ python scripts/deploy/position_order_migration.py --env production --status
 
 # Verify database structure
 psql -h hostname -U username -d database -c "
-SELECT column_name, data_type, is_nullable 
-FROM information_schema.columns 
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
 WHERE table_name = 'orders' AND column_name = 'position_id';
 "
 ```
@@ -367,7 +367,7 @@ UPDATE orders SET position_id = NULL WHERE position_id NOT IN (SELECT id FROM po
 
 ```sql
 -- Ensure proper indexing
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_position_id_created_at 
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_position_id_created_at
 ON orders(position_id, created_at) WHERE position_id IS NOT NULL;
 
 -- Analyze table statistics
@@ -375,9 +375,9 @@ ANALYZE orders;
 ANALYZE positions;
 
 -- Monitor query performance
-SELECT query, calls, total_time, mean_time 
-FROM pg_stat_statements 
-WHERE query LIKE '%position_id%' 
+SELECT query, calls, total_time, mean_time
+FROM pg_stat_statements
+WHERE query LIKE '%position_id%'
 ORDER BY total_time DESC;
 ```
 
@@ -430,11 +430,11 @@ class PositionOrderAccessControl:
     @require_permission("positions.read")
     async def get_position_audit_trail(self, position_id: str):
         pass
-    
+
     @require_permission("orders.write")
     async def link_order_to_position(self, order_id: str, position_id: str):
         pass
-    
+
     @require_permission("admin.reconcile")
     async def reconcile_relationships(self):
         pass
@@ -465,15 +465,15 @@ async def audit_log_position_order_link(order_id: str, position_id: str, user_id
 async def test_order_execution_creates_position_link():
     # Create execution report
     execution_report = ExecutionReportEvent(...)
-    
+
     # Process through integration service
     success = await integration_service.process_execution_report(execution_report)
     assert success
-    
+
     # Verify relationship was established
     order = await order_repository.find_by_id(execution_report.client_order_id)
     assert order.position_id is not None
-    
+
     # Verify position was updated
     position = await position_repository.find_by_id(order.position_id)
     assert position.quantity == execution_report.quantity_filled
@@ -486,16 +486,16 @@ async def test_order_execution_creates_position_link():
 async def load_test_integration_service():
     # Simulate high volume of execution reports
     execution_reports = [create_test_execution_report() for _ in range(1000)]
-    
+
     start_time = time.time()
     results = await asyncio.gather(*[
         integration_service.process_execution_report(report)
         for report in execution_reports
     ])
-    
+
     duration = time.time() - start_time
     success_rate = sum(results) / len(results)
-    
+
     assert success_rate > 0.95
     assert duration < 30  # Should complete within 30 seconds
 ```
@@ -525,6 +525,6 @@ async def load_test_integration_service():
 
 ---
 
-**Last Updated**: January 27, 2025  
-**Version**: 1.0  
-**Review Cycle**: Quarterly 
+**Last Updated**: January 27, 2025
+**Version**: 1.0
+**Review Cycle**: Quarterly

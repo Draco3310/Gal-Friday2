@@ -28,10 +28,7 @@ class MarketPriceService(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def get_volatility(
-        self,
-        trading_pair: str,
-        lookback_hours: int = 24) -> float | None:
+    async def get_volatility(self, trading_pair: str, lookback_hours: int = 24) -> float | None:
         """Calculate the price volatility for a trading pair.
 
         Volatility is typically calculated as the standard deviation of
@@ -129,11 +126,7 @@ class MarketPriceService(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def convert_amount(
-        self,
-        from_amount: Decimal,
-        from_currency: str,
-        to_currency: str) -> Decimal | None:
+    async def convert_amount(self, from_amount: Decimal, from_currency: str, to_currency: str) -> Decimal | None:
         """Convert an amount from one currency to another.
 
         Args:

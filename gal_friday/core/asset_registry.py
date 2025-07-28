@@ -14,6 +14,7 @@ from typing import Any, Protocol
 
 class AssetType(Enum):
     """Enumeration of supported asset types."""
+
     CRYPTO = auto()
     STOCK = auto()
     FUTURES = auto()
@@ -24,16 +25,18 @@ class AssetType(Enum):
 
 class ExchangeType(Enum):
     """Enumeration of supported exchange types."""
-    CRYPTO_EXCHANGE = auto()      # Kraken, Binance, Coinbase
-    STOCK_EXCHANGE = auto()       # NYSE, NASDAQ, LSE
-    FUTURES_EXCHANGE = auto()     # CME, ICE, EUREX
-    OPTIONS_EXCHANGE = auto()     # CBOE, ISE
-    FOREX_EXCHANGE = auto()       # OANDA, FXCM
+
+    CRYPTO_EXCHANGE = auto()  # Kraken, Binance, Coinbase
+    STOCK_EXCHANGE = auto()  # NYSE, NASDAQ, LSE
+    FUTURES_EXCHANGE = auto()  # CME, ICE, EUREX
+    OPTIONS_EXCHANGE = auto()  # CBOE, ISE
+    FOREX_EXCHANGE = auto()  # OANDA, FXCM
 
 
 @dataclass(frozen=True)
 class TradingSession:
     """Trading session information for different markets."""
+
     open_time: time
     close_time: time
     timezone: str
@@ -43,11 +46,12 @@ class TradingSession:
 @dataclass(frozen=True)
 class AssetSpecification:
     """Comprehensive asset specification with exchange-specific details."""
-    symbol: str                          # Universal symbol (e.g., "XRP/USD", "AAPL", "ES_202412")
+
+    symbol: str  # Universal symbol (e.g., "XRP/USD", "AAPL", "ES_202412")
     asset_type: AssetType
-    base_asset: str | None = None     # For pairs/derivatives
-    quote_asset: str | None = None    # For pairs
-    underlying: str | None = None     # For derivatives
+    base_asset: str | None = None  # For pairs/derivatives
+    quote_asset: str | None = None  # For pairs
+    underlying: str | None = None  # For derivatives
 
     # Trading specifications
     min_order_size: Decimal = Decimal("0.001")
@@ -67,13 +71,14 @@ class AssetSpecification:
     option_type: str | None = None  # "call", "put"
 
     # Exchange-specific metadata
-    exchange_symbol: str = ""            # Exchange-native symbol format
+    exchange_symbol: str = ""  # Exchange-native symbol format
     exchange_metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 @dataclass(frozen=True)
 class ExchangeSpecification:
     """Exchange-specific trading rules and capabilities."""
+
     exchange_id: str
     exchange_type: ExchangeType
     name: str
@@ -147,7 +152,7 @@ class AssetRegistry:
     def register_asset(self, asset: AssetSpecification, exchange_id: str) -> None:
         """Register an asset with exchange-specific details."""
         if exchange_id not in self._exchanges:
-            error_msg = f"Exchange {exchange_id} not registered" # EM102/TRY003
+            error_msg = f"Exchange {exchange_id} not registered"  # EM102/TRY003
             raise ValueError(error_msg)
 
         if exchange_id not in self._assets:
@@ -186,25 +191,26 @@ class AssetRegistry:
         symbol_mapping_dict = exchange_mappings[to_exchange]
         return symbol_mapping_dict.get(symbol, symbol)  # Return original if no mapping
 
-    def add_symbol_mapping(self, from_exchange: str, to_exchange: str,
-                          symbol_map: dict[str, str]) -> None:
+    def add_symbol_mapping(self, from_exchange: str, to_exchange: str, symbol_map: dict[str, str]) -> None:
         """Add symbol format mappings between exchanges."""
         if from_exchange not in self._symbol_mappings:
             self._symbol_mappings[from_exchange] = {}
         self._symbol_mappings[from_exchange][to_exchange] = symbol_map
 
-    def get_assets_by_type(self, asset_type: AssetType,
-                          exchange_id: str | None = None) -> list[AssetSpecification]:
+    def get_assets_by_type(self, asset_type: AssetType, exchange_id: str | None = None) -> list[AssetSpecification]:
         """Get all assets of a specific type, optionally filtered by exchange."""
         assets = []
         exchanges_to_check = [exchange_id] if exchange_id else list[Any](self._assets.keys())
 
         for exch_id in exchanges_to_check:
             # PERF401: Use extend with a list[Any] comprehension
-            assets.extend([
-                asset_spec for asset_spec in self._assets.get(exch_id, {}).values()
-                if asset_spec.asset_type == asset_type
-            ])
+            assets.extend(
+                [
+                    asset_spec
+                    for asset_spec in self._assets.get(exch_id, {}).values()
+                    if asset_spec.asset_type == asset_type
+                ],
+            )
         return assets
 
     def validate_trading_pair(self, symbol: str, exchange_id: str) -> bool:
@@ -245,7 +251,8 @@ def initialize_default_assets() -> None:
         taker_fee_bps=Decimal(26),  # 0.26%
         trading_sessions=kraken_sessions,
         max_orders_per_second=10,
-        typical_latency_ms=50.0)
+        typical_latency_ms=50.0,
+    )
 
     asset_registry.register_exchange(kraken_exchange)
 
@@ -257,7 +264,8 @@ def initialize_default_assets() -> None:
         quote_asset="USD",
         min_order_size=Decimal(1),
         tick_size=Decimal("0.0001"),
-        exchange_symbol="XRPUSD")
+        exchange_symbol="XRPUSD",
+    )
 
     doge_usd = AssetSpecification(
         symbol="DOGE/USD",
@@ -266,10 +274,12 @@ def initialize_default_assets() -> None:
         quote_asset="USD",
         min_order_size=Decimal(1),
         tick_size=Decimal("0.00001"),
-        exchange_symbol="DOGEUSD")
+        exchange_symbol="DOGEUSD",
+    )
 
     asset_registry.register_asset(xrp_usd, "kraken")
     asset_registry.register_asset(doge_usd, "kraken")
+
 
 # Initialize default assets when module is imported
 initialize_default_assets()

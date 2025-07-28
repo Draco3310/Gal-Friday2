@@ -1,13 +1,25 @@
+"""Local file provider for loading historical market data from CSV files.
+
+This module provides classes for loading historical market data
+from local CSV files for backtesting and development.
+"""
+
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from gal_friday.simulated_market_price_service import DataRequest, HistoricalDataPoint, HistoricalDataProvider
+from gal_friday.interfaces.data_provider_protocols import HistoricalDataProviderProtocol
+
+if TYPE_CHECKING:
+    from gal_friday.core.data_request import DataRequest, HistoricalDataPoint
+else:
+    # Runtime imports to avoid circular imports
+    from gal_friday.core.data_request import DataRequest, HistoricalDataPoint
 
 
-class LocalFileDataProvider(HistoricalDataProvider):
+class LocalFileDataProvider(HistoricalDataProviderProtocol):
     """Load historical data from a local file."""
 
     def __init__(self, config: dict[str, Any], logger: logging.Logger) -> None:
@@ -16,7 +28,7 @@ class LocalFileDataProvider(HistoricalDataProvider):
         self.logger = logger
         self._source_module = self.__class__.__name__
 
-    async def fetch_data(self, request: DataRequest) -> list[HistoricalDataPoint]:
+    async def fetch_data(self, request: "DataRequest") -> list["HistoricalDataPoint"]:
         """Fetch data for ``request`` from the configured local file."""
         path_str = self.config.get("local_file_path")
         if not path_str:
@@ -32,8 +44,8 @@ class LocalFileDataProvider(HistoricalDataProvider):
             else:
                 self.logger.error("Unsupported file format: %s", path.suffix)
                 return []
-        except Exception as exc:  # pragma: no cover - simple logging
-            self.logger.exception("Failed reading %s:", exc)
+        except Exception:  # pragma: no cover - simple logging
+            self.logger.exception("Failed reading ")
             return []
 
         if "symbol" in df.columns:
@@ -49,7 +61,8 @@ class LocalFileDataProvider(HistoricalDataProvider):
                 high=row["high"],
                 low=row["low"],
                 close=row["close"],
-                volume=row.get("volume", 0.0))
+                volume=row.get("volume", 0.0),
+            )
             for _, row in df.iterrows()
         ]
         return data

@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 import random
 import statistics
 import time
@@ -14,11 +15,12 @@ from rich import print as rich_print
 
 from gal_friday.core.events import (
     EventType,
-    MarketDataEvent,
+    MarketDataOHLCVEvent,
     PredictionEvent,
     TradeSignalProposedEvent,
 )
 from gal_friday.core.pubsub import PubSubManager
+from gal_friday.utils.performance_optimizer import ConnectionPool, LRUCache
 
 
 class PerformanceTestRunner:
@@ -36,12 +38,12 @@ class PerformanceTestRunner:
         start_time = time.time()
 
         while time.time() - start_time < duration_seconds:
-            event = MarketDataEvent(
+            event = MarketDataOHLCVEvent(
                 event_type=EventType.PRICE_UPDATE,
                 timestamp=datetime.now(UTC),
                 trading_pair="XRP/USD",
-                price=Decimal(str(random.uniform(0.4, 0.6))),
-                volume=Decimal(str(random.uniform(100000, 1000000))),
+                price=Decimal(str(random.uniform(0.4, 0.6))),  # noqa: S311
+                volume=Decimal(str(random.uniform(100000, 1000000))),  # noqa: S311
             )
 
             await self.pubsub.publish(EventType.PRICE_UPDATE, event)
@@ -67,7 +69,7 @@ class PerformanceTestRunner:
 
         for _ in range(num_predictions):
             features = {
-                f"feature_{i}": random.random()
+                f"feature_{i}": random.random()  # noqa: S311
                 for i in range(50)  # 50 features
             }
 
@@ -83,7 +85,7 @@ class PerformanceTestRunner:
                 model_id="test_model",
                 trading_pair="XRP/USD",
                 prediction_value=prediction_value,
-                confidence=random.uniform(0.7, 0.95),
+                confidence=random.uniform(0.7, 0.95),  # noqa: S311
                 associated_features=features,
             )
 
@@ -118,15 +120,15 @@ class PerformanceTestRunner:
             while time.time() - start_time < duration_seconds:
                 try:
                     # Simulate various operations
-                    operation = random.choice(["market_data", "prediction", "signal"])
+                    operation = random.choice(["market_data", "prediction", "signal"])  # noqa: S311
 
                     if operation == "market_data":
-                        event = MarketDataEvent(
+                        event = MarketDataOHLCVEvent(
                             event_type=EventType.PRICE_UPDATE,
                             timestamp=datetime.now(UTC),
-                            trading_pair=random.choice(["XRP/USD", "DOGE/USD"]),
-                            price=Decimal(str(random.uniform(0.1, 1.0))),
-                            volume=Decimal(str(random.uniform(10000, 100000))),
+                            trading_pair=random.choice(["XRP/USD", "DOGE/USD"]),  # noqa: S311
+                            price=Decimal(str(random.uniform(0.1, 1.0))),  # noqa: S311
+                            volume=Decimal(str(random.uniform(10000, 100000))),  # noqa: S311
                         )
                         await self.pubsub.publish(EventType.PRICE_UPDATE, event)
 
@@ -135,9 +137,9 @@ class PerformanceTestRunner:
                             event_type=EventType.PREDICTION_GENERATED,
                             timestamp=datetime.now(UTC),
                             model_id=f"model_{worker_id}",
-                            trading_pair=random.choice(["XRP/USD", "DOGE/USD"]),
-                            prediction_value=random.random(),
-                            confidence=random.uniform(0.5, 1.0),
+                            trading_pair=random.choice(["XRP/USD", "DOGE/USD"]),  # noqa: S311
+                            prediction_value=random.random(),  # noqa: S311
+                            confidence=random.uniform(0.5, 1.0),  # noqa: S311
                         )
                         await self.pubsub.publish(EventType.PREDICTION_GENERATED, event)
 
@@ -146,10 +148,10 @@ class PerformanceTestRunner:
                             event_type=EventType.TRADE_SIGNAL_PROPOSED,
                             timestamp=datetime.now(UTC),
                             signal_id=f"signal_{worker_id}_{events_processed}",
-                            trading_pair=random.choice(["XRP/USD", "DOGE/USD"]),
-                            signal=random.choice(["BUY", "SELL", "HOLD"]),
-                            entry_price=Decimal(str(random.uniform(0.1, 1.0))),
-                            quantity=Decimal(str(random.uniform(100, 1000))),
+                            trading_pair=random.choice(["XRP/USD", "DOGE/USD"]),  # noqa: S311
+                            signal=random.choice(["BUY", "SELL", "HOLD"]),  # noqa: S311
+                            entry_price=Decimal(str(random.uniform(0.1, 1.0))),  # noqa: S311
+                            quantity=Decimal(str(random.uniform(100, 1000))),  # noqa: S311
                         )
                         await self.pubsub.publish(EventType.TRADE_SIGNAL_PROPOSED, event)
 
@@ -196,19 +198,21 @@ class PerformanceTestRunner:
 
         # Generate load while monitoring memory
         async def generate_load():
+            rng = np.random.default_rng(42)
             while time.time() - start_time < duration_seconds:
                 # Create various objects to stress memory
                 {
-                    "features": np.random.rand(1000, 50),  # 1000 samples, 50 features
-                    "predictions": [random.random() for _ in range(1000)],
+                    "features": rng.random((1000, 50)),  # 1000 samples, 50 features
+                    "predictions": [random.random() for _ in range(1000)],  # noqa: S311
                     "events": [
-                        MarketDataEvent(
+                        MarketDataOHLCVEvent(
                             event_type=EventType.PRICE_UPDATE,
                             timestamp=datetime.now(UTC),
                             trading_pair="XRP/USD",
-                            price=Decimal(str(random.random())),
-                            volume=Decimal(str(random.random() * 1000000)),
-                        ) for _ in range(100)
+                            price=Decimal(str(random.random())),  # noqa: S311
+                            volume=Decimal(str(random.random() * 1000000)),  # noqa: S311
+                        )
+                        for _ in range(100)
                     ],
                 }
 
@@ -218,11 +222,13 @@ class PerformanceTestRunner:
         async def monitor_memory():
             while time.time() - start_time < duration_seconds:
                 memory_info = process.memory_info()
-                memory_samples.append({
-                    "timestamp": time.time() - start_time,
-                    "rss_mb": memory_info.rss / 1024 / 1024,
-                    "vms_mb": memory_info.vms / 1024 / 1024,
-                })
+                memory_samples.append(
+                    {
+                        "timestamp": time.time() - start_time,
+                        "rss_mb": memory_info.rss / 1024 / 1024,
+                        "vms_mb": memory_info.vms / 1024 / 1024,
+                    },
+                )
                 await asyncio.sleep(1)
 
         await asyncio.gather(generate_load(), monitor_memory())
@@ -246,8 +252,6 @@ class PerformanceTestRunner:
         """Test cache hit rates and performance."""
         rich_print("\n=== Testing Cache Performance ===")
 
-        from gal_friday.utils.performance_optimizer import LRUCache
-
         cache = LRUCache[dict[str, Any]](maxsize=1000)
 
         # Warm up cache
@@ -259,7 +263,7 @@ class PerformanceTestRunner:
         cache_times = []
 
         for i in range(operations):
-            key = f"key_{random.randint(0, 999)}"
+            key = f"key_{random.randint(0, 999)}"  # noqa: S311
 
             start = time.perf_counter()
             result = await cache.get(key)
@@ -287,12 +291,10 @@ class PerformanceTestRunner:
         """Test database connection pool performance."""
         rich_print("\n=== Testing Connection Pool Performance ===")
 
-        from gal_friday.utils.performance_optimizer import ConnectionPool
-
         # Mock connection creation
         async def create_mock_connection():
             await asyncio.sleep(0.01)  # Simulate connection time
-            return {"id": random.randint(1000, 9999), "created": time.time()}
+            return {"id": random.randint(1000, 9999), "created": time.time()}  # noqa: S311
 
         pool = ConnectionPool(
             create_conn=create_mock_connection,
@@ -314,7 +316,7 @@ class PerformanceTestRunner:
 
         for _ in range(num_operations):
             start = time.perf_counter()
-            await use_connection(random.uniform(0.01, 0.05))
+            await use_connection(random.uniform(0.01, 0.05))  # noqa: S311
             elapsed = time.perf_counter() - start
             operation_times.append(elapsed * 1000)  # ms
 
@@ -332,61 +334,86 @@ class PerformanceTestRunner:
 
         await pool.stop()
 
-    def generate_report(self) -> str:
-        """Generate performance test report."""
-        report = ["=" * 70]
-        report.append("GAL-FRIDAY PERFORMANCE TEST REPORT")
-        report.append("=" * 70)
-        report.append(f"Generated: {datetime.now(UTC).isoformat()}")
-        report.append("")
+    def _generate_header(self) -> list[str]:
+        """Generate report header."""
+        return [
+            "=" * 70,
+            "GAL-FRIDAY PERFORMANCE TEST REPORT",
+            "=" * 70,
+            f"Generated: {datetime.now(UTC).isoformat()}",
+            "",
+        ]
 
-        # Event Throughput
+    def _add_event_throughput_section(self, report: list[str]) -> None:
+        """Add event throughput section to report."""
         if "event_throughput" in self.results:
-            report.append("EVENT THROUGHPUT")
-            report.append("-" * 30)
-            report.append(f"Events/second: {self.results['event_throughput']['events_per_second']:,.0f}")
-            report.append("")
+            report.extend(
+                [
+                    "EVENT THROUGHPUT",
+                    "-" * 30,
+                    f"Events/second: {self.results['event_throughput']['events_per_second']:,.0f}",
+                    "",
+                ],
+            )
 
-        # Prediction Latency
+    def _add_prediction_latency_section(self, report: list[str]) -> None:
+        """Add prediction latency section to report."""
         if "prediction_latency" in self.results:
-            report.append("PREDICTION LATENCY")
-            report.append("-" * 30)
-            report.append(f"Mean: {self.results['prediction_latency']['mean_ms']:.2f}ms")
-            report.append(f"P95: {self.results['prediction_latency']['p95_ms']:.2f}ms")
-            report.append(f"P99: {self.results['prediction_latency']['p99_ms']:.2f}ms")
-            report.append("")
+            report.extend(
+                [
+                    "PREDICTION LATENCY",
+                    "-" * 30,
+                    f"Mean: {self.results['prediction_latency']['mean_ms']:.2f}ms",
+                    f"P95: {self.results['prediction_latency']['p95_ms']:.2f}ms",
+                    f"P99: {self.results['prediction_latency']['p99_ms']:.2f}ms",
+                    "",
+                ],
+            )
 
-        # Concurrent Load
+    def _add_concurrent_load_section(self, report: list[str]) -> None:
+        """Add concurrent load section to report."""
         if "concurrent_load" in self.results:
-            report.append("CONCURRENT LOAD TEST")
-            report.append("-" * 30)
-            report.append(f"Workers: {self.results['concurrent_load']['workers']}")
-            report.append(f"Total events: {self.results['concurrent_load']['total_events']:,}")
-            report.append(f"Events/second: {self.results['concurrent_load']['events_per_second']:,.0f}")
-            report.append(f"Error rate: {self.results['concurrent_load']['error_rate']:.2%}")
-            report.append("")
+            report.extend(
+                [
+                    "CONCURRENT LOAD TEST",
+                    "-" * 30,
+                    f"Workers: {self.results['concurrent_load']['workers']}",
+                    f"Total events: {self.results['concurrent_load']['total_events']:,}",
+                    f"Events/second: {self.results['concurrent_load']['events_per_second']:,.0f}",
+                    f"Error rate: {self.results['concurrent_load']['error_rate']:.2%}",
+                    "",
+                ],
+            )
 
-        # Memory Usage
+    def _add_memory_usage_section(self, report: list[str]) -> None:
+        """Add memory usage section to report."""
         if "memory_usage" in self.results:
-            report.append("MEMORY USAGE")
-            report.append("-" * 30)
-            report.append(f"Initial: {self.results['memory_usage']['initial_rss_mb']:.1f}MB")
-            report.append(f"Peak: {self.results['memory_usage']['peak_rss_mb']:.1f}MB")
-            report.append(f"Growth: {self.results['memory_usage']['memory_growth_mb']:.1f}MB")
-            report.append("")
+            report.extend(
+                [
+                    "MEMORY USAGE",
+                    "-" * 30,
+                    f"Initial: {self.results['memory_usage']['initial_rss_mb']:.1f}MB",
+                    f"Peak: {self.results['memory_usage']['peak_rss_mb']:.1f}MB",
+                    f"Growth: {self.results['memory_usage']['memory_growth_mb']:.1f}MB",
+                    "",
+                ],
+            )
 
-        # Cache Performance
+    def _add_cache_performance_section(self, report: list[str]) -> None:
+        """Add cache performance section to report."""
         if "cache_performance" in self.results:
-            report.append("CACHE PERFORMANCE")
-            report.append("-" * 30)
-            report.append(f"Hit rate: {self.results['cache_performance']['hit_rate']:.1%}")
-            report.append(f"Mean latency: {self.results['cache_performance']['mean_latency_us']:.1f}μs")
-            report.append("")
+            report.extend(
+                [
+                    "CACHE PERFORMANCE",
+                    "-" * 30,
+                    f"Hit rate: {self.results['cache_performance']['hit_rate']:.1%}",
+                    f"Mean latency: {self.results['cache_performance']['mean_latency_us']:.1f}μs",
+                    "",
+                ],
+            )
 
-        # Performance Targets
-        report.append("PERFORMANCE TARGETS")
-        report.append("-" * 30)
-
+    def _check_performance_targets(self) -> tuple[list[str], list[str]]:
+        """Check performance against targets."""
         targets_met = []
         targets_missed = []
 
@@ -409,13 +436,25 @@ class PerformanceTestRunner:
             else:
                 targets_missed.append("✗ Memory growth > 100MB")
 
-        for target in targets_met:
-            report.append(target)
-        for target in targets_missed:
-            report.append(target)
+        return targets_met, targets_missed
 
-        report.append("")
-        report.append("=" * 70)
+    def generate_report(self) -> str:
+        """Generate performance test report."""
+        report = self._generate_header()
+
+        # Add each section
+        self._add_event_throughput_section(report)
+        self._add_prediction_latency_section(report)
+        self._add_concurrent_load_section(report)
+        self._add_memory_usage_section(report)
+        self._add_cache_performance_section(report)
+
+        # Add performance targets section
+        report.extend(["PERFORMANCE TARGETS", "-" * 30])
+        targets_met, targets_missed = self._check_performance_targets()
+        report.extend(targets_met)
+        report.extend(targets_missed)
+        report.extend(["", "=" * 70])
 
         return "\n".join(report)
 
@@ -440,7 +479,7 @@ async def run_all_performance_tests():
     rich_print("\n" + report)
 
     # Save report
-    with open("performance_test_report.txt", "w") as f:
+    with Path("performance_test_report.txt").open("w") as f:
         f.write(report)
     rich_print("\nReport saved to: performance_test_report.txt")
 

@@ -1,7 +1,9 @@
 """Database migration management system using Alembic."""
 
 from collections.abc import Sequence
-import os
+from io import StringIO
+from pathlib import Path
+import sys
 
 from alembic import command
 from alembic.config import Config
@@ -26,20 +28,20 @@ class MigrationManager:
         self.logger = logger
         self._source_module = self.__class__.__name__
 
-        root = project_root_path or os.getcwd()
-        self.alembic_dir = os.path.join(root, "gal_friday", "dal")
-        self.alembic_cfg_path = os.path.join(self.alembic_dir, "alembic.ini")
-        self.script_location = os.path.join(self.alembic_dir, "alembic_env")
+        root = Path(project_root_path) if project_root_path else Path.cwd()
+        self.alembic_dir = root / "gal_friday" / "dal"
+        self.alembic_cfg_path = self.alembic_dir / "alembic.ini"
+        self.script_location = self.alembic_dir / "alembic_env"
 
-        if not os.path.isfile(self.alembic_cfg_path):
+        if not self.alembic_cfg_path.is_file():
             raise FileNotFoundError(
                 f"Alembic config file not found at: {self.alembic_cfg_path}",
             )
 
     def _get_alembic_config(self) -> Config:
         """Load Alembic configuration with absolute paths."""
-        alembic_cfg = Config(self.alembic_cfg_path)
-        alembic_cfg.set_main_option("script_location", self.script_location)
+        alembic_cfg = Config(str(self.alembic_cfg_path))
+        alembic_cfg.set_main_option("script_location", str(self.script_location))
         return alembic_cfg
 
     def get_script_revisions(self) -> Sequence[str]:
@@ -50,13 +52,11 @@ class MigrationManager:
     def get_database_heads(self) -> Sequence[str]:
         """Return revision identifiers currently applied to the database."""
         self.logger.debug(
-            "Fetching database head revision(s)...", source_module=self._source_module,
+            "Fetching database head revision(s)...",
+            source_module=self._source_module,
         )
         try:
             alembic_cfg = self._get_alembic_config()
-
-            from io import StringIO
-            import sys
 
             old_stdout = sys.stdout
             sys.stdout = captured_output = StringIO()
@@ -73,10 +73,8 @@ class MigrationManager:
             if "alembic_version" in error_msg and "does not exist" in error_msg:
                 return ()
             raise DatabaseConnectionError(str(exc)) from exc
-        except Exception as exc:
-            self.logger.exception(
-                "Unexpected error reading database heads: %s", exc, source_module=self._source_module,
-            )
+        except Exception:
+            self.logger.exception("Unexpected error reading database heads", source_module=self._source_module)
             raise
 
     def upgrade_to_head(self) -> None:
@@ -85,18 +83,12 @@ class MigrationManager:
         try:
             alembic_cfg = self._get_alembic_config()
             command.upgrade(alembic_cfg, "head")
-            self.logger.info(
-                "Database upgrade to head completed successfully.",
-                source_module=self._source_module)
+            self.logger.info("Database upgrade to head completed successfully.", source_module=self._source_module)
         except SQLAlchemyError as exc:
-            self.logger.exception(
-                "Database error during upgrade to head: %s", exc, source_module=self._source_module,
-            )
+            self.logger.exception("Database error during upgrade to head", source_module=self._source_module)
             raise DatabaseConnectionError(str(exc)) from exc
-        except Exception as exc:
-            self.logger.exception(
-                "Error during database upgrade to head: %s", exc, source_module=self._source_module,
-            )
+        except Exception:
+            self.logger.exception("Error during database upgrade to head", source_module=self._source_module)
             raise
 
     def downgrade_to_version(self, version: str) -> None:
@@ -107,15 +99,16 @@ class MigrationManager:
             command.downgrade(alembic_cfg, version)
             self.logger.info(
                 f"Database downgrade to version {version} completed successfully.",
-                source_module=self._source_module)
-        except SQLAlchemyError as exc:
-            self.logger.exception(
-                "Database error during downgrade to %s: %s", version, exc, source_module=self._source_module,
+                source_module=self._source_module,
             )
+        except SQLAlchemyError as exc:
+            self.logger.exception("Database error during downgrade to %s", version, source_module=self._source_module)
             raise DatabaseConnectionError(str(exc)) from exc
-        except Exception as exc:
+        except Exception:
             self.logger.exception(
-                "Error during database downgrade to version %s: %s", version, exc, source_module=self._source_module,
+                "Error during database downgrade to version %s",
+                version,
+                source_module=self._source_module,
             )
             raise
 
@@ -126,7 +119,9 @@ class MigrationManager:
             return None
         if len(heads) > 1:
             self.logger.warning(
-                "Multiple database heads detected: %s", heads, source_module=self._source_module,
+                "Multiple database heads detected: %s",
+                heads,
+                source_module=self._source_module,
             )
         return heads[0]
 
@@ -138,15 +133,16 @@ class MigrationManager:
             command.stamp(alembic_cfg, revision)
             self.logger.info(
                 f"Database stamped with revision {revision} successfully.",
-                source_module=self._source_module)
-        except SQLAlchemyError as exc:
-            self.logger.exception(
-                "Database error stamping revision %s: %s", revision, exc, source_module=self._source_module,
+                source_module=self._source_module,
             )
+        except SQLAlchemyError as exc:
+            self.logger.exception("Database error stamping revision %s", revision, source_module=self._source_module)
             raise DatabaseConnectionError(str(exc)) from exc
-        except Exception as exc:
+        except Exception:
             self.logger.exception(
-                "Error stamping database with revision %s: %s", revision, exc, source_module=self._source_module,
+                "Error stamping database with revision %s",
+                revision,
+                source_module=self._source_module,
             )
             raise
 
@@ -158,21 +154,11 @@ class MigrationManager:
         )
         try:
             alembic_cfg = self._get_alembic_config()
-            command.revision(
-                alembic_cfg,
-                message=message,
-                autogenerate=autogenerate,
-                rev_id=revision_id)
-            self.logger.info(
-                f"New revision generated successfully: {message}",
-                source_module=self._source_module)
+            command.revision(alembic_cfg, message=message, autogenerate=autogenerate, rev_id=revision_id)
+            self.logger.info(f"New revision generated successfully: {message}", source_module=self._source_module)
         except SQLAlchemyError as exc:
-            self.logger.exception(
-                "Database error generating revision '%s': %s", message, exc, source_module=self._source_module,
-            )
+            self.logger.exception("Database error generating revision '%s'", message, source_module=self._source_module)
             raise DatabaseConnectionError(str(exc)) from exc
-        except Exception as exc:
-            self.logger.exception(
-                "Error generating new revision '%s': %s", message, exc, source_module=self._source_module,
-            )
+        except Exception:
+            self.logger.exception("Error generating new revision '%s'", message, source_module=self._source_module)
             raise

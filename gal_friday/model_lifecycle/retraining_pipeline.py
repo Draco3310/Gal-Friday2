@@ -14,6 +14,15 @@ from scipy import stats
 
 from gal_friday.core.events import LogEvent
 from gal_friday.core.pubsub import PubSubManager
+from gal_friday.model_lifecycle.registry import (
+    ModelStage,  # Changed ModelRegistry to Registry and aliased
+)
+
+# Conditional import to avoid circular dependencies
+try:
+    from gal_friday.model_lifecycle.registry import ModelStage
+except ImportError:
+    ModelStage = None  # type: ignore[assignment,misc]
 
 if TYPE_CHECKING:
     from gal_friday.config_manager import ConfigManager
@@ -26,6 +35,7 @@ if TYPE_CHECKING:
 
 class DriftType(Enum):
     """Types of model drift."""
+
     CONCEPT_DRIFT = "concept_drift"
     DATA_DRIFT = "data_drift"
     PREDICTION_DRIFT = "prediction_drift"
@@ -34,6 +44,7 @@ class DriftType(Enum):
 
 class RetrainingTrigger(Enum):
     """Triggers for model retraining."""
+
     SCHEDULED = "scheduled"
     DRIFT_DETECTED = "drift_detected"
     PERFORMANCE_DEGRADED = "performance_degraded"
@@ -43,6 +54,7 @@ class RetrainingTrigger(Enum):
 @dataclass
 class DriftMetrics:
     """Drift detection metrics."""
+
     drift_type: DriftType
     metric_name: str
     baseline_value: float
@@ -57,6 +69,7 @@ class DriftMetrics:
 @dataclass
 class RetrainingJob:
     """Model retraining job."""
+
     job_id: str
     model_id: str
     model_name: str
@@ -69,17 +82,13 @@ class RetrainingJob:
     performance_comparison: dict[str, Any] | None = None
     error_message: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    task: asyncio.Task[Any] | None = field(default=None, init=False, repr=False) # Added task field
+    task: asyncio.Task[Any] | None = field(default=None, init=False, repr=False)  # Added task field
 
 
 class DriftDetector:
     """Drift detection system."""
 
-    def __init__(
-        self,
-        config: "ConfigManager",
-        model_registry: "ModelRegistry",
-        logger: "LoggerService") -> None:
+    def __init__(self, config: "ConfigManager", model_registry: "ModelRegistry", logger: "LoggerService") -> None:
         """Initialize the drift detector.
 
         Args:
@@ -102,8 +111,7 @@ class DriftDetector:
         # Performance history for comparison
         self.performance_history: dict[str, list[dict[str, Any]]] = {}
 
-    async def detect_drift(self, model_id: str,
-                          current_data: dict[str, Any]) -> list[DriftMetrics]:
+    async def detect_drift(self, model_id: str, current_data: dict[str, Any]) -> list[DriftMetrics]:
         """Detect various types of drift for a model."""
         drift_metrics: list[DriftMetrics] = []
 
@@ -132,8 +140,7 @@ class DriftDetector:
 
         return drift_metrics
 
-    async def _detect_data_drift(self, model_id: str,
-                                current_data: dict[str, Any]) -> list[DriftMetrics]:
+    async def _detect_data_drift(self, model_id: str, current_data: dict[str, Any]) -> list[DriftMetrics]:
         """Detect data distribution drift."""
         drift_metrics = []
 
@@ -146,30 +153,31 @@ class DriftDetector:
                 baseline_stats = baseline_features[feature_name]
 
                 # Calculate drift using statistical distance
-                drift_score = self._calculate_statistical_distance(
-                    baseline_stats, current_value)
+                drift_score = self._calculate_statistical_distance(baseline_stats, current_value)
 
                 threshold = self.drift_thresholds[DriftType.DATA_DRIFT]
                 is_significant = drift_score > threshold
 
                 if is_significant:
-                    drift_metrics.append(DriftMetrics(
-                        drift_type=DriftType.DATA_DRIFT,
-                        metric_name=f"feature_{feature_name}",
-                        baseline_value=baseline_stats.get("mean", 0),
-                        current_value=current_value,
-                        drift_score=drift_score,
-                        is_significant=is_significant,
-                        threshold=threshold,
-                        details={
-                            "baseline_stats": baseline_stats,
-                            "statistical_test": "ks_test",
-                        }))
+                    drift_metrics.append(
+                        DriftMetrics(
+                            drift_type=DriftType.DATA_DRIFT,
+                            metric_name=f"feature_{feature_name}",
+                            baseline_value=baseline_stats.get("mean", 0),
+                            current_value=current_value,
+                            drift_score=drift_score,
+                            is_significant=is_significant,
+                            threshold=threshold,
+                            details={
+                                "baseline_stats": baseline_stats,
+                                "statistical_test": "ks_test",
+                            },
+                        ),
+                    )
 
         return drift_metrics
 
-    async def _detect_performance_drift(self, model_id: str,
-                                       current_data: dict[str, Any]) -> list[DriftMetrics]:
+    async def _detect_performance_drift(self, model_id: str, current_data: dict[str, Any]) -> list[DriftMetrics]:
         """Detect model performance drift."""
         drift_metrics = []
 
@@ -189,23 +197,25 @@ class DriftDetector:
                 is_significant = drift_score > threshold
 
                 if is_significant:
-                    drift_metrics.append(DriftMetrics(
-                        drift_type=DriftType.PERFORMANCE_DRIFT,
-                        metric_name=metric,
-                        baseline_value=baseline_value,
-                        current_value=current_value,
-                        drift_score=drift_score,
-                        is_significant=is_significant,
-                        threshold=threshold,
-                        details={
-                            "relative_change": (current_value - baseline_value) / baseline_value,
-                            "degradation": current_value < baseline_value,
-                        }))
+                    drift_metrics.append(
+                        DriftMetrics(
+                            drift_type=DriftType.PERFORMANCE_DRIFT,
+                            metric_name=metric,
+                            baseline_value=baseline_value,
+                            current_value=current_value,
+                            drift_score=drift_score,
+                            is_significant=is_significant,
+                            threshold=threshold,
+                            details={
+                                "relative_change": (current_value - baseline_value) / baseline_value,
+                                "degradation": current_value < baseline_value,
+                            },
+                        ),
+                    )
 
         return drift_metrics
 
-    async def _detect_prediction_drift(self, model_id: str,
-                                      current_data: dict[str, Any]) -> list[DriftMetrics]:
+    async def _detect_prediction_drift(self, model_id: str, current_data: dict[str, Any]) -> list[DriftMetrics]:
         """Detect prediction distribution drift."""
         drift_metrics = []
 
@@ -215,25 +225,27 @@ class DriftDetector:
 
         if current_predictions and baseline_predictions:
             # Calculate KL divergence or similar metric
-            drift_score = self._calculate_prediction_drift_score(
-                baseline_predictions, current_predictions)
+            drift_score = self._calculate_prediction_drift_score(baseline_predictions, current_predictions)
 
             threshold = self.drift_thresholds[DriftType.PREDICTION_DRIFT]
             is_significant = drift_score > threshold
 
             if is_significant:
-                drift_metrics.append(DriftMetrics(
-                    drift_type=DriftType.PREDICTION_DRIFT,
-                    metric_name="prediction_distribution",
-                    baseline_value=len(baseline_predictions),
-                    current_value=len(current_predictions),
-                    drift_score=drift_score,
-                    is_significant=is_significant,
-                    threshold=threshold,
-                    details={
-                        "baseline_mean": sum(baseline_predictions) / len(baseline_predictions),
-                        "current_mean": sum(current_predictions) / len(current_predictions),
-                    }))
+                drift_metrics.append(
+                    DriftMetrics(
+                        drift_type=DriftType.PREDICTION_DRIFT,
+                        metric_name="prediction_distribution",
+                        baseline_value=len(baseline_predictions),
+                        current_value=len(current_predictions),
+                        drift_score=drift_score,
+                        is_significant=is_significant,
+                        threshold=threshold,
+                        details={
+                            "baseline_mean": sum(baseline_predictions) / len(baseline_predictions),
+                            "current_mean": sum(current_predictions) / len(current_predictions),
+                        },
+                    ),
+                )
 
         return drift_metrics
 
@@ -261,8 +273,7 @@ class DriftDetector:
         # This would come from historical predictions
         return [0.3, 0.7, 0.45, 0.8, 0.2, 0.6, 0.55, 0.4, 0.9, 0.35]
 
-    def _calculate_statistical_distance(self, baseline_stats: dict[str, Any],
-                                       current_value: float) -> float:
+    def _calculate_statistical_distance(self, baseline_stats: dict[str, Any], current_value: float) -> float:
         """Calculate statistical distance between baseline and current value."""
         baseline_mean = float(baseline_stats.get("mean", 0))
         baseline_std = float(baseline_stats.get("std", 1))
@@ -273,8 +284,7 @@ class DriftDetector:
         # Convert to drift score (0-1 scale)
         return min(z_score / 3.0, 1.0)  # 3-sigma normalization
 
-    def _calculate_prediction_drift_score(self, baseline: list[float],
-                                        current: list[float]) -> float:
+    def _calculate_prediction_drift_score(self, baseline: list[float], current: list[float]) -> float:
         """Calculate drift score between prediction distributions using KL divergence.
 
         Args:
@@ -320,8 +330,7 @@ class DriftDetector:
 
         except Exception as e:
             # Fall back to simple mean difference if KL calculation fails
-            self.logger.warning(
-                f"KL divergence calculation failed, using mean difference: {e}")
+            self.logger.warning(f"KL divergence calculation failed, using mean difference: {e}")
             baseline_mean = sum(baseline) / len(baseline)
             current_mean = sum(current) / len(current)
             return abs(baseline_mean - current_mean)
@@ -338,7 +347,8 @@ class RetrainingPipeline:
         predictor_factory: Callable[..., Any] | None,
         retraining_repository: Optional["RetrainingRepository"],
         pubsub: PubSubManager | None,
-        logger: "LoggerService") -> None:
+        logger: "LoggerService",
+    ) -> None:
         """Initialize the retraining pipeline.
 
         Args:
@@ -398,9 +408,11 @@ class RetrainingPipeline:
 
     async def _check_all_models(self) -> None:
         """Check all production models for drift."""
-        try:
-            from gal_friday.model_lifecycle.registry import ModelStage
+        if ModelStage is None:
+            self.logger.warning("ModelStage not available, skipping drift check")  # type: ignore[unreachable]
+            return
 
+        try:
             # Get all production models
             all_models = await self.model_registry.list_models(stage=ModelStage.PRODUCTION)
 
@@ -409,16 +421,12 @@ class RetrainingPipeline:
                 current_data = await self._get_current_model_data(model.model_id)
 
                 # Run drift detection
-                drift_metrics = await self.drift_detector.detect_drift(
-                    model.model_id, current_data)
+                drift_metrics = await self.drift_detector.detect_drift(model.model_id, current_data)
 
                 # Check if retraining is needed
                 significant_drift = [m for m in drift_metrics if m.is_significant]
                 if significant_drift:
-                    await self.trigger_retraining(
-                        model.model_id,
-                        RetrainingTrigger.DRIFT_DETECTED,
-                        significant_drift)
+                    await self.trigger_retraining(model.model_id, RetrainingTrigger.DRIFT_DETECTED, significant_drift)
 
         except Exception:
             self.logger.exception("Error checking models for drift: ")
@@ -441,10 +449,12 @@ class RetrainingPipeline:
             "recent_predictions": [0.4, 0.8, 0.3, 0.7, 0.6],
         }
 
-    async def trigger_retraining(self,
-                               model_id: str,
-                               trigger: RetrainingTrigger,
-                               drift_metrics: list[DriftMetrics] | None = None) -> str:
+    async def trigger_retraining(
+        self,
+        model_id: str,
+        trigger: RetrainingTrigger,
+        drift_metrics: list[DriftMetrics] | None = None,
+    ) -> str:
         """Trigger retraining for a model."""
         # Get model info by searching through all models
         all_models = await self.model_registry.get_all_models()
@@ -463,13 +473,14 @@ class RetrainingPipeline:
             model_id=model_id,
             model_name=model_metadata.model_name,
             trigger=trigger,
-            drift_metrics=drift_metrics or [])
+            drift_metrics=drift_metrics or [],
+        )
 
         # Store job
         self._active_jobs[job.job_id] = job
 
         if self.retraining_repository:
-            await self.retraining_repository.save_job(asdict(job)) # Convert job to dict[str, Any]
+            await self.retraining_repository.save_job(asdict(job))  # Convert job to dict[str, Any]
 
         # Start retraining process and store task reference
         task = asyncio.create_task(self._execute_retraining(job))
@@ -539,9 +550,9 @@ class RetrainingPipeline:
                         "job_id": job.job_id,
                         "model_id": job.model_id,
                         "new_model_id": job.new_model_id,
-                        "performance_improvement": job.performance_comparison.get(
-                            "improvement", 0),
-                    })
+                        "performance_improvement": job.performance_comparison.get("improvement", 0),
+                    },
+                )
                 await self.pubsub.publish(log_event)
 
         except Exception as e:
@@ -586,9 +597,7 @@ class RetrainingPipeline:
             ],
             "recent_completed": recent_completed,
             "recent_failed": recent_failed,
-            "next_check": (
-                datetime.now(UTC) + timedelta(seconds=self._check_interval)
-            ).isoformat(),
+            "next_check": (datetime.now(UTC) + timedelta(seconds=self._check_interval)).isoformat(),
             "is_running": self._is_running,
         }
 

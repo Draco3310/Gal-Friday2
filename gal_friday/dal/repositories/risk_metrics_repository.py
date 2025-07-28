@@ -17,8 +17,7 @@ if TYPE_CHECKING:
 class RiskMetricsRepository(BaseRepository[RiskMetrics]):
     """Repository for managing risk metrics data."""
 
-    def __init__(
-        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
+    def __init__(self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
         """Initialize the risk metrics repository.
 
         Args:
@@ -35,17 +34,11 @@ class RiskMetricsRepository(BaseRepository[RiskMetrics]):
         """
         try:
             async with self.session_maker() as session:
-                stmt = (
-                    select(RiskMetrics)
-                    .order_by(RiskMetrics.last_updated.desc())
-                    .limit(1)
-                )
+                stmt = select(RiskMetrics).order_by(RiskMetrics.last_updated.desc()).limit(1)
                 result = await session.execute(stmt)
                 return result.scalar_one_or_none()
         except Exception:
-            self.logger.exception(
-                "Error fetching current risk metrics: ",
-                source_module=self._source_module)
+            self.logger.exception("Error fetching current risk metrics: ", source_module=self._source_module)
             raise
 
     async def update_metrics(self, metrics_data: dict[str, Any]) -> RiskMetrics:
@@ -60,11 +53,7 @@ class RiskMetricsRepository(BaseRepository[RiskMetrics]):
         try:
             async with self.session_maker() as session:
                 # Get current metrics or create new
-                stmt = (
-                    select(RiskMetrics)
-                    .order_by(RiskMetrics.last_updated.desc())
-                    .limit(1)
-                )
+                stmt = select(RiskMetrics).order_by(RiskMetrics.last_updated.desc()).limit(1)
                 result = await session.execute(stmt)
                 current_metrics = result.scalar_one_or_none()
 
@@ -87,20 +76,14 @@ class RiskMetricsRepository(BaseRepository[RiskMetrics]):
                 return current_metrics
 
         except Exception:
-            self.logger.exception(
-                "Error updating risk metrics: ",
-                source_module=self._source_module)
+            self.logger.exception("Error updating risk metrics: ", source_module=self._source_module)
             raise
 
     async def reset_daily_metrics(self) -> None:
         """Reset daily metrics at the start of a new trading day."""
         try:
             async with self.session_maker() as session:
-                stmt = (
-                    select(RiskMetrics)
-                    .order_by(RiskMetrics.last_updated.desc())
-                    .limit(1)
-                )
+                stmt = select(RiskMetrics).order_by(RiskMetrics.last_updated.desc()).limit(1)
                 result = await session.execute(stmt)
                 current_metrics = result.scalar_one_or_none()
 
@@ -108,24 +91,16 @@ class RiskMetricsRepository(BaseRepository[RiskMetrics]):
                     current_metrics.daily_pnl = Decimal(0)
                     current_metrics.daily_reset_at = datetime.now(UTC)
                     await session.commit()
-                    self.logger.info(
-                        "Daily risk metrics reset completed",
-                        source_module=self._source_module)
+                    self.logger.info("Daily risk metrics reset completed", source_module=self._source_module)
         except Exception:
-            self.logger.exception(
-                "Error resetting daily metrics: ",
-                source_module=self._source_module)
+            self.logger.exception("Error resetting daily metrics: ", source_module=self._source_module)
             raise
 
     async def reset_weekly_metrics(self) -> None:
         """Reset weekly metrics at the start of a new trading week."""
         try:
             async with self.session_maker() as session:
-                stmt = (
-                    select(RiskMetrics)
-                    .order_by(RiskMetrics.last_updated.desc())
-                    .limit(1)
-                )
+                stmt = select(RiskMetrics).order_by(RiskMetrics.last_updated.desc()).limit(1)
                 result = await session.execute(stmt)
                 current_metrics = result.scalar_one_or_none()
 
@@ -133,24 +108,16 @@ class RiskMetricsRepository(BaseRepository[RiskMetrics]):
                     current_metrics.weekly_pnl = Decimal(0)
                     current_metrics.weekly_reset_at = datetime.now(UTC)
                     await session.commit()
-                    self.logger.info(
-                        "Weekly risk metrics reset completed",
-                        source_module=self._source_module)
+                    self.logger.info("Weekly risk metrics reset completed", source_module=self._source_module)
         except Exception:
-            self.logger.exception(
-                "Error resetting weekly metrics: ",
-                source_module=self._source_module)
+            self.logger.exception("Error resetting weekly metrics: ", source_module=self._source_module)
             raise
 
     async def reset_monthly_metrics(self) -> None:
         """Reset monthly metrics at the start of a new trading month."""
         try:
             async with self.session_maker() as session:
-                stmt = (
-                    select(RiskMetrics)
-                    .order_by(RiskMetrics.last_updated.desc())
-                    .limit(1)
-                )
+                stmt = select(RiskMetrics).order_by(RiskMetrics.last_updated.desc()).limit(1)
                 result = await session.execute(stmt)
                 current_metrics = result.scalar_one_or_none()
 
@@ -158,13 +125,9 @@ class RiskMetricsRepository(BaseRepository[RiskMetrics]):
                     current_metrics.monthly_pnl = Decimal(0)
                     current_metrics.monthly_reset_at = datetime.now(UTC)
                     await session.commit()
-                    self.logger.info(
-                        "Monthly risk metrics reset completed",
-                        source_module=self._source_module)
+                    self.logger.info("Monthly risk metrics reset completed", source_module=self._source_module)
         except Exception:
-            self.logger.exception(
-                "Error resetting monthly metrics: ",
-                source_module=self._source_module)
+            self.logger.exception("Error resetting monthly metrics: ", source_module=self._source_module)
             raise
 
     async def calculate_risk_score(self, metrics: RiskMetrics) -> Decimal:

@@ -59,10 +59,7 @@ class DataQualityReport:
 class PositionOrderDataQualityMonitor:
     """Monitor data quality for position-order relationships."""
 
-    def __init__(
-        self,
-        session_maker: async_sessionmaker[AsyncSession],
-        logger: LoggerService) -> None:
+    def __init__(self, session_maker: async_sessionmaker[AsyncSession], logger: LoggerService) -> None:
         """Initialize the data quality monitor.
 
         Args:
@@ -93,7 +90,8 @@ class PositionOrderDataQualityMonitor:
         """
         self.logger.info(
             f"Starting comprehensive data quality check (last {hours_back} hours)",
-            source_module=self._source_module)
+            source_module=self._source_module,
+        )
 
         report_start = datetime.now(UTC)
         issues: list[DataQualityIssue] = []
@@ -133,17 +131,17 @@ class PositionOrderDataQualityMonitor:
                 total_orders_checked=total_orders,
                 total_positions_checked=total_positions,
                 issues_found=issues,
-                metrics=metrics)
+                metrics=metrics,
+            )
 
             self.logger.info(
                 f"Data quality check completed. Found {len(issues)} issues "
                 f"({len(report.high_priority_issues)} high priority)",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
         except Exception:
-            self.logger.exception(
-                "Error during comprehensive data quality check: ",
-                source_module=self._source_module)
+            self.logger.exception("Error during comprehensive data quality check: ", source_module=self._source_module)
             raise
         else:
             return report
@@ -155,29 +153,29 @@ class PositionOrderDataQualityMonitor:
         try:
             unlinked_orders = await self.order_repository.get_unlinked_filled_orders(hours_back)
 
-            for order in unlinked_orders:
-                issues.append(DataQualityIssue(
-                    issue_type="UNLINKED_FILLED_ORDER",
-                    severity="HIGH",
-                    entity_type="ORDER",
-                    entity_id=str(order.id),
-                    description=f"Filled order {order.id} is not linked to any position",
-                    details={
-                        "trading_pair": order.trading_pair,
-                        "status": order.status,
-                        "filled_quantity": str(order.filled_quantity) if order.filled_quantity else "0",
-                        "created_at": order.created_at.isoformat() if order.created_at else None,
-                    },
-                ))
+            issues.extend(
+                [
+                    DataQualityIssue(
+                        issue_type="UNLINKED_FILLED_ORDER",
+                        severity="HIGH",
+                        entity_type="ORDER",
+                        entity_id=str(order.id),
+                        description=f"Filled order {order.id} is not linked to any position",
+                        details={
+                            "trading_pair": order.trading_pair,
+                            "status": order.status,
+                            "filled_quantity": str(order.filled_quantity) if order.filled_quantity else "0",
+                            "created_at": order.created_at.isoformat() if order.created_at else None,
+                        },
+                    )
+                    for order in unlinked_orders
+                ],
+            )
 
-            self.logger.debug(
-                f"Found {len(unlinked_orders)} unlinked filled orders",
-                source_module=self._source_module)
+            self.logger.debug(f"Found {len(unlinked_orders)} unlinked filled orders", source_module=self._source_module)
 
         except Exception:
-            self.logger.exception(
-                "Error checking unlinked filled orders: ",
-                source_module=self._source_module)
+            self.logger.exception("Error checking unlinked filled orders: ", source_module=self._source_module)
 
         return issues
 
@@ -201,28 +199,31 @@ class PositionOrderDataQualityMonitor:
                 result = await session.execute(stmt)
                 orphaned_orders = result.scalars().all()
 
-                for order in orphaned_orders:
-                    issues.append(DataQualityIssue(
-                        issue_type="ORPHANED_POSITION_REFERENCE",
-                        severity="HIGH",
-                        entity_type="ORDER",
-                        entity_id=str(order.id),
-                        description=f"Order {order.id} references non-existent position {order.position_id}",
-                        details={
-                            "position_id": str(order.position_id),
-                            "trading_pair": order.trading_pair,
-                            "status": order.status,
-                        },
-                    ))
+                issues.extend(
+                    [
+                        DataQualityIssue(
+                            issue_type="ORPHANED_POSITION_REFERENCE",
+                            severity="HIGH",
+                            entity_type="ORDER",
+                            entity_id=str(order.id),
+                            description=f"Order {order.id} references non-existent position {order.position_id}",
+                            details={
+                                "position_id": str(order.position_id),
+                                "trading_pair": order.trading_pair,
+                                "status": order.status,
+                            },
+                        )
+                        for order in orphaned_orders
+                    ],
+                )
 
                 self.logger.debug(
                     f"Found {len(orphaned_orders)} orders with orphaned position references",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
         except Exception:
-            self.logger.exception(
-                "Error checking orphaned position references: ",
-                source_module=self._source_module)
+            self.logger.exception("Error checking orphaned position references: ", source_module=self._source_module)
 
         return issues
 
@@ -247,31 +248,34 @@ class PositionOrderDataQualityMonitor:
                 result = await session.execute(stmt)
                 positions_without_orders = result.scalars().all()
 
-                for position in positions_without_orders:
-                    # This might be expected for some positions (e.g., reconciliation adjustments)
-                    # so marking as MEDIUM severity
-                    issues.append(DataQualityIssue(
-                        issue_type="POSITION_WITHOUT_ORDERS",
-                        severity="MEDIUM",
-                        entity_type="POSITION",
-                        entity_id=str(position.id),
-                        description=f"Position {position.id} has no contributing orders",
-                        details={
-                            "trading_pair": position.trading_pair,
-                            "quantity": str(position.quantity),
-                            "is_active": position.is_active,
-                            "opened_at": position.opened_at.isoformat() if position.opened_at else None,
-                        },
-                    ))
+                # This might be expected for some positions (e.g., reconciliation adjustments)
+                # so marking as MEDIUM severity
+                issues.extend(
+                    [
+                        DataQualityIssue(
+                            issue_type="POSITION_WITHOUT_ORDERS",
+                            severity="MEDIUM",
+                            entity_type="POSITION",
+                            entity_id=str(position.id),
+                            description=f"Position {position.id} has no contributing orders",
+                            details={
+                                "trading_pair": position.trading_pair,
+                                "quantity": str(position.quantity),
+                                "is_active": position.is_active,
+                                "opened_at": position.opened_at.isoformat() if position.opened_at else None,
+                            },
+                        )
+                        for position in positions_without_orders
+                    ],
+                )
 
                 self.logger.debug(
                     f"Found {len(positions_without_orders)} positions without contributing orders",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
         except Exception:
-            self.logger.exception(
-                "Error checking positions without orders: ",
-                source_module=self._source_module)
+            self.logger.exception("Error checking positions without orders: ", source_module=self._source_module)
 
         return issues
 
@@ -297,28 +301,32 @@ class PositionOrderDataQualityMonitor:
 
                 for position, total_order_quantity in result:
                     if total_order_quantity and abs(position.quantity - total_order_quantity) > Decimal("0.00000001"):
-                        issues.append(DataQualityIssue(
-                            issue_type="QUANTITY_MISMATCH",
-                            severity="MEDIUM",
-                            entity_type="RELATIONSHIP",
-                            entity_id=str(position.id),
-                            description=f"Position quantity ({position.quantity}) doesn't match sum of order quantities ({total_order_quantity})",
-                            details={
-                                "position_quantity": str(position.quantity),
-                                "order_quantities_sum": str(total_order_quantity),
-                                "difference": str(abs(position.quantity - total_order_quantity)),
-                                "trading_pair": position.trading_pair,
-                            },
-                        ))
+                        issues.append(
+                            DataQualityIssue(
+                                issue_type="QUANTITY_MISMATCH",
+                                severity="MEDIUM",
+                                entity_type="RELATIONSHIP",
+                                entity_id=str(position.id),
+                                description=(
+                                    f"Position quantity ({position.quantity}) doesn't match "
+                                    f"sum of order quantities ({total_order_quantity})"
+                                ),
+                                details={
+                                    "position_quantity": str(position.quantity),
+                                    "order_quantities_sum": str(total_order_quantity),
+                                    "difference": str(abs(position.quantity - total_order_quantity)),
+                                    "trading_pair": position.trading_pair,
+                                },
+                            ),
+                        )
 
                 self.logger.debug(
                     f"Checked quantity consistency, found {len(issues)} mismatches",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
         except Exception:
-            self.logger.exception(
-                "Error checking quantity consistency: ",
-                source_module=self._source_module)
+            self.logger.exception("Error checking quantity consistency: ", source_module=self._source_module)
 
         return issues
 
@@ -329,14 +337,10 @@ class PositionOrderDataQualityMonitor:
         try:
             # This would implement more extensive historical checks
             # For now, placeholder for future enhancement
-            self.logger.debug(
-                "Historical data integrity check completed",
-                source_module=self._source_module)
+            self.logger.debug("Historical data integrity check completed", source_module=self._source_module)
 
         except Exception:
-            self.logger.exception(
-                "Error during historical data integrity check: ",
-                source_module=self._source_module)
+            self.logger.exception("Error during historical data integrity check: ", source_module=self._source_module)
 
         return issues
 
@@ -387,14 +391,10 @@ class PositionOrderDataQualityMonitor:
                     metrics["unlinked_filled_orders"] = 0
                     metrics["filled_order_link_rate"] = 100
 
-                self.logger.debug(
-                    f"Calculated relationship metrics: {metrics}",
-                    source_module=self._source_module)
+                self.logger.debug(f"Calculated relationship metrics: {metrics}", source_module=self._source_module)
 
         except Exception:
-            self.logger.exception(
-                "Error calculating relationship metrics: ",
-                source_module=self._source_module)
+            self.logger.exception("Error calculating relationship metrics: ", source_module=self._source_module)
 
         return metrics
 
@@ -458,10 +458,12 @@ class PositionOrderDataQualityMonitor:
                     fixed_count += 1
                     self.logger.info(
                         f"Auto-fixed orphaned position reference for order {issue.entity_id}",
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
                 except Exception:
                     self.logger.exception(
                         f"Failed to auto-fix orphaned position reference for order {issue.entity_id}: ",
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
 
         return fixed_count

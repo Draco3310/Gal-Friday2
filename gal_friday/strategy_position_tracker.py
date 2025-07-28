@@ -42,14 +42,11 @@ class StrategyPositionTracker:
                 "exposure_pct": Decimal(0),
                 "position_count": 0,
                 "last_updated": datetime.now(UTC),
-            })
+            },
+        )
         self._portfolio_equity = Decimal(0)  # Total portfolio equity for reference
 
-    def add_position(
-        self,
-        strategy_id: str,
-        trading_pair: str,
-        position_data: dict[str, Any]) -> None:
+    def add_position(self, strategy_id: str, trading_pair: str, position_data: dict[str, Any]) -> None:
         """Add or update a position for a strategy.
 
         Args:
@@ -155,10 +152,10 @@ class StrategyPositionTracker:
             float(
                 metrics["drawdown_pct"]
                 if isinstance(metrics["drawdown_pct"], Decimal)
-                else Decimal(
-                    str(
-                        metrics["drawdown_pct"] if metrics["drawdown_pct"] is not None else 0))),
-            source_module=self._source_module)
+                else Decimal(str(metrics["drawdown_pct"] if metrics["drawdown_pct"] is not None else 0)),
+            ),
+            source_module=self._source_module,
+        )
 
     def get_all_strategy_ids(self) -> list[str]:
         """Get list[Any] of all strategy IDs currently being tracked.
@@ -168,8 +165,7 @@ class StrategyPositionTracker:
             List of strategy IDs
         """
         # Return all strategy IDs from both positions and performance tracking
-        all_ids = set(self._strategy_positions.keys()).union(
-            self._strategy_performance.keys())
+        all_ids = set(self._strategy_positions.keys()).union(self._strategy_performance.keys())
         return list[Any](all_ids)
 
     def _initialize_strategy_metrics(self, strategy_id: str) -> None:

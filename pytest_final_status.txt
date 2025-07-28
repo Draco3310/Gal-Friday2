@@ -1,0 +1,665 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.1, pluggy-1.6.0 -- /mnt/e/PyCharmIDE/Gal-Friday2/.venv/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.1.0 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /mnt/e/PyCharmIDE/Gal-Friday2
+configfile: pyproject.toml
+plugins: anyio-4.9.0, asyncio-0.24.0, benchmark-5.1.0, cov-4.1.0, mock-3.11.1
+asyncio: mode=Mode.AUTO, default_loop_scope=function
+collecting ...
+----------------------------- live log collection ------------------------------
+2025-07-19 13:21:08 [ WARNING] gal_friday.backtesting_engine: Failed to import PortfolioManager
+collected 252 items
+
+<Dir Gal-Friday2>
+  <Package tests>
+    <Package dal>
+      <Module test_connection_pool.py>
+        <Coroutine test_initialize_success>
+        <Coroutine test_initialize_failure_no_url>
+        <Coroutine test_acquire_session>
+        <Coroutine test_acquire_before_initialize>
+        <Coroutine test_close_pool>
+        <Coroutine test_acquire_session_handles_exception>
+    <Package integration>
+      <Module test_backtesting_engine_feature_flow.py>
+        <UnitTestCase TestBacktestingEngineFeatureFlow>
+          A class whose instances are single test cases.
+
+          By default, the test code itself should be placed in a method named
+          'runTest'.
+
+          If the fixture may be used for many test cases, create as
+          many test methods as are needed. When instantiating such a TestCase
+          subclass, specify in the constructor arguments the name of the test method
+          that the instance is to execute.
+
+          Test authors should subclass TestCase for their own tests. Construction
+          and deconstruction of the test's environment ('fixture') can be
+          implemented by overriding the 'setUp' and 'tearDown' methods respectively.
+
+          If it is necessary to override the __init__ method, the base class
+          __init__ method must always be called. It is important that subclasses
+          should not change the signature of their __init__ method, since instances
+          of the classes are instantiated automatically by parts of the framework
+          in order to be run.
+
+          When subclassing TestCase, you can set these attributes:
+          * failureException: determines which exception will be raised when
+              the instance's assertion methods fail; test methods raising this
+              exception will be deemed to have 'failed' rather than 'errored'.
+          * longMessage: determines whether long messages (including repr of
+              objects used in assert methods) will be printed on failure in *addition*
+              to any explicit message passed.
+          * maxDiff: sets the maximum length of a diff in failure messages
+              by assert methods using difflib. It is looked up as an instance
+              attribute so can be configured by individual tests if required.
+          <TestCaseFunction test_features_flow_to_strategy_arbitrator>
+      <Module test_feature_engine_integration.py>
+        Integration tests for FeatureEngine.
+        <Coroutine test_end_to_end_feature_calculation_single_bar>
+        <Coroutine test_feature_calculation_with_passthrough_imputation>
+    <Module test_alert_notifications.py>
+      <Coroutine test_send_alert_notifications_dispatches>
+    <Module test_data_ingestion.py>
+      Tests for data ingestion functionality.
+
+      This module tests the complete data ingestion pipeline including
+      market data processing, validation, and performance.
+      <Class TestMarketDataL2>
+        Test suite for Level 2 (order book) market data.
+        <Coroutine test_l2_event_creation>
+          Test creation of L2 market data events.
+        <Coroutine test_order_book_depth_calculation>
+          Test order book depth calculations.
+        <Coroutine test_spread_analysis>
+          Test bid-ask spread calculations.
+        <Coroutine test_l2_data_validation>
+          Test validation of L2 data integrity.
+      <Class TestMarketDataOHLCV>
+        Test suite for OHLCV (candlestick) market data.
+        <Coroutine test_ohlcv_event_creation>
+          Test creation of OHLCV market data events.
+        <Coroutine test_timeframe_aggregation>
+          Test aggregation of 1m candles to higher timeframes.
+        <Coroutine test_ohlcv_data_validation>
+          Test validation of OHLCV data integrity.
+      <Class TestDataQuality>
+        Test suite for data quality and integrity.
+        <Coroutine test_missing_data_handling>
+          Test handling of missing data points.
+        <Coroutine test_corrupt_data_detection>
+          Test detection and handling of corrupt data.
+        <Coroutine test_duplicate_data_handling>
+          Test detection and handling of duplicate data.
+      <Class TestDataIngestionPerformance>
+        Test suite for data ingestion performance.
+        <Coroutine test_ingestion_latency>
+          Test end-to-end data ingestion latency.
+        <Coroutine test_throughput_under_load>
+          Test data ingestion throughput under high load.
+        <Coroutine test_memory_efficiency>
+          Test memory usage during data ingestion.
+    <Module test_end_to_end_integration.py>
+      End-to-end integration tests for Gal-Friday system.
+      <Class TestEndToEndIntegration>
+        Test complete system integration.
+        <Coroutine test_market_data_to_prediction_flow>
+          Test flow from market data to prediction.
+        <Coroutine test_prediction_to_signal_flow>
+          Test flow from prediction to trading signal.
+        <Coroutine test_model_registry_lifecycle>
+          Test model lifecycle management.
+        <Coroutine test_ab_testing_experiment>
+          Test A/B testing experiment flow.
+        <Coroutine test_portfolio_reconciliation>
+          Test portfolio reconciliation process.
+        <Coroutine test_websocket_reconnection>
+          Test WebSocket connection management.
+        <Coroutine test_drift_detection_trigger>
+          Test drift detection and retraining trigger.
+        <Coroutine test_performance_optimization>
+          Test performance optimization features.
+        <Coroutine test_dashboard_metrics_aggregation>
+          Test dashboard metrics collection.
+        <Coroutine test_full_trading_cycle>
+          Test complete trading cycle from data to execution.
+        <Coroutine test_system_resilience>
+          Test system resilience and error recovery.
+    <Module test_execution_handler.py>
+      Tests for execution handler functionality.
+
+      This module tests the execution handler with a comprehensive mock
+      Kraken API, including order lifecycle, error scenarios, and edge cases.
+      <Class TestOrderLifecycle>
+        Test complete order lifecycle scenarios.
+        <Coroutine test_market_order_full_lifecycle>
+          Test market order from signal to fill.
+        <Coroutine test_limit_order_partial_fills>
+          Test limit order with partial fills.
+        <Coroutine test_stop_loss_placement_after_fill>
+          Test SL order placement after entry order fills.
+      <Class TestErrorHandling>
+        Test error handling and edge cases.
+        <Coroutine test_api_error_handling>
+          Test handling of API errors.
+        <Coroutine test_rate_limit_handling>
+          Test rate limit enforcement.
+        <Coroutine test_halt_state_rejection>
+          Test order rejection when system is halted.
+        <Coroutine test_order_timeout_cancellation>
+          Test automatic cancellation of timed-out limit orders.
+      <Class TestEdgeCases>
+        Test edge cases and boundary conditions.
+        <Coroutine test_minimum_order_size_validation>
+          Test rejection of orders below minimum size.
+        <Coroutine test_decimal_precision_handling>
+          Test proper decimal precision in order parameters.
+        <Coroutine test_simultaneous_sl_tp_orders>
+          Test placing both SL and TP orders after fill.
+    <Module test_halt_mechanism.py>
+      Tests for the HALT mechanism functionality.
+
+      This module tests the HALT coordinator, monitoring service integration,
+      and emergency position closure capabilities.
+      <Class TestHaltCoordinator>
+        Test suite for HaltCoordinator functionality.
+        <Function test_halt_coordinator_initialization>
+          Test HALT coordinator initializes with correct conditions.
+        <Function test_condition_update_numeric>
+          Test updating numeric conditions.
+        <Function test_halt_state_management>
+          Test HALT state management.
+      <Class TestMonitoringServiceHALT>
+        Test monitoring service HALT integration.
+        <Coroutine test_halt_on_drawdown>
+          Test HALT triggered by drawdown.
+        <Coroutine test_position_closure_on_halt>
+          Test positions are closed when HALT is triggered with close behavior.
+        <Coroutine test_halt_coordinator_integration>
+          Test monitoring service properly integrates with HALT coordinator.
+      <Class TestEmergencyPositionClosure>
+        Test emergency position closure functionality.
+        <Coroutine test_close_position_command_creation>
+          Test ClosePositionCommand event creation.
+        <Coroutine test_multiple_position_closure>
+          Test closing multiple positions on HALT.
+    <Module test_integration.py>
+      Integration tests for the full Gal-Friday trading system.
+
+      This module tests the complete signal lifecycle from market data ingestion
+      through prediction, signal generation, approval, and execution.
+      <Class TestFullSignalLifecycle>
+        Test complete signal lifecycle from data to execution.
+        <Coroutine test_market_data_to_execution>
+          Test full flow: Market Data → Prediction → Signal → Execution.
+        <Coroutine test_signal_rejection_flow>
+          Test signal rejection by risk manager.
+      <Class TestSystemRecovery>
+        Test system recovery and reconnection scenarios.
+        <Coroutine test_halt_and_recovery>
+          Test system HALT and recovery process.
+        <Coroutine test_connection_recovery>
+          Test recovery from connection failures.
+      <Class TestPerformanceIntegration>
+        Test system performance under various load conditions.
+        <Coroutine test_high_frequency_data_processing>
+          Test system performance with high-frequency market data.
+        <Coroutine test_latency_measurement>
+          Measure end-to-end latency from market data to execution.
+      <Class TestStressScenarios>
+        Test system behavior under stress conditions.
+        <Coroutine test_multiple_simultaneous_signals>
+          Test handling of multiple simultaneous trading signals.
+        <Coroutine test_rapid_market_movements>
+          Test system behavior during rapid price movements.
+    <Module test_market_price_from_event.py>
+      <Coroutine test_market_price_from_event>
+    <Module test_model_registry.py>
+      Tests for Model Registry functionality.
+      <Coroutine test_model_registry>
+        Test basic model registry functionality.
+    <Module test_risk_management.py>
+      Tests for risk management functionality.
+
+      This module tests the risk manager's signal approval/rejection logic
+      and position sizing calculations.
+      <Class TestRiskManager>
+        Test suite for RiskManager functionality.
+        <Function test_position_sizing_calculation>
+          Test position size calculation based on risk parameters.
+        <Function test_signal_rejection_max_positions>
+          Test signal rejection when max positions reached.
+        <Function test_signal_rejection_correlation_limit>
+          Test signal rejection when correlation limit exceeded.
+        <Function test_drawdown_based_position_sizing>
+          Test position size reduction during drawdown.
+      <Class TestSignalValidation>
+        Test signal validation logic.
+        <Function test_stop_loss_validation_buy_order>
+          Test stop loss must be below entry for BUY orders.
+        <Function test_stop_loss_validation_sell_order>
+          Test stop loss must be above entry for SELL orders.
+    <Module test_strategy_selection_context.py>
+      <Coroutine test_create_selection_context_dynamic_data>
+    <Package unit>
+      <Package dal>
+        <Module test_order_repository.py>
+          <Coroutine test_create_order>
+          <Coroutine test_get_order_by_id>
+          <Coroutine test_update_order_status_direct_repo_update>
+          <Coroutine test_order_repository_update_order_status_method>
+          <Coroutine test_delete_order>
+          <Coroutine test_get_active_orders>
+          <Coroutine test_get_recent_orders>
+          <Coroutine test_get_orders_by_signal>
+          <Coroutine test_find_by_exchange_id>
+        <Module test_position_order_relationship.py>
+          Unit tests for Position-Order relationship functionality.
+          <Class TestPositionOrderRelationship>
+            Test the relationship between Position and Order models.
+            <Coroutine test_position_order_relationship_creation>
+              Test creating a position with related orders.
+            <Coroutine test_order_without_position>
+              Test creating an order without a position (position_id is nullable).
+            <Coroutine test_cascade_delete_orphan>
+              Test that deleting a position deletes associated orders due to cascade.
+            <Coroutine test_foreign_key_constraint>
+              Test that foreign key constraint prevents invalid position_id.
+            <Coroutine test_position_query_with_orders>
+              Test querying positions with their related orders.
+            <Coroutine test_order_update_position_reference>
+              Test updating an order's position reference.
+        <Module test_reconciliation_repository.py>
+          Unit tests for ReconciliationRepository validation and functionality.
+          <Class TestReconciliationEventSchema>
+            Test ReconciliationEventSchema validation.
+            <Function test_valid_reconciliation_event_data>
+              Test validation with valid reconciliation event data.
+            <Function test_auto_generated_reconciliation_id>
+              Test that reconciliation_id is auto-generated when not provided.
+            <Function test_timestamp_timezone_handling>
+              Test timestamp timezone validation.
+            <Function test_future_timestamp_validation>
+              Test that future timestamps are rejected (with some tolerance).
+            <Function test_auto_corrected_exceeds_discrepancies_validation>
+              Test validation when auto_corrected exceeds discrepancies_found.
+            <Function test_manual_review_exceeds_remaining_validation>
+              Test validation when manual_review_required exceeds remaining discrepancies.
+            <Function test_negative_values_validation>
+              Test that negative values are rejected for count fields.
+            <Function test_report_structure_validation>
+              Test report structure validation and auto-completion.
+          <Class TestPositionAdjustmentSchema>
+            Test PositionAdjustmentSchema validation.
+            <Function test_valid_position_adjustment_data>
+              Test validation with valid position adjustment data.
+            <Function test_trading_pair_format_validation>
+              Test trading pair format validation.
+            <Function test_reason_validation>
+              Test reason field validation.
+            <Function test_quantity_change_zero_validation>
+              Test that zero quantity change is rejected.
+            <Function test_at_least_one_value_field_required>
+              Test that at least one value field must be provided.
+            <Function test_split_dividend_requires_old_new_values>
+              Test that SPLIT and DIVIDEND adjustments require old_value and new_value.
+            <Function test_field_length_validations>
+              Test field length validations.
+          <Class TestReconciliationRepository>
+            Test ReconciliationRepository validation and functionality.
+            <Function test_validate_reconciliation_data_success>
+              Test successful reconciliation data validation.
+            <Function test_validate_reconciliation_data_with_id_generation>
+              Test reconciliation data validation with ID generation.
+            <Function test_validate_reconciliation_data_validation_error>
+              Test reconciliation data validation with validation errors.
+            <Function test_validate_position_adjustment_data_success>
+              Test successful position adjustment data validation.
+            <Function test_validate_position_adjustment_data_validation_error>
+              Test position adjustment data validation with validation errors.
+            <Coroutine test_create_audit_trail>
+              Test audit trail creation.
+            <Coroutine test_save_reconciliation_event_success>
+              Test successful reconciliation event saving.
+            <Coroutine test_save_reconciliation_event_validation_failure>
+              Test reconciliation event saving with validation failure.
+            <Coroutine test_save_position_adjustment_success>
+              Test successful position adjustment saving.
+            <Coroutine test_save_position_adjustment_nonexistent_reconciliation>
+              Test position adjustment saving with nonexistent reconciliation event.
+            <Coroutine test_get_recent_reconciliation_events_with_invalid_status>
+              Test getting recent events with invalid status.
+            <Coroutine test_get_adjustment_history_with_invalid_trading_pair>
+              Test getting adjustment history with invalid trading pair.
+            <Coroutine test_get_adjustment_history_with_valid_trading_pair>
+              Test getting adjustment history with valid trading pair format validation.
+            <Function test_reconciliation_validation_error_attributes>
+              Test ReconciliationValidationError custom attributes.
+            <Function test_enum_values>
+              Test that enum values are correctly defined.
+      <Module test_feature_engine_pipeline_computations.py>
+        Unit tests for _pipeline_compute static methods in FeatureEngine.
+        <Class TestPipelineComputeRSI>
+          <Function test_rsi_basic_calculation>
+          <Function test_rsi_insufficient_data>
+          <Function test_rsi_with_nan_input>
+          <Function test_rsi_input_not_series>
+        <Class TestPipelineComputeMACD>
+          <Function test_macd_basic_calculation>
+          <Function test_macd_insufficient_data>
+          <Function test_macd_with_nan_input>
+          <Function test_macd_input_not_series>
+        <Class TestPipelineComputeBBands>
+          <Function test_bbands_basic_calculation>
+          <Function test_bbands_insufficient_data>
+          <Function test_bbands_with_nan_input>
+        <Class TestPipelineComputeROC>
+          <Function test_roc_basic_calculation>
+        <Class TestPipelineComputeATR>
+          <Function test_atr_basic_calculation>
+          <Function test_atr_missing_columns>
+        <Class TestPipelineComputeStdev>
+          <Function test_stdev_basic_calculation>
+        <Class TestPipelineComputeVWAP_OHLCV>
+          <Function test_vwap_ohlcv_basic>
+          <Function test_vwap_ohlcv_zero_volume>
+        <Class TestPipelineL2Features>
+          <Function test_l2_spread>
+          <Function test_l2_imbalance>
+          <Function test_l2_wap>
+          <Function test_l2_depth>
+        <Class TestPipelineTradeBasedFeatures>
+          <Function test_vwap_trades>
+          <Function test_volume_delta>
+          <Function test_volume_delta_no_trades>
+          <Function test_vwap_trades_no_trades>
+      <Module test_feature_engine_pipeline_construction.py>
+        Unit tests for FeatureEngine._build_feature_pipelines.
+        <Function test_build_rsi_pipeline_custom_config>
+          Test RSI pipeline construction with full custom configuration.
+        <Function test_build_rsi_pipeline_default_processing>
+          Test RSI pipeline with default output imputation and scaling.
+        <Function test_build_pipeline_passthrough_processing>
+          Test 'passthrough' for imputation and scaling.
+        <Function test_build_macd_pipeline>
+        <Function test_build_l2_spread_pipeline>
+          Test L2 Spread (DataFrame output, no input imputer in this simple pipeline).
+        <Function test_build_volume_delta_pipeline>
+          Test Volume Delta (special input, Series output).
+        <Function test_missing_critical_parameter>
+          Test that a feature pipeline might not be built or logs error if critical param is missing.
+      <Module test_feature_models.py>
+        Unit tests for feature models and validation system.
+
+        This module tests the optional feature handling, validation logic,
+        and schema generation capabilities implemented in gal_friday.core.feature_models.
+        <Class TestFeatureValidationError>
+          Test cases for FeatureValidationError exception.
+          <Function test_error_initialization>
+            Test proper initialization of FeatureValidationError.
+        <Class TestFeatureSpec>
+          Test cases for FeatureSpec class.
+          <Function test_feature_spec_creation>
+            Test creating a basic FeatureSpec.
+          <Function test_feature_spec_with_all_fields>
+            Test creating FeatureSpec with all fields.
+          <Function test_validate_required_feature_missing>
+            Test validation fails for missing required feature.
+          <Function test_validate_optional_feature_missing_returns_default>
+            Test optional feature returns default when missing.
+          <Function test_validate_float_conversion>
+            Test float type conversion.
+          <Function test_validate_int_conversion>
+            Test int type conversion.
+          <Function test_validate_invalid_float_conversion>
+            Test invalid float conversion raises error.
+          <Function test_validate_min_value_rule>
+            Test minimum value validation rule.
+          <Function test_validate_max_value_rule>
+            Test maximum value validation rule.
+          <Function test_validate_allowed_values_rule>
+            Test allowed values validation rule.
+        <Class TestFeatureRegistry>
+          Test cases for FeatureRegistry class.
+          <Function test_registry_initialization>
+            Test registry initialization.
+          <Function test_register_feature>
+            Test registering a feature specification.
+          <Function test_register_duplicate_feature_raises_error>
+            Test registering duplicate feature raises error.
+          <Function test_get_nonexistent_spec_returns_none>
+            Test getting nonexistent spec returns None.
+          <Function test_validate_features_with_registered_specs>
+            Test validating features with registered specifications.
+          <Function test_validate_features_missing_required_raises_error>
+            Test validation fails when required feature is missing.
+          <Function test_validate_features_with_unknown_feature>
+            Test unknown features pass through validation.
+        <Class TestPublishedFeaturesV1>
+          Test cases for PublishedFeaturesV1 model.
+          <Function test_create_with_required_features_only>
+            Test creating model with only required features.
+          <Function test_create_with_all_features>
+            Test creating model with all features including optional ones.
+          <Function test_rsi_validation>
+            Test RSI validation (must be 0-100).
+          <Function test_percentage_spread_validation>
+            Test percentage spread validation (must be non-negative).
+          <Function test_vwap_validation>
+            Test VWAP validation (must be positive).
+          <Function test_volatility_percentile_validation>
+            Test volatility percentile validation (0-100 range).
+          <Function test_liquidity_score_validation>
+            Test liquidity score validation (0-10 range).
+          <Function test_market_regime_validation>
+            Test market regime indicator validation.
+          <Function test_get_feature_completeness>
+            Test feature completeness reporting.
+          <Function test_get_missing_optional_features>
+            Test getting list of missing optional features.
+          <Function test_schema_generation>
+            Test that schema generation includes all features and metadata.
+        <Class TestGlobalFeatureRegistry>
+          Test cases for the global feature registry.
+          <Function test_global_registry_has_default_specs>
+            Test that global registry has default feature specifications.
+          <Function test_global_registry_validation>
+            Test validation using the global registry.
+        <Class TestFeatureModelIntegration>
+          Integration tests for the complete feature model system.
+          <Function test_end_to_end_feature_validation>
+            Test complete end-to-end feature validation flow.
+          <Function test_published_features_with_registry_validation>
+            Test that PublishedFeaturesV1 works with registry validation.
+      <Module test_fill_execution_events.py>
+        Comprehensive tests for the enterprise-grade execution event creation in Fill model.
+
+        Tests cover:
+        - ExecutionEventBuilder functionality
+        - Fill.to_event() method
+        - Event validation and error handling
+        - Event publishing
+        - Fallback logic and edge cases
+        <Class TestExecutionEventBuilder>
+          Test cases for ExecutionEventBuilder class.
+          <Function test_create_execution_event_success>
+            Test successful creation of execution event.
+          <Function test_validate_fill_data_success>
+            Test successful fill data validation.
+          <Function test_validate_fill_data_missing_trading_pair>
+            Test validation failure for missing trading pair.
+          <Function test_validate_fill_data_invalid_quantity>
+            Test validation failure for invalid quantity.
+          <Function test_validate_fill_data_invalid_price>
+            Test validation failure for invalid price.
+          <Function test_get_exchange_order_id_from_fill>
+            Test getting exchange order ID from fill.
+          <Function test_get_exchange_order_id_from_order>
+            Test getting exchange order ID from related order.
+          <Function test_get_exchange_order_id_fallback_to_client>
+            Test fallback to client order ID.
+          <Function test_get_exchange_order_id_final_fallback>
+            Test final fallback to fill PK.
+          <Function test_determine_order_status_from_order>
+            Test determining order status from order.
+          <Function test_determine_order_status_no_order>
+            Test determining order status without order context.
+          <Function test_get_order_type_from_order>
+            Test getting order type from related order.
+          <Function test_get_order_type_from_liquidity>
+            Test inferring order type from liquidity type.
+          <Function test_get_order_type_fallback>
+            Test order type fallback.
+          <Function test_get_signal_id_success>
+            Test getting signal ID from order.
+          <Function test_get_signal_id_no_order>
+            Test getting signal ID without order.
+          <Function test_get_limit_price_for_limit_order>
+            Test getting limit price for limit order.
+          <Function test_get_limit_price_for_market_order>
+            Test getting limit price for market order.
+        <Class TestExecutionEventPublisher>
+          Test cases for ExecutionEventPublisher class.
+          <Coroutine test_publish_execution_event_success>
+            Test successful event publishing.
+          <Coroutine test_publish_execution_event_no_bus>
+            Test publishing without event bus.
+          <Coroutine test_publish_execution_event_failure>
+            Test handling of publishing failure.
+          <Function test_get_publication_stats>
+            Test getting publication statistics.
+        <Class TestFillEnhancements>
+          Test cases for enhanced Fill class functionality.
+          <Function test_to_event_success>
+            Test successful event creation from fill.
+          <Function test_to_event_with_custom_builder>
+            Test event creation with custom builder.
+          <Coroutine test_publish_execution_event_success>
+            Test successful event publishing from fill.
+          <Coroutine test_publish_execution_event_failure>
+            Test handling of event publishing failure.
+          <Function test_get_execution_summary>
+            Test getting execution summary.
+          <Function test_dependency_injection_methods>
+            Test dependency injection methods.
+        <Class TestIntegration>
+          Integration tests for the complete execution event workflow.
+          <Coroutine test_complete_workflow>
+            Test complete workflow from fill to published event.
+        <Class TestErrorHandling>
+          Test error handling and edge cases.
+          <Function test_create_event_with_invalid_fill>
+            Test error handling with invalid fill data.
+          <Function test_builder_handles_missing_order_gracefully>
+            Test that builder handles missing order data gracefully.
+      <Module test_gap_interpolator.py>
+        <Function test_spline_interpolation_non_linear_small_gap>
+        <Function test_volatility_adjusted_interpolation_non_linear_large_gap>
+        <Function test_volatility_adjusted_differs_from_spline>
+          Ensure volatility adjustment changes the spline result.
+        <Function test_volatility_adjusted_scales_with_volatility>
+          Higher volatility should lead to larger adjustments.
+      <Module test_historical_data_loader.py>
+        Tests for HistoricalDataLoader provider selection and error handling.
+        <Coroutine test_select_by_data_source>
+          Provider is chosen based on request.data_source.
+        <Coroutine test_auto_provider_selection>
+          First provider validating the symbol is used when data_source is None.
+        <Coroutine test_missing_provider_raises>
+          DataLoadingError is raised when no provider is found.
+        <Coroutine test_fetch_error_wrapped>
+          Errors from provider.fetch_data are wrapped in DataLoadingError.
+      <Module test_prediction_service_feature_imputation.py>
+        Unit tests for PredictionService feature imputation logic.
+        <Class TestPrepareFeaturesForModelImputation>
+          Tests for the `_prepare_features_for_model` helper.
+          <Function test_nan_value_imputed>
+            Ensure NaN inputs are replaced with contextual defaults.
+      <Module test_price_interpolator.py>
+        <Coroutine test_spline_interpolation_differs_from_linear>
+      <Module test_real_time_simulation_engine.py>
+        <Coroutine test_simulation_engine_populates_events_with_historical_data>
+      <Module test_service_orchestrator.py>
+        Unit tests for the ServiceOrchestrator.
+        <Coroutine test_initialization_and_start_order>
+        <Coroutine test_initialize_failure_propagates>
+      <Module test_strategy_trade_outcome.py>
+        Tests for reporting trade outcomes.
+        <Coroutine test_report_trade_outcome_publishes_event>
+          Verify that trade outcomes emit events and timeseries logs.
+      <Module test_technical_analysis.py>
+        Unit tests for the technical_analysis module.
+
+        Tests all implementations (stub, pandas-ta, talib) and ensures
+        consistent behavior and proper error handling.
+        <Class TestTechnicalAnalysisInterface>
+          Test the abstract interface definition.
+          <Function test_interface_cannot_be_instantiated>
+            Ensure abstract base class cannot be instantiated.
+          <Function test_interface_defines_all_methods>
+            Ensure all required methods are defined in the interface.
+        <Class TestStubImplementation>
+          Test the stub implementation for testing environments.
+          <Function test_rsi_returns_neutral_values>
+            Test that RSI returns neutral 50.0 values.
+          <Function test_bbands_returns_simple_bands>
+            Test that Bollinger Bands returns reasonable values.
+          <Function test_ema_returns_smoothed_values>
+            Test that EMA returns exponentially smoothed values.
+          <Function test_sma_returns_averaged_values>
+            Test that SMA returns simple averaged values.
+          <Function test_macd_returns_zeros>
+            Test that MACD returns zero values for stub.
+          <Function test_atr_returns_simple_range>
+            Test that ATR returns simple volatility measure.
+        <Class TestPandasTAImplementation>
+          Test the pandas-ta based production implementation.
+          <Function test_rsi_calculation>
+            Test RSI calculation produces valid results.
+          <Function test_bbands_calculation>
+            Test Bollinger Bands calculation.
+          <Function test_ema_calculation>
+            Test EMA calculation.
+          <Function test_macd_calculation>
+            Test MACD calculation.
+          <Function test_atr_calculation>
+            Test ATR calculation.
+          <Function test_nan_handling>
+            Test handling of NaN values in input.
+          <Function test_insufficient_data>
+            Test error handling for insufficient data.
+        <Class TestFactoryFunction>
+          Test the factory function for creating services.
+          <Function test_default_stub_mode>
+            Test that default mode returns stub implementation.
+          <Function test_production_mode_pandas_ta>
+            Test production mode with pandas-ta.
+          <Function test_production_mode_talib_fallback>
+            Test that talib request falls back to pandas-ta if not available.
+          <Function test_no_libraries_available>
+            Test fallback when no libraries are available.
+        <Class TestBackwardCompatibility>
+          Test backward compatibility with the old talib_stubs interface.
+          <Function test_rsi_wrapper>
+            Test the rsi wrapper function.
+          <Function test_bbands_wrapper>
+            Test the bbands wrapper function.
+          <Function test_ema_wrapper>
+            Test the ema wrapper function.
+          <Function test_sma_wrapper>
+            Test the sma wrapper function.
+          <Function test_macd_wrapper>
+            Test the macd wrapper function.
+          <Function test_atr_wrapper>
+            Test the atr wrapper function.
+        <Class TestParameterValidation>
+          Test parameter validation and edge cases.
+          <Function test_empty_array_handling>
+            Test handling of empty arrays.
+          <Function test_single_value_array>
+            Test handling of single-value arrays.
+          <Function test_period_longer_than_data>
+            Test when period is longer than available data.
+
+======================== 252 tests collected in 53.47s =========================

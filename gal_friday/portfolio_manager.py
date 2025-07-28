@@ -41,6 +41,7 @@ from .portfolio.valuation_service import (
 # Set Decimal precision
 getcontext().prec = 28
 
+
 # Define a protocol for the methods expected by _reconcile_with_exchange
 @runtime_checkable
 class ReconcilableExecutionHandler(Protocol):
@@ -82,7 +83,7 @@ class PortfolioManager:
         market_price_service: MarketPriceService,
         logger_service: LoggerService,
         execution_handler: "ExecutionHandler | None" = None,
-        session_maker: "async_sessionmaker[AsyncSession]", # Added session_maker
+        session_maker: "async_sessionmaker[AsyncSession]",  # Added session_maker
     ) -> None:
         """Initialize the PortfolioManager with required dependencies.
 
@@ -93,6 +94,7 @@ class PortfolioManager:
             market_price_service: Service for retrieving market prices
             logger_service: Logging service for system messages
             execution_handler: Optional handler for exchange execution
+            session_maker: Async session maker for database operations
         """
         self.logger = logger_service
         self.config_manager = config_manager
@@ -106,17 +108,17 @@ class PortfolioManager:
         # Instantiate components
         self.funds_manager = FundsManager(logger_service, self.valuation_currency)
         self.position_manager = PositionManager(
-            logger_service, session_maker, config_manager,
-        )  # Added session_maker and config_manager
-        self.valuation_service = ValuationService(
             logger_service,
-            market_price_service,
-            self.valuation_currency)
+            session_maker,
+            config_manager,
+        )  # Added session_maker and config_manager
+        self.valuation_service = ValuationService(logger_service, market_price_service, self.valuation_currency)
         self.trade_history_service = TradeHistoryService(
             session_maker,
             logger_service,
             cache_size=config_manager.get_int("portfolio.trade_history.cache_size", 500),
-            cache_ttl_seconds=config_manager.get_int("portfolio.trade_history.cache_ttl_seconds", 300))
+            cache_ttl_seconds=config_manager.get_int("portfolio.trade_history.cache_ttl_seconds", 300),
+        )
 
         # --- Load Initial State & Config ---
         self._initialization_task = asyncio.create_task(self._initialize_state())
@@ -125,11 +127,9 @@ class PortfolioManager:
 
         # --- Internal State & Cache ---
         self._lock = asyncio.Lock()  # Lock for managing cached state updates
-        self._cached_positions: dict[str, PositionModel] = {} # Cache for positions
+        self._cached_positions: dict[str, PositionModel] = {}  # Cache for positions
         self._reconciliation_task: asyncio.Task[Any] | None = None
-        self._execution_report_handler: None | (
-            Callable[..., Coroutine[Any, Any, Any]]
-        ) = None
+        self._execution_report_handler: None | (Callable[..., Coroutine[Any, Any, Any]]) = None
 
         # Cache for the latest state snapshot (used by get_current_state)
         self._last_known_prices: dict[str, Decimal] = {}
@@ -137,10 +137,7 @@ class PortfolioManager:
         self._last_total_exposure_pct: Decimal = Decimal(0)
 
         self.logger.info("PortfolioManager initialized.", source_module=self._source_module)
-        self.logger.info(
-            "Valuation Currency: %s",
-            self.valuation_currency,
-            source_module=self._source_module)
+        self.logger.info("Valuation Currency: %s", self.valuation_currency, source_module=self._source_module)
 
     async def _initialize_state(self) -> None:
         """Initialize funds and positions from configuration.
@@ -153,7 +150,7 @@ class PortfolioManager:
             await self.funds_manager.initialize_funds(initial_capital)
 
             self.config_manager.get("portfolio.initial_positions", {})
-            await self.position_manager.initialize_positions() # Removed arguments
+            await self.position_manager.initialize_positions()  # Removed arguments
 
             # Perform initial valuation
             await self._update_portfolio_value_and_cache()
@@ -161,7 +158,8 @@ class PortfolioManager:
             self.logger.info(
                 "Initial Available Funds: %s",
                 self.funds_manager.available_funds,
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             initial_db_positions = await self.position_manager.get_open_positions()
             async with self._lock:
                 self._cached_positions = {pos.trading_pair: pos for pos in initial_db_positions}
@@ -172,18 +170,21 @@ class PortfolioManager:
                     p: {"qty": str(info.quantity), "aep": str(info.entry_price)}
                     for p, info in self._cached_positions.items()
                 },
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             self.logger.info(
                 "Initial Equity: %.2f %s",
                 self.valuation_service.total_equity,
                 self.valuation_currency,
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
         except Exception as e:
             self.logger.critical(
                 "CRITICAL: Failed to initialize portfolio state:",
                 source_module=self._source_module,
-                exc_info=True)
+                exc_info=True,
+            )
             # Consider raising a specific exception or halting
             raise RuntimeError from e
 
@@ -196,17 +197,18 @@ class PortfolioManager:
         try:
             self._reconciliation_interval = self.config_manager.get_int(
                 "portfolio.reconciliation.interval_seconds",
-                3600)
+                3600,
+            )
             self._reconciliation_threshold = Decimal(
-                self.config_manager.get("portfolio.reconciliation.threshold", "0.01"))
-            self._auto_reconcile = self.config_manager.get_bool(
-                "portfolio.reconciliation.auto_update",
-                default=False)
+                self.config_manager.get("portfolio.reconciliation.threshold", "0.01"),
+            )
+            self._auto_reconcile = self.config_manager.get_bool("portfolio.reconciliation.auto_update", default=False)
             self.logger.info("Reconciliation configured.", source_module=self._source_module)
         except Exception:
             self.logger.exception(
                 "Error loading reconciliation config. Using defaults.",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             self._reconciliation_interval = 3600
             self._reconciliation_threshold = Decimal("0.01")
             self._auto_reconcile = False
@@ -218,22 +220,20 @@ class PortfolioManager:
         configuration parameters.
         """
         try:
-            daily_reset_hour = self.config_manager.get_int(
-                "portfolio.drawdown.daily_reset_hour_utc",
-                0)
-            weekly_reset_day = self.config_manager.get_int(
-                "portfolio.drawdown.weekly_reset_day",
-                0)
+            daily_reset_hour = self.config_manager.get_int("portfolio.drawdown.daily_reset_hour_utc", 0)
+            weekly_reset_day = self.config_manager.get_int("portfolio.drawdown.weekly_reset_day", 0)
             self.valuation_service.configure_drawdown_resets(daily_reset_hour, weekly_reset_day)
         except ValueError:
             self.logger.exception(
                 "Invalid drawdown reset config. Using defaults (0, 0).",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             self.valuation_service.configure_drawdown_resets(0, 0)
         except Exception:
             self.logger.exception(
                 "Error configuring drawdown resets. Using defaults.",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             self.valuation_service.configure_drawdown_resets(0, 0)  # Ensure defaults are set
 
     async def start(self) -> None:
@@ -242,32 +242,25 @@ class PortfolioManager:
         Sets up event handlers and starts reconciliation tasks if configured.
         """
         if self._execution_report_handler:
-            self.logger.warning(
-                "PortfolioManager already started.",
-                source_module=self._source_module)
+            self.logger.warning("PortfolioManager already started.", source_module=self._source_module)
             return
 
         self._execution_report_handler = self._handle_execution_report
         self.pubsub.subscribe(EventType.EXECUTION_REPORT, self._execution_report_handler)
-        self.logger.info(
-            "Subscribed to EXECUTION_REPORT events.",
-            source_module=self._source_module)
+        self.logger.info("Subscribed to EXECUTION_REPORT events.", source_module=self._source_module)
 
         if self._reconciliation_interval > 0 and self._execution_handler is not None:
             self.logger.info(
                 "Starting periodic reconciliation every %ss.",
                 self._reconciliation_interval,
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             self._reconciliation_task = asyncio.create_task(self._run_periodic_reconciliation())
         # Log reasons for not starting reconciliation
         elif self._reconciliation_interval <= 0:
-            self.logger.info(
-                "Reconciliation disabled by interval config.",
-                source_module=self._source_module)
+            self.logger.info("Reconciliation disabled by interval config.", source_module=self._source_module)
         elif self._execution_handler is None:
-            self.logger.warning(
-                "Reconciliation disabled (no execution handler).",
-                source_module=self._source_module)
+            self.logger.warning("Reconciliation disabled (no execution handler).", source_module=self._source_module)
 
     async def stop(self) -> None:
         """Unsubscribe from events and stop background tasks.
@@ -278,14 +271,10 @@ class PortfolioManager:
         if self._execution_report_handler:
             try:
                 self.pubsub.unsubscribe(EventType.EXECUTION_REPORT, self._execution_report_handler)
-                self.logger.info(
-                    "Unsubscribed from EXECUTION_REPORT events.",
-                    source_module=self._source_module)
+                self.logger.info("Unsubscribed from EXECUTION_REPORT events.", source_module=self._source_module)
                 self._execution_report_handler = None
             except Exception:
-                self.logger.exception(
-                    "Error unsubscribing from EXECUTION_REPORT:",
-                    source_module=self._source_module)
+                self.logger.exception("Error unsubscribing from EXECUTION_REPORT:", source_module=self._source_module)
 
         # Stop reconciliation task if running
         if self._reconciliation_task and not self._reconciliation_task.done():
@@ -293,15 +282,90 @@ class PortfolioManager:
             self._reconciliation_task.cancel()
             try:
                 await self._reconciliation_task
-                self.logger.info(
-                    "Reconciliation task cancelled.",
-                    source_module=self._source_module)
+                self.logger.info("Reconciliation task cancelled.", source_module=self._source_module)
             except Exception:
-                self.logger.exception(
-                    "Error stopping reconciliation task:",
-                    source_module=self._source_module)
+                self.logger.exception("Error stopping reconciliation task:", source_module=self._source_module)
             finally:
                 self._reconciliation_task = None
+
+    def _validate_execution_event(self, event: ExecutionReportEvent) -> bool:
+        """Validate execution report event has required attributes."""
+        if not hasattr(event, "order_status") or not hasattr(event, "exchange_order_id"):
+            self.logger.warning(
+                "Received event missing required attributes: %s",
+                type(event),
+                source_module=self._source_module,
+            )
+            return False
+        return True
+
+    async def _process_filled_order(self, event: ExecutionReportEvent) -> None:
+        """Process a filled or partially filled order."""
+        # 1. Parse and Validate Event Data
+        (pair, side, qty_filled, avg_price, commission, commission_asset) = self._parse_execution_values(event)
+        base_asset, quote_asset = self._split_symbol(pair)
+        cost_or_proceeds = qty_filled * avg_price
+
+        # 2. Update Funds (FundsManager)
+        await self.funds_manager.update_funds_for_trade(
+            TradeParams(
+                base_asset=base_asset,
+                quote_asset=quote_asset,
+                side=side,
+                quantity=qty_filled,
+                price=avg_price,
+                cost_or_proceeds=cost_or_proceeds,
+            ),
+        )
+
+        # 3. Update Position (PositionManager)
+        pnl, updated_pos_model = await self.position_manager.update_position_for_trade(
+            trading_pair=pair,
+            side=side,
+            quantity=qty_filled,
+            price=avg_price,
+            timestamp=event.timestamp,
+            trade_id=event.exchange_order_id,
+            order_id=event.client_order_id or event.exchange_order_id,
+            commission=commission,
+            commission_asset=commission_asset,
+        )
+
+        # Update cache
+        await self._update_position_cache(updated_pos_model, event)
+
+        if pnl != Decimal(0):
+            self.logger.info("Realized PNL from trade: %s", pnl, source_module=self._source_module)
+
+        # 4. Handle Commission
+        if commission > 0 and commission_asset:
+            await self.funds_manager.handle_commission(commission, commission_asset)
+
+        # 5. Update Portfolio Value and Cache State
+        await self._update_portfolio_value_and_cache()
+
+        # 6. Log Updated State
+        self._log_updated_state()
+
+    async def _update_position_cache(
+        self,
+        updated_pos_model: PositionModel | None,
+        event: ExecutionReportEvent,
+    ) -> None:
+        """Update position cache based on updated position model."""
+        if updated_pos_model:
+            async with self._lock:
+                if updated_pos_model.is_active and updated_pos_model.quantity != Decimal(0):
+                    self._cached_positions[updated_pos_model.trading_pair] = updated_pos_model
+                else:  # Position closed or inactive
+                    self._cached_positions.pop(updated_pos_model.trading_pair, None)
+        elif event.order_status in ["FILLED", "PARTIALLY_FILLED"]:
+            # If update failed but should have happened
+            self.logger.warning(
+                f"Position model for {event.trading_pair} was not updated in cache "
+                f"after trade {event.exchange_order_id}.",
+                source_module=self._source_module,
+            )
 
     async def _handle_execution_report(self, event: ExecutionReportEvent) -> None:
         """Process incoming execution report events.
@@ -312,112 +376,47 @@ class PortfolioManager:
         ----
             event: The execution report event containing trade details
         """
-        # In runtime, the event might not be exactly ExecutionReportEvent due to
-        # differences between the placeholder class and actual implementation
-        if not hasattr(event, "order_status") or not hasattr(event, "exchange_order_id"):
-            self.logger.warning(
-                "Received event missing required attributes: %s",
-                type(event),
-                source_module=self._source_module)
+        # Validate event
+        if not self._validate_execution_event(event):
             return
 
         self.logger.debug(
             "Handling exec report: %s - %s",
             event.exchange_order_id,
             event.order_status,
-            source_module=self._source_module)
+            source_module=self._source_module,
+        )
 
+        # Handle cancellation
         if event.order_status == "CANCELED":
             self._handle_order_cancellation(event)
             return
 
+        # Skip non-fill statuses
         if event.order_status not in ["FILLED", "PARTIALLY_FILLED"]:
-            self.logger.debug(
-                "Ignoring exec report status: %s",
-                event.order_status,
-                source_module=self._source_module)
+            self.logger.debug("Ignoring exec report status: %s", event.order_status, source_module=self._source_module)
             return
 
         try:
-            # 1. Parse and Validate Event Data
-            (
-                pair,
-                side,
-                qty_filled,
-                avg_price,
-                commission,
-                commission_asset) = self._parse_execution_values(event)
-            base_asset, quote_asset = self._split_symbol(pair)
-            cost_or_proceeds = qty_filled * avg_price
-
-            # 2. Update Funds (FundsManager)
-            await self.funds_manager.update_funds_for_trade(
-                TradeParams(
-                    base_asset=base_asset,
-                    quote_asset=quote_asset,
-                    side=side,
-                    quantity=qty_filled,
-                    price=avg_price,
-                    cost_or_proceeds=cost_or_proceeds))
-
-            # 3. Update Position (PositionManager)
-            # Store and log the realized PNL from the position update
-            pnl, updated_pos_model = await self.position_manager.update_position_for_trade(
-                trading_pair=pair,
-                side=side,
-                quantity=qty_filled,
-                price=avg_price,
-                timestamp=event.timestamp,
-                trade_id=event.exchange_order_id,
-                order_id=event.client_order_id or event.exchange_order_id,
-                commission=commission,
-                commission_asset=commission_asset)
-
-            # Update cache with the result from PositionManager
-            if updated_pos_model:
-                async with self._lock:
-                    if updated_pos_model.is_active and updated_pos_model.quantity != Decimal(0):
-                        self._cached_positions[updated_pos_model.trading_pair] = updated_pos_model
-                    else: # Position closed or inactive
-                        self._cached_positions.pop(updated_pos_model.trading_pair, None)
-            elif event.order_status in ["FILLED", "PARTIALLY_FILLED"]:
-                # If update failed but should have happened
-                self.logger.warning(
-                    f"Position model for {event.trading_pair} was not updated in cache "
-                    f"after trade {event.exchange_order_id}.",
-                    source_module=self._source_module)
-
-            if pnl != Decimal(0):
-                self.logger.info(
-                    "Realized PNL from trade: %s",
-                    pnl,
-                    source_module=self._source_module)
-
-            # 4. Handle Commission (FundsManager)
-            if commission > 0 and commission_asset:
-                await self.funds_manager.handle_commission(commission, commission_asset)
-
-            # 5. Update Portfolio Value (ValuationService) and Cache State
-            await self._update_portfolio_value_and_cache()
-
-            # 6. Log Updated State
-            self._log_updated_state()
-
+            await self._process_filled_order(event)
         except (DataValidationError, InsufficientFundsError):
             self.logger.exception(
                 "Data/Funds error processing execution report %s:",
                 event.exchange_order_id,
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
         except ValueError:  # Catch specific parsing/symbol errors
             self.logger.exception(
                 "Value error processing execution report %s:",
                 event.exchange_order_id,
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
         except Exception:  # Catch all other unexpected errors
             self.logger.exception(
                 "Unexpected error processing execution report %s:",
                 event.exchange_order_id,
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
     def _handle_order_cancellation(self, event: ExecutionReportEvent) -> None:
         """Handle cancellation of an order.
@@ -432,7 +431,8 @@ class PortfolioManager:
             "Order %s for %s was cancelled.",
             event.exchange_order_id,
             event.trading_pair,
-            source_module=self._source_module)
+            source_module=self._source_module,
+        )
         # Optional: Could track pending orders locally if needed
 
     def _raise_for_invalid_parsed_values(self) -> None:
@@ -441,7 +441,8 @@ class PortfolioManager:
 
     def _parse_execution_values(
         self,
-        event: ExecutionReportEvent) -> tuple[str, str, Decimal, Decimal, Decimal, str | None]:
+        event: ExecutionReportEvent,
+    ) -> tuple[str, str, Decimal, Decimal, Decimal, str | None]:
         """Parse and validate numeric values from the execution report.
 
         Extracts and validates key trade data from execution reports.
@@ -494,7 +495,7 @@ class PortfolioManager:
 
             _, latest_prices, exposure_pct = await self.valuation_service.update_portfolio_value(
                 current_funds,
-                cast("dict[str, PositionInput]", current_positions_dict), # Refined cast
+                cast("dict[str, PositionInput]", current_positions_dict),  # Refined cast
             )
 
             # Update local cache for get_current_state
@@ -504,14 +505,10 @@ class PortfolioManager:
                 self._last_state_update_time = datetime.now(UTC)
 
         except PriceNotAvailableError:
-            self.logger.exception(
-                "Valuation failed due to missing prices:",
-                source_module=self._source_module)
+            self.logger.exception("Valuation failed due to missing prices:", source_module=self._source_module)
             # Keep old cached values, but log the error
         except Exception:
-            self.logger.exception(
-                "Error updating portfolio value:",
-                source_module=self._source_module)
+            self.logger.exception("Error updating portfolio value:", source_module=self._source_module)
 
     def _log_updated_state(self) -> None:
         """Log the updated portfolio state after changes.
@@ -520,18 +517,15 @@ class PortfolioManager:
         after state changes occur.
         """
         # Get data from managers
-        funds_str = {
-            k: str(v.quantize(Decimal("0.0001")))
-            for k, v in self.funds_manager.available_funds.items()
-        }
+        funds_str = {k: str(v.quantize(Decimal("0.0001"))) for k, v in self.funds_manager.available_funds.items()}
         positions_str = {}
         # Create a shallow copy for safe iteration, as self._cached_positions might be updated elsewhere
         # by async methods. This is a synchronous method.
         cached_positions_copy = self._cached_positions.copy()
-        for pair, pos in cached_positions_copy.items(): # Use cache
+        for pair, pos in cached_positions_copy.items():  # Use cache
             positions_str[pair] = (
                 f"Qty={pos.quantity.quantize(Decimal('1e-8'))}, "
-                f"AvgPx={pos.entry_price.quantize(Decimal('0.0001'))}" # Changed to entry_price
+                f"AvgPx={pos.entry_price.quantize(Decimal('0.0001'))}"  # Changed to entry_price
             )
         equity = self.valuation_service.total_equity
         peak_equity = self.valuation_service.peak_equity
@@ -543,7 +537,8 @@ class PortfolioManager:
             "State Update: Funds=%s, Positions=%s",
             funds_str,
             positions_str,
-            source_module=self._source_module)
+            source_module=self._source_module,
+        )
         self.logger.info(
             "Valuation: Equity=%.2f %s, Peak=%.2f, DD(Total=%.2f%%, Daily=%.2f%%, Weekly=%.2f%%)",
             equity,
@@ -552,7 +547,8 @@ class PortfolioManager:
             total_dd,
             daily_dd,
             weekly_dd,
-            source_module=self._source_module)
+            source_module=self._source_module,
+        )
 
     # --- State Retrieval ---
 
@@ -574,7 +570,7 @@ class PortfolioManager:
         positions_dict = {}
         # Create a shallow copy for safe iteration if self._cached_positions can be modified by async code
         cached_positions_copy = self._cached_positions.copy()
-        for pair, pos_model in cached_positions_copy.items(): # Use cache
+        for pair, pos_model in cached_positions_copy.items():  # Use cache
             if pos_model.quantity != 0:  # Only include open positions
                 # Use cached price for market value/unrealized PNL
                 latest_price = self._last_known_prices.get(pair)
@@ -584,10 +580,10 @@ class PortfolioManager:
                 if latest_price is not None:
                     market_value = pos_model.quantity * latest_price
                     if (
-                        pos_model.entry_price > 0 or pos_model.quantity != 0 # Changed to entry_price
+                        pos_model.entry_price > 0 or pos_model.quantity != 0  # Changed to entry_price
                     ):  # Avoid PNL calc on zero avg price unless qty exists
                         unrealized_pnl = (
-                            latest_price - pos_model.entry_price # Changed to entry_price
+                            latest_price - pos_model.entry_price  # Changed to entry_price
                         ) * pos_model.quantity
 
                 base_asset, quote_asset = self._split_symbol(pair)
@@ -595,13 +591,11 @@ class PortfolioManager:
                     "base_asset": base_asset,
                     "quote_asset": quote_asset,
                     "quantity": str(pos_model.quantity),
-                    "average_entry_price": str(pos_model.entry_price), # Changed to entry_price
-                    "current_market_value": (
-                        str(market_value) if market_value is not None else None
-                    ),
+                    "average_entry_price": str(pos_model.entry_price),  # Changed to entry_price
+                    "current_market_value": (str(market_value) if market_value is not None else None),
                     "unrealized_pnl": str(unrealized_pnl) if unrealized_pnl is not None else None,
                     "realized_pnl": str(pos_model.realized_pnl),
-                    "trade_count": 0, # PositionModel does not have trade_history, using placeholder
+                    "trade_count": 0,  # PositionModel does not have trade_history, using placeholder
                 }
 
         # Get latest values from ValuationService and FundsManager
@@ -665,7 +659,8 @@ class PortfolioManager:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         limit: int = 1000,
-        offset: int = 0) -> list[dict[str, Any]]:
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         """Return the trade history for a specific pair.
 
         Retrieves actual trade history from the database using the TradeHistoryService.
@@ -693,7 +688,8 @@ class PortfolioManager:
             if not position_model:
                 self.logger.debug(
                     f"No active position found for {pair}, but retrieving trade history anyway",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
             # Use TradeHistoryService to get actual trade history
             trade_history = await self.trade_history_service.get_trade_history_for_pair(
@@ -701,17 +697,16 @@ class PortfolioManager:
                 start_date=start_date,
                 end_date=end_date,
                 limit=limit,
-                offset=offset)
+                offset=offset,
+            )
 
             self.logger.info(
-                f"Retrieved {len(trade_history)} trades for {pair} "
-                f"(limit: {limit}, offset: {offset})",
-                source_module=self._source_module)
+                f"Retrieved {len(trade_history)} trades for {pair} (limit: {limit}, offset: {offset})",
+                source_module=self._source_module,
+            )
 
         except Exception:
-            self.logger.exception(
-                f"Error retrieving trade history for {pair}: ",
-                source_module=self._source_module)
+            self.logger.exception(f"Error retrieving trade history for {pair}: ", source_module=self._source_module)
             # Return empty list[Any] on error to maintain API compatibility
             return []
         else:
@@ -721,7 +716,8 @@ class PortfolioManager:
         self,
         pair: str,
         start_date: datetime | None = None,
-        end_date: datetime | None = None) -> dict[str, Any]:
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
         """Get comprehensive trade analytics for a specific trading pair.
 
         Provides aggregated statistics including volume, commission costs,
@@ -745,17 +741,17 @@ class PortfolioManager:
             analytics = await self.trade_history_service.get_analytics_summary(
                 trading_pair=pair,
                 start_date=start_date,
-                end_date=end_date)
+                end_date=end_date,
+            )
 
             self.logger.info(
                 f"Generated trade analytics for {pair}: {analytics['total_trades']} trades, "
                 f"volume: {analytics['total_volume']}",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
         except Exception as e:
-            self.logger.exception(
-                f"Error generating trade analytics for {pair}: ",
-                source_module=self._source_module)
+            self.logger.exception(f"Error generating trade analytics for {pair}: ", source_module=self._source_module)
             # Return empty analytics on error
             return {
                 "total_trades": 0,
@@ -776,13 +772,9 @@ class PortfolioManager:
         """
         try:
             await self.trade_history_service.clear_cache()
-            self.logger.info(
-                "Trade history cache cleared successfully",
-                source_module=self._source_module)
+            self.logger.info("Trade history cache cleared successfully", source_module=self._source_module)
         except Exception:
-            self.logger.exception(
-                "Error clearing trade history cache: ",
-                source_module=self._source_module)
+            self.logger.exception("Error clearing trade history cache: ", source_module=self._source_module)
 
     def get_trade_history_cache_stats(self) -> dict[str, Any]:
         """Get trade history cache performance statistics.
@@ -839,19 +831,13 @@ class PortfolioManager:
         while True:
             try:
                 await asyncio.sleep(self._reconciliation_interval)
-                self.logger.info(
-                    "Running periodic exchange reconciliation...",
-                    source_module=self._source_module)
+                self.logger.info("Running periodic exchange reconciliation...", source_module=self._source_module)
                 await self._reconcile_with_exchange()
             except asyncio.CancelledError:
-                self.logger.info(
-                    "Reconciliation loop cancelled.",
-                    source_module=self._source_module)
+                self.logger.info("Reconciliation loop cancelled.", source_module=self._source_module)
                 break
             except Exception:
-                self.logger.exception(
-                    "Error in reconciliation loop:",
-                    source_module=self._source_module)
+                self.logger.exception("Error in reconciliation loop:", source_module=self._source_module)
                 await asyncio.sleep(self._reconciliation_interval)  # Avoid tight loop
 
     def _execution_handler_available_for_reconciliation(self) -> bool:
@@ -867,9 +853,7 @@ class PortfolioManager:
         # Since we're using runtime_checkable Protocol, we need a more careful check
         # to prevent mypy unreachable code error
         if self._execution_handler is None:
-            self.logger.warning(
-                "No execution handler available for reconciliation.",
-                source_module=self._source_module)
+            self.logger.warning("No execution handler available for reconciliation.", source_module=self._source_module)
             return False
 
         # Check if the handler has the required methods
@@ -879,7 +863,8 @@ class PortfolioManager:
         if not (has_get_balances and has_get_positions):
             self.logger.warning(
                 "Execution handler missing required methods for reconciliation.",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             return False
 
         return True
@@ -901,9 +886,7 @@ class PortfolioManager:
             exchange_positions_raw = await reconcilable_handler.get_open_positions()
             # Ensure exchange_positions is Dict[str, PositionModel]
             exchange_positions = {
-                pair: pos
-                for pair, pos in exchange_positions_raw.items()
-                if isinstance(pos, PositionModel)
+                pair: pos for pair, pos in exchange_positions_raw.items() if isinstance(pos, PositionModel)
             }
 
             # Get internal state
@@ -920,7 +903,8 @@ class PortfolioManager:
                 self.logger.warning(
                     "Reconciliation: Balance mismatches: %s",
                     bal_discrepancies,
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 if self._auto_reconcile:
                     await self._auto_reconcile_balances(exchange_balances)
 
@@ -931,7 +915,8 @@ class PortfolioManager:
                 self.logger.warning(
                     "Reconciliation: Position mismatches: %s",
                     pos_discrepancies,
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 if self._auto_reconcile:
                     await self._auto_reconcile_positions(exchange_positions)
 
@@ -939,21 +924,22 @@ class PortfolioManager:
             if not discrepancies_found:
                 self.logger.info(
                     "Reconciliation complete. No significant discrepancies found.",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
             elif self._auto_reconcile:
                 self.logger.info(
                     "Discrepancies found and auto-reconciled. Updating portfolio value.",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 await self._update_portfolio_value_and_cache()
             else:
                 self.logger.warning(
                     "Reconciliation found discrepancies; auto-reconcile is OFF.",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
         except Exception:
-            self.logger.exception(
-                "Error during exchange reconciliation:",
-                source_module=self._source_module)
+            self.logger.exception("Error during exchange reconciliation:", source_module=self._source_module)
 
     async def _auto_reconcile_balances(self, exchange_balances: dict[str, Decimal]) -> None:
         """Auto-reconcile balances with exchange data.
@@ -969,9 +955,7 @@ class PortfolioManager:
         await self.funds_manager.reconcile_with_exchange_balances(exchange_balances)
         self.logger.info("Balances auto-reconciled.", source_module=self._source_module)
 
-    async def _auto_reconcile_positions(
-        self,
-        exchange_positions: dict[str, PositionModel]) -> None:
+    async def _auto_reconcile_positions(self, exchange_positions: dict[str, PositionModel]) -> None:
         """Auto-reconcile positions with exchange data.
 
         Updates internal positions to match exchange reported positions.
@@ -985,9 +969,7 @@ class PortfolioManager:
         await self._reconcile_positions_with_exchange(exchange_positions)
         self.logger.info("Positions auto-reconciled.", source_module=self._source_module)
 
-    async def _reconcile_positions_with_exchange(
-        self,
-        exchange_positions: dict[str, PositionModel]) -> None:
+    async def _reconcile_positions_with_exchange(self, exchange_positions: dict[str, PositionModel]) -> None:
         """Reconcile positions with exchange data.
 
         Adjusts internal positions to match exchange positions by creating
@@ -1008,15 +990,11 @@ class PortfolioManager:
                         pair,
                         int_pos.quantity,
                         ex_pos.quantity,
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
                     base_asset, quote_asset = self._split_symbol(pair)
                     # Create a reconciliation trade to adjust the quantity
-                    await self._create_reconciliation_trade(
-                        pair,
-                        base_asset,
-                        quote_asset,
-                        int_pos,
-                        ex_pos)
+                    await self._create_reconciliation_trade(pair, base_asset, quote_asset, int_pos, ex_pos)
             else:
                 # Position exists on exchange but not internally - create it
                 base_asset, quote_asset = self._split_symbol(pair)
@@ -1024,7 +1002,8 @@ class PortfolioManager:
                     "Creating missing position for %s with qty %s",
                     pair,
                     ex_pos.quantity,
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 # Create new position through a mock trade
                 await self._create_position_from_exchange(pair, base_asset, quote_asset, ex_pos)
 
@@ -1035,20 +1014,13 @@ class PortfolioManager:
                 self.logger.info(
                     "Closing position %s that doesn't exist on exchange",
                     pair,
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 base_asset, quote_asset = self._split_symbol(pair)
                 # Create a reconciliation trade to close the position
                 # Create a dummy PositionModel for target with 0 quantity
-                dummy_pos = PositionModel(
-                    trading_pair=pair,
-                    quantity=Decimal(0),
-                    entry_price=Decimal(0))
-                await self._create_reconciliation_trade(
-                    pair,
-                    base_asset,
-                    quote_asset,
-                    int_pos,
-                    dummy_pos)
+                dummy_pos = PositionModel(trading_pair=pair, quantity=Decimal(0), entry_price=Decimal(0))
+                await self._create_reconciliation_trade(pair, base_asset, quote_asset, int_pos, dummy_pos)
 
     async def _create_reconciliation_trade(
         self,
@@ -1056,7 +1028,8 @@ class PortfolioManager:
         base_asset: str,
         quote_asset: str,
         current_pos: PositionModel,
-        target_pos: PositionModel) -> None:
+        target_pos: PositionModel,
+    ) -> None:
         """Create a reconciliation trade to adjust position to match target.
 
         Generates a synthetic trade to adjust position quantity to match
@@ -1091,11 +1064,7 @@ class PortfolioManager:
                     price = current_price
                 else:
                     # Last resort - use internal position's price or 1.0
-                    price = (
-                        current_pos.entry_price
-                        if current_pos.entry_price > 0
-                        else Decimal("1.0")
-                    )
+                    price = current_pos.entry_price if current_pos.entry_price > 0 else Decimal("1.0")
             except Exception:
                 # If all else fails
                 price = Decimal("1.0")
@@ -1105,10 +1074,7 @@ class PortfolioManager:
 
         # Create reconciliation trade
         timestamp = datetime.now(UTC)
-        description = (
-            f"Reconciliation trade to adjust {pair} from "
-            f"{current_pos.quantity} to {target_pos.quantity}"
-        )
+        description = f"Reconciliation trade to adjust {pair} from {current_pos.quantity} to {target_pos.quantity}"
         self.logger.info(description, source_module=self._source_module)
 
         # Use PositionManager to apply the adjustment
@@ -1118,7 +1084,8 @@ class PortfolioManager:
             quantity=abs_qty,
             price=price,
             timestamp=timestamp,
-            trade_id="reconciliation")
+            trade_id="reconciliation",
+        )
 
         # Also update funds for the trade if needed
         await self.funds_manager.update_funds_for_trade(
@@ -1128,7 +1095,9 @@ class PortfolioManager:
                 side=side,
                 quantity=abs_qty,
                 price=price,
-                cost_or_proceeds=cost))
+                cost_or_proceeds=cost,
+            ),
+        )
 
         # Update portfolio value
         await self._update_portfolio_value_and_cache()
@@ -1138,7 +1107,8 @@ class PortfolioManager:
         pair: str,
         base_asset: str,
         quote_asset: str,
-        exchange_pos: PositionModel) -> None:
+        exchange_pos: PositionModel,
+    ) -> None:
         """Create a new position from exchange data.
 
         Generates a synthetic position to match exchange-reported position.
@@ -1177,7 +1147,8 @@ class PortfolioManager:
             side,
             abs_qty,
             price,
-            source_module=self._source_module)
+            source_module=self._source_module,
+        )
 
         # Use PositionManager to create the position
         await self.position_manager.update_position_for_trade(
@@ -1186,7 +1157,8 @@ class PortfolioManager:
             quantity=abs_qty,
             price=price,
             timestamp=timestamp,
-            trade_id="reconciliation")
+            trade_id="reconciliation",
+        )
 
         # Update funds to reflect the position
         await self.funds_manager.update_funds_for_trade(
@@ -1196,7 +1168,9 @@ class PortfolioManager:
                 side=side,
                 quantity=abs_qty,
                 price=price,
-                cost_or_proceeds=cost))
+                cost_or_proceeds=cost,
+            ),
+        )
 
         # Update portfolio value
         await self._update_portfolio_value_and_cache()
@@ -1204,7 +1178,8 @@ class PortfolioManager:
     def _compare_balances(
         self,
         internal: dict[str, Decimal],
-        exchange: dict[str, Decimal]) -> dict[str, dict[str, Decimal | str]]:
+        exchange: dict[str, Decimal],
+    ) -> dict[str, dict[str, Decimal | str]]:
         """Compare internal and exchange balances, return discrepancies.
 
         Identifies balance differences that exceed configured thresholds.
@@ -1236,9 +1211,7 @@ class PortfolioManager:
 
             # Calculate dynamic threshold: max of absolute threshold or relative threshold
             if reference_balance > 0:
-                dynamic_threshold = max(
-                    self._reconciliation_threshold,
-                    reference_balance * relative_threshold)
+                dynamic_threshold = max(self._reconciliation_threshold, reference_balance * relative_threshold)
             else:
                 dynamic_threshold = self._reconciliation_threshold
 
@@ -1255,7 +1228,8 @@ class PortfolioManager:
     def _compare_positions(
         self,
         internal: dict[str, PositionModel],
-        exchange: dict[str, PositionModel]) -> dict[str, dict[str, Decimal]]:
+        exchange: dict[str, PositionModel],
+    ) -> dict[str, dict[str, Decimal]]:
         """Compare internal and exchange positions, return discrepancies.
 
         Identifies position differences that exceed configured thresholds.

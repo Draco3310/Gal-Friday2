@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """Script to run the Gal Friday Real-Time Trading Dashboard."""
 
+import logging
 import os
 from pathlib import Path
 import sys
 from typing import Any
 
 import asyncio
+from fastapi import Response
 from fastapi.staticfiles import StaticFiles
-import uvicorn  # type: ignore[import-not-found]
+import uvicorn
+
+# Create module logger
+logger = logging.getLogger(__name__)
 
 # Add the project root to the path
 project_root = Path(__file__).parent.parent.parent
@@ -27,7 +32,6 @@ async def create_dashboard_app() -> RealTimeDashboard:
     config = ConfigManager()
 
     # Initialize pubsub and logger
-    import logging
     basic_logger = logging.getLogger(__name__)
     pubsub = PubSubManager(basic_logger, config)
     logger = LoggerService(config, pubsub)
@@ -49,7 +53,9 @@ async def create_dashboard_app() -> RealTimeDashboard:
                     "MSFT": {"quantity": 75, "unrealized_pnl": -500.0},
                 },
                 "trades_today": [
-                    {"pnl": 250.0}, {"pnl": -100.0}, {"pnl": 150.0},
+                    {"pnl": 250.0},
+                    {"pnl": -100.0},
+                    {"pnl": 150.0},
                 ],
                 "total_trades": 156,
                 "max_drawdown_pct": -8.5,
@@ -84,11 +90,10 @@ async def create_dashboard_app() -> RealTimeDashboard:
     async def serve_dashboard() -> Any:
         """Serve the main dashboard HTML page."""
         dashboard_path = static_dir / "dashboard.html"
-        with open(dashboard_path) as f:
+        with dashboard_path.open() as f:
             return Response(content=f.read(), media_type="text/html")
 
     # Import Response here to avoid circular import
-    from fastapi import Response
 
     return real_time_dashboard
 
@@ -103,9 +108,8 @@ async def main() -> None:
         await dashboard.start_dashboard()
 
         # Configuration for the server
-        host = os.getenv("DASHBOARD_HOST", "0.0.0.0")
+        host = os.getenv("DASHBOARD_HOST", "127.0.0.1")
         port = int(os.getenv("DASHBOARD_PORT", "8000"))
-
 
         # Run the server
         config = uvicorn.Config(
@@ -120,7 +124,7 @@ async def main() -> None:
         await server.serve()
 
     except KeyboardInterrupt:
-        pass
+        logger.info("Dashboard server stopped by user interrupt")
     except Exception:
         raise
     finally:

@@ -1,3 +1,9 @@
+"""Service protocol definitions for application services.
+
+This module defines the standard protocol interface that all
+application services should implement for lifecycle management.
+"""
+
 from typing import Protocol, runtime_checkable
 
 

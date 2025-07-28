@@ -4,6 +4,7 @@ This script shows how the new enum-based stage management system replaces
 hardcoded string literals with proper validation, audit trails, and enterprise controls.
 """
 
+import traceback
 import uuid
 
 from gal_friday.dal.repositories.stage_management import (
@@ -194,7 +195,6 @@ def main():
 
 
     except Exception:
-        import traceback
         traceback.print_exc()
 
 

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
-from uuid import UUID as PythonUUID
+from uuid import UUID as UUID_TYPE
 
 from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -17,15 +17,17 @@ class PositionAdjustment(Base):
 
     __tablename__ = "position_adjustments"
 
-    adjustment_id: Mapped[PythonUUID] = mapped_column(
+    adjustment_id: Mapped[UUID_TYPE] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
-        server_default=func.uuid_generate_v4())
+        server_default=func.uuid_generate_v4(),
+    )
     # reconciliation_id is a ForeignKey to reconciliation_events.reconciliation_id
-    reconciliation_id: Mapped[PythonUUID] = mapped_column(
+    reconciliation_id: Mapped[UUID_TYPE] = mapped_column(
         ForeignKey("reconciliation_events.reconciliation_id"),
         nullable=False,
-        index=True)
+        index=True,
+    )
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)  # From 003, added index
     adjustment_type: Mapped[str] = mapped_column(String(50), nullable=False)  # From 003
     old_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
@@ -47,6 +49,7 @@ class PositionAdjustment(Base):
     )
 
     def __repr__(self) -> str:
+        """Return string representation of PositionAdjustment."""
         return (
             f"<PositionAdjustment(adjustment_id={self.adjustment_id}, "
             f"reconciliation_id={self.reconciliation_id}, type='{self.adjustment_type}')>"

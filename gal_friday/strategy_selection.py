@@ -8,7 +8,7 @@ conditions, risk alignment, and operational efficiency.
 from collections import defaultdict, deque
 import contextlib
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Any, cast
@@ -20,10 +20,23 @@ import numpy as np
 # Import from existing Gal-Friday modules
 from .logger_service import LoggerService
 
+# Optional imports for database persistence
+try:
+    from .models.strategy_models import StrategyPerformanceSnapshot
+    from .repositories.strategy_repositories import StrategyRepository
+
+    DB_MODELS_AVAILABLE = True
+except ImportError:
+    DB_MODELS_AVAILABLE = False
+    StrategyPerformanceSnapshot = None  # type: ignore[assignment, misc]
+    StrategyRepository = None  # type: ignore[assignment, misc]
+
 # === Data Models ===
+
 
 class MarketRegime(str, Enum):
     """Market regime classifications."""
+
     LOW_VOLATILITY = "low_volatility"
     NORMAL_VOLATILITY = "normal_volatility"
     HIGH_VOLATILITY = "high_volatility"
@@ -31,6 +44,7 @@ class MarketRegime(str, Enum):
 
 class TrendState(str, Enum):
     """Market trend classifications."""
+
     STRONG_UPTREND = "strong_uptrend"
     WEAK_UPTREND = "weak_uptrend"
     SIDEWAYS = "sideways"
@@ -40,6 +54,7 @@ class TrendState(str, Enum):
 
 class LiquidityCondition(str, Enum):
     """Market liquidity conditions."""
+
     NORMAL = "normal"
     REDUCED = "reduced"
     POOR = "poor"
@@ -47,6 +62,7 @@ class LiquidityCondition(str, Enum):
 
 class TransitionPhase(str, Enum):
     """Strategy transition phases."""
+
     SHADOW_MODE = "shadow_mode"
     PHASE_25_PERCENT = "phase_25_percent"
     PHASE_50_PERCENT = "phase_50_percent"
@@ -57,6 +73,7 @@ class TransitionPhase(str, Enum):
 @dataclass
 class StrategyPerformanceMetrics:
     """Comprehensive performance metrics for a strategy."""
+
     strategy_id: str
     evaluation_timestamp: datetime
 
@@ -108,6 +125,7 @@ class StrategyPerformanceMetrics:
 @dataclass
 class MarketConditionSnapshot:
     """Current market condition assessment."""
+
     timestamp: datetime
 
     # Volatility metrics
@@ -141,6 +159,7 @@ class MarketConditionSnapshot:
 @dataclass
 class StrategySelectionContext:
     """Context for strategy selection decision."""
+
     timestamp: datetime
     current_strategy_id: str
     available_strategies: list[str]
@@ -153,6 +172,7 @@ class StrategySelectionContext:
 @dataclass
 class StrategyEvaluationResult:
     """Result of strategy evaluation."""
+
     strategy_id: str
     composite_score: float
     component_scores: dict[str, float]
@@ -167,6 +187,7 @@ class StrategyEvaluationResult:
 @dataclass
 class StrategyTransitionPlan:
     """Execution plan for strategy transition."""
+
     transition_id: str
     from_strategy: str
     to_strategy: str
@@ -181,6 +202,7 @@ class StrategyTransitionPlan:
 
 # === Core Components ===
 
+
 class StrategyPerformanceAnalyzer:
     """Analyzes and tracks strategy performance metrics."""
 
@@ -190,7 +212,17 @@ class StrategyPerformanceAnalyzer:
         config: dict[str, Any],
         trade_repository: Any,
         portfolio_snapshot_repository: Any,
-        execution_repository: Any) -> None:
+        execution_repository: Any,
+    ) -> None:
+        """Initialize the StrategyPerformanceAnalyzer.
+
+        Args:
+            logger: Logger service for logging operations.
+            config: Configuration dictionary.
+            trade_repository: Repository for trade data access.
+            portfolio_snapshot_repository: Repository for portfolio snapshots.
+            execution_repository: Repository for execution data.
+        """
         self.logger = logger
         self.config = config
         self.trade_repository = trade_repository
@@ -208,12 +240,15 @@ class StrategyPerformanceAnalyzer:
         self._cache_ttl = timedelta(minutes=config.get("cache_ttl_minutes", 15))
 
         # Benchmark metrics for comparison
-        self._benchmark_metrics = config.get("benchmark_metrics", {
-            "minimum_sharpe": 1.0,
-            "minimum_win_rate": 0.50,
-            "maximum_drawdown": 0.10,
-            "minimum_profit_factor": 1.5,
-        })
+        self._benchmark_metrics = config.get(
+            "benchmark_metrics",
+            {
+                "minimum_sharpe": 1.0,
+                "minimum_win_rate": 0.50,
+                "maximum_drawdown": 0.10,
+                "minimum_profit_factor": 1.5,
+            },
+        )
 
     async def analyze_strategy_performance(
         self,
@@ -248,13 +283,12 @@ class StrategyPerformanceAnalyzer:
             self._performance_history[strategy_id].append(metrics)
 
             # Persist performance metrics if repository is available
-            if hasattr(self, "performance_metrics_repository") and self.performance_metrics_repository:
+            if (
+                hasattr(self, "performance_metrics_repository")
+                and self.performance_metrics_repository
+                and DB_MODELS_AVAILABLE
+            ):
                 try:
-                    from decimal import Decimal
-
-                    from .models.strategy_models import StrategyPerformanceSnapshot
-                    from .repositories.strategy_repositories import StrategyRepository
-
                     # First ensure strategy exists in DB
                     strategy_repo = StrategyRepository(self.performance_metrics_repository.session)
                     strategy_config = await strategy_repo.get_by_strategy_id(strategy_id)
@@ -282,34 +316,30 @@ class StrategyPerformanceAnalyzer:
                             largest_loss=metrics.largest_loss,
                             volatility=Decimal(str(metrics.volatility)),
                             downside_deviation=(
-                                Decimal(str(metrics.downside_deviation))
-                                if metrics.downside_deviation else None
+                                Decimal(str(metrics.downside_deviation)) if metrics.downside_deviation else None
                             ),
                             var_95=Decimal(str(metrics.var_95)) if metrics.var_95 else None,
                             cvar_95=Decimal(str(metrics.cvar_95)) if metrics.cvar_95 else None,
                             max_drawdown_duration_days=(
                                 Decimal(str(metrics.max_drawdown_duration_days))
-                                if metrics.max_drawdown_duration_days else None
+                                if metrics.max_drawdown_duration_days
+                                else None
                             ),
                             average_slippage_bps=(
-                        Decimal(str(metrics.average_slippage_bps))
-                        if metrics.average_slippage_bps else None
-                    ),
+                                Decimal(str(metrics.average_slippage_bps)) if metrics.average_slippage_bps else None
+                            ),
                             fill_rate=Decimal(str(metrics.fill_rate)),
                             average_latency_ms=(
-                        Decimal(str(metrics.average_latency_ms))
-                        if metrics.average_latency_ms else None
-                    ),
+                                Decimal(str(metrics.average_latency_ms)) if metrics.average_latency_ms else None
+                            ),
                             api_error_rate=Decimal(str(metrics.api_error_rate)),
                             cpu_usage_avg=Decimal(str(metrics.cpu_usage_avg)) if metrics.cpu_usage_avg else None,
                             memory_usage_avg_mb=(
-                        Decimal(str(metrics.memory_usage_avg_mb))
-                        if metrics.memory_usage_avg_mb else None
-                    ),
+                                Decimal(str(metrics.memory_usage_avg_mb)) if metrics.memory_usage_avg_mb else None
+                            ),
                             signal_generation_rate=(
-                        Decimal(str(metrics.signal_generation_rate))
-                        if metrics.signal_generation_rate else None
-                    ),
+                                Decimal(str(metrics.signal_generation_rate)) if metrics.signal_generation_rate else None
+                            ),
                             halt_frequency=Decimal(str(metrics.halt_frequency)),
                         )
 
@@ -319,10 +349,7 @@ class StrategyPerformanceAnalyzer:
                             source_module=self._source_module,
                         )
                 except Exception:
-                    self.logger.exception(
-                        "Failed to persist performance metrics: ",
-                        source_module=self._source_module,
-                    )
+                    self.logger.exception("Failed to persist performance metrics: ", source_module=self._source_module)
 
             # Log performance summary
             self.logger.info(
@@ -458,10 +485,10 @@ class StrategyPerformanceAnalyzer:
 
         # Slippage analysis
         slippages = []
-        for exec in execution_data:
-            if exec.get("expected_price") and exec.get("actual_price"):
-                expected = float(exec["expected_price"])
-                actual = float(exec["actual_price"])
+        for execution in execution_data:
+            if execution.get("expected_price") and execution.get("actual_price"):
+                expected = float(execution["expected_price"])
+                actual = float(execution["actual_price"])
                 slippage_bps = abs(actual - expected) / expected * 10000
                 slippages.append(slippage_bps)
 
@@ -571,12 +598,12 @@ class StrategyPerformanceAnalyzer:
         end_date = datetime.now(UTC)
         try:
             trades = await self.trade_repository.get_trades_by_strategy(
-                strategy_id, start_date, end_date,
+                strategy_id,
+                start_date,
+                end_date,
             )
         except Exception:  # pragma: no cover - DB errors
-            self.logger.exception(
-                f"Failed to fetch trades for {strategy_id}: ",
-                source_module=self._source_module)
+            self.logger.exception(f"Failed to fetch trades for {strategy_id}: ", source_module=self._source_module)
             return []
 
         return [t.to_dict() if hasattr(t, "to_dict") else t for t in trades]
@@ -590,12 +617,11 @@ class StrategyPerformanceAnalyzer:
         end_date = datetime.now(UTC)
         try:
             snapshots = await self.portfolio_snapshot_repository.get_snapshots_in_period(
-                start_date, end_date,
+                start_date,
+                end_date,
             )
         except Exception:  # pragma: no cover - DB errors
-            self.logger.exception(
-                "Failed to fetch portfolio snapshots: ",
-                source_module=self._source_module)
+            self.logger.exception("Failed to fetch portfolio snapshots: ", source_module=self._source_module)
             return []
 
         return [s.to_dict() if hasattr(s, "to_dict") else s for s in snapshots]
@@ -610,12 +636,15 @@ class StrategyPerformanceAnalyzer:
         end_date = datetime.now(UTC)
         try:
             metrics = await self.execution_repository.get_metrics_by_strategy(
-                strategy_id, start_date, end_date,
+                strategy_id,
+                start_date,
+                end_date,
             )
         except Exception:  # pragma: no cover - DB errors
             self.logger.exception(
                 f"Failed to fetch execution metrics for {strategy_id}: ",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             return []
 
         return [m.to_dict() if hasattr(m, "to_dict") else m for m in metrics]
@@ -659,15 +688,21 @@ class MarketConditionMonitor:
         self._source_module = self.__class__.__name__
 
         # Thresholds for market regime classification
-        self._volatility_thresholds = config.get("volatility_thresholds", {
-            "low": 0.02,  # 2% daily
-            "high": 0.05,  # 5% daily
-        })
+        self._volatility_thresholds = config.get(
+            "volatility_thresholds",
+            {
+                "low": 0.02,  # 2% daily
+                "high": 0.05,  # 5% daily
+            },
+        )
 
-        self._liquidity_thresholds = config.get("liquidity_thresholds", {
-            "poor_spread_bps": 30,  # 0.3%
-            "reduced_spread_bps": 10,  # 0.1%
-        })
+        self._liquidity_thresholds = config.get(
+            "liquidity_thresholds",
+            {
+                "poor_spread_bps": 30,  # 0.3%
+                "reduced_spread_bps": 10,  # 0.1%
+            },
+        )
 
         # Cache for market conditions
         self._condition_cache: tuple[datetime, MarketConditionSnapshot] | None = None
@@ -739,10 +774,7 @@ class MarketConditionMonitor:
             )
 
         except Exception:
-            self.logger.exception(
-                "Error assessing market conditions: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Error assessing market conditions: ", source_module=self._source_module)
             raise
         else:
             return snapshot
@@ -872,6 +904,14 @@ class RiskEvaluator:
         risk_manager: Any,  # Reference to RiskManager
         portfolio_manager: Any,  # Reference to PortfolioManager
     ) -> None:
+        """Initialize the risk evaluator.
+
+        Args:
+            logger: Logger service instance.
+            config: Configuration dictionary.
+            risk_manager: Reference to RiskManager instance.
+            portfolio_manager: Reference to PortfolioManager instance.
+        """
         self.logger = logger
         self.config = config
         self.risk_manager = risk_manager
@@ -879,12 +919,15 @@ class RiskEvaluator:
         self._source_module = self.__class__.__name__
 
         # Risk thresholds
-        self._risk_limits = config.get("risk_limits", {
-            "max_strategy_drawdown": 0.10,  # 10%
-            "max_correlation": 0.70,
-            "min_risk_budget_buffer": 0.20,  # Keep 20% buffer
-            "max_volatility_exposure": 0.15,  # 15% portfolio volatility
-        })
+        self._risk_limits = config.get(
+            "risk_limits",
+            {
+                "max_strategy_drawdown": 0.10,  # 10%
+                "max_correlation": 0.70,
+                "min_risk_budget_buffer": 0.20,  # Keep 20% buffer
+                "max_volatility_exposure": 0.15,  # 15% portfolio volatility
+            },
+        )
 
     async def evaluate_strategy_risk(
         self,
@@ -920,20 +963,24 @@ class RiskEvaluator:
             )
 
             # Aggregate risk score (0-1, lower is better)
-            risk_score = self._calculate_aggregate_risk_score({
-                "drawdown": drawdown_assessment,
-                "correlation": correlation_assessment,
-                "capacity": capacity_assessment,
-                "volatility": volatility_assessment,
-            })
+            risk_score = self._calculate_aggregate_risk_score(
+                {
+                    "drawdown": drawdown_assessment,
+                    "correlation": correlation_assessment,
+                    "capacity": capacity_assessment,
+                    "volatility": volatility_assessment,
+                },
+            )
 
             # Determine if strategy passes risk criteria
-            passes_risk_checks = all([
-                drawdown_assessment["acceptable"],
-                correlation_assessment["acceptable"],
-                capacity_assessment["acceptable"],
-                volatility_assessment["acceptable"],
-            ])
+            passes_risk_checks = all(
+                [
+                    drawdown_assessment["acceptable"],
+                    correlation_assessment["acceptable"],
+                    capacity_assessment["acceptable"],
+                    volatility_assessment["acceptable"],
+                ],
+            )
 
             risk_evaluation = {
                 "strategy_id": strategy_id,
@@ -954,8 +1001,7 @@ class RiskEvaluator:
 
             # Log risk assessment
             self.logger.info(
-                f"Risk evaluation for {strategy_id}: score={risk_score:.3f}, "
-                f"passes={passes_risk_checks}",
+                f"Risk evaluation for {strategy_id}: score={risk_score:.3f}, passes={passes_risk_checks}",
                 source_module=self._source_module,
             )
 
@@ -1123,10 +1169,7 @@ class RiskEvaluator:
         risk_scores["volatility"] = min(vol_assessment["volatility_ratio"], 1.0)
 
         # Weighted average
-        aggregate_score = sum(
-            risk_scores[key] * weights[key]
-            for key in weights
-        )
+        aggregate_score = sum(risk_scores[key] * weights[key] for key in weights)
 
         return float(aggregate_score)
 
@@ -1169,6 +1212,15 @@ class StrategySelector:
         market_monitor: MarketConditionMonitor,
         risk_evaluator: RiskEvaluator,
     ) -> None:
+        """Initialize the StrategySelector.
+
+        Args:
+            logger: Logger service for logging operations.
+            config: Configuration dictionary.
+            performance_analyzer: Analyzer for strategy performance metrics.
+            market_monitor: Monitor for market conditions.
+            risk_evaluator: Evaluator for risk assessment.
+        """
         self.logger = logger
         self.config = config
         self.performance_analyzer = performance_analyzer
@@ -1177,19 +1229,25 @@ class StrategySelector:
         self._source_module = self.__class__.__name__
 
         # Decision criteria weights
-        self._criteria_weights = config.get("criteria_weights", {
-            "performance_score": 0.40,
-            "risk_alignment": 0.35,
-            "market_fit": 0.20,
-            "operational_efficiency": 0.05,
-        })
+        self._criteria_weights = config.get(
+            "criteria_weights",
+            {
+                "performance_score": 0.40,
+                "risk_alignment": 0.35,
+                "market_fit": 0.20,
+                "operational_efficiency": 0.05,
+            },
+        )
 
         # Selection thresholds
-        self._selection_thresholds = config.get("selection_thresholds", {
-            "minimum_composite_score": 0.60,
-            "improvement_required": 0.10,  # 10% improvement
-            "confidence_threshold": 0.70,
-        })
+        self._selection_thresholds = config.get(
+            "selection_thresholds",
+            {
+                "minimum_composite_score": 0.60,
+                "improvement_required": 0.10,  # 10% improvement
+                "confidence_threshold": 0.70,
+            },
+        )
 
         # Historical selection decisions
         self._decision_history: deque[StrategyEvaluationResult] = deque(maxlen=100)
@@ -1233,10 +1291,7 @@ class StrategySelector:
             )
 
         except Exception:
-            self.logger.exception(
-                "Error in strategy selection: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Error in strategy selection: ", source_module=self._source_module)
             # Return conservative decision on error
             return self._create_fallback_evaluation(selection_context.current_strategy_id)
         else:
@@ -1280,17 +1335,18 @@ class StrategySelector:
         }
 
         composite_score = sum(
-            score * self._criteria_weights[criterion]
-            for criterion, score in component_scores.items()
+            score * self._criteria_weights[criterion] for criterion, score in component_scores.items()
         )
 
         # Check if meets minimum thresholds
-        meets_thresholds = all([
-            performance_metrics.sharpe_ratio >= 1.0,
-            performance_metrics.win_rate >= 0.50,
-            performance_metrics.max_drawdown <= 0.10,
-            risk_evaluation["passes_checks"],
-        ])
+        meets_thresholds = all(
+            [
+                performance_metrics.sharpe_ratio >= 1.0,
+                performance_metrics.win_rate >= 0.50,
+                performance_metrics.max_drawdown <= 0.10,
+                risk_evaluation["passes_checks"],
+            ],
+        )
 
         # Calculate improvement over current
         improvement = 0.0
@@ -1412,10 +1468,7 @@ class StrategySelector:
         # Liquidity conditions
         if market_conditions.liquidity_condition == LiquidityCondition.POOR:
             # Poor liquidity penalizes high-frequency strategies
-            if metrics.signal_generation_rate > 20:  # >20 signals/hour
-                liquidity_score = 0.4
-            else:
-                liquidity_score = 0.8
+            liquidity_score = 0.4 if metrics.signal_generation_rate > 20 else 0.8
         else:
             liquidity_score = 0.9
 
@@ -1447,11 +1500,7 @@ class StrategySelector:
             },
         }
 
-        return sum(
-            data["value"] * data["weight"]
-            for data in factors.values()
-        )
-
+        return sum(data["value"] * data["weight"] for data in factors.values())
 
     def _apply_selection_criteria(
         self,
@@ -1620,26 +1669,36 @@ class StrategyOrchestrator:
         config: dict[str, Any],
         monitoring_service: Any,  # Reference to MonitoringService
     ) -> None:
+        """Initialize the StrategyOrchestrator.
+
+        Args:
+            logger: Logger service for logging operations.
+            config: Configuration dictionary.
+            monitoring_service: Reference to monitoring service for health checks.
+        """
         self.logger = logger
         self.config = config
         self.monitoring_service = monitoring_service
         self._source_module = self.__class__.__name__
 
         # Transition configuration
-        self._transition_config = config.get("transition", {
-            "shadow_mode_duration": timedelta(hours=2),
-            "phase_durations": {
-                TransitionPhase.PHASE_25_PERCENT: timedelta(hours=4),
-                TransitionPhase.PHASE_50_PERCENT: timedelta(hours=8),
-                TransitionPhase.PHASE_75_PERCENT: timedelta(hours=12),
+        self._transition_config = config.get(
+            "transition",
+            {
+                "shadow_mode_duration": timedelta(hours=2),
+                "phase_durations": {
+                    TransitionPhase.PHASE_25_PERCENT: timedelta(hours=4),
+                    TransitionPhase.PHASE_50_PERCENT: timedelta(hours=8),
+                    TransitionPhase.PHASE_75_PERCENT: timedelta(hours=12),
+                },
+                "validation_frequency": timedelta(hours=1),
+                "rollback_thresholds": {
+                    "sharpe_drop": 0.5,  # 50% drop
+                    "drawdown_limit": 0.05,  # 5% drawdown
+                    "win_rate_floor": 0.40,  # 40% minimum
+                },
             },
-            "validation_frequency": timedelta(hours=1),
-            "rollback_thresholds": {
-                "sharpe_drop": 0.5,  # 50% drop
-                "drawdown_limit": 0.05,  # 5% drawdown
-                "win_rate_floor": 0.40,  # 40% minimum
-            },
-        })
+        )
 
         # Active transition tracking
         self._active_transition: StrategyTransitionPlan | None = None
@@ -1682,10 +1741,7 @@ class StrategyOrchestrator:
             await self._complete_transition(transition_plan)
 
         except Exception as e:
-            self.logger.exception(
-                "Error during strategy transition: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Error during strategy transition: ", source_module=self._source_module)
             if self._active_transition:
                 await self._rollback_transition(self._active_transition, str(e))
             raise
@@ -1754,8 +1810,7 @@ class StrategyOrchestrator:
 
         self._phase_start_time = datetime.now(UTC)
         phase_duration = (
-            self._active_transition.phase_durations[phase]
-            if self._active_transition else timedelta(hours=1)
+            self._active_transition.phase_durations[phase] if self._active_transition else timedelta(hours=1)
         )
 
         # Update traffic allocation
@@ -1848,7 +1903,7 @@ class StrategyOrchestrator:
             source_module=self._source_module,
         )
 
-        await self._notify_transition_status(f"allocation_{int(allocation*100)}", strategy_id)
+        await self._notify_transition_status(f"allocation_{int(allocation * 100)}", strategy_id)
 
     async def _rollback_transition(
         self,
@@ -1966,6 +2021,7 @@ class StrategyOrchestrator:
 
 # === Main Strategy Selection System ===
 
+
 class StrategySelectionSystem:
     """Main orchestrator for the complete strategy selection system."""
 
@@ -1978,6 +2034,16 @@ class StrategySelectionSystem:
         monitoring_service: Any,
         database_manager: Any,  # For data access
     ) -> None:
+        """Initialize the StrategySelectionSystem.
+
+        Args:
+            logger: Logger service for logging operations.
+            config: Configuration dictionary.
+            risk_manager: Risk manager for risk evaluation.
+            portfolio_manager: Portfolio manager for portfolio data.
+            monitoring_service: Monitoring service for health checks.
+            database_manager: Database manager for data access.
+        """
         self.logger = logger
         self.config = config
         self._source_module = self.__class__.__name__
@@ -2009,6 +2075,15 @@ class StrategySelectionSystem:
         self._selection_frequency = timedelta(hours=config.get("selection_frequency_hours", 4))
         self._is_running = False
         self._selection_task: asyncio.Task[None] | None = None
+
+    @property
+    def last_selection_time(self) -> datetime | None:
+        """Get the last time a strategy selection was performed.
+
+        Returns:
+            The timestamp of the last selection, or None if no selection has been made
+        """
+        return self._last_selection_time
 
     async def start(self) -> None:
         """Start the strategy selection system."""
@@ -2053,10 +2128,7 @@ class StrategySelectionSystem:
                 await asyncio.sleep(60)  # Check every minute
 
             except Exception:
-                self.logger.exception(
-                    "Error in selection loop: ",
-                    source_module=self._source_module,
-                )
+                self.logger.exception("Error in selection loop: ", source_module=self._source_module)
 
     def _should_run_selection(self) -> bool:
         """Check if it's time to run strategy selection."""
@@ -2088,9 +2160,10 @@ class StrategySelectionSystem:
             self._last_selection_time = datetime.now(UTC)
 
             # Check if we need to transition
-            if (evaluation_result.recommendation == "deploy" and
-                evaluation_result.strategy_id != context.current_strategy_id):
-
+            if (
+                evaluation_result.recommendation == "deploy"
+                and evaluation_result.strategy_id != context.current_strategy_id
+            ):
                 # Execute transition
                 await self.strategy_orchestrator.execute_strategy_transition(
                     context.current_strategy_id,
@@ -2099,10 +2172,7 @@ class StrategySelectionSystem:
                 )
 
         except Exception:
-            self.logger.exception(
-                "Error in strategy selection: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Error in strategy selection: ", source_module=self._source_module)
             return None
         else:
             return evaluation_result
@@ -2121,9 +2191,7 @@ class StrategySelectionSystem:
             if pm is not None:
                 portfolio_state = pm.get_current_state()
         except Exception:  # pragma: no cover - defensive catch
-            self.logger.exception(
-                "Failed to retrieve portfolio state: ",
-                source_module=self._source_module)
+            self.logger.exception("Failed to retrieve portfolio state: ", source_module=self._source_module)
             portfolio_state = {}
 
         # Assess market conditions
@@ -2136,9 +2204,7 @@ class StrategySelectionSystem:
             if rm is not None:
                 risk_budget = rm.get_available_risk_budget()
         except Exception:  # pragma: no cover - defensive catch
-            self.logger.exception(
-                "Failed to retrieve risk budget: ",
-                source_module=self._source_module)
+            self.logger.exception("Failed to retrieve risk budget: ", source_module=self._source_module)
             risk_budget = Decimal(0)
 
         return StrategySelectionContext(

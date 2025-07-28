@@ -17,8 +17,7 @@ if TYPE_CHECKING:
 class AuditRepository(BaseRepository[AuditEntry]):
     """Repository for managing audit trail data."""
 
-    def __init__(
-        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
+    def __init__(self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
         """Initialize the audit repository.
 
         Args:
@@ -67,9 +66,7 @@ class AuditRepository(BaseRepository[AuditEntry]):
                 return audit_entry
 
         except Exception:
-            self.logger.exception(
-                "Error creating audit entry: ",
-                source_module=self._source_module)
+            self.logger.exception("Error creating audit entry: ", source_module=self._source_module)
             raise
 
     async def get_audit_entries_by_order(self, order_id: str) -> Sequence[AuditEntry]:
@@ -83,17 +80,14 @@ class AuditRepository(BaseRepository[AuditEntry]):
         """
         try:
             async with self.session_maker() as session:
-                stmt = (
-                    select(AuditEntry)
-                    .where(AuditEntry.order_id == order_id)
-                    .order_by(AuditEntry.timestamp.desc())
-                )
+                stmt = select(AuditEntry).where(AuditEntry.order_id == order_id).order_by(AuditEntry.timestamp.desc())
                 result = await session.execute(stmt)
                 return result.scalars().all()
         except Exception:
             self.logger.exception(
                 f"Error fetching audit entries for order {order_id}: ",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             raise
 
     async def get_audit_entries_by_symbol(
@@ -128,7 +122,8 @@ class AuditRepository(BaseRepository[AuditEntry]):
         except Exception:
             self.logger.exception(
                 f"Error fetching audit entries for symbol {symbol}: ",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             raise
 
     async def get_risk_event_entries(
@@ -161,18 +156,12 @@ class AuditRepository(BaseRepository[AuditEntry]):
 
                 # Filter by specific risk event type if provided
                 if risk_event_type:
-                    filtered_entries = []
-                    for entry in entries:
-                        if risk_event_type in entry.risk_events:
-                            filtered_entries.append(entry)
-                    return filtered_entries
+                    return [entry for entry in entries if risk_event_type in entry.risk_events]
 
                 return entries
 
         except Exception:
-            self.logger.exception(
-                "Error fetching risk event entries: ",
-                source_module=self._source_module)
+            self.logger.exception("Error fetching risk event entries: ", source_module=self._source_module)
             raise
 
     async def health_check(self) -> bool:
@@ -188,9 +177,7 @@ class AuditRepository(BaseRepository[AuditEntry]):
                 await session.execute(stmt)
                 return True
         except Exception:
-            self.logger.exception(
-                "Audit repository health check failed: ",
-                source_module=self._source_module)
+            self.logger.exception("Audit repository health check failed: ", source_module=self._source_module)
             return False
 
     async def cleanup_old_entries(self, days_to_keep: int = 90) -> int:
@@ -206,10 +193,7 @@ class AuditRepository(BaseRepository[AuditEntry]):
             cutoff_date = datetime.now(UTC) - timedelta(days=days_to_keep)
 
             async with self.session_maker() as session:
-                stmt = (
-                    select(AuditEntry)
-                    .where(AuditEntry.timestamp < cutoff_date)
-                )
+                stmt = select(AuditEntry).where(AuditEntry.timestamp < cutoff_date)
                 result = await session.execute(stmt)
                 old_entries = result.scalars().all()
 
@@ -221,12 +205,11 @@ class AuditRepository(BaseRepository[AuditEntry]):
 
                 self.logger.info(
                     f"Deleted {count} audit entries older than {days_to_keep} days",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
                 return count
 
         except Exception:
-            self.logger.exception(
-                "Error cleaning up old audit entries: ",
-                source_module=self._source_module)
+            self.logger.exception("Error cleaning up old audit entries: ", source_module=self._source_module)
             raise

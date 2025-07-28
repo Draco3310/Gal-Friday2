@@ -1,32 +1,33 @@
 """Enhanced execution handler interface supporting multi-exchange and multi-asset trading."""
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Any, Protocol, TypedDict, Unpack
+from typing import Any, Protocol, TypedDict, Unpack, runtime_checkable
 
 from gal_friday.core.asset_registry import AssetSpecification, ExchangeSpecification
 
 
 class OrderType(Enum):
     """Universal order types across all exchanges."""
+
     MARKET = auto()
     LIMIT = auto()
     STOP = auto()
     STOP_LIMIT = auto()
     TRAILING_STOP = auto()
-    BRACKET = auto()          # For futures/options
-    ICEBERG = auto()          # Large order splitting
-    FILL_OR_KILL = auto()     # FOK
+    BRACKET = auto()  # For futures/options
+    ICEBERG = auto()  # Large order splitting
+    FILL_OR_KILL = auto()  # FOK
     IMMEDIATE_OR_CANCEL = auto()  # IOC
 
 
 class OrderStatus(Enum):
     """Universal order status across all exchanges."""
-    PENDING = auto()          # Order submitted but not confirmed
-    OPEN = auto()            # Order active in market
+
+    PENDING = auto()  # Order submitted but not confirmed
+    OPEN = auto()  # Order active in market
     PARTIALLY_FILLED = auto()
     FILLED = auto()
     CANCELLED = auto()
@@ -36,6 +37,7 @@ class OrderStatus(Enum):
 
 class TimeInForce(Enum):
     """Time in force options."""
+
     GTC = auto()  # Good Till Cancelled
     GTD = auto()  # Good Till Date
     DAY = auto()  # Day order
@@ -46,6 +48,7 @@ class TimeInForce(Enum):
 @dataclass(frozen=True)
 class OrderRequest:
     """Universal order request structure."""
+
     # Core order details
     symbol: str
     exchange_id: str
@@ -59,8 +62,8 @@ class OrderRequest:
 
     # Order behavior
     time_in_force: TimeInForce = TimeInForce.GTC
-    reduce_only: bool = False    # For derivatives
-    post_only: bool = False      # Maker-only orders
+    reduce_only: bool = False  # For derivatives
+    post_only: bool = False  # Maker-only orders
 
     # Advanced order features
     iceberg_quantity: Decimal | None = None  # For iceberg orders
@@ -90,6 +93,7 @@ class OrderRequest:
 @dataclass(frozen=True)
 class OrderResponse:
     """Universal order response structure."""
+
     success: bool
     exchange_order_id: str | None = None
     client_order_id: str | None = None
@@ -119,6 +123,7 @@ class OrderResponse:
 @dataclass(frozen=True)
 class PositionInfo:
     """Universal position information structure."""
+
     symbol: str
     exchange_id: str
     side: str  # "LONG" or "SHORT"
@@ -263,19 +268,15 @@ class ExecutionHandlerKwargs(TypedDict, total=False):
     compliance_mode: str
     """Compliance mode setting (STRICT, NORMAL, RELAXED)."""
 
-class ExecutionHandlerInterface(ABC):
-    """Enhanced interface for execution handlers supporting multiple exchanges and asset types."""
 
-    def __init__(
-        self,
-        exchange_spec: ExchangeSpecification,
-        **kwargs: Unpack[ExecutionHandlerKwargs]) -> None:
-        """Initialize with exchange specification and configuration."""
-        self.exchange_spec = exchange_spec
-        self.exchange_id = exchange_spec.exchange_id
+@runtime_checkable
+class ExecutionHandlerProtocol(Protocol):
+    """Enhanced protocol for execution handlers supporting multiple exchanges and asset types."""
+
+    exchange_spec: ExchangeSpecification
+    exchange_id: str
 
     # Core trading operations
-    @abstractmethod
     async def submit_order(self, order_request: OrderRequest) -> OrderResponse:
         """Submit an order to the exchange.
 
@@ -288,10 +289,9 @@ class ExecutionHandlerInterface(ABC):
             ExchangeConnectionError: If exchange is unavailable
             InsufficientFundsError: If insufficient balance for order
         """
+        ...
 
-    @abstractmethod
-    async def cancel_order(self, exchange_order_id: str,
-                          symbol: str | None = None) -> OrderResponse:
+    async def cancel_order(self, exchange_order_id: str, symbol: str | None = None) -> OrderResponse:
         """Cancel an existing order.
 
         Args:
@@ -301,10 +301,9 @@ class ExecutionHandlerInterface(ABC):
         Returns:
             Order response indicating cancellation status
         """
+        ...
 
-    @abstractmethod
-    async def modify_order(self, exchange_order_id: str,
-                          modifications: dict[str, Any]) -> OrderResponse:
+    async def modify_order(self, exchange_order_id: str, modifications: dict[str, Any]) -> OrderResponse:
         """Modify an existing order (if supported by exchange).
 
         Args:
@@ -314,8 +313,8 @@ class ExecutionHandlerInterface(ABC):
         Returns:
             Order response with updated order details
         """
+        ...
 
-    @abstractmethod
     async def get_order_status(self, exchange_order_id: str) -> OrderResponse:
         """Get current status of an order.
 
@@ -324,17 +323,17 @@ class ExecutionHandlerInterface(ABC):
         Returns:
             Current order status and details
         """
+        ...
 
     # Portfolio and position management
-    @abstractmethod
     async def get_account_balance(self) -> dict[str, Decimal]:
         """Get current account balances.
 
         Returns:
             Dictionary mapping currency/asset to available balance
         """
+        ...
 
-    @abstractmethod
     async def get_positions(self, symbol: str | None = None) -> list[PositionInfo]:
         """Get current positions.
 
@@ -343,17 +342,17 @@ class ExecutionHandlerInterface(ABC):
         Returns:
             List of current positions
         """
+        ...
 
     # Market data and exchange info
-    @abstractmethod
     async def get_supported_assets(self) -> list[AssetSpecification]:
-        """Get list[Any] of assets supported by this exchange.
+        """Get list of assets supported by this exchange.
 
         Returns:
             List of asset specifications
         """
+        ...
 
-    @abstractmethod
     async def get_trading_fees(self, symbol: str) -> dict[str, Decimal]:
         """Get trading fees for a symbol.
 
@@ -362,27 +361,28 @@ class ExecutionHandlerInterface(ABC):
         Returns:
             Dictionary with maker/taker fees
         """
+        ...
 
     # Connection and lifecycle management
-    @abstractmethod
     async def connect(self) -> bool:
         """Establish connection to exchange.
 
         Returns:
             True if connection successful, False otherwise
         """
+        ...
 
-    @abstractmethod
     async def disconnect(self) -> None:
         """Gracefully disconnect from exchange."""
+        ...
 
-    @abstractmethod
     async def is_connected(self) -> bool:
         """Check if connected to exchange.
 
         Returns:
             True if connected, False otherwise
         """
+        ...
 
     # Validation and capability checking
     def validate_order_request(self, order_request: OrderRequest) -> list[str]:
@@ -393,27 +393,7 @@ class ExecutionHandlerInterface(ABC):
         Returns:
             List of validation errors (empty if valid)
         """
-        errors = []
-
-        # Check if order type is supported
-        if (order_request.order_type == OrderType.BRACKET and
-                not self.exchange_spec.supports_bracket_orders):
-            errors.append("Bracket orders not supported by this exchange")
-
-        if (order_request.order_type == OrderType.STOP and
-                not self.exchange_spec.supports_stop_orders):
-            errors.append("Stop orders not supported by this exchange")
-
-        # Check price requirements
-        if (order_request.order_type in [OrderType.LIMIT, OrderType.STOP_LIMIT] and
-                order_request.limit_price is None):
-            errors.append("Limit price required for limit orders")
-
-        if (order_request.order_type in [OrderType.STOP, OrderType.STOP_LIMIT] and
-                order_request.stop_price is None):
-            errors.append("Stop price required for stop orders")
-
-        return errors
+        ...
 
     def supports_order_type(self, order_type: OrderType) -> bool:
         """Check if exchange supports a specific order type.
@@ -423,15 +403,7 @@ class ExecutionHandlerInterface(ABC):
         Returns:
             True if supported, False otherwise
         """
-        if order_type == OrderType.MARKET:
-            return self.exchange_spec.supports_market_orders
-        if order_type == OrderType.LIMIT:
-            return self.exchange_spec.supports_limit_orders
-        if order_type == OrderType.STOP:
-            return self.exchange_spec.supports_stop_orders
-        if order_type == OrderType.BRACKET:
-            return self.exchange_spec.supports_bracket_orders
-        return False
+        ...
 
     # Asset-specific utilities
     def normalize_symbol_for_exchange(self, universal_symbol: str) -> str:
@@ -443,8 +415,7 @@ class ExecutionHandlerInterface(ABC):
         Returns:
             Exchange-specific symbol format
         """
-        # Default implementation - override in specific handlers
-        return universal_symbol.replace("/", "")
+        ...
 
     def get_exchange_capabilities(self) -> dict[str, Any]:
         """Get exchange capabilities summary.
@@ -452,26 +423,15 @@ class ExecutionHandlerInterface(ABC):
         Returns:
             Dictionary of exchange capabilities
         """
-        return {
-            "exchange_id": self.exchange_id,
-            "supports_limit_orders": self.exchange_spec.supports_limit_orders,
-            "supports_market_orders": self.exchange_spec.supports_market_orders,
-            "supports_stop_orders": self.exchange_spec.supports_stop_orders,
-            "supports_bracket_orders": self.exchange_spec.supports_bracket_orders,
-            "supports_margin": self.exchange_spec.supports_margin,
-            "max_orders_per_second": self.exchange_spec.max_orders_per_second,
-            "typical_latency_ms": self.exchange_spec.typical_latency_ms,
-        }
+        ...
 
 
 # Protocol for execution handler factory
+@runtime_checkable
 class ExecutionHandlerFactory(Protocol):
     """Protocol for creating execution handlers for different exchanges."""
 
-    def create_handler(
-        self,
-        exchange_id: str,
-        **kwargs: Unpack[ExecutionHandlerKwargs]) -> ExecutionHandlerInterface:
+    def create_handler(self, exchange_id: str, **kwargs: Unpack[ExecutionHandlerKwargs]) -> ExecutionHandlerProtocol:
         """Create an execution handler for the specified exchange.
 
         Args:
@@ -480,4 +440,93 @@ class ExecutionHandlerFactory(Protocol):
         Returns:
             Execution handler instance for the exchange
         """
+        ...
+
+
+# Backward compatibility alias
+ExecutionHandlerInterface = ExecutionHandlerProtocol
+
+
+# Import additional types for adapter protocol
+from gal_friday.execution.adapters import OrderRequest as AdapterOrderRequest, OrderResponse as AdapterOrderResponse
+
+
+@runtime_checkable
+class ExecutionAdapterProtocol(Protocol):
+    """Protocol for exchange-specific execution adapters.
+
+    This protocol defines the interface for low-level exchange adapters that handle
+    the specific API implementations for different trading venues.
+    """
+
+    async def initialize(self) -> None:
+        """Initialize the adapter (load exchange info, setup session, etc.)."""
+        ...
+
+    async def cleanup(self) -> None:
+        """Clean up resources (close sessions, etc.)."""
+        ...
+
+    async def place_order(self, order_request: AdapterOrderRequest) -> AdapterOrderResponse:
+        """Place a single order on the exchange.
+
+        Args:
+            order_request: Standardized order request
+
+        Returns:
+            Standardized order response
+        """
+        ...
+
+    async def place_batch_orders(self, orders: list[AdapterOrderRequest]) -> list[dict[str, Any]]:
+        """Place multiple orders simultaneously (if supported).
+
+        Args:
+            orders: Orders to submit
+
+        Returns:
+            List of order response dictionaries
+        """
+        ...
+
+    async def cancel_order(self, exchange_order_id: str) -> bool:
+        """Cancel an order on the exchange.
+
+        Args:
+            exchange_order_id: Exchange-specific order ID
+
+        Returns:
+            True if cancellation was successful
+        """
+        ...
+
+    async def get_order_status(self, exchange_order_id: str) -> dict[str, Any] | None:
+        """Get the current status of an order.
+
+        Args:
+            exchange_order_id: Exchange-specific order ID
+
+        Returns:
+            Order status information or None if not found
+        """
+        ...
+
+    async def get_account_balances(self) -> dict[str, Decimal]:
+        """Get account balances from the exchange.
+
+        Returns:
+            Dictionary of currency to available balance
+        """
+        ...
+
+    async def get_open_positions(self) -> dict[str, Any]:
+        """Get open positions from the exchange.
+
+        Returns:
+            Dictionary of position information
+        """
+        ...
+
+    def get_exchange_name(self) -> str:
+        """Get the name identifier for this exchange."""
         ...

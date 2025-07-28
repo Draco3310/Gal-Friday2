@@ -12,10 +12,10 @@ from decimal import Decimal
 import json
 from typing import Any
 
-import aioredis
 import asyncio
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+import redis.asyncio as redis
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import (
@@ -94,7 +94,7 @@ class ConnectionManager:
 class MetricsCollector:
     """Collects and aggregates system metrics."""
 
-    def __init__(self, redis_client: aioredis.Redis | None = None) -> None:
+    def __init__(self, redis_client: redis.Redis[bytes] | None = None) -> None:
         """Initialize the MetricsCollector with optional Redis client.
 
         Args:
@@ -108,7 +108,8 @@ class MetricsCollector:
         self,
         metric_type: str,
         value: float | str | dict[str, float | int | str],
-        tags: dict[str, str] | None = None) -> None:
+        tags: dict[str, str] | None = None,
+    ) -> None:
         """Record a metric value."""
         timestamp = datetime.now(UTC)
         metric = {
@@ -131,9 +132,9 @@ class MetricsCollector:
         cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
 
         return [
-            m for m in self.metrics_buffer
-            if m["type"] == metric_type and
-            datetime.fromisoformat(m["timestamp"]) > cutoff
+            m
+            for m in self.metrics_buffer
+            if m["type"] == metric_type and datetime.fromisoformat(m["timestamp"]) > cutoff
         ]
 
     async def calculate_aggregates(self) -> None:
@@ -155,11 +156,7 @@ class MetricsCollector:
 
         return {
             "api_error_rate": len(api_errors) / 5,  # Errors per minute
-            "avg_latency": (
-                sum(m["value"] for m in latency_metrics) / len(latency_metrics)
-                if latency_metrics
-                else 0
-            ),
+            "avg_latency": (sum(m["value"] for m in latency_metrics) / len(latency_metrics) if latency_metrics else 0),
             "uptime_pct": self.calculate_uptime(),
         }
 
@@ -199,14 +196,10 @@ class MetricsCollector:
         latest_positions = positions[-1]["value"] if positions else {}
 
         return {
-            "total_exposure": sum(
-                abs(float(p.get("value", 0)))
-                for p in latest_positions.values()
-            ),
-            "max_position_size": max(
-                abs(float(p.get("value", 0)))
-                for p in latest_positions.values()
-            ) if latest_positions else 0,
+            "total_exposure": sum(abs(float(p.get("value", 0))) for p in latest_positions.values()),
+            "max_position_size": max(abs(float(p.get("value", 0))) for p in latest_positions.values())
+            if latest_positions
+            else 0,
             "correlation_risk": self.calculate_correlation_risk(latest_positions),
         }
 
@@ -218,8 +211,7 @@ class MetricsCollector:
         """
         # This is a simplified calculation
         # In production, this would track actual downtime events
-        total_downtime_minutes = len([m for m in self.metrics_buffer
-                                     if m["type"] == "system_down"])
+        total_downtime_minutes = len([m for m in self.metrics_buffer if m["type"] == "system_down"])
 
         # Calculate uptime based on the last 24 hours
         total_minutes = 24 * 60
@@ -249,7 +241,7 @@ class MetricsCollector:
             return 0.0
 
         # Calculate concentration using Herfindahl index
-        concentration_index = sum((v/total_value)**2 for v in position_values)
+        concentration_index = sum((v / total_value) ** 2 for v in position_values)
 
         # Convert to risk score (0-100)
         # Higher concentration = higher risk
@@ -274,7 +266,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     redis_url = app.state.config.get("redis.url")
     if redis_url:
         try:
-            app.state.redis = aioredis.from_url(redis_url)
+            app.state.redis = redis.from_url(redis_url)
             metrics_collector.redis = app.state.redis
             logger.info("Connected to Redis")
         except Exception:
@@ -307,10 +299,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 # Create FastAPI app
-app = FastAPI(
-    title="Gal-Friday Monitoring Dashboard",
-    version="1.0.0",
-    lifespan=lifespan)
+app = FastAPI(title="Gal-Friday Monitoring Dashboard", version="1.0.0", lifespan=lifespan)
 
 # Add CORS middleware for frontend
 app.add_middleware(
@@ -318,7 +307,8 @@ app.add_middleware(
     allow_origins=["http://localhost:3000"],  # React dev server
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"])
+    allow_headers=["*"],
+)
 
 
 # Dependency injection
@@ -339,6 +329,7 @@ def get_portfolio_manager() -> PortfolioManager:
 
 # REST API Endpoints
 
+
 @app.get("/api/health")
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
@@ -353,11 +344,7 @@ async def get_system_status() -> dict[str, Any]:
         dict[str, Any]: System status including halt state and details
     """
     monitoring = get_monitoring_service()
-    halt_status = (
-        monitoring._halt_coordinator.get_halt_status()
-        if hasattr(monitoring, "_halt_coordinator")
-        else {}
-    )
+    halt_status = monitoring.get_halt_coordinator_status()
 
     return {
         "is_halted": monitoring.is_halted(),
@@ -630,6 +617,7 @@ async def get_system_health() -> dict[str, Any]:
 
 # WebSocket endpoints
 
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """Main WebSocket endpoint for real-time updates."""
@@ -637,11 +625,13 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     try:
         # Send initial connection message
-        await websocket.send_json({
-            "type": "connection",
-            "status": "connected",
-            "timestamp": datetime.now(UTC).isoformat(),
-        })
+        await websocket.send_json(
+            {
+                "type": "connection",
+                "status": "connected",
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        )
 
         while True:
             # Receive messages from client
@@ -651,27 +641,33 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 channel = data.get("channel")
                 if channel:
                     manager.subscribe(websocket, channel)
-                    await websocket.send_json({
-                        "type": "subscription",
-                        "channel": channel,
-                        "status": "subscribed",
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "subscription",
+                            "channel": channel,
+                            "status": "subscribed",
+                        },
+                    )
 
             elif data.get("action") == "unsubscribe":
                 channel = data.get("channel")
                 if channel:
                     manager.unsubscribe(websocket, channel)
-                    await websocket.send_json({
-                        "type": "subscription",
-                        "channel": channel,
-                        "status": "unsubscribed",
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "subscription",
+                            "channel": channel,
+                            "status": "unsubscribed",
+                        },
+                    )
 
             elif data.get("action") == "ping":
-                await websocket.send_json({
-                    "type": "pong",
-                    "timestamp": datetime.now(UTC).isoformat(),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "pong",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    },
+                )
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
@@ -713,11 +709,7 @@ class EventBroadcaster:
         """Broadcast market data updates."""
         bid_price = float(event.bids[0][0]) if event.bids else None
         ask_price = float(event.asks[0][0]) if event.asks else None
-        spread = (
-            (ask_price - bid_price)
-            if bid_price is not None and ask_price is not None
-            else None
-        )
+        spread = (ask_price - bid_price) if bid_price is not None and ask_price is not None else None
 
         message = {
             "type": "market_data",
@@ -767,7 +759,8 @@ class EventBroadcaster:
                     "quantity": float(event.quantity_filled),
                     "price": float(event.average_fill_price) if event.average_fill_price else 0,
                     "pnl": 0,  # Would be calculated from position
-                })
+                },
+            )
 
     async def _handle_system_state(self, event: SystemStateEvent) -> None:
         """Broadcast system state changes."""
@@ -786,7 +779,8 @@ class EventBroadcaster:
             {
                 "state": event.new_state,
                 "reason": event.reason,
-            })
+            },
+        )
 
 
 # Initialize the dashboard with system components
@@ -798,7 +792,8 @@ def initialize_dashboard(
     logger: LoggerService,
     execution_handler: Any = None,
     strategy_selection: Any = None,
-    risk_manager: Any = None) -> FastAPI:
+    risk_manager: Any = None,
+) -> FastAPI:
     """Initialize dashboard with system components."""
     app.state.config = config
     app.state.pubsub = pubsub
@@ -819,7 +814,8 @@ def initialize_dashboard(
         )
 
         # Start data collection
-        asyncio.create_task(app.state.live_data_collector.start_data_collection())
+        data_collection_task = asyncio.create_task(app.state.live_data_collector.start_data_collection())
+        app.state.background_tasks.add(data_collection_task)
     else:
         app.state.live_data_collector = None
 

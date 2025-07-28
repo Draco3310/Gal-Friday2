@@ -1,0 +1,29 @@
+" Gal-Friday2 Vim Configuration
+" Add this to your .vimrc or init.vim
+
+" Python specific settings
+autocmd FileType python setlocal expandtab shiftwidth=4 tabstop=4 softtabstop=4
+autocmd FileType python setlocal textwidth=88  " Black line length
+autocmd FileType python setlocal colorcolumn=88
+
+" Use .venv Python
+let g:python3_host_prog = getcwd() . '/.venv/bin/python'
+
+" ALE configuration for Python
+let g:ale_python_auto_virtualenv = 1
+let g:ale_linters = {
+\   'python': ['ruff', 'mypy'],
+\}
+let g:ale_fixers = {
+\   'python': ['black', 'isort'],
+\}
+let g:ale_fix_on_save = 1
+
+" CoC configuration (if using)
+let g:coc_global_extensions = [
+\   'coc-python',
+\   'coc-pyright',
+\   'coc-json',
+\   'coc-yaml',
+\   'coc-toml',
+\]

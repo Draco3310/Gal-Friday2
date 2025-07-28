@@ -12,17 +12,17 @@ from rich import print as rich_print
 from gal_friday.config_manager import ConfigManager
 from gal_friday.core.events import (
     EventType,
-    MarketDataEvent,
+    MarketDataOHLCVEvent,
     OrderExecutedEvent,
     PredictionEvent,
     TradeSignalProposedEvent,
 )
 from gal_friday.core.pubsub import PubSubManager
-from gal_friday.dal.db_connection import DatabaseConnection
+from gal_friday.dal.connection_pool import DatabaseConnectionPool
 from gal_friday.execution.websocket_connection_manager import WebSocketConnectionManager
 from gal_friday.logger_service import LoggerService
 from gal_friday.model_lifecycle.experiment_manager import ExperimentManager
-from gal_friday.model_lifecycle.registry import ModelRegistry, ModelStage
+from gal_friday.model_lifecycle.registry import ModelStage, Registry as ModelRegistry
 from gal_friday.model_lifecycle.retraining_pipeline import RetrainingPipeline
 from gal_friday.monitoring.dashboard_service import DashboardService
 from gal_friday.portfolio.reconciliation_service import ReconciliationService
@@ -68,22 +68,37 @@ class TestEndToEndIntegration:
         pubsub = PubSubManager()
 
         # Database
-        db_conn = DatabaseConnection(config, logger)
+        db_conn = DatabaseConnectionPool(config, logger)
         await db_conn.connect()
 
         # Model lifecycle
         model_registry = ModelRegistry(config, logger)
         experiment_manager = ExperimentManager(
-            config, model_registry, None, pubsub, logger,
+            config,
+            model_registry,
+            None,
+            pubsub,
+            logger,
         )
         retraining_pipeline = RetrainingPipeline(
-            config, model_registry, None, None, None, None, logger,
+            config,
+            model_registry,
+            None,
+            None,
+            None,
+            None,
+            logger,
         )
 
         # Portfolio & execution
         kraken_client = MockKrakenClient()
         reconciliation = ReconciliationService(
-            config, None, None, kraken_client, None, logger,
+            config,
+            None,
+            None,
+            kraken_client,
+            None,
+            logger,
         )
         ws_manager = WebSocketConnectionManager(config, pubsub, logger)
 
@@ -137,7 +152,7 @@ class TestEndToEndIntegration:
         pubsub.subscribe(EventType.PREDICTION_GENERATED, capture_prediction)
 
         # Simulate market data
-        market_event = MarketDataEvent(
+        market_event = MarketDataOHLCVEvent(
             event_type=EventType.PRICE_UPDATE,
             timestamp=datetime.now(UTC),
             trading_pair="XRP/USD",
@@ -282,7 +297,9 @@ class TestEndToEndIntegration:
             }
 
             await experiment_manager.record_outcome(
-                experiment_id, event_id, outcome,
+                experiment_id,
+                event_id,
+                outcome,
             )
 
         # Get experiment status
@@ -428,6 +445,7 @@ class TestEndToEndIntegration:
         def track_event(event_type):
             def handler(event):
                 events[event_type].append(event)
+
             return handler
 
         pubsub.subscribe(EventType.PREDICTION_GENERATED, track_event("predictions"))
@@ -435,7 +453,7 @@ class TestEndToEndIntegration:
         pubsub.subscribe(EventType.ORDER_EXECUTED, track_event("orders"))
 
         # 1. Market data update
-        market_event = MarketDataEvent(
+        market_event = MarketDataOHLCVEvent(
             event_type=EventType.PRICE_UPDATE,
             timestamp=datetime.now(UTC),
             trading_pair="XRP/USD",
@@ -483,7 +501,7 @@ class TestEndToEndIntegration:
         await pubsub.publish(EventType.PRICE_UPDATE, invalid_event)
 
         # Test with extreme values
-        extreme_event = MarketDataEvent(
+        extreme_event = MarketDataOHLCVEvent(
             event_type=EventType.PRICE_UPDATE,
             timestamp=datetime.now(UTC),
             trading_pair="XRP/USD",

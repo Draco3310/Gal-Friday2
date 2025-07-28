@@ -66,6 +66,7 @@ class TradeInfo:
 #   3. Proper handling of partial fills and trade corrections
 #   4. Compliance with regulatory requirements for trade record keeping
 
+
 class PositionManager:
     """Manages trading positions, including updates from trades and PnL calculations, using SQLAlchemy."""
 
@@ -73,7 +74,7 @@ class PositionManager:
         self,
         logger_service: LoggerService,
         session_maker: async_sessionmaker[AsyncSession],
-        config_manager: ConfigManager, # For asset splitting logic if needed
+        config_manager: ConfigManager,  # For asset splitting logic if needed
     ) -> None:
         """Initialize the position manager.
 
@@ -99,18 +100,11 @@ class PositionManager:
         """Return a list[Any] of open positions (is_active=True) from the database."""
         self.logger.debug("Fetching all active positions.", source_module=self._source_module)
         return await self.position_repository.get_active_positions()
-        # If PositionInfo DTO is still desired:
-        # db_positions = await self.position_repository.get_active_positions()
-        # return [self._map_model_to_position_info(p) for p in db_positions]
-
 
     async def get_position(self, trading_pair: str) -> PositionModel | None:
         """Get a specific active position by trading_pair from the database."""
         self.logger.debug(f"Fetching position for trading_pair: {trading_pair}", source_module=self._source_module)
         return await self.position_repository.get_position_by_pair(trading_pair)
-        # If PositionInfo DTO is still desired:
-        # db_position = await self.position_repository.get_position_by_pair(trading_pair)
-        # return self._map_model_to_position_info(db_position) if db_position else None
 
     async def initialize_positions(
         self,
@@ -118,6 +112,7 @@ class PositionManager:
         # split_symbol_func: Callable[..., tuple[str, str]], # Asset splitting can be internal or from config
     ) -> None:
         """Initializes positions by loading them from the database.
+
         The concept of initializing from a config dict[str, Any] is replaced by ensuring
         positions are correctly populated in the DB, possibly by a seeding process
         or by prior application state. This method could verify DB connection
@@ -131,31 +126,27 @@ class PositionManager:
         self.logger.info(
             "PositionManager initialized. Found %d active positions in database.",
             len(active_positions),
-            source_module=self._source_module)
-        # If we were to sync from a config (e.g. for initial setup in a non-prod env):
-        # async with self._lock:
-        #     for pair, pos_data in initial_positions_from_config.items():
-        #         existing_pos = await self.position_repository.get_position_by_pair(pair)
-        #         if not existing_pos:
-        #             # Create new position in DB
-        #             # ... map pos_data to PositionModel fields ...
-        #             # await self.position_repository.create(...)
+            source_module=self._source_module,
+        )
 
+    def _raise_value_error(self, error_msg: str) -> None:
+        """Helper method to raise ValueError, abstracting the raise from try block."""
+        raise ValueError(error_msg)
 
     @dataclass
-    class _UpdatePositionParams: # This can remain as an internal helper for parameter validation
+    class _UpdatePositionParams:  # This can remain as an internal helper for parameter validation
         """Parameters for updating a position from a trade."""
 
         trading_pair: str
         side: str
-        quantity: Decimal # Changed to Decimal
-        price: Decimal    # Changed to Decimal
+        quantity: Decimal  # Changed to Decimal
+        price: Decimal  # Changed to Decimal
         timestamp: datetime
         trade_id: str
         order_id: str
-        fee: Decimal = field(default_factory=Decimal) # Changed to Decimal
+        fee: Decimal = field(default_factory=Decimal)  # Changed to Decimal
         fee_currency: str | None = None
-        commission: Decimal = field(default_factory=Decimal) # Changed to Decimal
+        commission: Decimal = field(default_factory=Decimal)  # Changed to Decimal
         commission_asset: str | None = None
 
         # __post_init__ for type conversion is no longer needed here,
@@ -165,8 +156,7 @@ class PositionManager:
         #     """Validate the parameters after initialization."""
         #     pass
 
-
-    @dataclass # This TypedDict defines the types for **kwargs, so it must allow broader types
+    @dataclass  # This TypedDict defines the types for **kwargs, so it must allow broader types
     class _UpdatePositionKwargs(TypedDict, total=False):
         """Type[Any] definition for update_position_for_trade kwargs."""
 
@@ -211,10 +201,10 @@ class PositionManager:
             # Ensure required fields are present (those not in _UpdatePositionKwargs
             # or without defaults in _UpdatePositionParams)
             if qty_arg is None or price_arg is None:
-                raise ValueError("Quantity and price must be provided.")
+                self._raise_value_error("Quantity and price must be provided.")
 
             if order_id_arg is None:
-                raise ValueError("order_id is required for position-order relationship tracking.")
+                self._raise_value_error("order_id is required for position-order relationship tracking.")
 
             params = self._UpdatePositionParams(
                 trading_pair=kwargs["trading_pair"],
@@ -227,20 +217,22 @@ class PositionManager:
                 fee=Decimal(str(fee_arg)) if not isinstance(fee_arg, Decimal) else fee_arg,
                 fee_currency=kwargs.get("fee_currency"),
                 commission=Decimal(str(commission_arg)) if not isinstance(commission_arg, Decimal) else commission_arg,
-                commission_asset=kwargs.get("commission_asset"))
+                commission_asset=kwargs.get("commission_asset"),
+            )
         except (TypeError, ValueError, KeyError):
             self.logger.exception(
                 "Invalid parameters for update_position_for_trade: ",
-                source_module=self._source_module, context=kwargs,
+                source_module=self._source_module,
+                context=kwargs,
             )
             return Decimal(0), None
 
         return await self._update_position_for_trade_impl(params)
 
-    async def _update_position_for_trade_impl( # Keep as main logic implementation
+    async def _update_position_for_trade_impl(  # Keep as main logic implementation
         self,
-        params: _UpdatePositionParams, # params now has fields guaranteed to be Decimal
-    ) -> tuple[Decimal, PositionModel | None]: # Returns SQLAlchemy PositionModel
+        params: _UpdatePositionParams,  # params now has fields guaranteed to be Decimal
+    ) -> tuple[Decimal, PositionModel | None]:  # Returns SQLAlchemy PositionModel
         """Update position based on trade execution. Persists changes to the database.
 
         Args:
@@ -254,59 +246,35 @@ class PositionManager:
         """
         try:
             # Now params.quantity and params.price are Decimal, so this call should be fine.
-            self._validate_trade_params(
-                params.trading_pair,
-                params.side,
-                params.quantity,
-                params.price)
+            self._validate_trade_params(params.trading_pair, params.side, params.quantity, params.price)
 
         except DataValidationError:
             self.logger.exception(
                 f"Trade validation failed for {params.trading_pair}: ",
                 source_module=self._source_module,
-                context=params.__dict__)
+                context=params.__dict__,
+            )
             return Decimal(0), None
 
-        async with self._lock: # Lock to ensure atomic read-modify-write for a given trading_pair
+        async with self._lock:  # Lock to ensure atomic read-modify-write for a given trading_pair
             position_model = await self._get_or_create_db_position(params.trading_pair, params.side)
 
             current_quantity = position_model.quantity
-            avg_entry_price = position_model.entry_price # PositionModel uses 'entry_price' for AEP
+            avg_entry_price = position_model.entry_price  # PositionModel uses 'entry_price' for AEP
             realized_pnl_trade = Decimal(0)
 
-            if params.side.upper() == "BUY":
-                # For buys, new AEP = (old_value + new_value) / (old_qty + new_qty)
-                new_total_cost = (avg_entry_price * current_quantity) + (params.price * params.quantity)
-                new_quantity = current_quantity + params.quantity
+            # Process trade based on side
+            realized_pnl_result = self._process_trade_side(
+                params,
+                position_model,
+                current_quantity,
+                avg_entry_price,
+            )
 
-                position_model.quantity = new_quantity
-                if new_quantity != Decimal(0): # Avoid division by zero if position becomes zero
-                    position_model.entry_price = new_total_cost / new_quantity
-                else:
-                    position_model.entry_price = Decimal(0) # Reset AEP if quantity is zero
-
-            elif params.side.upper() == "SELL":
-                if current_quantity < params.quantity:
-                    self.logger.warning(
-                        f"Selling {params.quantity} of {params.trading_pair}, but current position is "
-                        f"{current_quantity}. Position will go negative or this represents a short sale "
-                        f"opening/extension.",
-                        source_module=self._source_module)
-
-                # Realized PnL = (sell_price - avg_entry_price) * sell_quantity
-                realized_pnl_trade = (params.price - avg_entry_price) * params.quantity
-                position_model.realized_pnl = (position_model.realized_pnl or Decimal(0)) + realized_pnl_trade
-                new_quantity = current_quantity - params.quantity
-                position_model.quantity = new_quantity
-
-                if new_quantity == Decimal(0):
-                    position_model.entry_price = Decimal(0) # Reset AEP
-                    position_model.is_active = False # Close position if quantity is zero
-                    position_model.closed_at = params.timestamp # Record closing time
-
-            else: # Should be caught by _validate_trade_params
-                self.logger.error(f"Invalid trade side: {params.side}", source_module=self._source_module)
+            if realized_pnl_result is None:
                 return Decimal(0), None
+
+            realized_pnl_trade = realized_pnl_result
 
             # Update position timestamp
             if hasattr(position_model, "updated_at"):
@@ -336,9 +304,16 @@ class PositionManager:
                 self.logger.info(
                     "Updated position in DB - Pair: %s, Side: %s, Trade Qty: %s, Trade Price: %s, "
                     "New Pos Qty: %s, New AEP: %s, Trade PnL: %s, Linked Order: %s",
-                    params.trading_pair, params.side, params.quantity, params.price,
-                    updated_pos.quantity, updated_pos.entry_price, realized_pnl_trade, params.order_id,
-                    source_module=self._source_module)
+                    params.trading_pair,
+                    params.side,
+                    params.quantity,
+                    params.price,
+                    updated_pos.quantity,
+                    updated_pos.entry_price,
+                    realized_pnl_trade,
+                    params.order_id,
+                    source_module=self._source_module,
+                )
             except Exception:
                 self.logger.exception(
                     f"Error updating position in DB for {params.trading_pair}: ",
@@ -365,31 +340,98 @@ class PositionManager:
             if updated_order:
                 self.logger.debug(
                     f"Successfully linked order {order_id} to position {position_id}",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
             else:
                 self.logger.warning(
                     f"Order {order_id} not found for position linking - may be external order",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
         except Exception:
             # Don't fail position update if order linking fails
             self.logger.exception(
                 f"Failed to link order {order_id} to position {position_id}: ",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
     # Error messages for trade validation (can remain the same)
     _INVALID_TRADE_SIDE_MSG = "Invalid trade side"
-    _INVALID_QUANTITY_MSG = "Invalid quantity" # Can remain
-    _INVALID_PRICE_MSG = "Invalid price" # Can remain
+    _INVALID_QUANTITY_MSG = "Invalid quantity"  # Can remain
+    _INVALID_PRICE_MSG = "Invalid price"  # Can remain
 
-    def _validate_trade_params( # This method can largely remain the same
+    def _process_trade_side(
+        self,
+        params: _UpdatePositionParams,
+        position_model: PositionModel,
+        current_quantity: Decimal,
+        avg_entry_price: Decimal,
+    ) -> Decimal | None:
+        """Process trade based on BUY or SELL side."""
+        if params.side.upper() == "BUY":
+            return self._process_buy_trade(params, position_model, current_quantity, avg_entry_price)
+        if params.side.upper() == "SELL":
+            return self._process_sell_trade(params, position_model, current_quantity, avg_entry_price)
+        self.logger.error(f"Invalid trade side: {params.side}", source_module=self._source_module)
+        return None
+
+    def _process_buy_trade(
+        self,
+        params: _UpdatePositionParams,
+        position_model: PositionModel,
+        current_quantity: Decimal,
+        avg_entry_price: Decimal,
+    ) -> Decimal:
+        """Process a BUY trade."""
+        # For buys, new AEP = (old_value + new_value) / (old_qty + new_qty)
+        new_total_cost = (avg_entry_price * current_quantity) + (params.price * params.quantity)
+        new_quantity = current_quantity + params.quantity
+
+        position_model.quantity = new_quantity
+        if new_quantity != Decimal(0):  # Avoid division by zero if position becomes zero
+            position_model.entry_price = new_total_cost / new_quantity
+        else:
+            position_model.entry_price = Decimal(0)  # Reset AEP if quantity is zero
+
+        return Decimal(0)  # No realized PnL on buys
+
+    def _process_sell_trade(
+        self,
+        params: _UpdatePositionParams,
+        position_model: PositionModel,
+        current_quantity: Decimal,
+        avg_entry_price: Decimal,
+    ) -> Decimal:
+        """Process a SELL trade."""
+        if current_quantity < params.quantity:
+            self.logger.warning(
+                f"Selling {params.quantity} of {params.trading_pair}, but current position is "
+                f"{current_quantity}. Position will go negative or this represents a short sale "
+                f"opening/extension.",
+                source_module=self._source_module,
+            )
+
+        # Realized PnL = (sell_price - avg_entry_price) * sell_quantity
+        realized_pnl_trade = (params.price - avg_entry_price) * params.quantity
+        position_model.realized_pnl = (position_model.realized_pnl or Decimal(0)) + realized_pnl_trade
+        new_quantity = current_quantity - params.quantity
+        position_model.quantity = new_quantity
+
+        if new_quantity == Decimal(0):
+            position_model.entry_price = Decimal(0)  # Reset AEP
+            position_model.is_active = False  # Close position if quantity is zero
+            position_model.closed_at = params.timestamp  # Record closing time
+
+        return realized_pnl_trade
+
+    def _validate_trade_params(  # This method can largely remain the same
         self,
         _trading_pair: str,
         side: str,
-        quantity: Decimal, # Already Decimal from _UpdatePositionParams
-        price: Decimal,    # Already Decimal from _UpdatePositionParams
+        quantity: Decimal,  # Already Decimal from _UpdatePositionParams
+        price: Decimal,  # Already Decimal from _UpdatePositionParams
     ) -> None:
         """Validate trade parameters."""
-        if side.upper() not in ("BUY", "SELL"): # Normalize side for comparison
+        if side.upper() not in ("BUY", "SELL"):  # Normalize side for comparison
             raise DataValidationError(self._INVALID_TRADE_SIDE_MSG)
         if quantity <= Decimal(0):
             raise DataValidationError(self._INVALID_QUANTITY_MSG)
@@ -401,20 +443,19 @@ class PositionManager:
         """Get existing active position from DB or create a new one if it doesn't exist."""
         position = await self.position_repository.get_position_by_pair(trading_pair)
         if position:
-            if not position.is_active: # Reactivating a closed position? Or new one?
-                 self.logger.warning(
-                    f"Position for {trading_pair} exists but is inactive. "
-                    "Treating as new for this context.",
+            if not position.is_active:  # Reactivating a closed position? Or new one?
+                self.logger.warning(
+                    f"Position for {trading_pair} exists but is inactive. Treating as new for this context.",
                     source_module=self._source_module,
                 )
-                 # This logic might need refinement: should we reactivate or error?
-                 # For now, assume we create a new one if the existing is inactive.
-                 # This implies `get_position_by_pair` should only return active ones, or this logic handles it.
-                 # If `get_position_by_pair` already filters by is_active=True, then this `if` is for a case
-                 # where an inactive one was somehow fetched, or if we want to prevent re-opening.
-                 # Let's assume get_position_by_pair returns only active.
-                 # So if `position` is None, we create.
-                 # Position is active and found.
+                # This logic might need refinement: should we reactivate or error?
+                # For now, assume we create a new one if the existing is inactive.
+                # This implies `get_position_by_pair` should only return active ones, or this logic handles it.
+                # If `get_position_by_pair` already filters by is_active=True, then this `if` is for a case
+                # where an inactive one was somehow fetched, or if we want to prevent re-opening.
+                # Let's assume get_position_by_pair returns only active.
+                # So if `position` is None, we create.
+                # Position is active and found.
             return position
 
         # Position not found or inactive, create a new one
@@ -423,8 +464,8 @@ class PositionManager:
             source_module=self._source_module,
         )
 
-        # Asset splitting logic - assuming it's from config or a utility
-        # base_asset, quote_asset = self.config_manager.split_trading_pair(trading_pair) # Example
+        # Asset splitting logic - would typically come from config or a utility
+        # Example: base_asset, quote_asset = self.config_manager.split_trading_pair(trading_pair)
 
         # For now, ID will be auto-generated by DB if not provided.
         # Side of the position is determined by the first trade that opens it.
@@ -434,12 +475,12 @@ class PositionManager:
         # The `side_if_creating` argument would be the intended position side (LONG/SHORT).
 
         new_pos_data = {
-            "id": uuid.uuid4(), # Generate new UUID for the position
+            "id": uuid.uuid4(),  # Generate new UUID for the position
             "trading_pair": trading_pair,
-            "side": side_if_creating.upper(), # "LONG" or "SHORT"
+            "side": side_if_creating.upper(),  # "LONG" or "SHORT"
             "quantity": Decimal(0),
             "entry_price": Decimal(0),
-            "current_price": Decimal(0), # Will be updated by market data
+            "current_price": Decimal(0),  # Will be updated by market data
             "realized_pnl": Decimal(0),
             "unrealized_pnl": Decimal(0),
             "opened_at": datetime.now(UTC),
@@ -470,13 +511,13 @@ class PositionManager:
             return position.realized_pnl if position and position.realized_pnl else Decimal(0)
 
         # For all pairs:
-        all_positions = await self.position_repository.find_all(filters={"is_active": True}) # Or all, including closed
+        all_positions = await self.position_repository.find_all(filters={"is_active": True})  # Or all, including closed
         return sum((pos.realized_pnl for pos in all_positions if pos.realized_pnl is not None), Decimal(0))
 
     # Internal data structures for trade record management
     # These are used to construct TradeInfo objects for position updates
     @dataclass
-    class _TradeRecordParams: # Can remain for internal use if TradeInfo objects are constructed
+    class _TradeRecordParams:  # Can remain for internal use if TradeInfo objects are constructed
         """Container for trade record parameters."""
 
         timestamp: datetime
@@ -531,9 +572,7 @@ class PositionManager:
         params = self._TradeRecordParams(**kwargs)
         return self._create_trade_record_from_params(params)
 
-    def _create_trade_record_from_params(
-        self,
-        params: _TradeRecordParams) -> TradeInfo:
+    def _create_trade_record_from_params(self, params: _TradeRecordParams) -> TradeInfo:
         """Create a TradeInfo object from TradeRecordParams.
 
         Args:
@@ -544,18 +583,10 @@ class PositionManager:
             TradeInfo: A new TradeInfo object with the provided parameters
         """
         # Ensure all numeric parameters are Decimal
-        quantity = (
-            params.quantity
-            if isinstance(params.quantity, Decimal)
-            else Decimal(str(params.quantity))
-        )
+        quantity = params.quantity if isinstance(params.quantity, Decimal) else Decimal(str(params.quantity))
         price = params.price if isinstance(params.price, Decimal) else Decimal(str(params.price))
         fee = params.fee if isinstance(params.fee, Decimal) else Decimal(str(params.fee))
-        commission = (
-            params.commission
-            if isinstance(params.commission, Decimal)
-            else Decimal(str(params.commission))
-        )
+        commission = params.commission if isinstance(params.commission, Decimal) else Decimal(str(params.commission))
 
         return TradeInfo(
             timestamp=params.timestamp,
@@ -566,4 +597,5 @@ class PositionManager:
             fee=fee,
             fee_currency=params.fee_currency,
             commission=commission,
-            commission_asset=params.commission_asset)
+            commission_asset=params.commission_asset,
+        )

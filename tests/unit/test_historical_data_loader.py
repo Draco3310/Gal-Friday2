@@ -1,6 +1,6 @@
 """Tests for HistoricalDataLoader provider selection and error handling."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -38,7 +38,7 @@ class MockProvider(HistoricalDataProvider):
 @pytest.mark.asyncio
 async def test_select_by_data_source() -> None:
     """Provider is chosen based on request.data_source."""
-    data = [HistoricalDataPoint(datetime.utcnow(), "BTC", 1, 1, 1, 1, 1)]
+    data = [HistoricalDataPoint(datetime.now(UTC), "BTC", 1, 1, 1, 1, 1)]
     p1 = MockProvider(["ETH"], [])
     p2 = MockProvider(["BTC"], data)
 
@@ -47,8 +47,8 @@ async def test_select_by_data_source() -> None:
 
     request = DataRequest(
         symbol="BTC",
-        start_date=datetime.utcnow(),
-        end_date=datetime.utcnow(),
+        start_date=datetime.now(UTC),
+        end_date=datetime.now(UTC),
         frequency="1m",
         data_source=DataSource.KRAKEN,
     )
@@ -64,7 +64,7 @@ async def test_select_by_data_source() -> None:
 @pytest.mark.asyncio
 async def test_auto_provider_selection() -> None:
     """First provider validating the symbol is used when data_source is None."""
-    data = [HistoricalDataPoint(datetime.utcnow(), "BTC", 1, 1, 1, 1, 1)]
+    data = [HistoricalDataPoint(datetime.now(UTC), "BTC", 1, 1, 1, 1, 1)]
     p1 = MockProvider(["ETH"], [])
     p2 = MockProvider(["BTC"], data)
 
@@ -73,8 +73,8 @@ async def test_auto_provider_selection() -> None:
 
     request = DataRequest(
         symbol="BTC",
-        start_date=datetime.utcnow(),
-        end_date=datetime.utcnow(),
+        start_date=datetime.now(UTC),
+        end_date=datetime.now(UTC),
         frequency="1m",
     )
 
@@ -95,8 +95,8 @@ async def test_missing_provider_raises() -> None:
 
     request = DataRequest(
         symbol="BTC",
-        start_date=datetime.utcnow(),
-        end_date=datetime.utcnow(),
+        start_date=datetime.now(UTC),
+        end_date=datetime.now(UTC),
         frequency="1m",
         data_source=DataSource.KRAKEN,
     )
@@ -116,8 +116,8 @@ async def test_fetch_error_wrapped() -> None:
 
     request = DataRequest(
         symbol="BTC",
-        start_date=datetime.utcnow(),
-        end_date=datetime.utcnow(),
+        start_date=datetime.now(UTC),
+        end_date=datetime.now(UTC),
         frequency="1m",
         data_source=DataSource.KRAKEN,
     )
@@ -126,4 +126,3 @@ async def test_fetch_error_wrapped() -> None:
         await loader._load_from_provider(request)
 
     assert loader.cache_stats["provider_requests"] == 1
-

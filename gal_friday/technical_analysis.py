@@ -5,37 +5,52 @@ with multiple implementations (production, stub, talib) that can be switched
 via configuration. It replaces the temporary talib_stubs.py file.
 """
 
-from abc import ABC, abstractmethod
 import logging
+import types
 from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 
+# Create module logger
+logger = logging.getLogger(__name__)
+
 # Optional imports with graceful fallback
+ta: types.ModuleType | None = None
+talib: types.ModuleType | None = None
+
 try:
-    import pandas_ta as ta
+    import pandas_ta as ta_module
+
+    ta = ta_module
     PANDAS_TA_AVAILABLE = True
 except ImportError:
     PANDAS_TA_AVAILABLE = False
     ta = None
 
 try:
-    import talib
+    import talib as talib_module
+
+    talib = talib_module
     TALIB_AVAILABLE = True
 except ImportError:
     TALIB_AVAILABLE = False
     talib = None
 
 
-class TechnicalAnalysisInterface(ABC):
-    """Abstract interface for technical analysis calculations."""
+class TechnicalAnalysisInterface:
+    """Base class for technical analysis calculations.
 
-    @abstractmethod
+    Provides common functionality and defines the interface that all technical
+    analysis implementations should follow.
+
+    This class implements the TechnicalAnalysisProtocol from the interfaces module.
+    """
+
     def rsi(self, close: np.ndarray[Any, Any], timeperiod: int = 14) -> np.ndarray[Any, Any]:
         """Calculate Relative Strength Index."""
+        raise NotImplementedError("Subclasses must implement rsi()")
 
-    @abstractmethod
     def bbands(
         self,
         close: np.ndarray[Any, Any],
@@ -49,16 +64,16 @@ class TechnicalAnalysisInterface(ABC):
         Returns:
             Tuple of (upper_band, middle_band, lower_band)
         """
+        raise NotImplementedError("Subclasses must implement bbands()")
 
-    @abstractmethod
     def ema(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate Exponential Moving Average."""
+        raise NotImplementedError("Subclasses must implement ema()")
 
-    @abstractmethod
     def sma(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate Simple Moving Average."""
+        raise NotImplementedError("Subclasses must implement sma()")
 
-    @abstractmethod
     def macd(
         self,
         close: np.ndarray[Any, Any],
@@ -71,8 +86,8 @@ class TechnicalAnalysisInterface(ABC):
         Returns:
             Tuple of (macd, signal, histogram)
         """
+        raise NotImplementedError("Subclasses must implement macd()")
 
-    @abstractmethod
     def atr(
         self,
         high: np.ndarray[Any, Any],
@@ -81,6 +96,7 @@ class TechnicalAnalysisInterface(ABC):
         timeperiod: int = 14,
     ) -> np.ndarray[Any, Any]:
         """Calculate Average True Range."""
+        raise NotImplementedError("Subclasses must implement atr()")
 
 
 class PandasTAImplementation(TechnicalAnalysisInterface):
@@ -93,8 +109,10 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         self.logger = logging.getLogger(__name__)
 
     def _validate_and_convert(
-        self, data: np.ndarray[Any, Any] | pd.Series[Any] | list[float], min_length: int = 1,
-    ) -> pd.Series[Any]:
+        self,
+        data: "np.ndarray[Any, Any] | pd.Series[Any] | list[float]",
+        min_length: int = 1,
+    ) -> "pd.Series[Any]":
         """Validate and convert input data to pandas Series.
 
         Args:
@@ -128,6 +146,11 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         """Calculate Relative Strength Index using pandas-ta."""
         close_series = self._validate_and_convert(close, timeperiod + 1)
 
+        if ta is None:
+            # Fallback implementation if pandas-ta is not available
+            logger.warning("pandas-ta not available, using simple RSI fallback")
+            return np.full(len(close_series), 50.0, dtype=np.float64)
+
         result = ta.rsi(close_series, length=timeperiod)
 
         # Fill initial NaN values with neutral RSI value
@@ -147,9 +170,9 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         close_series = self._validate_and_convert(close, timeperiod)
 
         # pandas-ta uses 'std' parameter
-        bbands_df = ta.bbands(close_series, length=timeperiod, std=nbdevup)
+        bbands_df = None if ta is None else ta.bbands(close_series, length=timeperiod, std=nbdevup)
 
-        if bbands_df is None or bbands_df.empty:
+        if ta is None or bbands_df is None or bbands_df.empty:
             # Fallback calculation
             middle = close_series.rolling(window=timeperiod).mean()
             std = close_series.rolling(window=timeperiod).std()
@@ -180,6 +203,11 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         """Calculate Exponential Moving Average using pandas-ta."""
         close_series = self._validate_and_convert(close, 1)
 
+        if ta is None:
+            # Fallback implementation if pandas-ta is not available
+            logger.warning("pandas-ta not available, using simple EMA fallback")
+            return close_series.ewm(span=timeperiod).mean().values.astype(np.float64)
+
         result = ta.ema(close_series, length=timeperiod)
 
         # Fill initial NaN values with the first available close price
@@ -190,6 +218,11 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
     def sma(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate Simple Moving Average using pandas-ta."""
         close_series = self._validate_and_convert(close, timeperiod)
+
+        if ta is None:
+            # Fallback implementation if pandas-ta is not available
+            logger.warning("pandas-ta not available, using simple SMA fallback")
+            return close_series.rolling(window=timeperiod).mean().bfill().values.astype(np.float64)
 
         result = ta.sma(close_series, length=timeperiod)
 
@@ -208,19 +241,20 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         """Calculate MACD using pandas-ta."""
         close_series = self._validate_and_convert(close, slowperiod)
 
-        macd_df = ta.macd(close_series, fast=fastperiod, slow=slowperiod, signal=signalperiod)
+        macd_df = None if ta is None else ta.macd(close_series, fast=fastperiod, slow=slowperiod, signal=signalperiod)
 
-        if macd_df is None or macd_df.empty:
-            # Fallback calculation
-            ema_fast = ta.ema(close_series, length=fastperiod)
-            ema_slow = ta.ema(close_series, length=slowperiod)
+        if ta is None or macd_df is None or macd_df.empty:
+            # Fallback calculation using pandas EMA
+            ema_fast = close_series.ewm(span=fastperiod).mean()
+            ema_slow = close_series.ewm(span=slowperiod).mean()
             macd_line = ema_fast - ema_slow
-            signal_line = ta.ema(macd_line, length=signalperiod)
+            signal_line = macd_line.ewm(span=signalperiod).mean()
             histogram = macd_line - signal_line
         else:
             # Extract columns - pandas-ta returns MACD_12_26_9, MACDh_12_26_9, MACDs_12_26_9
             macd_col = next(
-                col for col in macd_df.columns
+                col
+                for col in macd_df.columns
                 if col.startswith("MACD_") and not col.endswith("h") and not col.endswith("s")
             )
             signal_col = next(col for col in macd_df.columns if col.endswith("s"))
@@ -235,7 +269,11 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         signal_line = signal_line.fillna(0.0)
         histogram = histogram.fillna(0.0)
 
-        return (macd_line.values, signal_line.values, histogram.values)
+        return (
+            np.asarray(macd_line.values, dtype=np.float64),
+            np.asarray(signal_line.values, dtype=np.float64),
+            np.asarray(histogram.values, dtype=np.float64),
+        )
 
     def atr(
         self,
@@ -249,10 +287,18 @@ class PandasTAImplementation(TechnicalAnalysisInterface):
         low_series = self._validate_and_convert(low, timeperiod)
         close_series = self._validate_and_convert(close, timeperiod)
 
-        result = ta.atr(high=high_series, low=low_series, close=close_series, length=timeperiod)
-
-        # Fill initial NaN values with 0
-        result = result.fillna(0.0)
+        if ta is None:
+            # Fallback ATR calculation
+            logger.warning("pandas-ta not available, using simple ATR fallback")
+            tr1 = high_series - low_series
+            tr2 = abs(high_series - close_series.shift(1))
+            tr3 = abs(low_series - close_series.shift(1))
+            true_range = pd.DataFrame({"tr1": tr1, "tr2": tr2, "tr3": tr3}).max(axis=1)
+            result = true_range.rolling(window=timeperiod).mean().fillna(0.0)
+        else:
+            result = ta.atr(high=high_series, low=low_series, close=close_series, length=timeperiod)
+            # Fill initial NaN values with 0
+            result = result.fillna(0.0)
 
         return np.asarray(result.values, dtype=np.float64)
 
@@ -264,8 +310,7 @@ class TALibImplementation(TechnicalAnalysisInterface):
         """Initialize the instance."""
         if not TALIB_AVAILABLE:
             raise ImportError(
-                "TA-Lib library not installed. "
-                "See https://github.com/mrjbq7/ta-lib for installation instructions.",
+                "TA-Lib library not installed. See https://github.com/mrjbq7/ta-lib for installation instructions.",
             )
         self.logger = logging.getLogger(__name__)
 
@@ -294,6 +339,10 @@ class TALibImplementation(TechnicalAnalysisInterface):
     def rsi(self, close: np.ndarray[Any, Any], timeperiod: int = 14) -> np.ndarray[Any, Any]:
         """Calculate RSI using TA-Lib."""
         close = self._validate_input(close, timeperiod + 1)
+        if talib is None:
+            # Fallback if TA-Lib is not available
+            logger.warning("TA-Lib not available, using neutral RSI values")
+            return np.full(len(close), 50.0, dtype=np.float64)
         result = talib.RSI(close, timeperiod=timeperiod)
         return np.asarray(result, dtype=np.float64)
 
@@ -307,9 +356,21 @@ class TALibImplementation(TechnicalAnalysisInterface):
     ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using TA-Lib."""
         close = self._validate_input(close, timeperiod)
-        upper, middle, lower = talib.BBANDS(
-            close, timeperiod=timeperiod, nbdevup=nbdevup, nbdevdn=nbdevdn, matype=matype,
-        )
+        if talib is None:
+            # Fallback if TA-Lib is not available
+            logger.warning("TA-Lib not available, using simple BBANDS fallback")
+            middle = np.convolve(close, np.ones(timeperiod) / timeperiod, mode="same")
+            std = np.sqrt(np.convolve((close - middle) ** 2, np.ones(timeperiod) / timeperiod, mode="same"))
+            upper = middle + (std * nbdevup)
+            lower = middle - (std * nbdevdn)
+        else:
+            upper, middle, lower = talib.BBANDS(
+                close,
+                timeperiod=timeperiod,
+                nbdevup=nbdevup,
+                nbdevdn=nbdevdn,
+                matype=matype,
+            )
         return (
             np.asarray(upper, dtype=np.float64),
             np.asarray(middle, dtype=np.float64),
@@ -319,12 +380,24 @@ class TALibImplementation(TechnicalAnalysisInterface):
     def ema(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate EMA using TA-Lib."""
         close = self._validate_input(close)
+        if talib is None:
+            logger.warning("TA-Lib not available, using simple EMA fallback")
+            # Simple EMA fallback
+            alpha = 2.0 / (timeperiod + 1)
+            result = np.zeros_like(close)
+            result[0] = close[0]
+            for i in range(1, len(close)):
+                result[i] = alpha * close[i] + (1 - alpha) * result[i - 1]
+            return result.astype(np.float64)
         result = talib.EMA(close, timeperiod=timeperiod)
         return np.asarray(result, dtype=np.float64)
 
     def sma(self, close: np.ndarray[Any, Any], timeperiod: int = 30) -> np.ndarray[Any, Any]:
         """Calculate SMA using TA-Lib."""
         close = self._validate_input(close, timeperiod)
+        if talib is None:
+            logger.warning("TA-Lib not available, using simple SMA fallback")
+            return np.convolve(close, np.ones(timeperiod) / timeperiod, mode="same").astype(np.float64)
         result = talib.SMA(close, timeperiod=timeperiod)
         return np.asarray(result, dtype=np.float64)
 
@@ -337,9 +410,17 @@ class TALibImplementation(TechnicalAnalysisInterface):
     ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using TA-Lib."""
         close = self._validate_input(close, slowperiod)
-        macd, signal, hist = talib.MACD(
-            close, fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod,
-        )
+        if talib is None:
+            logger.warning("TA-Lib not available, using simple MACD fallback")
+            # Simple MACD fallback
+            macd = signal = hist = np.zeros_like(close)
+        else:
+            macd, signal, hist = talib.MACD(
+                close,
+                fastperiod=fastperiod,
+                slowperiod=slowperiod,
+                signalperiod=signalperiod,
+            )
         return (
             np.asarray(macd, dtype=np.float64),
             np.asarray(signal, dtype=np.float64),
@@ -357,7 +438,13 @@ class TALibImplementation(TechnicalAnalysisInterface):
         high = self._validate_input(high, timeperiod)
         low = self._validate_input(low, timeperiod)
         close = self._validate_input(close, timeperiod)
-        result = talib.ATR(high, low, close, timeperiod=timeperiod)
+        if talib is None:
+            logger.warning("TA-Lib not available, using simple ATR fallback")
+            # Simple ATR fallback
+            tr = np.maximum(high - low, np.maximum(np.abs(high - np.roll(close, 1)), np.abs(low - np.roll(close, 1))))
+            result = np.convolve(tr, np.ones(timeperiod) / timeperiod, mode="same")
+        else:
+            result = talib.ATR(high, low, close, timeperiod=timeperiod)
         return np.asarray(result, dtype=np.float64)
 
 
@@ -381,11 +468,7 @@ class StubImplementation(TechnicalAnalysisInterface):
         matype: int = 0,
     ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Return simple bands based on close price."""
-        if len(close) < timeperiod:
-            middle = close
-        else:
-            # Simple moving average for middle band
-            middle = np.convolve(close, np.ones(timeperiod)/timeperiod, mode="same")
+        middle = close if len(close) < timeperiod else np.convolve(close, np.ones(timeperiod) / timeperiod, mode="same")
 
         # Create simple bands
         offset = 0.02 * middle  # 2% bands
@@ -404,7 +487,7 @@ class StubImplementation(TechnicalAnalysisInterface):
         result[0] = close[0]
 
         for i in range(1, len(close)):
-            result[i] = alpha * close[i] + (1 - alpha) * result[i-1]
+            result[i] = alpha * close[i] + (1 - alpha) * result[i - 1]
 
         return result
 
@@ -412,7 +495,7 @@ class StubImplementation(TechnicalAnalysisInterface):
         """Return simple moving average for testing."""
         if len(close) < timeperiod:
             return close
-        return np.convolve(close, np.ones(timeperiod)/timeperiod, mode="same")
+        return np.convolve(close, np.ones(timeperiod) / timeperiod, mode="same")
 
     def macd(
         self,
@@ -439,7 +522,7 @@ class StubImplementation(TechnicalAnalysisInterface):
             return np.asarray(true_range, dtype=np.float64)
 
         # Simple moving average of range
-        return np.convolve(true_range, np.ones(timeperiod)/timeperiod, mode="same")
+        return np.convolve(true_range, np.ones(timeperiod) / timeperiod, mode="same")
 
 
 def create_technical_analysis_service(config: dict[str, Any]) -> TechnicalAnalysisInterface:
@@ -463,27 +546,32 @@ def create_technical_analysis_service(config: dict[str, Any]) -> TechnicalAnalys
     if library == "talib":
         if TALIB_AVAILABLE:
             return TALibImplementation()
-        logging.warning("TA-Lib requested but not available. Falling back to pandas-ta.")
+        logger.warning("TA-Lib requested but not available. Falling back to pandas-ta.")
 
     if PANDAS_TA_AVAILABLE:
         return PandasTAImplementation()
-    logging.error("No technical analysis library available. Using stub implementation.")
+    logger.error("No technical analysis library available. Using stub implementation.")
     return StubImplementation()
 
 
 # Backward compatibility layer - mimics the old talib_stubs interface
-_default_service = None
+class _ServiceHolder:
+    """Holder for singleton service instance."""
+
+    instance: TechnicalAnalysisInterface | None = None
+
 
 def _get_service() -> TechnicalAnalysisInterface:
     """Get the default service instance."""
-    global _default_service
-    if _default_service is None:
+    if _ServiceHolder.instance is None:
         # Default to production mode with pandas-ta
-        _default_service = create_technical_analysis_service({
-            "use_production_indicators": True,
-            "indicator_library": "pandas_ta",
-        })
-    return _default_service
+        _ServiceHolder.instance = create_technical_analysis_service(
+            {
+                "use_production_indicators": True,
+                "indicator_library": "pandas_ta",
+            },
+        )
+    return _ServiceHolder.instance
 
 
 # Wrapper functions for backward compatibility
@@ -497,7 +585,8 @@ def bbands(
     timeperiod: int = 20,
     nbdevup: float = 2.0,
     nbdevdn: float = 2.0,
-    matype: int = 0) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    matype: int = 0,
+) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
     """Calculate Bollinger Bands."""
     return _get_service().bbands(close, timeperiod, nbdevup, nbdevdn, matype)
 
@@ -516,7 +605,8 @@ def macd(
     close: np.ndarray[Any, Any],
     fastperiod: int = 12,
     slowperiod: int = 26,
-    signalperiod: int = 9) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    signalperiod: int = 9,
+) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
     """Calculate Moving Average Convergence/Divergence."""
     return _get_service().macd(close, fastperiod, slowperiod, signalperiod)
 
@@ -525,6 +615,7 @@ def atr(
     high: np.ndarray[Any, Any],
     low: np.ndarray[Any, Any],
     close: np.ndarray[Any, Any],
-    timeperiod: int = 14) -> np.ndarray[Any, Any]:
+    timeperiod: int = 14,
+) -> np.ndarray[Any, Any]:
     """Calculate Average True Range."""
     return _get_service().atr(high, low, close, timeperiod)

@@ -5,6 +5,7 @@ Revises: 6fe597dcab71
 Create Date: 2025-05-28 21:13:51.070520
 
 """
+
 from collections.abc import Sequence
 from typing import Any
 

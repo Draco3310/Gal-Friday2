@@ -1,0 +1,416 @@
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/predictors/lstm_predictor.py: note: In member "_make_prediction" of class "LSTMPredictor":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/predictors/lstm_predictor.py:401:21: error:
+Statement is unreachable  [unreachable]
+                        prediction = model_asset(input_tensor)
+                        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/interfaces/strategy_interface.py: note: In member "calculate_performance_metrics" of class "StatisticalAnalyzer":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/interfaces/strategy_interface.py:261:9: error:
+Statement is unreachable  [unreachable]
+            rolling_max = cumulative_returns.expanding().max()
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/core/registry.py: note: In member "_load_lazy_component" of class "ComponentRegistry":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/core/registry.py:127:53: error:
+"Callable[..., Any]" object is not iterable  [misc]
+    ...             factory_module_path, factory_name = self._factories[name]
+                                                        ^~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/strategy_arbitrator.py: note: In member "_execute_single_validation_rule" of class "ConfigurableProbabilityValidator":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/strategy_arbitrator.py:502:13: error:
+Returning Any from function declared to return "ValidationResult | None"
+[no-any-return]
+                return result
+                ^~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/simulated_market_price_service.py: note: In member "__init__" of class "SimulatedMarketPriceService":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/simulated_market_price_service.py:1334:13: error:
+Cannot determine type of "_use_enhanced_features"  [has-type]
+                self._use_enhanced_features = False
+                ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/simulated_market_price_service.py:1335:13: error:
+Cannot determine type of "_enterprise_config_manager"  [has-type]
+                self._enterprise_config_manager = None
+                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/simulated_market_price_service.py:1336:13: error:
+Cannot determine type of "_advanced_price_generator"  [has-type]
+                self._advanced_price_generator = None
+                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/simulated_market_price_service.py:1337:13: error:
+Cannot determine type of "_historical_data_generator"  [has-type]
+                self._historical_data_generator = None
+                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/core/service_registration.py: note: In member "discover_factories" of class "ServiceDiscovery":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/core/service_registration.py:482:20: error:
+Incompatible return value type (got "list[FunctionType]", expected
+"list[Callable[..., Any]]")  [return-value]
+                return factories
+                       ^~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/core/service_registration.py:482:20: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/core/service_registration.py:482:20: note: Consider using "Sequence" instead, which is covariant
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/core/service_registration.py:482:20: note: Perhaps you need a type annotation for "factories"? Suggestion: "list[Callable[..., Any]]"
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/ml_prediction_pipeline.py: note: In member "train_model" of class "ModelTrainer":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/ml_prediction_pipeline.py:406:17: error:
+"ModelTrainer" has no attribute "_raise_model_validation_error"  [attr-defined]
+                    self._raise_model_validation_error(
+                    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/local_file_provider.py: note: In member "fetch_data" of class "LocalFileDataProvider":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/local_file_provider.py:31:5: error:
+Return type
+"Coroutine[Any, Any, list[gal_friday.core.data_request.HistoricalDataPoint]]" of
+"fetch_data" incompatible with return type
+"Coroutine[Any, Any, list[gal_friday.simulated_market_price_service.HistoricalDataPoint]]"
+in supertype "HistoricalDataProviderProtocol"  [override]
+        async def fetch_data(self, request: "DataRequest") -> list["Histor...
+        ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/local_file_provider.py:31:32: error:
+Argument 1 of "fetch_data" is incompatible with supertype
+"HistoricalDataProviderProtocol"; supertype defines the argument type as
+"DataRequest"  [override]
+        async def fetch_data(self, request: "DataRequest") -> list["Histor...
+                                   ^~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/local_file_provider.py:31:32: note: This violates the Liskov substitution principle
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/local_file_provider.py:31:32: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#incompatible-overrides
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/database_provider.py: note: In member "fetch_data" of class "DatabaseDataProvider":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/database_provider.py:133:5: error:
+Return type
+"Coroutine[Any, Any, list[gal_friday.core.data_request.HistoricalDataPoint]]" of
+"fetch_data" incompatible with return type
+"Coroutine[Any, Any, list[gal_friday.simulated_market_price_service.HistoricalDataPoint]]"
+in supertype "HistoricalDataProviderProtocol"  [override]
+        async def fetch_data(self, request: "DataRequest") -> list["Histor...
+        ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/database_provider.py:133:32: error:
+Argument 1 of "fetch_data" is incompatible with supertype
+"HistoricalDataProviderProtocol"; supertype defines the argument type as
+"DataRequest"  [override]
+        async def fetch_data(self, request: "DataRequest") -> list["Histor...
+                                   ^~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/database_provider.py:133:32: note: This violates the Liskov substitution principle
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/database_provider.py:133:32: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#incompatible-overrides
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/api_provider.py: note: In member "fetch_data" of class "APIDataProvider":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/api_provider.py:178:5: error:
+Return type
+"Coroutine[Any, Any, list[gal_friday.core.data_request.HistoricalDataPoint]]" of
+"fetch_data" incompatible with return type
+"Coroutine[Any, Any, list[gal_friday.simulated_market_price_service.HistoricalDataPoint]]"
+in supertype "HistoricalDataProviderProtocol"  [override]
+        async def fetch_data(self, request: "DataRequest") -> list["Histor...
+        ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/api_provider.py:178:32: error:
+Argument 1 of "fetch_data" is incompatible with supertype
+"HistoricalDataProviderProtocol"; supertype defines the argument type as
+"DataRequest"  [override]
+        async def fetch_data(self, request: "DataRequest") -> list["Histor...
+                                   ^~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/api_provider.py:178:32: note: This violates the Liskov substitution principle
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/providers/api_provider.py:178:32: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#incompatible-overrides
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py:627: error:
+Unused "type: ignore" comment  [unused-ignore]
+                if lifecycle_data is None:  # type: ignore[unreachable]
+                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py: note: In member "_load_or_get_order_state" of class "OrderStateTracker":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py:629:43: error:
+Incompatible types in assignment (expression has type
+"OrderLifecycleData | None", target has type "OrderLifecycleData")  [assignment]
+                self.order_states[order_id] = lifecycle_data
+                                              ^~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py: note: At top level:
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py:633: error:
+Unused "type: ignore" comment  [unused-ignore]
+                if lifecycle_data is None:  # type: ignore[unreachable]
+                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py: note: In member "_load_or_get_order_state" of class "OrderStateTracker":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py:634:17: error:
+Statement is unreachable  [unreachable]
+                    self._raise_order_state_unexpectedly_null(order_id)
+                    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py:635:16: error:
+Incompatible return value type (got "OrderLifecycleData | None", expected
+"OrderLifecycleData")  [return-value]
+            return lifecycle_data
+                   ^~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py: note: At top level:
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py:662: error:
+Unused "type: ignore" comment  [unused-ignore]
+            if lifecycle_data is None:  # type: ignore[unreachable]
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py: note: In member "_update_lifecycle_data" of class "OrderStateTracker":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py:663:13: error:
+Statement is unreachable  [unreachable]
+                self._raise_lifecycle_data_unexpectedly_null(state_event.o...
+                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~...
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py: note: In member "_evaluate_take_profit_order" of class "ConfigurableShutdownHandler":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py:1265:29: error:
+Redundant cast to "bool"  [redundant-cast]
+                        return (cast(bool, result[0]), result[1])
+                                ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution_handler.py:1270:25: error:
+Redundant cast to "bool"  [redundant-cast]
+                    return (cast(bool, time_result[0]), time_result[1])
+                            ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/model_lifecycle/retraining_pipeline.py:25:5: error:
+Cannot assign to a type  [misc]
+        ModelStage = None  # type: ignore[assignment]
+        ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/model_lifecycle/retraining_pipeline.py:25:5: note: Error code "misc" not covered by "type: ignore" comment
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/model_lifecycle/retraining_pipeline.py:411: error:
+Unused "type: ignore" comment  [unused-ignore]
+            if ModelStage is None:  # type: ignore[unreachable]
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/model_lifecycle/retraining_pipeline.py: note: In member "_check_all_models" of class "RetrainingPipeline":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/model_lifecycle/retraining_pipeline.py:412:13: error:
+Statement is unreachable  [unreachable]
+                self.logger.warning("ModelStage not available, skipping dr...
+                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~...
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/model_lifecycle/experiment_manager.py: note: In member "_complete_experiment" of class "ExperimentManager":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/model_lifecycle/experiment_manager.py:1501:41: error:
+"ExperimentInfo" has no attribute "name"  [attr-defined]
+                    f"Experiment completed: {config.name}",
+                                            ^~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/model_lifecycle/experiment_manager.py: note: In member "get_experiment_status" of class "ExperimentManager":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/model_lifecycle/experiment_manager.py:1614:21: error:
+"ExperimentInfo" has no attribute "name"  [attr-defined]
+                "name": config.name,
+                        ^~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/model_lifecycle/experiment_manager.py:1640:43: error:
+"ExperimentInfo" has no attribute "confidence_level"  [attr-defined]
+                    "confidence_level": float(config.confidence_level or D...
+                                              ^~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/prediction_service.py: note: In member "_initialize_single_predictor" of class "PredictionService":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/prediction_service.py:339:30: error:
+Unexpected keyword argument "model_path" for "PredictorProtocol"  [call-arg]
+            predictor_instance = config.predictor_class(
+                                 ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/prediction_service.py:339:30: error:
+Unexpected keyword argument "model_id" for "PredictorProtocol"  [call-arg]
+            predictor_instance = config.predictor_class(
+                                 ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/prediction_service.py:339:30: error:
+Unexpected keyword argument "config" for "PredictorProtocol"  [call-arg]
+            predictor_instance = config.predictor_class(
+                                 ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py: note: In member "_standardize_raw_outputs" of class "FeatureOutputHandler":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py:292:43: error:
+Cannot call function of unknown type  [operator]
+                    return cast(pd.DataFrame, converter(raw_outputs))
+                                              ^~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py:295:16: error:
+Redundant cast to "DataFrame"  [redundant-cast]
+            return cast(pd.DataFrame, self._convert_scalar(raw_outputs))
+                   ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py: note: In member "_calculate_obv" of class "AdvancedFeatureExtractor":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py:865:28: error:
+Unsupported operand types for > ("Series[type[object]]" and "int")  [operator]
+                price_change > 0,
+                               ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py:867:37: error:
+Unsupported operand types for < ("Series[type[object]]" and "int")  [operator]
+                np.where(price_change < 0, -data["volume"], 0),
+                                        ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py: note: In member "_calculate_effective_spread" of class "AdvancedFeatureExtractor":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py:908:17: error:
+"AdvancedFeatureExtractor" has no attribute "_raise_import_error"
+[attr-defined]
+                    self._raise_import_error("Enhanced features not availa...
+                    ^~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py: note: At top level:
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py:3243: error: Unused
+"type: ignore" comment  [unused-ignore]
+            if pd.isna(vwap):  # type: ignore[unreachable]
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py: note: In member "_calculate_single_bar_vwap" of class "FeatureEngine":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/feature_engine.py:3244:13: error:
+Statement is unreachable  [unreachable]
+                vwap = FeatureEngine._get_fallback_price(
+                ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring_service.py: note: In member "_collect_portfolio_metrics" of class "MetricsCollectionSystem":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring_service.py:546:17: error:
+"MetricsCollectionSystem" has no attribute "_raise_value_error"  [attr-defined]
+                    self._raise_value_error("Portfolio manager not initial...
+                    ^~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring_service.py: note: In member "_write_to_influxdb" of class "MetricsCollectionSystem":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring_service.py:850:21: error:
+"MetricsCollectionSystem" has no attribute "_raise_metrics_collection_error";
+maybe "_metrics_collection_loop"?  [attr-defined]
+                        self._raise_metrics_collection_error("InfluxDB wri...
+                        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring_service.py: note: In member "_initialize_influxdb_client" of class "MetricsCollectionSystem":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring_service.py:1013:21: error:
+"MetricsCollectionSystem" has no attribute "_raise_metrics_collection_error";
+maybe "_metrics_collection_loop"?  [attr-defined]
+                        self._raise_metrics_collection_error(f"InfluxDB he...
+                        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring_service.py: note: In member "_create_postgresql_tables" of class "MetricsCollectionSystem":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring_service.py:1088:17: error:
+"MetricsCollectionSystem" has no attribute "_raise_runtime_error"
+[attr-defined]
+                    self._raise_runtime_error("PostgreSQL pool not initial...
+                    ^~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring_service.py: note: In member "_initiate_position_reduction" of class "MonitoringService":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring_service.py:2806:30: error:
+Argument "trading_pair" to "ReducePositionCommand" has incompatible type
+"Any | None"; expected "str"  [arg-type]
+                    trading_pair=trading_pair,
+                                 ^~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py: note: In member "dynamic_risk_volatility_feature_key" of class "RetryConditionEvaluator":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py:35:16: error:
+Incompatible return value type (got "Any | None", expected "str")
+[return-value]
+            return getattr(self.risk_manager, "_dynamic_risk_volatility_fe...
+                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~...
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py: note: In member "normal_volatility" of class "RetryConditionEvaluator":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py:45:16: error:
+Incompatible return value type (got "Any | dict[Any, Any]", expected "float")
+[return-value]
+            return getattr(self.risk_manager, "_normal_volatility", {})
+                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py: note: In member "max_total_drawdown_pct" of class "RetryConditionEvaluator":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py:57:70: error:
+Argument 3 to "getattr" has incompatible type "Decimal"; expected "float"
+[arg-type]
+    ...getattr(self.risk_manager, "_max_total_drawdown_pct", Decimal("0.15"))
+                                                             ^~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py: note: In member "max_total_exposure_pct" of class "RetryConditionEvaluator":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py:62:70: error:
+Argument 3 to "getattr" has incompatible type "Decimal"; expected "float"
+[arg-type]
+    ...getattr(self.risk_manager, "_max_total_exposure_pct", Decimal("0.95"))
+                                                             ^~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py: note: In member "handle" of class "VolatilityEvaluator":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py:168:26: error:
+"float" has no attribute "get"  [attr-defined]
+                normal_vol = self.normal_volatility.get(original_event.tra...
+                             ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py: note: In member "handle" of class "DrawdownEvaluator":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py:229:80: error:
+Unsupported operand types for * ("float" and "Decimal")  [operator]
+    ...current_drawdown < self.max_total_drawdown_pct * Decimal("0.8"))  # 80...
+                                                        ^~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py:233:80: error:
+Unsupported operand types for * ("float" and "Decimal")  [operator]
+    ...current_drawdown < self.max_total_drawdown_pct * Decimal("0.9"))  # 90...
+                                                        ^~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py: note: In member "handle" of class "ExposureEvaluator":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk/retry_condition_evaluators.py:262:76: error:
+Unsupported operand types for * ("float" and "Decimal")  [operator]
+    ...ol, exposure_pct < self.max_total_exposure_pct * Decimal("0.8"))  # 80...
+                                                        ^~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py: note: In member "_get_existing_position" of class "RiskManager":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py:2351:13: error:
+Returning Any from function declared to return "dict[str, Any] | None"
+[no-any-return]
+                return portfolio_state["positions"].get(trading_pair)
+                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py: note: In member "_update_risk_metrics_from_execution" of class "RiskManager":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py:2653:77: error: Cannot
+determine type of "_max_drawdown"  [has-type]
+    ...sattr(self, "_max_drawdown") or current_drawdown > self._max_drawdown:
+                                                          ^~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py: note: In member "_publish_metrics_event" of class "RiskManager":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py:3170:9: error:
+Unsupported target for indexed assignment ("Collection[str]")  [index]
+            risk_metrics_event["metrics"]["exposure_by_symbol"] = {
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py:3175:9: error:
+Unsupported target for indexed assignment ("Collection[str]")  [index]
+            risk_metrics_event["metrics"]["risk_per_trade_pct"] = float(se...
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py:3176:9: error:
+Unsupported target for indexed assignment ("Collection[str]")  [index]
+            risk_metrics_event["metrics"]["daily_pnl"] = float(self._risk_...
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py:3177:9: error:
+Unsupported target for indexed assignment ("Collection[str]")  [index]
+            risk_metrics_event["metrics"]["total_realized_pnl"] = float(se...
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py: note: At top level:
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py:4377: error: Unused
+"type: ignore" comment  [unused-ignore]
+                return None, None, None  # type: ignore[unreachable]
+                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py: note: In member "_stage3_position_sizing_and_portfolio_checks" of class "RiskManager":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py:4440:40: error:
+Argument "initial_calculated_qty" to "PositionScalingContext" has incompatible
+type "Decimal | None"; expected "Decimal"  [arg-type]
+                    initial_calculated_qty=initial_calculated_qty,
+                                           ^~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py:4454:46: error:
+Argument 1 to "float" has incompatible type "Decimal | None"; expected
+"str | Buffer | SupportsFloat | SupportsIndex"  [arg-type]
+                            "initial_qty": float(initial_calculated_qty),
+                                                 ^~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/risk_manager.py:4472:53: error:
+Argument 1 to "float" has incompatible type "Decimal | None"; expected
+"str | Buffer | SupportsFloat | SupportsIndex"  [arg-type]
+    ...                 "initial_calculated_qty": float(initial_calculated_qt...
+                                                        ^~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/portfolio/reconciliation_service.py: note: In member "perform_configurable_reconciliation" of class "ReconciliationService":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/portfolio/reconciliation_service.py:810:17: error:
+"ReconciliationService" has no attribute "_raise_value_error"  [attr-defined]
+                    self._raise_value_error(
+                    ^~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/portfolio/reconciliation_service.py: note: In member "reconcile_positions" of class "ReconciliationService":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/portfolio/reconciliation_service.py:1012:72: error:
+"PortfolioManager" has no attribute "get_all_db_positions"  [attr-defined]
+    ...ositions_models: Sequence[PositionModel] = await self.portfolio_manage...
+                                                        ^~~~~~~~~~~~~~~~~~~~~...
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/backtesting_engine.py: note: In member "load_data" of class "DatabaseDataProviderAdapter":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/backtesting_engine.py:3556:23: error:
+"HistoricalDataProviderProtocol" has no attribute "initialize"  [attr-defined]
+                    await self._provider.initialize()
+                          ^~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/backtesting_engine.py:3568:65: error:
+Argument 1 to "fetch_data" of "HistoricalDataProviderProtocol" has incompatible
+type "gal_friday.core.data_request.DataRequest"; expected
+"gal_friday.simulated_market_price_service.DataRequest"  [arg-type]
+    ...     historical_points = await self._provider.fetch_data(data_request)
+                                                                ^~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/backtesting_engine.py: note: In member "cleanup" of class "DatabaseDataProviderAdapter":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/backtesting_engine.py:3599:19: error:
+"HistoricalDataProviderProtocol" has no attribute "cleanup"  [attr-defined]
+                await self._provider.cleanup()
+                      ^~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/backtesting_engine.py: note: In member "load_data" of class "APIDataProviderAdapter":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/backtesting_engine.py:3630:23: error:
+"HistoricalDataProviderProtocol" has no attribute "initialize"  [attr-defined]
+                    await self._provider.initialize()
+                          ^~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/backtesting_engine.py:3642:65: error:
+Argument 1 to "fetch_data" of "HistoricalDataProviderProtocol" has incompatible
+type "gal_friday.core.data_request.DataRequest"; expected
+"gal_friday.simulated_market_price_service.DataRequest"  [arg-type]
+    ...     historical_points = await self._provider.fetch_data(data_request)
+                                                                ^~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/backtesting_engine.py: note: In member "cleanup" of class "APIDataProviderAdapter":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/backtesting_engine.py:3673:19: error:
+"HistoricalDataProviderProtocol" has no attribute "cleanup"  [attr-defined]
+                await self._provider.cleanup()
+                      ^~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring/dashboard_backend.py: note: In member "__init__" of class "MetricsCollector":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/monitoring/dashboard_backend.py:97: error:
+Missing type parameters for generic type "Redis"  [type-arg]
+        def __init__(self, redis_client: redis.Redis | None = None) -> Non...
+        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution/kraken.py: note: In member "__init__" of class "KrakenExecutionHandler":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution/kraken.py:112:9: error: Too
+many arguments for "__init__" of "object"  [call-arg]
+            super().__init__(exchange_spec, **kwargs)
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution/kraken.py: note: In class "KrakenExecutionHandler":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution/kraken.py:148:5: error:
+Cannot override writeable attribute with read-only property  [override]
+        def exchange_id(self) -> str:
+        ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/execution/kraken.py:153:5: error:
+Cannot override writeable attribute with read-only property  [override]
+        def exchange_spec(self) -> ExchangeSpecification:
+        ^
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/cli_service.py: note: In member "_run_main_loop" of class "CLIServiceRunner":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/cli_service.py:1591:41: error:
+"CLIService" has no attribute "is_running"; maybe "_running"?  [attr-defined]
+                if self.cli_service and not self.cli_service.is_running():
+                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/main.py: note: In member "_initialize_logger_service" of class "GalFridayApp":
+/mnt/e/PyCharmIDE/Gal-Friday2/gal_friday/main.py:1831:41: error: Item "None" of
+"ServiceInitializationDirector | None" has no attribute "initialize_service"
+[union-attr]
+                self.logger_service = await self.service_director.initiali...
+                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~...
+Found 78 errors in 24 files (checked 209 source files)

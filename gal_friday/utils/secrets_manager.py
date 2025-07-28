@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
+from gal_friday.utils.lazy_imports import google_secretmanager
 
 # Constants
 MAX_ACCESS_LOG_ENTRIES = 1000
@@ -79,7 +80,8 @@ class EncryptedFileBackend(SecretsBackend):
             algorithm=hashes.SHA256(),
             length=32,
             salt=b"gal-friday-salt",  # In production, use random salt
-            iterations=100000)
+            iterations=100000,
+        )
         key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
         return Fernet(key)
 
@@ -136,11 +138,11 @@ class GCPSecretsBackend(SecretsBackend):
         self.logger = logger
         self._source_module = self.__class__.__name__
 
-        try:
-            from google.cloud import secretmanager  # type: ignore[import-untyped]
-            self.client = secretmanager.SecretManagerServiceClient()
-        except ImportError:
-            raise ImportError("google-cloud-secret-manager package not installed") from None
+        if not google_secretmanager.available:
+            raise ImportError("google-cloud-secret-manager package not installed")
+
+        secretmanager = google_secretmanager.get_module()
+        self.client = secretmanager.SecretManagerServiceClient()
 
     def get_secret(self, key: str) -> str | None:
         """Retrieve secret from GCP Secrets Manager."""
@@ -158,9 +160,7 @@ class GCPSecretsBackend(SecretsBackend):
         except Exception as e:
             if "NOT_FOUND" in str(e):
                 return None
-            self.logger.exception(
-                "Error retrieving secret from GCP: ",
-                source_module=self._source_module)
+            self.logger.exception("Error retrieving secret from GCP: ", source_module=self._source_module)
             return None
 
     def set_secret(self, key: str, value: str) -> bool:
@@ -177,7 +177,8 @@ class GCPSecretsBackend(SecretsBackend):
                     request={
                         "parent": secret_name,
                         "payload": {"data": value.encode("UTF-8")},
-                    })
+                    },
+                )
             except Exception:
                 # Secret doesn't exist, create it
                 self.client.create_secret(
@@ -185,18 +186,18 @@ class GCPSecretsBackend(SecretsBackend):
                         "parent": parent,
                         "secret_id": key,
                         "secret": {"replication": {"automatic": {}}},
-                    })
+                    },
+                )
                 # Add the secret version
                 self.client.add_secret_version(
                     request={
                         "parent": f"{parent}/secrets/{key}",
                         "payload": {"data": value.encode("UTF-8")},
-                    })
+                    },
+                )
 
         except Exception:
-            self.logger.exception(
-                "Error storing secret in GCP: ",
-                source_module=self._source_module)
+            self.logger.exception("Error storing secret in GCP: ", source_module=self._source_module)
             return False
         else:
             return True
@@ -207,9 +208,7 @@ class GCPSecretsBackend(SecretsBackend):
             name = f"projects/{self.project_id}/secrets/{key}"
             self.client.delete_secret(request={"name": name})
         except Exception:
-            self.logger.exception(
-                "Error deleting secret from GCP: ",
-                source_module=self._source_module)
+            self.logger.exception("Error deleting secret from GCP: ", source_module=self._source_module)
             return False
         else:
             return True
@@ -245,17 +244,14 @@ class SecretsManager:
             master_password = os.environ.get("GAL_FRIDAY_MASTER_PASSWORD")
             if master_password:
                 try:
-                    file_backend = EncryptedFileBackend(
-                        Path(secrets_file),
-                        master_password)
+                    file_backend = EncryptedFileBackend(Path(secrets_file), master_password)
                     self._backends.append(file_backend)
-                    self.logger.info(
-                        "Initialized encrypted file backend",
-                        source_module=self._source_module)
+                    self.logger.info("Initialized encrypted file backend", source_module=self._source_module)
                 except Exception:
                     self.logger.exception(
                         "Failed to initialize encrypted file backend",
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
 
         # 3. Add GCP Secrets Manager backend if configured
         gcp_project = self.config.get("secrets.gcp_project_id")
@@ -263,13 +259,12 @@ class SecretsManager:
             try:
                 gcp_backend = GCPSecretsBackend(gcp_project, self.logger)
                 self._backends.append(gcp_backend)
-                self.logger.info(
-                    "Initialized GCP Secrets Manager backend",
-                    source_module=self._source_module)
+                self.logger.info("Initialized GCP Secrets Manager backend", source_module=self._source_module)
             except Exception:
                 self.logger.exception(
                     "Failed to initialize GCP Secrets Manager backend",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
     def get_secret(self, key: str) -> str | None:
         """Retrieve secret from first available backend.
@@ -289,16 +284,16 @@ class SecretsManager:
                 if value is not None:
                     self.logger.debug(
                         f"Retrieved secret '{key}' from {backend.__class__.__name__}",
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
                     return value
             except Exception:
                 self.logger.exception(
                     f"Error retrieving secret from {backend.__class__.__name__}",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
-        self.logger.warning(
-            f"Secret '{key}' not found in any backend",
-            source_module=self._source_module)
+        self.logger.warning(f"Secret '{key}' not found in any backend", source_module=self._source_module)
         return None
 
     def get_required_secret(self, key: str) -> str:
@@ -337,9 +332,7 @@ class SecretsManager:
             for backend in self._backends:
                 if backend.__class__.__name__ == backend_name:
                     return backend.set_secret(key, value)
-            self.logger.error(
-                f"Backend '{backend_name}' not found",
-                source_module=self._source_module)
+            self.logger.error(f"Backend '{backend_name}' not found", source_module=self._source_module)
             return False
         # Store in first writable backend (skip environment)
         for backend in self._backends[1:]:  # Skip EnvironmentBackend
@@ -347,12 +340,14 @@ class SecretsManager:
                 if backend.set_secret(key, value):
                     self.logger.info(
                         f"Stored secret '{key}' in {backend.__class__.__name__}",
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
                     return True
             except Exception:
                 self.logger.exception(
                     f"Error storing secret in {backend.__class__.__name__}",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
         return False
 
@@ -377,11 +372,13 @@ class SecretsManager:
                     success_count += 1
                     self.logger.info(
                         f"Rotated secret '{key}' in {backend.__class__.__name__}",
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
             except Exception:
                 self.logger.exception(
                     f"Error rotating secret in {backend.__class__.__name__}",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
         # Update rotation schedule
         self._rotation_schedule[key] = datetime.now(UTC)
@@ -406,9 +403,7 @@ class SecretsManager:
 
         missing = [k for k, v in results.items() if not v]
         if missing:
-            self.logger.error(
-                f"Missing required credentials: {missing}",
-                source_module=self._source_module)
+            self.logger.error(f"Missing required credentials: {missing}", source_module=self._source_module)
 
         return results
 

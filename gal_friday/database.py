@@ -77,7 +77,8 @@ engine = create_async_engine(
         "server_settings": {"application_name": "gal_friday"},
         "command_timeout": 60,
         "connection_timeout": 10,
-    })
+    },
+)
 
 # Create session factory
 AsyncSessionFactory = async_sessionmaker(
@@ -85,7 +86,8 @@ AsyncSessionFactory = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
     autoflush=False,
-    autocommit=False)
+    autocommit=False,
+)
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -113,12 +115,9 @@ async def init_database() -> None:
     Raises:
         Exception: If database connection fails
     """
-    try:
-        # Test the connection
-        async with engine.begin() as conn:
-            await conn.run_sync(lambda sync_conn: sync_conn.execute(text("SELECT 1")))
-    except Exception:
-        raise
+    # Test the connection
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda sync_conn: sync_conn.execute(text("SELECT 1")))
 
 
 async def close_database() -> None:

@@ -59,7 +59,6 @@ async def test_dashboard_service() -> bool:
         # Test getting all metrics
         await dashboard_service.get_all_metrics()
 
-
         # return True moved to else block
 
     except Exception:
@@ -93,7 +92,9 @@ async def test_real_time_dashboard() -> bool:
                         "MSFT": {"quantity": 60, "unrealized_pnl": -375.0},
                     },
                     "trades_today": [
-                        {"pnl": 150.0}, {"pnl": -75.0}, {"pnl": 200.0},
+                        {"pnl": 150.0},
+                        {"pnl": -75.0},
+                        {"pnl": 200.0},
                     ],
                     "total_trades": 134,
                     "max_drawdown_pct": -6.8,
@@ -114,7 +115,6 @@ async def test_real_time_dashboard() -> bool:
 
         # Check if data was collected
         if real_time_dashboard.current_data:
-
             # Check portfolio data
             if "portfolio_value" in real_time_dashboard.current_data:
                 real_time_dashboard.current_data["portfolio_value"]
@@ -134,13 +134,12 @@ async def test_real_time_dashboard() -> bool:
         return True
 
 
-async def test_websocket_connection(port: int = 8000) -> bool:
+async def test_websocket_connection(port: int) -> bool:
     """Test WebSocket connection to a running dashboard."""
     try:
         uri = f"ws://localhost:{port}/ws"
 
         async with websockets.connect(uri) as websocket:
-
             # Send a ping
             ping_message = json.dumps({"type": "ping"})
             await websocket.send(ping_message)
@@ -160,7 +159,7 @@ async def test_websocket_connection(port: int = 8000) -> bool:
         return False
 
 
-async def test_http_endpoints(port: int = 8000) -> bool:
+async def test_http_endpoints(port: int) -> bool:
     """Test HTTP endpoints of a running dashboard."""
     try:
         base_url = f"http://localhost:{port}"
@@ -198,7 +197,6 @@ async def run_all_tests() -> bool:
 
     results = []
     for test_name, test_coro in tests:
-
         try:
             result = await test_coro
             results.append((test_name, result))
@@ -208,10 +206,9 @@ async def run_all_tests() -> bool:
     # Print summary
 
     passed = 0
-    for test_name, result in results:
+    for _, result in results:
         if result:
             passed += 1
-
 
     if passed == len(results):
         pass

@@ -30,10 +30,7 @@ class ConfigManager:
     _EXPECTED_TRADING_PAIR_COMPONENTS = 2
     _MAX_RISK_PERCENTAGE = 100.0
 
-    def __init__(
-        self,
-        config_path: str = "config/config.yaml",
-        logger_service: logging.Logger | None = None) -> None:
+    def __init__(self, config_path: str = "config/config.yaml", logger_service: logging.Logger | None = None) -> None:
         """Initialize the ConfigManager and load configuration.
 
         Args:
@@ -47,9 +44,7 @@ class ConfigManager:
 
         # Ensure logger is always initialized
         self._logger: logging.Logger = logger_service or logging.getLogger(__name__)
-        self._logger.info(
-            "Initializing ConfigManager with path: %s",
-            self._config_file_path)
+        self._logger.info("Initializing ConfigManager with path: %s", self._config_file_path)
 
         self.load_config()
         self.validation_errors = self.validate_configuration()
@@ -58,39 +53,24 @@ class ConfigManager:
 
     def load_config(self) -> None:
         """Load or reload the configuration from the specified YAML file."""
-        self._logger.info(
-            "Attempting to load configuration from: %s",
-            self._config_file_path)
+        self._logger.info("Attempting to load configuration from: %s", self._config_file_path)
         try:
             if not self._config_file_path.exists():
-                self._logger.error(
-                    "Configuration file not found at: %s",
-                    self._config_file_path)
+                self._logger.error("Configuration file not found at: %s", self._config_file_path)
                 self._config = {}  # Set to empty dict[str, Any] if file not found
                 return
 
             with self._config_file_path.open("r") as f:
                 self._config = yaml.safe_load(f)
-            self._logger.info(
-                "Successfully loaded configuration from %s",
-                self._config_file_path)
+            self._logger.info("Successfully loaded configuration from %s", self._config_file_path)
         except yaml.YAMLError as e:
-            self._logger.exception(
-                "Error parsing YAML configuration file: %s",
-                self._config_file_path,
-                exc_info=e)
+            self._logger.exception("Error parsing YAML configuration file: %s", self._config_file_path, exc_info=e)
             self._config = {}
         except OSError as e:
-            self._logger.exception(
-                "Error reading configuration file: %s",
-                self._config_file_path,
-                exc_info=e)
+            self._logger.exception("Error reading configuration file: %s", self._config_file_path, exc_info=e)
             self._config = {}
         except Exception as e:
-            self._logger.exception(
-                "Error loading configuration from %s",
-                self._config_file_path,
-                exc_info=e)
+            self._logger.exception("Error loading configuration from %s", self._config_file_path, exc_info=e)
             self._config = {}
 
         if not isinstance(self._config, dict):
@@ -98,10 +78,11 @@ class ConfigManager:
                 "Configuration file %s did not load as a dictionary. "
                 "Loaded type: %s. Setting config to empty dict[str, Any].",
                 self._config_file_path,
-                type(self._config))
+                type(self._config),
+            )
             self._config = {}
 
-    def get(self, key: str, default: Any | None = None) -> Any:  # noqa: ANN401
+    def get(self, key: str, default: Any | None = None) -> Any:
         """Retrieve a configuration value using a dot-separated key.
 
         Example:
@@ -117,8 +98,7 @@ class ConfigManager:
             The configuration value or the default.
         """
         if self._config is None:
-            self._logger.warning(
-                "Configuration accessed before it was loaded or after a loading error.")
+            self._logger.warning("Configuration accessed before it was loaded or after a loading error.")
             return default
 
         try:
@@ -126,16 +106,10 @@ class ConfigManager:
         except (KeyError, TypeError):
             # KeyError if a key in the path doesn't exist
             # TypeError if trying to index into a non-dictionary
-            self._logger.debug(
-                "Key '%s' not found in configuration. Returning default: %s",
-                key,
-                default)
+            self._logger.debug("Key '%s' not found in configuration. Returning default: %s", key, default)
             return default
         except Exception as e:
-            self._logger.exception(
-                "Unexpected error retrieving key '%s' from configuration.",
-                key,
-                exc_info=e)
+            self._logger.exception("Unexpected error retrieving key '%s' from configuration.", key, exc_info=e)
             return default
 
     def get_int(self, key: str, default: int = 0) -> int:
@@ -145,12 +119,12 @@ class ConfigManager:
             return int(value)
         except (ValueError, TypeError) as e:
             self._logger.warning(
-                "Could not convert value for key '%s' ('%s') to int. "
-                "Returning default %s. Error: %s",
+                "Could not convert value for key '%s' ('%s') to int. Returning default %s. Error: %s",
                 key,
                 value,
                 default,
-                e)
+                e,
+            )
             return default
 
     def get_float(self, key: str, default: float = 0.0) -> float:
@@ -160,32 +134,31 @@ class ConfigManager:
             return float(value)
         except (ValueError, TypeError) as e:
             self._logger.warning(
-                "Could not convert value for key '%s' ('%s') to float. "
-                "Returning default %s. Error: %s",
+                "Could not convert value for key '%s' ('%s') to float. Returning default %s. Error: %s",
                 key,
                 value,
                 default,
-                e)
+                e,
+            )
             return default
 
     def get_decimal(self, key: str, default: Decimal = Decimal("0.0")) -> Decimal:
         """Retrieve a config value and attempt to cast it to a Decimal."""
-
         value = self.get(key, default)
         try:
             # Convert to string first to handle floats/ints correctly
             return Decimal(str(value))
-        except (ValueError, TypeError) as e: # BLE001
+        except (ValueError, TypeError) as e:  # BLE001
             self._logger.warning(
-                "Could not convert value for key '%s' ('%s') to Decimal. "
-                "Returning default %s. Error: %s",
+                "Could not convert value for key '%s' ('%s') to Decimal. Returning default %s. Error: %s",
                 key,
                 value,
                 default,
-                e)
+                e,
+            )
             return default
 
-    def get_bool(self, key: str, *, default: bool = False) -> bool: # FBT001, FBT002
+    def get_bool(self, key: str, *, default: bool = False) -> bool:  # FBT001, FBT002
         """Retrieve a config value and attempt to cast it to a boolean."""
         value = self.get(key, default)
         if isinstance(value, bool):
@@ -196,12 +169,12 @@ class ConfigManager:
             return bool(value)
         except (ValueError, TypeError) as e:
             self._logger.warning(
-                "Could not convert value for key '%s' ('%s') to bool. "
-                "Returning default %s. Error: %s",
+                "Could not convert value for key '%s' ('%s') to bool. Returning default %s. Error: %s",
                 key,
                 value,
                 default,
-                e)
+                e,
+            )
             return default
 
     def get_list(self, key: str, default: list[Any] | None = None) -> list[Any]:
@@ -238,10 +211,7 @@ class ConfigManager:
     def _is_valid_trading_pair(self, pair: str) -> bool:
         """Check if a trading pair string is in valid format (e.g., 'XRP/USD')."""
         parts = pair.split("/")
-        return (
-            len(parts) == self._EXPECTED_TRADING_PAIR_COMPONENTS
-            and all(len(part.strip()) > 0 for part in parts)
-        )
+        return len(parts) == self._EXPECTED_TRADING_PAIR_COMPONENTS and all(len(part.strip()) > 0 for part in parts)
 
     def _validate_trading_section(self, errors: list[str]) -> None:
         """Validate the trading configuration section."""
@@ -261,7 +231,7 @@ class ConfigManager:
                 if not self._is_valid_trading_pair(pair)
             ]
             if invalid_pair_errors:
-                errors.extend(invalid_pair_errors) # PERF401
+                errors.extend(invalid_pair_errors)  # PERF401
 
         # Validate exchange
         exchange = trading_config.get("exchange")
@@ -312,16 +282,16 @@ class ConfigManager:
                 # Check for required API fields (keys may be in environment variables)
                 required_api_fields = ["api_key", "api_secret"]
                 # PERF401: Use list[Any] comprehension
-                missing_fields = [ # E501 will be fixed by reformatting comprehension
+                missing_fields = [  # E501 will be fixed by reformatting comprehension
                     field
                     for field in required_api_fields
-                    if not exchange_api_config.get(field)
-                    and not os.getenv(f"{exchange.upper()}_{field.upper()}")
+                    if not exchange_api_config.get(field) and not os.getenv(f"{exchange.upper()}_{field.upper()}")
                 ]
                 if missing_fields:
                     errors.append(
                         f"Missing {exchange} API configuration. "
-                        f"Required fields not found in config or environment: {missing_fields}")
+                        f"Required fields not found in config or environment: {missing_fields}",
+                    )
 
     def get_trading_pairs(self) -> list[str]:
         """Get the list[Any] of configured trading pairs."""
@@ -340,10 +310,8 @@ class ConfigManager:
         service_config = self.get_dict(f"api.{service_name.lower()}", {})
 
         # Check environment variables as fallback/override
-        api_key = service_config.get("api_key") or \
-                  os.getenv(f"{service_name.upper()}_API_KEY") # E501
-        api_secret = service_config.get("api_secret") or \
-                     os.getenv(f"{service_name.upper()}_API_SECRET") # E501
+        api_key = service_config.get("api_key") or os.getenv(f"{service_name.upper()}_API_KEY")  # E501
+        api_secret = service_config.get("api_secret") or os.getenv(f"{service_name.upper()}_API_SECRET")  # E501
 
         return {
             "api_key": api_key,
@@ -374,8 +342,7 @@ class ConfigManager:
                 # Restore backup if new config is invalid
                 self._config = backup_config
                 self.validation_errors = backup_errors
-                self._logger.error(
-                    "Configuration reload failed validation. Restored previous configuration.")
+                self._logger.error("Configuration reload failed validation. Restored previous configuration.")
                 return new_validation_errors
         except Exception as e:
             # Restore backup on any error
@@ -383,8 +350,8 @@ class ConfigManager:
             self.validation_errors = backup_errors
             self._logger.exception("Configuration reload failed. Restored previous configuration.")
             return [f"Configuration reload failed: {e!s}"]
-        else: # TRY300: This block executes if the try block completes with no exceptions
-            self.validation_errors = new_validation_errors # Should be empty if we reach here
+        else:  # TRY300: This block executes if the try block completes with no exceptions
+            self.validation_errors = new_validation_errors  # Should be empty if we reach here
             self._logger.info("Configuration reloaded successfully.")
             return []
 
@@ -420,7 +387,7 @@ class ConfigManager:
 
         # Check alternative naming patterns
         parts = key.split(".")
-        if len(parts) >= self._EXPECTED_TRADING_PAIR_COMPONENTS: # PLR2004 (using class const)
+        if len(parts) >= self._EXPECTED_TRADING_PAIR_COMPONENTS:  # PLR2004 (using class const)
             alt_env_key = f"{parts[0].upper()}_{parts[-1].upper()}"
             alt_env_value = os.getenv(alt_env_key)
             if alt_env_value:
@@ -435,3 +402,35 @@ class ConfigManager:
     def get_secure_api_secret(self, service_name: str) -> str | None:
         """Get API secret for a service."""
         return self.get_secure_value(f"{service_name.lower()}.api_secret")
+
+    def set(self, key: str, value: Any) -> None:
+        """Set a configuration value dynamically.
+
+        Args:
+            key: Dot-separated path to the configuration value (e.g., 'trading.max_position_size')
+            value: The value to set
+
+        Note:
+            This updates the in-memory configuration only. Changes are not persisted to the YAML file.
+        """
+        if self._config is None:
+            self._logger.error("Cannot set value: Configuration not loaded")
+            return
+
+        keys = key.split(".")
+        current = self._config
+
+        # Navigate to the parent of the target key
+        for k in keys[:-1]:
+            if k not in current:
+                current[k] = {}
+            elif not isinstance(current[k], dict):
+                self._logger.error("Cannot set %s: Parent key '%s' is not a dict", key, k)
+                return
+            current = current[k]
+
+        # Set the value
+        if keys:
+            old_value = current.get(keys[-1])
+            current[keys[-1]] = value
+            self._logger.info("Configuration updated: %s = %s (was %s)", key, value, old_value)

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 class WidgetType(str, Enum):
     """Dashboard widget types."""
+
     PORTFOLIO_VALUE = "portfolio_value"
     POSITION_TABLE = "position_table"
     PRICE_CHART = "price_chart"
@@ -31,6 +32,7 @@ class WidgetType(str, Enum):
 @dataclass
 class DashboardWidget:
     """Dashboard widget configuration."""
+
     widget_id: str
     widget_type: WidgetType
     title: str
@@ -41,11 +43,7 @@ class DashboardWidget:
 class DashboardService:
     """Service for aggregating and providing dashboard metrics."""
 
-    def __init__(
-        self,
-        config: ConfigManager,
-        logger: LoggerService,
-        portfolio_manager: "PortfolioManager") -> None:
+    def __init__(self, config: ConfigManager, logger: LoggerService, portfolio_manager: "PortfolioManager") -> None:
         """Initialize the DashboardService.
 
         Args:
@@ -61,14 +59,14 @@ class DashboardService:
     async def get_all_metrics(self) -> dict[str, Any]:
         """Get all aggregated metrics for the dashboard."""
         return {
-            "system": await self._get_system_metrics(),
-            "portfolio": await self._get_portfolio_metrics(),
+            "system": await self.get_system_metrics(),
+            "portfolio": await self.get_portfolio_metrics(),
             "models": await self._get_model_metrics(),
             "websocket": await self._get_websocket_metrics(),
-            "alerts": await self._get_alert_metrics(),
+            "alerts": await self.get_alert_metrics(),
         }
 
-    async def _get_system_metrics(self) -> dict[str, Any]:
+    async def get_system_metrics(self) -> dict[str, Any]:
         """Get system-level metrics."""
         uptime = (datetime.now(UTC) - self._start_time).total_seconds()
 
@@ -88,7 +86,7 @@ class DashboardService:
             "memory_total_gb": memory.total / (1024**3),
         }
 
-    async def _get_portfolio_metrics(self) -> dict[str, Any]:
+    async def get_portfolio_metrics(self) -> dict[str, Any]:
         """Get portfolio metrics from the real portfolio manager."""
         try:
             # Get current portfolio state
@@ -104,11 +102,13 @@ class DashboardService:
             active_positions = []
             for symbol, pos_data in positions_dict.items():
                 if pos_data.get("quantity", 0) != 0:
-                    active_positions.append({
-                        "symbol": symbol,
-                        "size": float(pos_data.get("quantity", 0)),
-                        "pnl": float(pos_data.get("unrealized_pnl", 0)),
-                    })
+                    active_positions.append(
+                        {
+                            "symbol": symbol,
+                            "size": float(pos_data.get("quantity", 0)),
+                            "pnl": float(pos_data.get("unrealized_pnl", 0)),
+                        },
+                    )
 
             # Calculate metrics
             trades_today = portfolio_state.get("trades_today", [])
@@ -129,10 +129,8 @@ class DashboardService:
                 "total_equity": float(total_equity),
             }
 
-        except Exception as e:
-            self.logger.exception(
-                f"Failed to get portfolio metrics: {e}",
-                source_module="DashboardService")
+        except Exception:
+            self.logger.exception("Failed to get portfolio metrics", source_module="DashboardService")
             # Return safe defaults on error
             return {
                 "total_pnl": 0.0,
@@ -168,7 +166,7 @@ class DashboardService:
             "error_rate": 0.001,
         }
 
-    async def _get_alert_metrics(self) -> dict[str, Any]:
+    async def get_alert_metrics(self) -> dict[str, Any]:
         """Get alerting system metrics."""
         return {
             "critical": 0,
@@ -185,7 +183,7 @@ class DashboardService:
         memory_score = max(0, 1 - (memory_percent / 100))
 
         # Weighted average
-        return (cpu_score * 0.4 + memory_score * 0.6)
+        return cpu_score * 0.4 + memory_score * 0.6
 
     async def get_system_status(self) -> dict[str, Any]:
         """Get current system status."""
@@ -233,7 +231,7 @@ class RealTimeDashboard:
 
         except Exception as e:
             self.logger.exception("Failed to start dashboard: ")
-            raise DashboardError(f"Dashboard start failed: {e}")
+            raise DashboardError(f"Dashboard start failed: {e}") from e
 
     async def stop_dashboard(self) -> None:
         """Stop the real-time dashboard service."""
@@ -325,10 +323,14 @@ class RealTimeDashboard:
 
             if message_type == "ping":
                 # Respond to ping with pong
-                await websocket.send_text(json.dumps({
-                    "type": "pong",
-                    "timestamp": datetime.now(UTC).isoformat(),
-                }))
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "type": "pong",
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        },
+                    ),
+                )
             elif message_type == "subscribe":
                 # Handle widget subscription
                 widget_types = data.get("widgets", [])
@@ -389,7 +391,7 @@ class RealTimeDashboard:
         while self._running:
             try:
                 # Get portfolio metrics from the existing dashboard service
-                portfolio_data = await self.dashboard_service._get_portfolio_metrics()
+                portfolio_data = await self.dashboard_service.get_portfolio_metrics()
 
                 # Enhance with additional real-time data
                 enhanced_data = {
@@ -415,14 +417,13 @@ class RealTimeDashboard:
         while self._running:
             try:
                 # Get portfolio metrics from the existing dashboard service
-                portfolio_metrics = await self.dashboard_service._get_portfolio_metrics()
+                portfolio_metrics = await self.dashboard_service.get_portfolio_metrics()
 
                 # Format for trading metrics widget
                 metrics_data = {
                     "total_trades": portfolio_metrics.get("total_trades", 0),
                     "winning_trades": int(
-                        portfolio_metrics.get("total_trades", 0) *
-                        portfolio_metrics.get("win_rate", 0),
+                        portfolio_metrics.get("total_trades", 0) * portfolio_metrics.get("win_rate", 0),
                     ),
                     "win_rate": portfolio_metrics.get("win_rate", 0) * 100,  # Convert to percentage
                     "sharpe_ratio": portfolio_metrics.get("sharpe_ratio", 0),
@@ -448,7 +449,7 @@ class RealTimeDashboard:
         while self._running:
             try:
                 # Get system metrics from the existing dashboard service
-                system_data = await self.dashboard_service._get_system_metrics()
+                system_data = await self.dashboard_service.get_system_metrics()
 
                 # Add timestamp
                 system_data["last_update"] = datetime.now(UTC).isoformat()
@@ -469,7 +470,7 @@ class RealTimeDashboard:
         while self._running:
             try:
                 # Get alert metrics from the existing dashboard service
-                alert_data = await self.dashboard_service._get_alert_metrics()
+                alert_data = await self.dashboard_service.get_alert_metrics()
 
                 # Add timestamp
                 alert_data["last_update"] = datetime.now(UTC).isoformat()

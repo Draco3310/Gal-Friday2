@@ -24,7 +24,7 @@ from gal_friday.technical_analysis import (
 
 def generate_sample_data(n_points=100):
     """Generate realistic sample price data."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
 
     # Generate realistic price movement with trend and volatility
     dates = pd.date_range("2024-01-01", periods=n_points, freq="h")
@@ -32,15 +32,15 @@ def generate_sample_data(n_points=100):
     # Start at 100 and add random walk with slight upward trend
     prices = [100.0]
     for _ in range(n_points - 1):
-        change = np.random.normal(0.001, 0.02)  # 0.1% average return, 2% volatility
+        change = rng.normal(0.001, 0.02)  # 0.1% average return, 2% volatility
         new_price = prices[-1] * (1 + change)
         prices.append(new_price)
 
     close_prices = np.array(prices)
 
     # Generate OHLC data
-    high_prices = close_prices * (1 + np.abs(np.random.normal(0, 0.005, n_points)))
-    low_prices = close_prices * (1 - np.abs(np.random.normal(0, 0.005, n_points)))
+    high_prices = close_prices * (1 + np.abs(rng.normal(0, 0.005, n_points)))
+    low_prices = close_prices * (1 - np.abs(rng.normal(0, 0.005, n_points)))
 
     return {
         "dates": dates,

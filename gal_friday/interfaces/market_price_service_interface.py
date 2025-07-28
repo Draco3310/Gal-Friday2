@@ -1,13 +1,13 @@
 """Interface definition for retrieving real-time market price information."""
 
-import abc
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 
-class MarketPriceService(abc.ABC):
-    """Abstract Base Class for components providing real-time market prices.
+@runtime_checkable
+class MarketPriceService(Protocol):
+    """Protocol for components providing real-time market prices.
 
     Implementations should:
     1. Handle connection setup/teardown via start()/stop().
@@ -19,7 +19,6 @@ class MarketPriceService(abc.ABC):
     6. Be implemented asynchronously.
     """
 
-    @abc.abstractmethod
     async def start(self) -> None:
         """Initialize the service.
 
@@ -27,18 +26,16 @@ class MarketPriceService(abc.ABC):
         background tasks needed for fetching prices.
         Should be called once during application startup.
         """
-        raise NotImplementedError
+        ...
 
-    @abc.abstractmethod
     async def stop(self) -> None:
         """Clean up resources.
 
         Close connections, and stop background tasks.
         Should be called once during application shutdown.
         """
-        raise NotImplementedError
+        ...
 
-    @abc.abstractmethod
     async def get_latest_price(self, trading_pair: str) -> Decimal | None:
         """Get the latest known market price for a trading pair.
 
@@ -54,9 +51,8 @@ class MarketPriceService(abc.ABC):
             The latest price as a Decimal, or None if the price is
             unavailable, stale, or the pair is not supported.
         """
-        raise NotImplementedError
+        ...
 
-    @abc.abstractmethod
     async def get_bid_ask_spread(self, trading_pair: str) -> tuple[Decimal, Decimal] | None:
         """Get the current best bid and ask prices from the data source.
 
@@ -70,9 +66,8 @@ class MarketPriceService(abc.ABC):
             or None if the spread is unavailable, stale, or the pair
             is not supported. Returns None if bid >= ask (crossed book).
         """
-        raise NotImplementedError
+        ...
 
-    @abc.abstractmethod
     async def get_price_timestamp(self, trading_pair: str) -> datetime | None:
         """Get the timestamp (UTC) associated with the latest price data.
 
@@ -86,9 +81,8 @@ class MarketPriceService(abc.ABC):
         -------
             The UTC datetime of the last price update, or None if no data exists.
         """
-        raise NotImplementedError
+        ...
 
-    @abc.abstractmethod
     async def is_price_fresh(self, trading_pair: str, max_age_seconds: float = 60.0) -> bool:
         """Check if the price data for a trading pair is recent enough.
 
@@ -103,14 +97,9 @@ class MarketPriceService(abc.ABC):
             True if data exists and its timestamp is within max_age_seconds
             from the current time (UTC), False otherwise.
         """
-        raise NotImplementedError
+        ...
 
-    @abc.abstractmethod
-    async def convert_amount(
-        self,
-        from_amount: Decimal,
-        from_currency: str,
-        to_currency: str) -> Decimal | None:
+    async def convert_amount(self, from_amount: Decimal, from_currency: str, to_currency: str) -> Decimal | None:
         """Convert an amount from one currency to another.
 
         Args:
@@ -124,9 +113,8 @@ class MarketPriceService(abc.ABC):
             The converted amount as a Decimal, or None if conversion
             is not possible (e.g., unknown currency, no exchange rate).
         """
-        raise NotImplementedError
+        ...
 
-    @abc.abstractmethod
     async def get_historical_ohlcv(
         self,
         trading_pair: str,
@@ -153,4 +141,4 @@ class MarketPriceService(abc.ABC):
              'low': Decimal, 'close': Decimal, 'volume': Decimal},
             or None if data is unavailable or an error occurs. Timestamps are UTC.
         """
-        raise NotImplementedError
+        ...

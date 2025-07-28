@@ -44,27 +44,27 @@ CREATE INDEX idx_orders_position_id ON orders(position_id);
 # Position Model
 class Position(Base):
     __tablename__ = "positions"
-    
+
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)
     side: Mapped[str] = mapped_column(String(10), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     entry_price: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     # ... other fields ...
-    
+
     # One-to-many relationship with orders
     orders = relationship("Order", back_populates="position", cascade="all, delete-orphan")
 
-# Order Model  
+# Order Model
 class Order(Base):
     __tablename__ = "orders"
-    
+
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     signal_id: Mapped[UUID] = mapped_column(ForeignKey("trade_signals.id"))
     position_id: Mapped[UUID | None] = mapped_column(ForeignKey("positions.id"), nullable=True)
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)
     # ... other fields ...
-    
+
     # Many-to-one relationship with position
     position = relationship("Position", back_populates="orders")
 ```
@@ -85,31 +85,31 @@ The `position_id` should be set when:
 # Example: PositionManager integration
 class PositionManager:
     async def update_position_for_trade(
-        self, 
+        self,
         trading_pair: str,
-        side: str, 
+        side: str,
         quantity: Decimal,
         price: Decimal,
         order_id: UUID,  # New parameter
         **kwargs
     ) -> tuple[Decimal, Position | None]:
         """Update position and link the contributing order."""
-        
+
         # Get or create position
         position = await self._get_or_create_db_position(trading_pair, side)
-        
+
         # Update position with trade details
         # ... existing position update logic ...
-        
+
         # Link the order to this position
         await self._link_order_to_position(order_id, position.id)
-        
+
         return realized_pnl, position
-    
+
     async def _link_order_to_position(self, order_id: UUID, position_id: UUID) -> None:
         """Link an order to a position."""
         await self.order_repository.update(
-            order_id, 
+            order_id,
             {"position_id": position_id}
         )
 ```
@@ -148,7 +148,7 @@ async def get_orders_for_position(session: AsyncSession, position_id: UUID) -> l
 # Generate audit trail for position
 async def generate_position_audit_trail(session: AsyncSession, position_id: UUID) -> dict:
     position = await get_position_with_orders(session, position_id)
-    
+
     audit_trail = {
         "position_id": position.id,
         "trading_pair": position.trading_pair,
@@ -156,7 +156,7 @@ async def generate_position_audit_trail(session: AsyncSession, position_id: UUID
         "current_entry_price": position.entry_price,
         "orders": []
     }
-    
+
     for order in sorted(position.orders, key=lambda x: x.created_at):
         audit_trail["orders"].append({
             "order_id": order.id,
@@ -166,7 +166,7 @@ async def generate_position_audit_trail(session: AsyncSession, position_id: UUID
             "price": order.average_fill_price,
             "status": order.status
         })
-    
+
     return audit_trail
 ```
 
@@ -209,8 +209,8 @@ stmt = select(Position).options(selectinload(Position.orders)).limit(100).offset
 -- Add column
 ALTER TABLE orders ADD COLUMN position_id UUID;
 
--- Add foreign key constraint  
-ALTER TABLE orders ADD CONSTRAINT fk_orders_position_id 
+-- Add foreign key constraint
+ALTER TABLE orders ADD CONSTRAINT fk_orders_position_id
     FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE SET NULL;
 
 -- Add index
@@ -224,7 +224,7 @@ If needed, existing orders can be linked to positions through business logic:
 ```python
 async def backfill_order_position_links():
     """Backfill position_id for existing orders based on business logic."""
-    # This would analyze existing orders and fills to determine 
+    # This would analyze existing orders and fills to determine
     # which orders contributed to which positions
     pass
 ```
@@ -273,10 +273,10 @@ async def backfill_order_position_links():
 
 ```sql
 -- Alert on orders that should have position_id but don't
-SELECT COUNT(*) 
-FROM orders 
-WHERE status IN ('FILLED', 'PARTIALLY_FILLED') 
-  AND position_id IS NULL 
+SELECT COUNT(*)
+FROM orders
+WHERE status IN ('FILLED', 'PARTIALLY_FILLED')
+  AND position_id IS NULL
   AND created_at > NOW() - INTERVAL '1 hour';
 ```
 
@@ -293,4 +293,4 @@ WHERE status IN ('FILLED', 'PARTIALLY_FILLED')
 
 - Monitor table growth and query performance
 - Consider archiving old order-position relationships
-- Implement proper caching strategies for frequently accessed relationships 
+- Implement proper caching strategies for frequently accessed relationships

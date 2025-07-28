@@ -33,7 +33,7 @@ Updated Pydantic model with:
   - `volatility_percentile`: Volatility percentile (default: 50.0)
   - `liquidity_score`: Market liquidity score (default: 1.0)
 - **Field validators**: Comprehensive validation for all features
-- **Utility methods**: 
+- **Utility methods**:
   - `get_feature_completeness()`: Returns feature presence status
   - `get_missing_optional_features()`: Lists missing optional features
 
@@ -137,4 +137,4 @@ The design supports easy extension:
 - Add new optional features by updating the model
 - Register new feature specifications in the global registry
 - Extend validation rules as needed
-- Add new data types and validation logic 
+- Add new data types and validation logic

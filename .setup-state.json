@@ -1,0 +1,10 @@
+{
+    "version": "2.0.0",
+    "timestamp": "2025-07-08T23:42:10Z",
+    "status": "in_progress",
+    "setup_type": "dev",
+    "use_docker": false,
+    "current_step": "python_setup",
+    "completed_steps": ["python_setup","system_check"],
+    "step_status": {"python_setup":"completed","system_check":"completed"}
+}

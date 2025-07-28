@@ -64,4 +64,4 @@
         "supported_models": ["XGBoost", "LSTM", "Random Forest"],
         "last_updated": "2024-01-01"
     }
-} 
+}

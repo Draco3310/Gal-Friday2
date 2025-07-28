@@ -86,12 +86,15 @@ def demonstrate_ab_testing():
         rich_print(f"\n   {variant.upper()} Model:")
         rich_print(f"   - Samples: {data['samples']:,}")
         rich_print(f"   - Accuracy: {data['accuracy']:.1%}")
-        rich_print(f"   - Win Rate: {data['profitable']/data['signals']:.1%}")
+        rich_print(f"   - Win Rate: {data['profitable'] / data['signals']:.1%}")
         rich_print(f"   - Total Return: ${data['total_return']:,.2f}")
 
     # Calculate statistics
-    lift = ((experiment_data["treatment"]["accuracy"] - experiment_data["control"]["accuracy"]) /
-            experiment_data["control"]["accuracy"] * 100)
+    lift = (
+        (experiment_data["treatment"]["accuracy"] - experiment_data["control"]["accuracy"])
+        / experiment_data["control"]["accuracy"]
+        * 100
+    )
 
     rich_print("\n4. Statistical Analysis:")
     rich_print(f"   - Lift: +{lift:.1f}%")
@@ -239,9 +242,16 @@ def show_integrated_workflow():
     ]
 
     for day, event, status in lifecycle_events:
-        icon = {"NORMAL": "✓", "WARNING": "⚠️", "ACTION": "🔧",
-                "SUCCESS": "✅", "TESTING": "🧪", "COMPLETE": "📊",
-                "DEPLOYED": "🚀", "CLEANUP": "🗑️"}.get(status, "•")
+        icon = {
+            "NORMAL": "✓",
+            "WARNING": "⚠️",
+            "ACTION": "🔧",
+            "SUCCESS": "✅",
+            "TESTING": "🧪",
+            "COMPLETE": "📊",
+            "DEPLOYED": "🚀",
+            "CLEANUP": "🗑️",
+        }.get(status, "•")
         rich_print(f"   {day}: {event} {icon}")
 
 

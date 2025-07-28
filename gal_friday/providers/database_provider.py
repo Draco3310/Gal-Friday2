@@ -1,22 +1,35 @@
+"""Database provider for fetching historical market data from PostgreSQL.
+
+This module provides classes for retrieving historical market data
+stored in PostgreSQL database for backtesting and analysis.
+"""
+
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 import logging
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import asyncio
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gal_friday.config_manager import ConfigManager
 from gal_friday.dal.connection_pool import DatabaseConnectionPool
 from gal_friday.dal.influxdb_client import TimeSeriesDB
 from gal_friday.dal.models import Order
 from gal_friday.dal.repositories.history_repository import HistoryRepository
-from gal_friday.simulated_market_price_service import DataRequest, HistoricalDataPoint, HistoricalDataProvider
+from gal_friday.interfaces.data_provider_protocols import HistoricalDataProviderProtocol
+
+if TYPE_CHECKING:
+    from gal_friday.core.data_request import DataRequest, HistoricalDataPoint
+else:
+    # Runtime imports to avoid circular imports
+    from gal_friday.core.data_request import DataRequest, HistoricalDataPoint
 
 
-class DatabaseDataProvider(HistoricalDataProvider):
+class DatabaseDataProvider(HistoricalDataProviderProtocol):
     """Production-ready provider for fetching historical data from databases."""
 
     def __init__(self, config: dict[str, Any], logger: logging.Logger) -> None:
@@ -61,8 +74,6 @@ class DatabaseDataProvider(HistoricalDataProvider):
         try:
             # Initialize connection pool if not provided
             if not self._connection_pool:
-                from gal_friday.config_manager import ConfigManager
-
                 # Create a temporary config file path or use default
                 config_path = self.config.get("config_path", "config/config.yaml")
                 config_manager = ConfigManager(config_path)
@@ -74,8 +85,6 @@ class DatabaseDataProvider(HistoricalDataProvider):
 
             # Initialize InfluxDB client if not provided
             if not self._ts_db:
-                from gal_friday.config_manager import ConfigManager
-
                 # Create a temporary config file path or use default
                 config_path = self.config.get("config_path", "config/config.yaml")
                 config_manager = ConfigManager(config_path)
@@ -97,11 +106,10 @@ class DatabaseDataProvider(HistoricalDataProvider):
                 extra={"source_module": self._source_module},
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to initialize DatabaseDataProvider: {e}",
+        except Exception:
+            self.logger.exception(
+                "Failed to initialize DatabaseDataProvider",
                 extra={"source_module": self._source_module},
-                exc_info=True,
             )
             raise
 
@@ -120,12 +128,9 @@ class DatabaseDataProvider(HistoricalDataProvider):
             self._initialized = False
 
         except Exception:
-            self.logger.exception(
-                "Error during cleanup: ",
-                extra={"source_module": self._source_module},
-            )
+            self.logger.exception("Error during cleanup: ", extra={"source_module": self._source_module})
 
-    async def fetch_data(self, request: DataRequest) -> list[HistoricalDataPoint]:
+    async def fetch_data(self, request: "DataRequest") -> list["HistoricalDataPoint"]:
         """Fetch historical data from appropriate database based on data type."""
         # Ensure initialized
         if not self._initialized:
@@ -174,20 +179,19 @@ class DatabaseDataProvider(HistoricalDataProvider):
                 },
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to fetch data: {e}",
+        except Exception:
+            self.logger.exception(
+                "Failed to fetch data",
                 extra={
                     "source_module": self._source_module,
                     "request": str(request),
                 },
-                exc_info=True,
             )
             raise
         else:
             return data_points
 
-    async def _fetch_from_influxdb(self, request: DataRequest) -> list[HistoricalDataPoint]:
+    async def _fetch_from_influxdb(self, request: "DataRequest") -> list["HistoricalDataPoint"]:
         """Fetch time-series data from InfluxDB."""
         if not self._history_repo:
             raise RuntimeError("HistoryRepository not initialized")
@@ -244,20 +248,24 @@ class DatabaseDataProvider(HistoricalDataProvider):
 
         return data_points
 
-    async def _fetch_from_postgresql(self, request: DataRequest) -> list[HistoricalDataPoint]:
+    async def _fetch_from_postgresql(self, request: "DataRequest") -> list["HistoricalDataPoint"]:
         """Fetch aggregated or processed data from PostgreSQL."""
         async with self._get_db_session() as session:
             # Build query based on available data
             # This is a simplified example - in production, you might query
             # from aggregated tables or views
-            query = select(Order).where(
-                and_(
-                    Order.trading_pair == request.symbol,
-                    Order.created_at >= request.start_date,
-                    Order.created_at <= request.end_date,
-                    Order.status == "FILLED",
-                ),
-            ).order_by(Order.created_at)
+            query = (
+                select(Order)
+                .where(
+                    and_(
+                        Order.trading_pair == request.symbol,
+                        Order.created_at >= request.start_date,
+                        Order.created_at <= request.end_date,
+                        Order.status == "FILLED",
+                    ),
+                )
+                .order_by(Order.created_at)
+            )
 
             # Execute with timeout
             result = await asyncio.wait_for(
@@ -272,7 +280,6 @@ class DatabaseDataProvider(HistoricalDataProvider):
 
             # Convert orders to OHLCV format
             return self._aggregate_orders_to_ohlcv(list(orders), request)
-
 
     @asynccontextmanager
     async def _get_db_session(self) -> AsyncIterator[AsyncSession]:
@@ -299,9 +306,13 @@ class DatabaseDataProvider(HistoricalDataProvider):
             # Query database for symbol validity
             async with self._get_db_session() as session:
                 # Check if symbol has any recent trades or orders
-                query = select(func.count(Order.id)).where(
-                    Order.trading_pair == symbol,
-                ).limit(1)
+                query = (
+                    select(func.count(Order.id))
+                    .where(
+                        Order.trading_pair == symbol,
+                    )
+                    .limit(1)
+                )
 
                 result = await session.execute(query)
                 count = result.scalar()
@@ -356,19 +367,17 @@ class DatabaseDataProvider(HistoricalDataProvider):
                 row = result.first()
 
                 if row:
-                    metadata.update({
-                        "min_price": float(row.min_price) if row.min_price else None,
-                        "max_price": float(row.max_price) if row.max_price else None,
-                        "total_volume": float(row.total_volume) if row.total_volume else None,
-                        "last_update": row.last_update.isoformat() if row.last_update else None,
-                    })
+                    metadata.update(
+                        {
+                            "min_price": float(row.min_price) if row.min_price else None,
+                            "max_price": float(row.max_price) if row.max_price else None,
+                            "total_volume": float(row.total_volume) if row.total_volume else None,
+                            "last_update": row.last_update.isoformat() if row.last_update else None,
+                        },
+                    )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get symbol metadata: {e}",
-                extra={"source_module": self._source_module},
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get symbol metadata", extra={"source_module": self._source_module})
 
         return metadata
 
@@ -381,7 +390,10 @@ class DatabaseDataProvider(HistoricalDataProvider):
             try:
                 minutes = int(frequency[:-1])
             except ValueError:
-                pass
+                self.logger.debug(
+                    f"Unable to parse frequency value: {frequency}",
+                    extra={"source_module": self._source_module},
+                )
             else:
                 return minutes < 5
         return False
@@ -418,7 +430,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
         # Cap at max batch size
         return cast("int", min(candles, self._max_batch_size))
 
-    def _validate_ohlcv(self, dp: HistoricalDataPoint) -> bool:
+    def _validate_ohlcv(self, dp: "HistoricalDataPoint") -> bool:
         """Validate OHLCV data integrity."""
         # Basic OHLCV validation
         if dp.high < dp.low:
@@ -435,7 +447,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
 
         return not dp.low > min(dp.open, dp.close)
 
-    def _aggregate_orders_to_ohlcv(self, orders: list[Order], request: DataRequest) -> list[HistoricalDataPoint]:
+    def _aggregate_orders_to_ohlcv(self, orders: list[Order], request: "DataRequest") -> list["HistoricalDataPoint"]:
         """Aggregate orders into OHLCV format."""
         # Group orders by time bucket
         bucket_size = self._parse_frequency_to_timedelta(request.frequency)
@@ -499,7 +511,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
         rounded_seconds = (delta.total_seconds() // bucket_seconds) * bucket_seconds
         return epoch + timedelta(seconds=rounded_seconds)
 
-    def _generate_cache_key(self, request: DataRequest) -> str:
+    def _generate_cache_key(self, request: "DataRequest") -> str:
         """Generate cache key for request."""
         return f"{request.symbol}_{request.start_date.isoformat()}_{request.end_date.isoformat()}_{request.frequency}"
 
@@ -519,13 +531,15 @@ class DatabaseDataProvider(HistoricalDataProvider):
         age = (datetime.now(UTC) - cache_entry["timestamp"]).total_seconds()
         return cast("bool", age < self._cache_ttl)
 
-    def _cache_query_result(self, cache_key: str, data_points: list[HistoricalDataPoint]) -> None:
+    def _cache_query_result(self, cache_key: str, data_points: list["HistoricalDataPoint"]) -> None:
         """Cache query results with LRU eviction."""
         # Implement simple LRU by removing oldest entries
         if len(self._query_cache) >= self._cache_max_size:
             # Remove oldest entry
-            oldest_key = min(self._query_cache.keys(),
-                           key=lambda k: self._query_cache[k].get("timestamp", datetime.min))
+            oldest_key = min(
+                self._query_cache.keys(),
+                key=lambda k: self._query_cache[k].get("timestamp", datetime.min.replace(tzinfo=UTC)),
+            )
             del self._query_cache[oldest_key]
 
         self._query_cache[cache_key] = {
@@ -541,9 +555,7 @@ class DatabaseDataProvider(HistoricalDataProvider):
         current_avg = self._query_metrics["average_query_time"]
         total_queries = self._query_metrics["total_queries"]
 
-        self._query_metrics["average_query_time"] = (
-            (current_avg * (total_queries - 1) + query_time) / total_queries
-        )
+        self._query_metrics["average_query_time"] = (current_avg * (total_queries - 1) + query_time) / total_queries
 
         # Log slow queries
         if query_time > 5.0:  # 5 second threshold

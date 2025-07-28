@@ -15,6 +15,7 @@ from gal_friday.logger_service import LoggerService
 @dataclass
 class RecoveryCheckItem:
     """Single item in recovery checklist."""
+
     item_id: str
     description: str
     is_completed: bool = False
@@ -36,32 +37,19 @@ class HaltRecoveryManager:
     def _initialize_checklist(self) -> None:
         """Initialize recovery checklist based on HALT reason."""
         self.checklist = [
-            RecoveryCheckItem(
-                "review_halt_reason",
-                "Review and understand the HALT trigger reason"),
-            RecoveryCheckItem(
-                "check_market_conditions",
-                "Verify current market conditions are acceptable"),
-            RecoveryCheckItem(
-                "review_positions",
-                "Review all open positions and their P&L"),
-            RecoveryCheckItem(
-                "verify_api_connectivity",
-                "Confirm API connectivity to exchange"),
-            RecoveryCheckItem(
-                "check_account_balance",
-                "Verify account balance matches expectations"),
-            RecoveryCheckItem(
-                "review_risk_parameters",
-                "Review and potentially adjust risk parameters"),
-            RecoveryCheckItem(
-                "confirm_resume",
-                "Confirm decision to resume trading"),
+            RecoveryCheckItem("review_halt_reason", "Review and understand the HALT trigger reason"),
+            RecoveryCheckItem("check_market_conditions", "Verify current market conditions are acceptable"),
+            RecoveryCheckItem("review_positions", "Review all open positions and their P&L"),
+            RecoveryCheckItem("verify_api_connectivity", "Confirm API connectivity to exchange"),
+            RecoveryCheckItem("check_account_balance", "Verify account balance matches expectations"),
+            RecoveryCheckItem("review_risk_parameters", "Review and potentially adjust risk parameters"),
+            RecoveryCheckItem("confirm_resume", "Confirm decision to resume trading"),
         ]
 
         self.logger.info(
             f"Initialized recovery checklist with {len(self.checklist)} items",
-            source_module=self._source_module)
+            source_module=self._source_module,
+        )
 
     def get_incomplete_items(self) -> list[RecoveryCheckItem]:
         """Get list[Any] of incomplete checklist items."""
@@ -89,12 +77,11 @@ class HaltRecoveryManager:
                     context={
                         "item_description": item.description,
                         "completed_at": item.completed_at.isoformat(),
-                    })
+                    },
+                )
                 return True
 
-        self.logger.warning(
-            f"Recovery item '{item_id}' not found",
-            source_module=self._source_module)
+        self.logger.warning(f"Recovery item '{item_id}' not found", source_module=self._source_module)
         return False
 
     def is_recovery_complete(self) -> bool:
@@ -108,9 +95,7 @@ class HaltRecoveryManager:
             item.completed_by = None
             item.completed_at = None
 
-        self.logger.info(
-            "Recovery checklist reset",
-            source_module=self._source_module)
+        self.logger.info("Recovery checklist reset", source_module=self._source_module)
 
     def get_checklist_status(self) -> dict[str, Any]:
         """Get current status of recovery checklist.

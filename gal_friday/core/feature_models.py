@@ -7,6 +7,7 @@ by downstream services like the PredictionService.
 The module supports both required and optional features with comprehensive
 validation and schema generation capabilities.
 """
+
 from typing import Any  # For RUF012
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -44,15 +45,18 @@ class FeatureSpec(BaseModel):
     """
 
     name: str = Field(..., description="Unique feature identifier")
-    required: bool = Field(True, description="Whether feature is required")
+    required: bool = Field(default=True, description="Whether feature is required")
     default_value: float | int | str | None = Field(
-        None, description="Default value for optional features",
+        None,
+        description="Default value for optional features",
     )
     validation_rules: dict[str, Any] | None = Field(
-        None, description="Custom validation rules",
+        None,
+        description="Custom validation rules",
     )
     description: str | None = Field(
-        None, description="Human-readable feature description",
+        None,
+        description="Human-readable feature description",
     )
     data_type: str = Field("float", description="Expected data type")
 
@@ -229,7 +233,8 @@ class PublishedFeaturesV1(BaseModel):
 
     # Required features from sample registry
     # From rsi_14_default in sample registry
-    rsi_14_default: float = Field(...,
+    rsi_14_default: float = Field(
+        ...,
         description="14-period RSI technical indicator",
         examples=[50.0],
     )
@@ -237,32 +242,38 @@ class PublishedFeaturesV1(BaseModel):
     # From macd_default in sample registry
     # Assuming pandas_ta names MACD columns like: MACD_<fast>_<slow>_<signal>, MACDh..., MACDs...
     # The FeatureEngine's naming logic is base_feature_key + "_" + col_name
-    macd_default_macd_12_26_9: float = Field(..., # N815
+    macd_default_macd_12_26_9: float = Field(
+        ...,  # N815
         description="MACD line (12,26,9 configuration)",
         examples=[0.5],
     )
-    macd_default_macdh_12_26_9: float = Field(..., # N815
+    macd_default_macdh_12_26_9: float = Field(
+        ...,  # N815
         description="MACD histogram (12,26,9 configuration)",
         examples=[0.1],
     )
-    macd_default_macds_12_26_9: float = Field(..., # N815
+    macd_default_macds_12_26_9: float = Field(
+        ...,  # N815
         description="MACD signal line (12,26,9 configuration)",
         examples=[0.4],
     )
 
     # From l2_spread_basic in sample registry
     # _pipeline_compute_l2_spread outputs a DataFrame with "abs_spread" and "pct_spread"
-    l2_spread_basic_abs_spread: float = Field(...,
+    l2_spread_basic_abs_spread: float = Field(
+        ...,
         description="Absolute spread from Level 2 order book",
         examples=[0.01],
     )
-    l2_spread_basic_pct_spread: float = Field(...,
+    l2_spread_basic_pct_spread: float = Field(
+        ...,
         description="Percentage spread from Level 2 order book",
         examples=[0.001],
     )
 
     # From vwap_trades_60s in sample registry
-    vwap_trades_60s: float = Field(...,
+    vwap_trades_60s: float = Field(
+        ...,
         description="Volume Weighted Average Price over 60-second window",
         examples=[30000.0],
     )
@@ -368,9 +379,9 @@ class PublishedFeaturesV1(BaseModel):
             "example": {
                 # Required features
                 "rsi_14_default": 55.0,
-                "macd_default_macd_12_26_9": -0.23, # N815
-                "macd_default_macdh_12_26_9": -0.05, # N815
-                "macd_default_macds_12_26_9": -0.18, # N815
+                "macd_default_macd_12_26_9": -0.23,  # N815
+                "macd_default_macdh_12_26_9": -0.05,  # N815
+                "macd_default_macds_12_26_9": -0.18,  # N815
                 "l2_spread_basic_abs_spread": 0.02,
                 "l2_spread_basic_pct_spread": 0.0005,
                 "vwap_trades_60s": 30010.50,

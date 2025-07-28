@@ -12,11 +12,15 @@ This example shows how to:
 import contextlib
 from datetime import UTC, datetime
 from decimal import Decimal
+import logging
 from typing import Any
 import uuid
 
 import asyncio
 
+from gal_friday.models.fill import ExecutionEventPublisher, Fill
+
+logger = logging.getLogger(__name__)
 
 # Mock event bus for demonstration
 class MockEventBus:
@@ -58,7 +62,6 @@ class MockOrder:
 async def demonstrate_basic_usage():
     """Demonstrate basic execution event creation and publishing."""
     # Import the actual classes (these would be real imports in production)
-    from gal_friday.models.fill import ExecutionEventPublisher, Fill
 
     # Create a mock event bus
     event_bus = MockEventBus()
@@ -111,13 +114,11 @@ async def demonstrate_basic_usage():
             pass
 
     except Exception:
-        pass
+        logger.exception("Error in demonstrate_execution_event_builder")
 
 
 async def demonstrate_error_handling():
     """Demonstrate error handling capabilities."""
-    from gal_friday.models.fill import ExecutionEventPublisher, Fill
-
     # Create a fill with invalid data to test validation
     invalid_fill = Fill(
         fill_pk=999,
@@ -170,8 +171,6 @@ async def demonstrate_error_handling():
 
 async def demonstrate_fallback_logic():
     """Demonstrate intelligent fallback logic."""
-    from gal_friday.models.fill import Fill
-
     # Create a fill with minimal data to test fallbacks
     minimal_fill = Fill(
         fill_pk=300,
@@ -199,8 +198,6 @@ async def demonstrate_fallback_logic():
 
 async def demonstrate_monitoring():
     """Demonstrate monitoring and statistics capabilities."""
-    from gal_friday.models.fill import ExecutionEventPublisher, Fill
-
     event_bus = MockEventBus()
     publisher = ExecutionEventPublisher(event_bus)
     Fill.set_event_publisher(publisher)
@@ -257,4 +254,4 @@ if __name__ == "__main__":
     except ImportError:
         pass
     except Exception:
-        pass
+        logger.exception("Error in demonstrate_execution_event_builder")

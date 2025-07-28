@@ -25,21 +25,14 @@ class DependencyMissingError(SetupError):
         self.component = component
         self.dependency = dependency
         if message is None:
-            message = (
-                f"Dependency '{dependency}' is missing or "
-                f"unavailable for component '{component}'."
-            )
+            message = f"Dependency '{dependency}' is missing or unavailable for component '{component}'."
         super().__init__(message)
 
 
 class ComponentInitializationError(SetupError):
     """Errors during the initialization of a critical component."""
 
-    def __init__(
-        self,
-        component_name: str,
-        details: str | None = None,
-        message: str | None = None) -> None:
+    def __init__(self, component_name: str, details: str | None = None, message: str | None = None) -> None:
         """Initialize ComponentInitializationError.
 
         Args:
@@ -64,7 +57,9 @@ class PositionNotFoundError(OperationalError):
     """Exception raised when a trading position is not found."""
 
     def __init__(
-        self, trading_pair: str | None = None, position_id: str | None = None,
+        self,
+        trading_pair: str | None = None,
+        position_id: str | None = None,
         message: str | None = None,
     ) -> None:
         """Initialize the instance."""
@@ -86,11 +81,7 @@ class UnsupportedModeError(OperationalError, ValueError):
     Inherits from ValueError for semantic compatibility where applicable.
     """
 
-    def __init__(
-        self,
-        mode: str,
-        supported_modes: list[str] | None = None,
-        message: str | None = None) -> None:
+    def __init__(self, mode: str, supported_modes: list[str] | None = None, message: str | None = None) -> None:
         """Initialize UnsupportedModeError.
 
         Args:
@@ -143,7 +134,8 @@ class APIError(GalFridayError):
         message: str,
         service_name: str,
         status_code: int | None = None,
-        details: dict[str, Any] | None = None) -> None:
+        details: dict[str, Any] | None = None,
+    ) -> None:
         """Initialize an APIError.
 
         Args:
@@ -158,7 +150,8 @@ class APIError(GalFridayError):
             {
                 "service_name": service_name,
                 "status_code": status_code,
-            })
+            },
+        )
         super().__init__(message, details)
 
 
@@ -192,7 +185,6 @@ class ExecutionHandlerNetworkError(ExecutionHandlerError, NetworkError):
 
 class ExecutionHandlerCriticalError(ExecutionHandlerError):
     """Exception raised for critical failures in execution handlers."""
-
 
 
 class DatabaseError(GalFridayError):
@@ -293,19 +285,14 @@ class ExecutionHandlerInstantiationFailedExit(CriticalExit):
             mode: The execution mode that failed
             _original_exception: Optional original exception that caused the failure
         """
-        message = (
-            f"Execution Handler failed to instantiate for mode: '{mode}'. " "Application exiting."
-        )
+        message = f"Execution Handler failed to instantiate for mode: '{mode}'. Application exiting."
         super().__init__(message)
 
 
 class RiskManagerInstantiationFailedExit(CriticalExit):
     """SystemExit raised when the RiskManager fails to instantiate."""
 
-    def __init__(
-        self,
-        component_name: str = "RiskManager",
-        _original_exception: Exception | None = None) -> None:
+    def __init__(self, component_name: str = "RiskManager", _original_exception: Exception | None = None) -> None:
         """Initialize RiskManagerInstantiationFailedExit.
 
         Args:
@@ -319,11 +306,7 @@ class RiskManagerInstantiationFailedExit(CriticalExit):
 class MarketPriceServiceUnsupportedModeError(UnsupportedModeError):
     """Error when MarketPriceService instantiation fails due to an unsupported mode."""
 
-    def __init__(
-        self,
-        mode: str,
-        supported_modes: list[str] | None = None,
-        message: str | None = None) -> None:
+    def __init__(self, mode: str, supported_modes: list[str] | None = None, message: str | None = None) -> None:
         """Initialize MarketPriceServiceUnsupportedModeError.
 
         Args:
@@ -333,8 +316,7 @@ class MarketPriceServiceUnsupportedModeError(UnsupportedModeError):
         """
         if message is None:
             message = (
-                f"Cannot instantiate MarketPriceService for mode '{mode}'. "
-                "Missing or incompatible implementation."
+                f"Cannot instantiate MarketPriceService for mode '{mode}'. Missing or incompatible implementation."
             )
         super().__init__(mode=mode, supported_modes=supported_modes, message=message)
 
@@ -348,8 +330,7 @@ class MarketPriceServiceCriticalFailureExit(CriticalExit):
         Args:
             _original_exception: Optional original exception that caused the failure
         """
-        super().__init__(
-            "MarketPriceService instantiation failed critically. Application exiting.")
+        super().__init__("MarketPriceService instantiation failed critically. Application exiting.")
 
 
 class PortfolioManagerInstantiationFailedExit(CriticalExit):
@@ -361,8 +342,7 @@ class PortfolioManagerInstantiationFailedExit(CriticalExit):
         Args:
             _original_exception: Optional original exception that caused the failure
         """
-        super().__init__(
-            "PortfolioManager instantiation failed. Application exiting.")
+        super().__init__("PortfolioManager instantiation failed. Application exiting.")
 
 
 class LoggerServiceInstantiationFailedExit(CriticalExit):
@@ -374,8 +354,7 @@ class LoggerServiceInstantiationFailedExit(CriticalExit):
         Args:
             _original_exception: Optional original exception that caused the failure
         """
-        super().__init__(
-            "LoggerService instantiation failed. Application exiting.")
+        super().__init__("LoggerService instantiation failed. Application exiting.")
 
 
 class PubSubManagerInstantiationFailedExit(CriticalExit):
@@ -387,8 +366,7 @@ class PubSubManagerInstantiationFailedExit(CriticalExit):
         Args:
             _original_exception: Optional original exception that caused the failure
         """
-        super().__init__(
-            "PubSubManager core instantiation failed. Application exiting.")
+        super().__init__("PubSubManager core instantiation failed. Application exiting.")
 
 
 class ConfigurationLoadingFailedExit(CriticalExit):
@@ -400,5 +378,4 @@ class ConfigurationLoadingFailedExit(CriticalExit):
         Args:
             _original_exception: Optional original exception that caused the failure
         """
-        super().__init__(
-            "Configuration loading failed. Application exiting.")
+        super().__init__("Configuration loading failed. Application exiting.")

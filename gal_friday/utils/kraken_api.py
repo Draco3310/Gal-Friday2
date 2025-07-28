@@ -7,6 +7,7 @@ eliminating duplication across different Kraken-specific modules.
 import base64
 import hashlib
 import hmac
+import time
 from typing import Any
 import urllib.parse
 
@@ -27,8 +28,7 @@ class InvalidAPISecretError(KrakenAPIError):
         super().__init__(message)
 
 
-def generate_kraken_signature(
-    uri_path: str, data: dict[str, Any], nonce: int, api_secret: str) -> str:
+def generate_kraken_signature(uri_path: str, data: dict[str, Any], nonce: int, api_secret: str) -> str:
     """Generate the API-Sign header required by Kraken private endpoints.
 
     This function creates the HMAC-SHA512 signature that Kraken requires for
@@ -73,8 +73,7 @@ def generate_kraken_signature(
     return base64.b64encode(mac.digest()).decode()
 
 
-def prepare_kraken_request_data(
-    data: dict[str, Any], nonce: int | None = None) -> dict[str, Any]:
+def prepare_kraken_request_data(data: dict[str, Any], nonce: int | None = None) -> dict[str, Any]:
     """Prepare request data for Kraken API by adding nonce if not present.
 
     Args:
@@ -84,8 +83,6 @@ def prepare_kraken_request_data(
     Returns:
         Request data with nonce added
     """
-    import time
-
     request_data = data.copy()
     if nonce is None:
         nonce = int(time.time() * 1000)

@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 import uuid
 
-from sqlalchemy import Integer, Numeric, cast, func, select
+from sqlalchemy import Integer, Numeric, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import (
     insert as pg_insert,  # For ON CONFLICT DO UPDATE/NOTHING
 )
@@ -26,8 +26,7 @@ if TYPE_CHECKING:
 class ExperimentRepository(BaseRepository[Experiment]):
     """Repository for Experiment data persistence using SQLAlchemy."""
 
-    def __init__(
-        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
+    def __init__(self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
         """Initialize the experiment repository.
 
         Args:
@@ -38,55 +37,80 @@ class ExperimentRepository(BaseRepository[Experiment]):
 
     async def save_experiment(self, experiment_data: dict[str, Any]) -> Experiment:
         """Saves an experiment. Uses INSERT ... ON CONFLICT DO UPDATE."""
-        # Ensure experiment_id is a UUID
-        if isinstance(experiment_data.get("experiment_id"), str):
-            experiment_data["experiment_id"] = uuid.UUID(experiment_data["experiment_id"])
-        elif "experiment_id" not in experiment_data:
-             experiment_data["experiment_id"] = uuid.uuid4()
+        # Prepare data
+        self._ensure_experiment_id(experiment_data)
+        self._convert_datetime_fields(experiment_data)
 
-
-        # Convert datetime strings to datetime objects if necessary, ensure timezone aware
-        for key in ["start_time", "end_time", "created_at", "completed_at"]:
-            if key in experiment_data and isinstance(experiment_data[key], str):
-                dt_obj = datetime.fromisoformat(experiment_data[key])
-                if dt_obj.tzinfo is None:
-                    dt_obj = dt_obj.replace(tzinfo=UTC)
-                experiment_data[key] = dt_obj
-            elif (key in experiment_data and isinstance(experiment_data[key], datetime) and
-                  experiment_data[key].tzinfo is None):
-                 experiment_data[key] = experiment_data[key].replace(tzinfo=UTC)
-
-
-        # Prepare values for insert/update
-        # SQLAlchemy's pg_insert handles type conversions for basic types
-        # For complex types like enums previously, ensure they are passed as their DB value (e.g. string)
-        # allocation_strategy.value -> allocation_strategy (if it's a string in DB)
-        # traffic_split, confidence_level, min_detectable_effect, max_loss_threshold to Decimal if not already
-
+        # Save or update experiment
         async with self.session_maker() as session:
-            # This is a simplified version. A full upsert might require more specific handling
-            # of which columns to update on conflict. For simplicity, use get then update/create.
-            existing_exp = await session.get(Experiment, experiment_data["experiment_id"])
-            if existing_exp:
-                # Update existing
-                for key, value in experiment_data.items():
-                    if hasattr(existing_exp, key):
-                        setattr(existing_exp, key, value)
-                if (hasattr(existing_exp, "updated_at") and
-                        "updated_at" not in experiment_data):  # Assuming an updated_at field
-                    existing_exp.updated_at = datetime.now(UTC)
-                session.add(existing_exp)
-                exp_to_return = existing_exp
-            else:
-                # Create new
-                # Ensure all required fields for Experiment model are present in experiment_data
-                exp_to_return = Experiment(**experiment_data)
-                session.add(exp_to_return)
-
+            exp_to_return = await self._upsert_experiment(session, experiment_data)
             await session.commit()
             await session.refresh(exp_to_return)
             return exp_to_return
 
+    def _ensure_experiment_id(self, experiment_data: dict[str, Any]) -> None:
+        """Ensure experiment_id is a UUID."""
+        if isinstance(experiment_data.get("experiment_id"), str):
+            experiment_data["experiment_id"] = uuid.UUID(experiment_data["experiment_id"])
+        elif "experiment_id" not in experiment_data:
+            experiment_data["experiment_id"] = uuid.uuid4()
+
+    def _convert_datetime_fields(self, experiment_data: dict[str, Any]) -> None:
+        """Convert datetime strings to timezone-aware datetime objects."""
+        datetime_fields = ["start_time", "end_time", "created_at", "completed_at"]
+
+        for key in datetime_fields:
+            if key in experiment_data:
+                experiment_data[key] = self._ensure_timezone_aware(key, experiment_data[key])
+
+    def _ensure_timezone_aware(self, key: str, value: Any) -> datetime:
+        """Ensure a datetime value is timezone-aware."""
+        if isinstance(value, str):
+            dt_obj = datetime.fromisoformat(value)
+            return dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
+        if isinstance(value, datetime) and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        if isinstance(value, datetime):
+            return value
+        # If not a datetime or string, raise an error
+        raise ValueError(f"Cannot convert {type(value)} to timezone-aware datetime for key '{key}'")
+
+    async def _upsert_experiment(
+        self,
+        session: Any,
+        experiment_data: dict[str, Any],
+    ) -> Experiment:
+        """Insert or update experiment in database."""
+        existing_exp = await session.get(Experiment, experiment_data["experiment_id"])
+
+        if existing_exp:
+            return await self._update_existing_experiment(session, existing_exp, experiment_data)
+        return self._create_new_experiment(session, experiment_data)
+
+    async def _update_existing_experiment(
+        self,
+        session: Any,
+        existing_exp: Experiment,
+        experiment_data: dict[str, Any],
+    ) -> Experiment:
+        """Update existing experiment with new data."""
+        # Update fields
+        for key, value in experiment_data.items():
+            if hasattr(existing_exp, key):
+                setattr(existing_exp, key, value)
+
+        # Update timestamp if not provided
+        if hasattr(existing_exp, "updated_at") and "updated_at" not in experiment_data:
+            existing_exp.updated_at = datetime.now(UTC)
+
+        session.add(existing_exp)
+        return existing_exp
+
+    def _create_new_experiment(self, session: Any, experiment_data: dict[str, Any]) -> Experiment:
+        """Create new experiment."""
+        exp_to_return = Experiment(**experiment_data)
+        session.add(exp_to_return)
+        return exp_to_return
 
     async def get_experiment(self, experiment_id: uuid.UUID) -> Experiment | None:
         """Get experiment by its UUID."""
@@ -99,14 +123,14 @@ class ExperimentRepository(BaseRepository[Experiment]):
                 select(Experiment)
                 .where(
                     Experiment.status.in_(["created", "running"]),
-                    (Experiment.end_time is None) | (Experiment.end_time > datetime.now(UTC)))
+                    or_(Experiment.end_time.is_(None), Experiment.end_time > datetime.now(UTC)),
+                )
                 .order_by(Experiment.start_time.desc())
             )
             result = await session.execute(stmt)
             return result.scalars().all()
 
-    async def record_assignment(
-        self, assignment_data: dict[str, Any]) -> ExperimentAssignment | None:
+    async def record_assignment(self, assignment_data: dict[str, Any]) -> ExperimentAssignment | None:
         """Records a variant assignment. Uses INSERT ... ON CONFLICT DO NOTHING."""
         # Ensure experiment_id and event_id are UUIDs
         for key in ["experiment_id", "event_id"]:
@@ -119,20 +143,19 @@ class ExperimentRepository(BaseRepository[Experiment]):
         elif isinstance(assignment_data.get("assigned_at"), datetime) and assignment_data["assigned_at"].tzinfo is None:
             assignment_data["assigned_at"] = assignment_data["assigned_at"].replace(tzinfo=UTC)
 
-
         stmt = pg_insert(ExperimentAssignment).values(**assignment_data)
         stmt = stmt.on_conflict_do_nothing(
-            index_elements=[ExperimentAssignment.experiment_id, ExperimentAssignment.event_id])
+            index_elements=[ExperimentAssignment.experiment_id, ExperimentAssignment.event_id],
+        )
         async with self.session_maker() as session:
             await session.execute(stmt)
             await session.commit()
             return await session.get(
                 ExperimentAssignment,
-                (assignment_data["experiment_id"], assignment_data["event_id"]))
+                (assignment_data["experiment_id"], assignment_data["event_id"]),
+            )
 
-
-    async def get_assignment(
-        self, experiment_id: uuid.UUID, event_id: uuid.UUID) -> ExperimentAssignment | None:
+    async def get_assignment(self, experiment_id: uuid.UUID, event_id: uuid.UUID) -> ExperimentAssignment | None:
         """Get variant assignment for an event."""
         async with self.session_maker() as session:
             return await session.get(ExperimentAssignment, (experiment_id, event_id))
@@ -151,30 +174,26 @@ class ExperimentRepository(BaseRepository[Experiment]):
         Returns:
             The persisted :class:`ExperimentOutcome` instance.
         """
-        for key in ["experiment_id", "event_id"]: # outcome_id is auto-gen by default
+        for key in ["experiment_id", "event_id"]:  # outcome_id is auto-gen by default
             if isinstance(outcome_data.get(key), str):
                 outcome_data[key] = uuid.UUID(outcome_data[key])
 
         if isinstance(outcome_data.get("recorded_at"), str):
-             dt_obj = datetime.fromisoformat(outcome_data["recorded_at"])
-             outcome_data["recorded_at"] = dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
+            dt_obj = datetime.fromisoformat(outcome_data["recorded_at"])
+            outcome_data["recorded_at"] = dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
         elif isinstance(outcome_data.get("recorded_at"), datetime) and outcome_data["recorded_at"].tzinfo is None:
             outcome_data["recorded_at"] = outcome_data["recorded_at"].replace(tzinfo=UTC)
-
 
         # trade_return should be Decimal
         if "trade_return" in outcome_data and not isinstance(outcome_data["trade_return"], Decimal):
             outcome_data["trade_return"] = Decimal(str(outcome_data["trade_return"]))
 
         insert_stmt = pg_insert(ExperimentOutcome).values(**outcome_data)
-        update_cols = {
-            key: insert_stmt.excluded[key]
-            for key in outcome_data
-            if key != "outcome_id"
-        }
+        update_cols = {key: insert_stmt.excluded[key] for key in outcome_data if key != "outcome_id"}
         upsert_stmt = insert_stmt.on_conflict_do_update(
             index_elements=[ExperimentOutcome.outcome_id],
-            set_=update_cols).returning(ExperimentOutcome)
+            set_=update_cols,
+        ).returning(ExperimentOutcome)
 
         async with self.session_maker() as session:
             result = await session.execute(upsert_stmt)
@@ -182,8 +201,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
             outcome: ExperimentOutcome = result.scalar_one()
             return outcome
 
-    async def get_or_create_outcome(
-        self, outcome_data: dict[str, Any]) -> ExperimentOutcome:
+    async def get_or_create_outcome(self, outcome_data: dict[str, Any]) -> ExperimentOutcome:
         """Retrieve an existing outcome or create a new one.
 
         The lookup is performed first by ``outcome_id`` if provided; otherwise
@@ -216,7 +234,8 @@ class ExperimentRepository(BaseRepository[Experiment]):
             elif outcome_data.get("experiment_id") and outcome_data.get("event_id"):
                 stmt = select(ExperimentOutcome).where(
                     ExperimentOutcome.experiment_id == outcome_data["experiment_id"],
-                    ExperimentOutcome.event_id == outcome_data["event_id"])
+                    ExperimentOutcome.event_id == outcome_data["event_id"],
+                )
                 result = await session.execute(stmt)
                 instance = result.scalar_one_or_none()
 
@@ -229,8 +248,7 @@ class ExperimentRepository(BaseRepository[Experiment]):
             await session.refresh(instance)
             return instance
 
-    async def get_experiment_performance(
-        self, experiment_id: uuid.UUID) -> dict[str, dict[str, Any]]:
+    async def get_experiment_performance(self, experiment_id: uuid.UUID) -> dict[str, dict[str, Any]]:
         """Get aggregated performance metrics for experiment variants."""
         stmt = (
             select(
@@ -239,14 +257,15 @@ class ExperimentRepository(BaseRepository[Experiment]):
                 func.sum(cast(ExperimentOutcome.correct_prediction, Integer)).label("correct_predictions"),
                 func.sum(cast(ExperimentOutcome.signal_generated, Integer)).label("signals_generated"),
                 func.sum(ExperimentOutcome.trade_return).label("total_return"),
-                func.avg(cast(ExperimentOutcome.correct_prediction, Numeric)).label("accuracy"))
+                func.avg(cast(ExperimentOutcome.correct_prediction, Numeric)).label("accuracy"),
+            )
             .where(ExperimentOutcome.experiment_id == experiment_id)
             .group_by(ExperimentOutcome.variant)
         )
         performance_summary: dict[str, dict[str, Any]] = {}
         async with self.session_maker() as session:
             result = await session.execute(stmt)
-            for row in result.mappings(): # Use mappings() to get dict[str, Any]-like rows
+            for row in result.mappings():  # Use mappings() to get dict[str, Any]-like rows
                 performance_summary[row["variant"]] = {
                     "sample_count": row["sample_count"],
                     "correct_predictions": row["correct_predictions"] or 0,
@@ -262,14 +281,13 @@ class ExperimentRepository(BaseRepository[Experiment]):
         if "completed_at" not in results_data:
             results_data["completed_at"] = datetime.now(UTC)
         elif isinstance(results_data["completed_at"], str):
-             dt_obj = datetime.fromisoformat(results_data["completed_at"])
-             results_data["completed_at"] = dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
+            dt_obj = datetime.fromisoformat(results_data["completed_at"])
+            results_data["completed_at"] = dt_obj.replace(tzinfo=UTC) if dt_obj.tzinfo is None else dt_obj
         elif isinstance(results_data["completed_at"], datetime) and results_data["completed_at"].tzinfo is None:
             results_data["completed_at"] = results_data["completed_at"].replace(tzinfo=UTC)
 
         # status and completion_reason are part of results_data
         return await self.update(experiment_id, results_data)
-
 
     async def get_experiment_history(self, days: int = 30) -> Sequence[dict[str, Any]]:
         """Get experiment history for analysis, including total_assignments."""
@@ -279,7 +297,8 @@ class ExperimentRepository(BaseRepository[Experiment]):
         subquery = (
             select(
                 ExperimentAssignment.experiment_id,
-                func.count(ExperimentAssignment.event_id.distinct()).label("total_assignments"))
+                func.count(ExperimentAssignment.event_id.distinct()).label("total_assignments"),
+            )
             .group_by(ExperimentAssignment.experiment_id)
             .subquery()
         )
@@ -287,16 +306,16 @@ class ExperimentRepository(BaseRepository[Experiment]):
         stmt = (
             select(Experiment, subquery.c.total_assignments)
             .outerjoin(subquery, Experiment.experiment_id == subquery.c.experiment_id)
-            .where(Experiment.created_at > cutoff_date) # Assuming Experiment has created_at
+            .where(Experiment.created_at > cutoff_date)  # Assuming Experiment has created_at
             .order_by(Experiment.created_at.desc())
         )
 
         history = []
         async with self.session_maker() as session:
             result = await session.execute(stmt)
-            for row in result: # row is a Row object
-                exp = row[0] # The Experiment object
-                total_assignments = row[1] or 0 # Value from subquery
+            for row in result:  # row is a Row object
+                exp = row[0]  # The Experiment object
+                total_assignments = row[1] or 0  # Value from subquery
                 exp_dict = {column.name: getattr(exp, column.name) for column in exp.__table__.columns}
                 exp_dict["total_assignments"] = total_assignments
                 history.append(exp_dict)

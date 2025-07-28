@@ -11,7 +11,7 @@ This document summarizes the cleanup of misleading comments in model files regar
 - **Status**: Already returns `ExecutionReportEvent` properly
 - **Action**: Cleaned up outdated comments
 
-### 2. Signal Model  
+### 2. Signal Model
 **File**: `/gal_friday/models/signal.py`
 - **Lines Cleaned**: Removed lines 74-80 misleading comments
 - **Status**: Already returns `TradeSignalProposedEvent` properly

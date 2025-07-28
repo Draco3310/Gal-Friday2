@@ -14,11 +14,13 @@ import asyncio
 from gal_friday.core.events import Event, EventType, ExecutionReportEvent
 from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
+from gal_friday.utils.lazy_imports import psutil
 
 
 @dataclass
 class LiveOrderData:
     """Real-time order data structure."""
+
     order_id: str
     trading_pair: str
     side: str
@@ -59,6 +61,7 @@ class LiveOrderData:
 @dataclass
 class LiveTradeData:
     """Real-time trade data structure."""
+
     trade_id: str
     order_id: str
     trading_pair: str
@@ -89,6 +92,7 @@ class LiveTradeData:
 @dataclass
 class SystemHealthMetrics:
     """System health and performance metrics."""
+
     timestamp: datetime
     cpu_usage_percent: float
     memory_usage_mb: float
@@ -127,6 +131,17 @@ class LiveDataCollector:
         risk_manager: Any = None,
         monitoring_service: Any = None,
     ) -> None:
+        """Initialize the LiveDataCollector.
+
+        Args:
+            logger: Logger service for logging operations.
+            pubsub_manager: PubSub manager for event subscriptions.
+            execution_handler: Optional execution handler instance.
+            portfolio_manager: Optional portfolio manager instance.
+            strategy_selection: Optional strategy selection instance.
+            risk_manager: Optional risk manager instance.
+            monitoring_service: Optional monitoring service instance.
+        """
         self.logger = logger
         self.pubsub = pubsub_manager
         self.execution_handler = execution_handler
@@ -157,7 +172,7 @@ class LiveDataCollector:
             self.pubsub.subscribe(EventType.FILL, self._handle_trade_completed)
 
             # Start periodic system metrics collection
-            asyncio.create_task(self._system_metrics_loop())
+            self._system_metrics_task = asyncio.create_task(self._system_metrics_loop())
 
             # Initialize with current data
             await self._load_initial_data()
@@ -167,12 +182,8 @@ class LiveDataCollector:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to start data collection: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to start data collection", source_module=self._source_module)
             raise
 
     async def get_active_orders(self) -> list[dict[str, Any]]:
@@ -196,12 +207,8 @@ class LiveDataCollector:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get active orders: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get active orders", source_module=self._source_module)
             return []
         else:
             return active_orders
@@ -222,21 +229,15 @@ class LiveDataCollector:
                 recent_trades.append(live_trade.to_dict())
 
             # Update cache
-            self._recent_trades = [
-                self._convert_to_live_trade(trade) for trade in raw_trades
-            ]
+            self._recent_trades = [self._convert_to_live_trade(trade) for trade in raw_trades]
 
             self.logger.debug(
                 f"Retrieved {len(recent_trades)} recent trades",
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get recent trades: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get recent trades", source_module=self._source_module)
             return []
         else:
             return recent_trades
@@ -253,12 +254,8 @@ class LiveDataCollector:
             performance_metrics = await self._calculate_portfolio_performance()
             portfolio_state.update(performance_metrics)
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get portfolio metrics: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get portfolio metrics", source_module=self._source_module)
             return {}
         else:
             return portfolio_state
@@ -275,8 +272,9 @@ class LiveDataCollector:
             strategy_metrics = {
                 "current_strategy": current_strategy,
                 "last_selection_time": (
-                    self.strategy_selection._last_selection_time.isoformat()
-                    if self.strategy_selection._last_selection_time else None
+                    self.strategy_selection.last_selection_time.isoformat()
+                    if self.strategy_selection.last_selection_time
+                    else None
                 ),
                 "in_transition": self.strategy_selection.strategy_orchestrator.is_in_transition(),
                 "active_transition": None,
@@ -293,12 +291,8 @@ class LiveDataCollector:
                     "started_at": active_transition.started_at.isoformat() if active_transition.started_at else None,
                 }
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get strategy metrics: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get strategy metrics", source_module=self._source_module)
             return {}
         else:
             return strategy_metrics
@@ -323,12 +317,8 @@ class LiveDataCollector:
                 if halt_status:
                     risk_metrics["halt_details"] = halt_status.get_halt_status()
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get risk metrics: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get risk metrics", source_module=self._source_module)
             return {}
         else:
             return risk_metrics
@@ -338,16 +328,11 @@ class LiveDataCollector:
         try:
             # Check if we need to update metrics
             now = datetime.now(UTC)
-            if (self._last_metrics_update is None or
-                now - self._last_metrics_update > self._metrics_cache_ttl):
+            if self._last_metrics_update is None or now - self._last_metrics_update > self._metrics_cache_ttl:
                 await self._update_system_metrics()
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get system health: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get system health", source_module=self._source_module)
             return {}
         else:
             if self._system_metrics:
@@ -377,13 +362,8 @@ class LiveDataCollector:
                 if event.average_fill_price:
                     order.average_fill_price = event.average_fill_price
 
-        except Exception as e:
-            self.logger.error(
-                f"Error handling execution report: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
-
+        except Exception:
+            self.logger.exception("Error handling execution report", source_module=self._source_module)
 
     async def _handle_trade_completed(self, event: Event) -> None:
         """Handle trade completion events."""
@@ -393,8 +373,7 @@ class LiveDataCollector:
                 # Add to recent trades
                 trade_data = LiveTradeData(
                     trade_id=(
-                        event.fill_id if hasattr(event, "fill_id")
-                        else f"trade_{int(event.timestamp.timestamp())}"
+                        event.fill_id if hasattr(event, "fill_id") else f"trade_{int(event.timestamp.timestamp())}"
                     ),
                     order_id=event.order_id if hasattr(event, "order_id") else "unknown",
                     trading_pair=event.trading_pair if hasattr(event, "trading_pair") else "unknown",
@@ -411,14 +390,10 @@ class LiveDataCollector:
 
                 # Limit history size
                 if len(self._recent_trades) > self._max_trade_history:
-                    self._recent_trades = self._recent_trades[:self._max_trade_history]
+                    self._recent_trades = self._recent_trades[: self._max_trade_history]
 
-        except Exception as e:
-            self.logger.error(
-                f"Error handling trade completion: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error handling trade completion", source_module=self._source_module)
 
     async def _system_metrics_loop(self) -> None:
         """Continuous system metrics collection loop."""
@@ -427,19 +402,16 @@ class LiveDataCollector:
                 await self._update_system_metrics()
                 await asyncio.sleep(30)  # Update every 30 seconds
 
-            except Exception as e:
-                self.logger.error(
-                    f"Error in system metrics loop: {e}",
-                    source_module=self._source_module,
-                    exc_info=True,
-                )
+            except Exception:
+                self.logger.exception("Error in system metrics loop", source_module=self._source_module)
                 await asyncio.sleep(60)  # Wait longer on error
 
     async def _update_system_metrics(self) -> None:
         """Update system health metrics."""
-        try:
-            import psutil
+        if not psutil.available:
+            return
 
+        try:
             # Get system metrics
             cpu_percent = psutil.cpu_percent(interval=1)
             memory = psutil.virtual_memory()
@@ -450,8 +422,7 @@ class LiveDataCollector:
 
             # Get application-specific metrics
             active_connections = (
-                len(getattr(self.monitoring_service, "active_connections", []))
-                if self.monitoring_service else 0
+                len(getattr(self.monitoring_service, "active_connections", [])) if self.monitoring_service else 0
             )
             orders_per_minute = await self._calculate_orders_per_minute()
             api_error_rate = await self._calculate_api_error_rate()
@@ -473,12 +444,8 @@ class LiveDataCollector:
 
             self._last_metrics_update = datetime.now(UTC)
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to update system metrics: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to update system metrics", source_module=self._source_module)
 
     def _convert_to_live_order(self, raw_order: Any) -> LiveOrderData:
         """Convert raw order data to LiveOrderData."""
@@ -494,8 +461,7 @@ class LiveDataCollector:
             filled_quantity=Decimal(str(raw_order.get("filled", 0))),
             remaining_quantity=Decimal(str(raw_order.get("remaining", 0))),
             average_fill_price=(
-                Decimal(str(raw_order.get("average_fill_price", 0)))
-                if raw_order.get("average_fill_price") else None
+                Decimal(str(raw_order.get("average_fill_price", 0))) if raw_order.get("average_fill_price") else None
             ),
             created_at=raw_order.get("created_at", datetime.now(UTC)),
             updated_at=raw_order.get("updated_at", datetime.now(UTC)),
@@ -534,12 +500,8 @@ class LiveDataCollector:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to load initial data: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to load initial data", source_module=self._source_module)
 
     async def _calculate_portfolio_performance(self) -> dict[str, Any]:
         """Calculate additional portfolio performance metrics."""

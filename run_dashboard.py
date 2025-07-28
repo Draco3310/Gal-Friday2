@@ -5,6 +5,7 @@ Run this script from the project root to start the dashboard.
 
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 
@@ -22,7 +23,6 @@ def main():
     os.chdir(dashboard_script.parent)
 
     # Execute the dashboard script
-    import subprocess
     try:
         subprocess.run([sys.executable, "run_dashboard.py"], check=True)
     except KeyboardInterrupt:

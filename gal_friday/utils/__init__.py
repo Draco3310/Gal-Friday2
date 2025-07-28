@@ -26,6 +26,7 @@ class ExceptionHandlerConfig(Generic[T]):
     include_traceback: bool = True
     source_module: str | None = None
     re_raise: bool = False
+
     # Initialize specific_exceptions with proper default
     def __post_init__(self) -> None:
         """Initialize specific_exceptions with default if not provided."""
@@ -35,7 +36,8 @@ class ExceptionHandlerConfig(Generic[T]):
 
 def handle_exceptions(
     logger: logging.Logger,
-    config: ExceptionHandlerConfig[T]) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    config: ExceptionHandlerConfig[T],
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Handle exceptions in a standardized way.
 
     Args:
@@ -63,17 +65,16 @@ def handle_exceptions(
                 return func(*args, **kwargs)
             except effective_exceptions as e:
                 formatted_message = config.message.format(error=e)
-                module_name = config.source_module or func.__module__
 
                 if config.include_traceback:
                     logger.exception("[%s]", formatted_message)
                 else:
-                    logger.exception("[%s]", formatted_message, exc_info=False)
+                    logger.exception("[%s]", formatted_message)
 
                 if config.re_raise:
                     raise e.__class__(formatted_message) from e
 
-                return config.default_return  # type: ignore
+                return config.default_return  # type: ignore[return-value]
 
         return wrapper
 
@@ -105,24 +106,22 @@ def handle_exceptions_async(
     else:
         effective_exceptions = (Exception,)
 
-    def decorator(
-        func: Callable[..., Coroutine[Any, Any, T]]) -> Callable[..., Coroutine[Any, Any, T]]:
+    def decorator(func: Callable[..., Coroutine[Any, Any, T]]) -> Callable[..., Coroutine[Any, Any, T]]:
         async def wrapper(*args: object, **kwargs: object) -> T:
             try:
                 return await func(*args, **kwargs)
             except effective_exceptions as e:
                 formatted_message = config.message.format(error=e)
-                module_name = config.source_module or func.__module__
 
                 if config.include_traceback:
                     logger.exception("[%s]", formatted_message)
                 else:
-                    logger.exception("[%s]", formatted_message, exc_info=False)
+                    logger.exception("[%s]", formatted_message)
 
                 if config.re_raise:
                     raise e.__class__(formatted_message) from e
 
-                return config.default_return  # type: ignore
+                return config.default_return  # type: ignore[return-value]
 
         return wrapper
 

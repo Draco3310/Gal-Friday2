@@ -16,6 +16,7 @@ from collections.abc import Callable, Coroutine
 import contextlib
 from datetime import UTC, datetime
 from decimal import Decimal
+import sys
 import threading
 from typing import Any
 
@@ -80,12 +81,14 @@ class Table:
     ) -> None:
         """Add a column to the table."""
         with self._lock:
-            self.columns.append({
-                "header": header,
-                "style": style,
-                "width": width,
-                **kwargs,
-            })
+            self.columns.append(
+                {
+                    "header": header,
+                    "style": style,
+                    "width": width,
+                    **kwargs,
+                },
+            )
 
     def add_row(self, *cells: str, **kwargs: Any) -> None:
         """Add a row to the table."""
@@ -133,12 +136,14 @@ class MonitoringService:
                 self._halt_timestamp = datetime.now(UTC)
 
                 # Record halt event
-                self._halt_history.append({
-                    "action": "halt",
-                    "reason": reason,
-                    "source": source,
-                    "timestamp": self._halt_timestamp,
-                })
+                self._halt_history.append(
+                    {
+                        "action": "halt",
+                        "reason": reason,
+                        "source": source,
+                        "timestamp": self._halt_timestamp,
+                    },
+                )
 
                 rich_print(f"HALT triggered by {source}: {reason}")
             else:
@@ -152,11 +157,13 @@ class MonitoringService:
                 self._resume_timestamp = datetime.now(UTC)
 
                 # Record resume event
-                self._halt_history.append({
-                    "action": "resume",
-                    "source": source,
-                    "timestamp": self._resume_timestamp,
-                })
+                self._halt_history.append(
+                    {
+                        "action": "resume",
+                        "source": source,
+                        "timestamp": self._resume_timestamp,
+                    },
+                )
 
                 rich_print(f"RESUME triggered by {source}")
             else:
@@ -284,15 +291,13 @@ class PortfolioManager:
             if profit_loss > 0:
                 current_winning_raw = self._current_state.get("winning_trades", 0)
                 current_winning = (
-                    current_winning_raw if isinstance(current_winning_raw, int)
-                    else int(str(current_winning_raw))
+                    current_winning_raw if isinstance(current_winning_raw, int) else int(str(current_winning_raw))
                 )
                 self._current_state["winning_trades"] = current_winning + 1
             else:
                 current_losing_raw = self._current_state.get("losing_trades", 0)
                 current_losing = (
-                    current_losing_raw if isinstance(current_losing_raw, int)
-                    else int(str(current_losing_raw))
+                    current_losing_raw if isinstance(current_losing_raw, int) else int(str(current_losing_raw))
                 )
                 self._current_state["losing_trades"] = current_losing + 1
 
@@ -374,7 +379,8 @@ class LoggerService:
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict[str, Any] | None = None) -> None:
+        context: dict[str, Any] | None = None,
+    ) -> None:
         """Log info message."""
         self._log("INFO", message, *args, source_module=source_module, context=context)
 
@@ -383,7 +389,8 @@ class LoggerService:
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict[str, Any] | None = None) -> None:
+        context: dict[str, Any] | None = None,
+    ) -> None:
         """Log warning message."""
         self._log("WARNING", message, *args, source_module=source_module, context=context)
 
@@ -393,7 +400,8 @@ class LoggerService:
         *args: Any,
         source_module: str | None = None,
         context: dict[str, Any] | None = None,
-        exc_info: BaseException | None = None) -> None:
+        exc_info: BaseException | None = None,
+    ) -> None:
         """Log error message."""
         self._log("ERROR", message, *args, source_module=source_module, context=context, exc_info=exc_info)
 
@@ -402,9 +410,9 @@ class LoggerService:
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict[str, Any] | None = None) -> None:
+        context: dict[str, Any] | None = None,
+    ) -> None:
         """Log error message with exception info."""
-        import sys
         exc_info = sys.exc_info()[1]
         self._log("EXCEPTION", message, *args, source_module=source_module, context=context, exc_info=exc_info)
 
@@ -413,7 +421,8 @@ class LoggerService:
         message: str,
         *args: Any,
         source_module: str | None = None,
-        context: dict[str, Any] | None = None) -> None:
+        context: dict[str, Any] | None = None,
+    ) -> None:
         """Log debug message."""
         self._log("DEBUG", message, *args, source_module=source_module, context=context)
 
@@ -423,7 +432,8 @@ class LoggerService:
         *args: Any,
         source_module: str | None = None,
         context: dict[str, Any] | None = None,
-        exc_info: BaseException | None = None) -> None:
+        exc_info: BaseException | None = None,
+    ) -> None:
         """Log critical message."""
         self._log("CRITICAL", message, *args, source_module=source_module, context=context, exc_info=exc_info)
 
@@ -554,11 +564,13 @@ class PubSubManager:
 
         # Record published event
         with self._lock:
-            self._published_events.append({
-                "event_type": event_type,
-                "event": event,
-                "timestamp": datetime.now(UTC),
-            })
+            self._published_events.append(
+                {
+                    "event_type": event_type,
+                    "event": event,
+                    "timestamp": datetime.now(UTC),
+                },
+            )
 
             subscribers = self._subscribers.get(event_type, [])
 
@@ -572,20 +584,14 @@ class PubSubManager:
             except Exception as e:
                 rich_print(f"Error in event handler: {e}")
 
-    def subscribe(
-        self,
-        event_type: str,
-        handler: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
+    def subscribe(self, event_type: str, handler: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
         """Subscribe to an event type."""
         with self._lock:
             if event_type not in self._subscribers:
                 self._subscribers[event_type] = []
             self._subscribers[event_type].append(handler)
 
-    def unsubscribe(
-        self,
-        event_type: str,
-        handler: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
+    def unsubscribe(self, event_type: str, handler: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
         """Unsubscribe from an event type."""
         with self._lock:
             if event_type in self._subscribers:
@@ -630,7 +636,7 @@ class HaltRecoveryManager:
                 "completed_items": completed_items,
                 "pending_items": total_items - completed_items,
                 "recovery_items": list[Any](self._recovery_items.values()),
-                "completed_items": list[Any](self._completed_items.values()),
+                "completed_items_list": list[Any](self._completed_items.values()),
             }
 
     def complete_item(self, item_id: str, completed_by: str) -> bool:
@@ -638,10 +644,12 @@ class HaltRecoveryManager:
         with self._lock:
             if item_id in self._recovery_items:
                 item = self._recovery_items.pop(item_id)
-                item.update({
-                    "completed_by": completed_by,
-                    "completed_at": datetime.now(UTC),
-                })
+                item.update(
+                    {
+                        "completed_by": completed_by,
+                        "completed_at": datetime.now(UTC),
+                    },
+                )
                 self._completed_items[item_id] = item
                 return True
             return False

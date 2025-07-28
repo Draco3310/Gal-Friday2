@@ -20,6 +20,7 @@ from gal_friday.model_lifecycle import (
 
 class MockConfig:
     """Mock configuration for testing."""
+
     def __init__(self):
         self.config = {
             "model_registry.storage_path": "./test_models",
@@ -35,6 +36,7 @@ class MockConfig:
 
 class MockLogger:
     """Mock logger for testing."""
+
     def info(self, msg, **kwargs):
         rich_print(f"INFO: {msg}")
 
@@ -50,6 +52,7 @@ class MockLogger:
 
 class MockModelRepo:
     """Mock model repository for testing."""
+
     def __init__(self):
         self.models = {}
 
@@ -117,8 +120,9 @@ async def test_model_registry():
     registry = ModelRegistry(config, model_repo, logger, secrets)
 
     # Create a simple XGBoost model
-    X_train = np.random.rand(100, 5)
-    y_train = np.random.rand(100)
+    rng = np.random.default_rng(42)
+    X_train = rng.random((100, 5))  # noqa: N806
+    y_train = rng.random(100)
 
     model = xgb.XGBRegressor(n_estimators=10, max_depth=3)
     model.fit(X_train, y_train)

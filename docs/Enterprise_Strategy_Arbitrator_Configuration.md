@@ -46,12 +46,12 @@ strategy_arbitrator:
       buy_threshold: 0.65
       sell_threshold: 0.35
       # ... other strategy params ...
-  
+
   # New: Prediction interpretation configuration
   prediction_interpretation:
     config_path: "config/prediction_interpretation_config.json"  # Optional
-  
-  # New: Validation configuration  
+
+  # New: Validation configuration
   validation:
     config_path: "config/validation_config.json"  # Optional
 ```
@@ -459,4 +459,4 @@ The system is designed for backward compatibility but provides migration tools f
 - Migration assistance scripts
 - Best practices documentation
 
-For additional support, refer to the system documentation or contact the Gal Friday development team. 
+For additional support, refer to the system documentation or contact the Gal Friday development team.

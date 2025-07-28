@@ -1,40 +1,21 @@
 """Interface definition for prediction model implementations."""
 
-from abc import ABC, abstractmethod
-import logging
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
 
-class PredictorInterface(ABC):
-    """Abstract Base Class for all prediction models."""
+@runtime_checkable
+class PredictorProtocol(Protocol):
+    """Protocol for all prediction models."""
 
-    def __init__(
-        self,
-        model_path: str,
-        model_id: str,
-        config: dict[str, Any] | None = None) -> None:
-        """Initialize the predictor.
+    model_path: str
+    model_id: str
+    config: dict[str, Any]
+    scaler_path: str | None
+    model: Any
+    scaler: Any
 
-        Args:
-        ----
-            model_path: Path to the model file
-            model_id: Unique identifier for this model
-            config: Additional configuration parameters for this model.
-                    Expected to contain 'scaler_path': Optional[str] if a scaler is used.
-        """
-        self.model_path = model_path
-        self.model_id = model_id
-        self.config = config or {}
-        self.scaler_path: str | None = self.config.get("scaler_path")
-        self.model: Any = None
-        self.scaler: Any = None
-        self.logger = logging.getLogger(f"{self.__class__.__name__}:{self.model_id}")
-        # Load the model and scaler during initialization
-        self.load_assets()
-
-    @abstractmethod
     def load_assets(self) -> None:
         """Load the prediction model and any associated assets.
 
@@ -42,8 +23,8 @@ class PredictorInterface(ABC):
         from the specified paths.
         Sets self.model and self.scaler.
         """
+        ...
 
-    @abstractmethod
     def predict(self, features: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Generate predictions from the raw, ordered feature vector.
 
@@ -64,8 +45,13 @@ class PredictorInterface(ABC):
             TypeError: If model is not properly loaded
             Exception: If prediction fails for any other reason
         """
+        ...
 
     @property
-    @abstractmethod
     def expected_feature_names(self) -> list[str] | None:
-        """Return the list[Any] of feature names the model expects, if applicable."""
+        """Return the list of feature names the model expects, if applicable."""
+        ...
+
+
+# Backward compatibility alias
+PredictorInterface = PredictorProtocol

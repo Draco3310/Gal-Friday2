@@ -4,28 +4,42 @@ This module provides sophisticated feature engineering capabilities for cryptocu
 replacing simplified implementations with enterprise-grade solutions.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+import types
 
 import numpy as np
 import pandas as pd
 from scipy import stats
+from scipy.stats import kruskal
 from sklearn.impute import KNNImputer
+from statsmodels.tsa.seasonal import seasonal_decompose
+
+from gal_friday.logger_service import LoggerService
+from gal_friday.utils.lazy_imports import LazyImport
 
 # Optional import with graceful fallback
+talib: types.ModuleType | None = None
+
 try:
-    import talib
+    import talib as talib_module
+
+    talib = talib_module
     TALIB_AVAILABLE = True
 except ImportError:
     TALIB_AVAILABLE = False
     talib = None
 
-from gal_friday.logger_service import LoggerService
+# Create lazy imports for arch library
+arch_het = LazyImport("arch", "het_arch")
+arch_dfgls = LazyImport("arch.unitroot", "DFGLS")
 
 
 class SpreadType(str, Enum):
     """Types of spread calculations."""
+
     QUOTED = "quoted"
     EFFECTIVE = "effective"
     REALIZED = "realized"
@@ -34,6 +48,7 @@ class SpreadType(str, Enum):
 
 class ImputationStrategy(str, Enum):
     """Imputation strategy types."""
+
     FORWARD_FILL = "forward_fill"
     INTERPOLATION = "interpolation"
     SEASONAL_DECOMPOSITION = "seasonal_decomposition"
@@ -45,6 +60,7 @@ class ImputationStrategy(str, Enum):
 @dataclass
 class MarketMicrostructureData:
     """Market microstructure data container."""
+
     timestamp: pd.Timestamp
     bids: list[tuple[float, float]]  # [(price, size), ...]
     asks: list[tuple[float, float]]
@@ -103,14 +119,13 @@ class AdvancedSpreadCalculator:
             # 1. Basic quoted spread
             if microstructure_data.quoted_spread:
                 spreads["quoted_spread_abs"] = microstructure_data.quoted_spread
-                spreads["quoted_spread_bps"] = (
-                    microstructure_data.quoted_spread / microstructure_data.midpoint * 10000
-                )
+                spreads["quoted_spread_bps"] = microstructure_data.quoted_spread / microstructure_data.midpoint * 10000
 
             # 2. Effective spread from recent trades
             if trade_data:
                 effective_spreads = self._calculate_trade_based_effective_spread(
-                    trade_data, microstructure_data.midpoint,
+                    trade_data,
+                    microstructure_data.midpoint,
                 )
                 spreads.update(effective_spreads)
 
@@ -123,12 +138,8 @@ class AdvancedSpreadCalculator:
             impact_metrics = self._calculate_market_impact_spread(microstructure_data)
             spreads.update(impact_metrics)
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to calculate effective spread: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to calculate effective spread", source_module=self._source_module)
             return {}
         else:
             return spreads
@@ -144,7 +155,7 @@ class AdvancedSpreadCalculator:
                 return {}
 
             # Filter recent trades
-            recent_trades = trades[-self._trade_lookback_window:]
+            recent_trades = trades[-self._trade_lookback_window :]
 
             # Calculate effective spreads for each trade
             effective_spreads = []
@@ -158,7 +169,7 @@ class AdvancedSpreadCalculator:
                     effective_spreads.append(effective_spread)
 
             if effective_spreads:
-                return {
+                result = {
                     "effective_spread_mean": float(np.mean(effective_spreads)),
                     "effective_spread_median": float(np.median(effective_spreads)),
                     "effective_spread_std": float(np.std(effective_spreads)),
@@ -166,7 +177,7 @@ class AdvancedSpreadCalculator:
                     "trade_count": len(effective_spreads),
                 }
             else:
-                return {}
+                result = {}
 
         except Exception:
             self.logger.exception(
@@ -175,13 +186,7 @@ class AdvancedSpreadCalculator:
             )
             return {}
         else:
-            return {
-                "effective_spread_mean": float(np.mean(effective_spreads)),
-                "effective_spread_median": float(np.median(effective_spreads)),
-                "effective_spread_std": float(np.std(effective_spreads)),
-                "effective_spread_bps_mean": float(np.mean(effective_spreads) / midpoint * 10000),
-                "trade_count": len(effective_spreads),
-            }
+            return result
 
     def _calculate_liquidity_weighted_spread(
         self,
@@ -224,7 +229,7 @@ class AdvancedSpreadCalculator:
                     liquidity_weighted_spread = vwap_ask - vwap_bid
                     midpoint = (vwap_bid + vwap_ask) / 2
 
-                    return {
+                    result = {
                         "liquidity_weighted_spread_abs": liquidity_weighted_spread,
                         "liquidity_weighted_spread_bps": float(liquidity_weighted_spread / midpoint * 10000),
                         "vwap_bid": vwap_bid,
@@ -233,25 +238,15 @@ class AdvancedSpreadCalculator:
                         "total_ask_volume": total_ask_volume,
                     }
                 else:
-                    return {}
+                    result = {}
             else:
-                return {}
+                result = {}
 
         except Exception:
-            self.logger.exception(
-                "Failed to calculate liquidity-weighted spread: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to calculate liquidity-weighted spread: ", source_module=self._source_module)
             return {}
         else:
-            return {
-                "liquidity_weighted_spread_abs": liquidity_weighted_spread,
-                "liquidity_weighted_spread_bps": float(liquidity_weighted_spread / midpoint * 10000),
-                "vwap_bid": vwap_bid,
-                "vwap_ask": vwap_ask,
-                "total_bid_volume": total_bid_volume,
-                "total_ask_volume": total_ask_volume,
-            }
+            return result
 
     def _calculate_market_impact_spread(
         self,
@@ -270,12 +265,16 @@ class AdvancedSpreadCalculator:
             for size_usd in impact_sizes:
                 # Calculate buy impact
                 buy_impact = self._calculate_side_impact(
-                    microstructure_data.asks, size_usd, "buy",
+                    microstructure_data.asks,
+                    size_usd,
+                    "buy",
                 )
 
                 # Calculate sell impact
                 sell_impact = self._calculate_side_impact(
-                    microstructure_data.bids, size_usd, "sell",
+                    microstructure_data.bids,
+                    size_usd,
+                    "sell",
                 )
 
                 if buy_impact is not None:
@@ -298,10 +297,7 @@ class AdvancedSpreadCalculator:
                     impact_metrics["order_book_imbalance"] = imbalance
 
         except Exception:
-            self.logger.exception(
-                "Failed to calculate market impact spread: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to calculate market impact spread: ", source_module=self._source_module)
             return {}
         else:
             return impact_metrics
@@ -345,14 +341,11 @@ class AdvancedSpreadCalculator:
             if total_quantity > 0:
                 avg_execution_price = total_cost / total_quantity
                 return abs(avg_execution_price - best_price) / best_price * 10000
-            else:
-                return None
 
         except Exception:
-            self.logger.exception(
-                "Failed to calculate side impact: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to calculate side impact: ", source_module=self._source_module)
+            return None
+        else:
             return None
 
 
@@ -373,6 +366,9 @@ class IntelligentImputationEngine:
         # Market regime detection
         self._volatility_lookback = 24  # Hours for volatility calculation
         self._regime_threshold = 1.5  # Volatility multiplier for regime change
+
+        # Initialize random number generator
+        self._rng = np.random.default_rng()
 
     def impute_features(
         self,
@@ -411,71 +407,90 @@ class IntelligentImputationEngine:
                         imputation_report["imputation_quality"][feature_name] = quality_metrics
 
         except Exception as e:
-            self.logger.error(
-                f"Failed to impute features: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+            self.logger.exception("Failed to impute features", source_module=self._source_module)
             return data, {"error": str(e)}
         else:
             return imputed_data, imputation_report
 
     def _impute_single_feature(
         self,
-        series: pd.Series[Any],
+        series: "pd.Series[Any]",
         feature_name: str,
         feature_metadata: dict[str, Any],
         strategy: ImputationStrategy,
-    ) -> tuple[pd.Series[Any] | None, dict[str, Any]]:
+    ) -> "tuple[pd.Series[Any] | None, dict[str, Any]]":
         """Impute a single feature using appropriate method."""
         try:
-            if series.isna().sum() == 0:
-                return series, {"method": "no_imputation_needed"}
-
-            # Check if gap is too large
-            max_consecutive_na = self._get_max_consecutive_na(series)
-            if max_consecutive_na > self._max_gap_size:
-                self.logger.warning(
-                    f"Large gap in {feature_name}: {max_consecutive_na} consecutive NAs",
-                    source_module=self._source_module,
-                )
-                return None, {"error": "gap_too_large", "max_gap": max_consecutive_na}
+            # Early validation checks
+            validation_result = self._validate_imputation_feasibility(series, feature_name)
+            if validation_result:
+                return validation_result
 
             # Feature type-based imputation
             feature_type = feature_metadata.get("type", "technical")
-            feature_metadata.get("category", "unknown")
 
-            if strategy == ImputationStrategy.FORWARD_FILL:
-                return self._forward_fill_imputation(series), {"method": "forward_fill"}
+            # Map strategies to their implementations
+            strategy_handlers = {
+                ImputationStrategy.FORWARD_FILL: (
+                    lambda: self._forward_fill_imputation(series),
+                    "forward_fill",
+                ),
+                ImputationStrategy.INTERPOLATION: (
+                    lambda: self._interpolation_imputation(series, feature_type),
+                    "interpolation",
+                ),
+                ImputationStrategy.SEASONAL_DECOMPOSITION: (
+                    lambda: self._seasonal_imputation(series, feature_name),
+                    "seasonal",
+                ),
+                ImputationStrategy.KNN: (
+                    lambda: self._knn_imputation(series),
+                    "knn",
+                ),
+                ImputationStrategy.REGIME_AWARE: (
+                    lambda: self._regime_aware_imputation(series, feature_name, feature_metadata),
+                    "regime_aware",
+                ),
+            }
 
-            if strategy == ImputationStrategy.INTERPOLATION:
-                return self._interpolation_imputation(series, feature_type), {"method": "interpolation"}
+            # Execute strategy
+            handler_func, method_name = strategy_handlers.get(
+                strategy,
+                (lambda: self._interpolation_imputation(series, feature_type), "default_interpolation"),
+            )
 
-            if strategy == ImputationStrategy.SEASONAL_DECOMPOSITION:
-                return self._seasonal_imputation(series, feature_name), {"method": "seasonal"}
-
-            if strategy == ImputationStrategy.KNN:
-                return self._knn_imputation(series), {"method": "knn"}
-
-            if strategy == ImputationStrategy.REGIME_AWARE:
-                return self._regime_aware_imputation(series, feature_name, feature_metadata), {"method": "regime_aware"}
-
-            # Default to interpolation
-            return self._interpolation_imputation(series, feature_type), {"method": "default_interpolation"}
+            return handler_func(), {"method": method_name}
 
         except Exception as e:
-            self.logger.exception(
-                f"Failed to impute feature {feature_name}: ",
+            self.logger.exception(f"Failed to impute feature {feature_name}: ", source_module=self._source_module)
+            return None, {"error": str(e)}
+
+    def _validate_imputation_feasibility(
+        self,
+        series: "pd.Series[Any]",
+        feature_name: str,
+    ) -> "tuple[pd.Series[Any] | None, dict[str, Any]] | None":
+        """Validate if imputation is needed and feasible."""
+        if series.isna().sum() == 0:
+            return series, {"method": "no_imputation_needed"}
+
+        # Check if gap is too large
+        max_consecutive_na = self._get_max_consecutive_na(series)
+        if max_consecutive_na > self._max_gap_size:
+            self.logger.warning(
+                f"Large gap in {feature_name}: {max_consecutive_na} consecutive NAs",
                 source_module=self._source_module,
             )
-            return None, {"error": str(e)}
+            return None, {"error": "gap_too_large", "max_gap": max_consecutive_na}
+
+        return None
 
     def _regime_aware_imputation(
         self,
-        series: pd.Series[Any],
+        series: "pd.Series[Any]",
         feature_name: str,
         feature_metadata: dict[str, Any],
-    ) -> pd.Series[Any]:
+    ) -> "pd.Series[Any]":
         """Impute based on current market regime."""
         try:
             # Detect current market regime
@@ -488,21 +503,11 @@ class IntelligentImputationEngine:
                 # Fallback to interpolation if insufficient regime data
                 return self._interpolation_imputation(series, feature_metadata.get("type", "technical"))
 
-            # Feature-specific regime imputation
-            if "volatility" in feature_name.lower() or "atr" in feature_name.lower():
-                return self._impute_volatility_feature(series, regime_data)
+            # Select imputation method based on feature type
+            feature_lower = feature_name.lower()
+            imputation_method = self._select_regime_imputation_method(feature_lower)
 
-            if "volume" in feature_name.lower():
-                return self._impute_volume_feature(series, regime_data)
-
-            if any(indicator in feature_name.lower() for indicator in ["rsi", "macd", "bb", "sma", "ema"]):
-                return self._impute_technical_indicator(series, regime_data, feature_name)
-
-            if "spread" in feature_name.lower():
-                return self._impute_spread_feature(series, regime_data)
-
-            # Generic regime-aware imputation
-            return self._impute_generic_regime_aware(series, regime_data)
+            return imputation_method(series, regime_data, feature_name)
 
         except Exception:
             self.logger.exception(
@@ -511,7 +516,28 @@ class IntelligentImputationEngine:
             )
             return self._interpolation_imputation(series, "technical")
 
-    def _detect_market_regime(self, series: pd.Series[Any]) -> str:
+    def _select_regime_imputation_method(self, feature_lower: str) -> Callable[..., "pd.Series[Any]"]:
+        """Select appropriate regime imputation method based on feature name."""
+        # Map feature patterns to imputation methods
+        feature_handlers = [
+            (lambda f: "volatility" in f or "atr" in f, lambda s, r, _: self._impute_volatility_feature(s, r)),
+            (lambda f: "volume" in f, lambda s, r, _: self._impute_volume_feature(s, r)),
+            (
+                lambda f: any(ind in f for ind in ["rsi", "macd", "bb", "sma", "ema"]),
+                lambda s, r, n: self._impute_technical_indicator(s, r, n),
+            ),
+            (lambda f: "spread" in f, lambda s, r, _: self._impute_spread_feature(s, r)),
+        ]
+
+        # Find matching handler
+        for pattern_check, handler in feature_handlers:
+            if pattern_check(feature_lower):
+                return handler
+
+        # Default handler
+        return lambda s, r, _: self._impute_generic_regime_aware(s, r)
+
+    def _detect_market_regime(self, series: "pd.Series[Any]") -> str:
         """Detect current market regime based on volatility."""
         try:
             # Calculate rolling volatility
@@ -526,15 +552,15 @@ class IntelligentImputationEngine:
 
             if current_vol > historical_vol * self._regime_threshold:
                 return "high_volatility"
-            elif current_vol < historical_vol / self._regime_threshold:
+            if current_vol < historical_vol / self._regime_threshold:
                 return "low_volatility"
-            else:
-                return "normal"
 
         except Exception:
             return "normal"
+        else:
+            return "normal"
 
-    def _get_regime_specific_data(self, series: pd.Series[Any], regime: str) -> pd.Series[Any]:
+    def _get_regime_specific_data(self, series: "pd.Series[Any]", regime: str) -> "pd.Series[Any]":
         """Get historical data for specific market regime."""
         try:
             # Simplified regime detection over historical data
@@ -548,9 +574,8 @@ class IntelligentImputationEngine:
             elif regime == "low_volatility":
                 mask = rolling_vol < overall_vol / self._regime_threshold
             else:
-                mask = (
-                    (rolling_vol >= overall_vol / self._regime_threshold) &
-                    (rolling_vol <= overall_vol * self._regime_threshold)
+                mask = (rolling_vol >= overall_vol / self._regime_threshold) & (
+                    rolling_vol <= overall_vol * self._regime_threshold
                 )
 
             return series[mask].dropna()
@@ -558,7 +583,7 @@ class IntelligentImputationEngine:
         except Exception:
             return series.dropna()
 
-    def _impute_volatility_feature(self, series: pd.Series[Any], regime_data: pd.Series[Any]) -> pd.Series[Any]:
+    def _impute_volatility_feature(self, series: "pd.Series[Any]", regime_data: "pd.Series[Any]") -> "pd.Series[Any]":
         """Impute volatility-based features."""
         imputed = series.copy()
 
@@ -568,12 +593,12 @@ class IntelligentImputationEngine:
 
         # Add some noise to avoid constant values
         for idx in series.index[series.isna()]:
-            noise = np.random.normal(0, regime_std * 0.1)
+            noise = self._rng.normal(0, regime_std * 0.1)
             imputed[idx] = max(0, regime_median + noise)  # Volatility can't be negative
 
         return imputed
 
-    def _impute_volume_feature(self, series: pd.Series[Any], regime_data: pd.Series[Any]) -> pd.Series[Any]:
+    def _impute_volume_feature(self, series: "pd.Series[Any]", regime_data: "pd.Series[Any]") -> "pd.Series[Any]":
         """Impute volume-based features."""
         imputed = series.copy()
 
@@ -587,7 +612,7 @@ class IntelligentImputationEngine:
 
                 # Add recent trend
                 loc = series.index.get_loc(idx)
-                recent_data = series.iloc[max(0, loc - 5):loc] if isinstance(loc, int) else pd.Series([])
+                recent_data = series.iloc[max(0, loc - 5) : loc] if isinstance(loc, int) else pd.Series([])
                 if len(recent_data.dropna()) > 1:
                     trend = recent_data.dropna().diff().mean()
                     imputed[idx] = max(0, base_value + trend)
@@ -601,10 +626,10 @@ class IntelligentImputationEngine:
 
     def _impute_technical_indicator(
         self,
-        series: pd.Series[Any],
-        regime_data: pd.Series[Any],
+        series: "pd.Series[Any]",
+        regime_data: "pd.Series[Any]",
         feature_name: str,
-    ) -> pd.Series[Any]:
+    ) -> "pd.Series[Any]":
         """Impute technical indicators based on their characteristics."""
         imputed = series.copy()
 
@@ -614,7 +639,7 @@ class IntelligentImputationEngine:
             regime_median = np.clip(regime_data.median(), 0, 100)
             imputed = imputed.fillna(regime_median)
 
-        # Oscillators (MACD, CCI)
+        # Handle oscillators like MACD, CCI
         elif any(indicator in feature_name.lower() for indicator in ["macd", "cci"]):
             # These can be negative, use regime-aware interpolation
             imputed = imputed.interpolate(method="linear").fillna(regime_data.median())
@@ -630,7 +655,7 @@ class IntelligentImputationEngine:
 
         return imputed
 
-    def _impute_spread_feature(self, series: pd.Series[Any], regime_data: pd.Series[Any]) -> pd.Series[Any]:
+    def _impute_spread_feature(self, series: "pd.Series[Any]", regime_data: "pd.Series[Any]") -> "pd.Series[Any]":
         """Impute spread-related features."""
         imputed = series.copy()
 
@@ -640,12 +665,12 @@ class IntelligentImputationEngine:
 
         for idx in series.index[series.isna()]:
             # Use median with small random variation
-            noise = np.random.normal(0, regime_iqr * 0.1)
+            noise = self._rng.normal(0, regime_iqr * 0.1)
             imputed[idx] = max(0, regime_median + noise)
 
         return imputed
 
-    def _impute_generic_regime_aware(self, series: pd.Series[Any], regime_data: pd.Series[Any]) -> pd.Series[Any]:
+    def _impute_generic_regime_aware(self, series: "pd.Series[Any]", regime_data: "pd.Series[Any]") -> "pd.Series[Any]":
         """Generic regime-aware imputation."""
         imputed = series.copy()
 
@@ -653,8 +678,7 @@ class IntelligentImputationEngine:
         imputed = imputed.interpolate(method="linear")
         return imputed.fillna(regime_data.median())
 
-
-    def _interpolation_imputation(self, series: pd.Series[Any], feature_type: str) -> pd.Series[Any]:
+    def _interpolation_imputation(self, series: "pd.Series[Any]", feature_type: str) -> "pd.Series[Any]":
         """Advanced interpolation-based imputation."""
         if feature_type == "price":
             # Use cubic interpolation for price data
@@ -665,11 +689,9 @@ class IntelligentImputationEngine:
         # Default to linear for technical indicators
         return series.interpolate(method="linear")
 
-    def _seasonal_imputation(self, series: pd.Series[Any], feature_name: str) -> pd.Series[Any]:
+    def _seasonal_imputation(self, series: "pd.Series[Any]", feature_name: str) -> "pd.Series[Any]":
         """Seasonal decomposition-based imputation."""
         try:
-            from statsmodels.tsa.seasonal import seasonal_decompose
-
             if len(series.dropna()) < max(self._seasonal_periods) * 2:
                 return self._interpolation_imputation(series, "technical")
 
@@ -689,7 +711,6 @@ class IntelligentImputationEngine:
             # Fill any remaining NAs
             return imputed.ffill().bfill()
 
-
         except Exception as e:
             self.logger.warning(
                 f"Seasonal imputation failed for {feature_name}: {e}",
@@ -697,7 +718,7 @@ class IntelligentImputationEngine:
             )
             return self._interpolation_imputation(series, "technical")
 
-    def _knn_imputation(self, series: pd.Series[Any]) -> pd.Series[Any]:
+    def _knn_imputation(self, series: "pd.Series[Any]") -> "pd.Series[Any]":
         """KNN-based imputation."""
         try:
             # Reshape for sklearn
@@ -716,11 +737,11 @@ class IntelligentImputationEngine:
             )
             return self._interpolation_imputation(series, "technical")
 
-    def _forward_fill_imputation(self, series: pd.Series[Any]) -> pd.Series[Any]:
+    def _forward_fill_imputation(self, series: "pd.Series[Any]") -> "pd.Series[Any]":
         """Forward fill with back fill fallback."""
         return series.ffill().bfill()
 
-    def _get_max_consecutive_na(self, series: pd.Series[Any]) -> int:
+    def _get_max_consecutive_na(self, series: "pd.Series[Any]") -> int:
         """Get maximum consecutive NaN count."""
         is_na = series.isna()
         groups = (is_na != is_na.shift()).cumsum()
@@ -777,7 +798,9 @@ class ComprehensiveFeatureValidator:
 
             # 1. Statistical outlier detection
             outlier_results = self._detect_statistical_outliers(
-                features, feature_metadata, historical_data,
+                features,
+                feature_metadata,
+                historical_data,
             )
             validation_report["statistical_tests"]["outliers"] = outlier_results
 
@@ -788,22 +811,20 @@ class ComprehensiveFeatureValidator:
             # 3. Temporal coherence validation
             if historical_data is not None:
                 temporal_results = self._validate_temporal_coherence(
-                    features, historical_data,
+                    features,
+                    historical_data,
                 )
                 validation_report["statistical_tests"]["temporal"] = temporal_results
 
             # 4. Apply corrections
             validated_features, corrections = self._apply_validation_corrections(
-                validated_features, validation_report,
+                validated_features,
+                validation_report,
             )
             validation_report["corrections_applied"] = corrections
 
         except Exception as e:
-            self.logger.error(
-                f"Feature validation failed: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+            self.logger.exception("Feature validation failed", source_module=self._source_module)
             return features, {"error": str(e)}
         else:
             return validated_features, validation_report
@@ -979,10 +1000,10 @@ class AdvancedTemporalPatternEngine:
 
         # Cryptocurrency market operates 24/7
         self._market_sessions = {
-            "asia_active": (22, 10),    # UTC hours when Asia is most active
-            "europe_active": (6, 16),   # UTC hours when Europe is most active
-            "us_active": (13, 23),      # UTC hours when US is most active
-            "low_activity": (3, 6),      # UTC hours with typically lower activity
+            "asia_active": (22, 10),  # UTC hours when Asia is most active
+            "europe_active": (6, 16),  # UTC hours when Europe is most active
+            "us_active": (13, 23),  # UTC hours when US is most active
+            "low_activity": (3, 6),  # UTC hours with typically lower activity
         }
 
         # Pattern detection parameters
@@ -1017,12 +1038,8 @@ class AdvancedTemporalPatternEngine:
             # 6. Regime persistence patterns
             patterns["regime_persistence"] = self._analyze_regime_persistence(data, target_feature)
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to extract temporal patterns: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to extract temporal patterns", source_module=self._source_module)
             return {}
         else:
             return patterns
@@ -1038,15 +1055,33 @@ class AdvancedTemporalPatternEngine:
                 return {}
 
             # Calculate hourly statistics
-            hourly_data = data.groupby(data.index.hour)[target_feature].agg([
-                "mean", "std", "count", "median",
-            ]).round(6)
+            hourly_data = (
+                data.groupby(data.index.hour)[target_feature]
+                .agg(
+                    [
+                        "mean",
+                        "std",
+                        "count",
+                        "median",
+                    ],
+                )
+                .round(6)
+            )
 
             # Calculate returns if it's a price feature
             if "price" in target_feature.lower():
-                hourly_returns = data[target_feature].pct_change().groupby(data.index.hour).agg([
-                    "mean", "std",
-                ]).round(6)
+                hourly_returns = (
+                    data[target_feature]
+                    .pct_change()
+                    .groupby(data.index.hour)
+                    .agg(
+                        [
+                            "mean",
+                            "std",
+                        ],
+                    )
+                    .round(6)
+                )
 
                 # Identify best/worst hours for returns
                 best_hour = hourly_returns["mean"].idxmax()
@@ -1061,7 +1096,6 @@ class AdvancedTemporalPatternEngine:
                 least_volatile_hour = hourly_data["std"].idxmin()
 
             # Statistical significance test
-            from scipy.stats import kruskal
             hourly_groups = [group[target_feature].values for hour, group in data.groupby(data.index.hour)]
             kruskal_stat, kruskal_p = kruskal(*hourly_groups)
 
@@ -1082,10 +1116,7 @@ class AdvancedTemporalPatternEngine:
             }
 
         except Exception:
-            self.logger.exception(
-                "Failed to analyze time-of-day effects: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to analyze time-of-day effects: ", source_module=self._source_module)
             return {}
 
     def _analyze_market_session_effects(
@@ -1123,19 +1154,18 @@ class AdvancedTemporalPatternEngine:
                     if "price" in target_feature.lower():
                         session_returns = session_data.pct_change().dropna()
                         if len(session_returns) > 0:
-                            session_stats.update({
-                                "avg_return": session_returns.mean(),
-                                "return_std": session_returns.std(),
-                                "positive_return_ratio": (session_returns > 0).mean(),
-                            })
+                            session_stats.update(
+                                {
+                                    "avg_return": session_returns.mean(),
+                                    "return_std": session_returns.std(),
+                                    "positive_return_ratio": (session_returns > 0).mean(),
+                                },
+                            )
 
                     session_effects[session_name] = session_stats
 
         except Exception:
-            self.logger.exception(
-                "Failed to analyze market session effects: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to analyze market session effects: ", source_module=self._source_module)
             return {}
         else:
             return session_effects
@@ -1165,9 +1195,9 @@ class AdvancedTemporalPatternEngine:
                     vol_autocorr.append({"lag": lag, "autocorrelation": autocorr})
 
             # Arch test for volatility clustering
-            try:
-                from arch import het_arch  # type: ignore[attr-defined]
-                from arch.unitroot import DFGLS
+            if arch_het.available and arch_dfgls.available:
+                het_arch = arch_het.get_module()
+                arch_dfgls.get()
 
                 # ARCH-LM test
                 arch_test = het_arch(returns.dropna(), lags=5)
@@ -1176,7 +1206,7 @@ class AdvancedTemporalPatternEngine:
                     "p_value": arch_test[1],
                     "significant_clustering": arch_test[1] < self._pattern_significance_threshold,
                 }
-            except ImportError:
+            else:
                 # Fallback if arch package not available
                 arch_result = {"note": "ARCH test not available"}
 
@@ -1184,16 +1214,12 @@ class AdvancedTemporalPatternEngine:
                 "volatility_autocorrelations": vol_autocorr,
                 "arch_test": arch_result,
                 "clustering_strength": (
-                    max([abs(ac["autocorrelation"]) for ac in vol_autocorr[:5]])
-                    if vol_autocorr else 0
+                    max([abs(ac["autocorrelation"]) for ac in vol_autocorr[:5]]) if vol_autocorr else 0
                 ),
             }
 
         except Exception:
-            self.logger.exception(
-                "Failed to analyze volatility clustering: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to analyze volatility clustering: ", source_module=self._source_module)
             return {}
 
     def _analyze_cross_correlations(self, data: pd.DataFrame) -> dict[str, Any]:
@@ -1208,53 +1234,10 @@ class AdvancedTemporalPatternEngine:
             correlation_matrix = data[numeric_columns].corr()
 
             # Find highly correlated pairs
-            high_correlations = []
-            for i in range(len(correlation_matrix.columns)):
-                for j in range(i+1, len(correlation_matrix.columns)):
-                    corr_value = correlation_matrix.iloc[i, j]
-                    if pd.notna(corr_value) and isinstance(corr_value, int | float | np.number):
-                        corr_float = float(corr_value)
-                        if abs(corr_float) > 0.7:  # High correlation threshold
-                            high_correlations.append({
-                                "feature1": correlation_matrix.columns[i],
-                                "feature2": correlation_matrix.columns[j],
-                                "correlation": corr_float,
-                        })
+            high_correlations = self._find_high_correlations(correlation_matrix)
 
             # Lead-lag relationships
-            lead_lag_results = []
-            price_columns = [col for col in numeric_columns if "price" in col.lower()]
-
-            if len(price_columns) >= 1:
-                price_col = price_columns[0]
-                for col in numeric_columns:
-                    if col != price_col:
-                        # Test different lags
-                        best_lag = 0
-                        best_corr = 0.0
-
-                        for lag in range(-5, 6):  # -5 to +5 periods
-                            if lag == 0:
-                                continue
-
-                            if lag > 0:
-                                # col leads price
-                                lagged_correlation = data[col].shift(lag).corr(data[price_col])
-                            else:
-                                # price leads col
-                                lagged_correlation = data[col].corr(data[price_col].shift(abs(lag)))
-
-                            if abs(lagged_correlation) > abs(best_corr):
-                                best_corr = lagged_correlation
-                                best_lag = lag
-
-                        if abs(best_corr) > 0.3:  # Minimum meaningful correlation
-                            lead_lag_results.append({
-                                "feature": col,
-                                "best_lag": best_lag,
-                                "correlation": best_corr,
-                                "relationship": "leads_price" if best_lag > 0 else "lags_price",
-                            })
+            lead_lag_results = self._analyze_lead_lag_relationships(data, numeric_columns)
 
             return {
                 "correlation_matrix": correlation_matrix.round(3).to_dict(),
@@ -1263,11 +1246,82 @@ class AdvancedTemporalPatternEngine:
             }
 
         except Exception:
-            self.logger.exception(
-                "Failed to analyze cross-correlations: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to analyze cross-correlations: ", source_module=self._source_module)
             return {}
+
+    def _find_high_correlations(self, correlation_matrix: pd.DataFrame) -> list[dict[str, Any]]:
+        """Find pairs of features with high correlations."""
+        high_correlations = []
+
+        for i in range(len(correlation_matrix.columns)):
+            for j in range(i + 1, len(correlation_matrix.columns)):
+                corr_value = correlation_matrix.iloc[i, j]
+                if pd.notna(corr_value) and isinstance(corr_value, int | float | np.number):
+                    corr_float = float(corr_value)
+                    if abs(corr_float) > 0.7:  # High correlation threshold
+                        high_correlations.append(
+                            {
+                                "feature1": correlation_matrix.columns[i],
+                                "feature2": correlation_matrix.columns[j],
+                                "correlation": corr_float,
+                            },
+                        )
+
+        return high_correlations
+
+    def _analyze_lead_lag_relationships(self, data: pd.DataFrame, numeric_columns: pd.Index) -> list[dict[str, Any]]:
+        """Analyze lead-lag relationships between features."""
+        lead_lag_results: list[dict[str, Any]] = []
+        price_columns = [col for col in numeric_columns if "price" in col.lower()]
+
+        if not price_columns:
+            return lead_lag_results
+
+        price_col = price_columns[0]
+
+        for col in numeric_columns:
+            if col == price_col:
+                continue
+
+            lead_lag_info = self._find_best_lag(data, col, price_col)
+
+            if lead_lag_info and abs(lead_lag_info["correlation"]) > 0.3:
+                lead_lag_results.append(lead_lag_info)
+
+        return lead_lag_results
+
+    def _find_best_lag(self, data: pd.DataFrame, feature_col: str, price_col: str) -> dict[str, Any] | None:
+        """Find the best lag between a feature and price."""
+        best_lag = 0
+        best_corr = 0.0
+
+        for lag in range(-5, 6):  # -5 to +5 periods
+            if lag == 0:
+                continue
+
+            lagged_correlation = self._calculate_lagged_correlation(data, feature_col, price_col, lag)
+
+            if abs(lagged_correlation) > abs(best_corr):
+                best_corr = lagged_correlation
+                best_lag = lag
+
+        if best_lag == 0:
+            return None
+
+        return {
+            "feature": feature_col,
+            "best_lag": best_lag,
+            "correlation": best_corr,
+            "relationship": "leads_price" if best_lag > 0 else "lags_price",
+        }
+
+    def _calculate_lagged_correlation(self, data: pd.DataFrame, feature_col: str, price_col: str, lag: int) -> float:
+        """Calculate correlation with a specific lag."""
+        if lag > 0:
+            # feature leads price
+            return data[feature_col].shift(lag).corr(data[price_col])
+        # price leads feature
+        return data[feature_col].corr(data[price_col].shift(abs(lag)))
 
     def _analyze_regime_persistence(
         self,
@@ -1321,10 +1375,7 @@ class AdvancedTemporalPatternEngine:
             }
 
         except Exception:
-            self.logger.exception(
-                "Failed to analyze regime persistence: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to analyze regime persistence: ", source_module=self._source_module)
             return {}
 
     def _analyze_day_of_week_effects(
@@ -1341,13 +1392,16 @@ class AdvancedTemporalPatternEngine:
             day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
             # Calculate daily statistics
-            daily_stats = data.groupby(data.index.dayofweek)[target_feature].agg([
-                "mean", "std", "count",
-            ])
+            daily_stats = data.groupby(data.index.dayofweek)[target_feature].agg(
+                [
+                    "mean",
+                    "std",
+                    "count",
+                ],
+            )
             daily_stats.index = pd.Index([day_names[i] for i in daily_stats.index])
 
             # Statistical significance test
-            from scipy.stats import kruskal
             daily_groups = [group[target_feature].values for day, group in data.groupby(data.index.dayofweek)]
             kruskal_stat, kruskal_p = kruskal(*daily_groups)
 
@@ -1362,8 +1416,5 @@ class AdvancedTemporalPatternEngine:
             }
 
         except Exception:
-            self.logger.exception(
-                "Failed to analyze day-of-week effects: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to analyze day-of-week effects: ", source_module=self._source_module)
             return {}

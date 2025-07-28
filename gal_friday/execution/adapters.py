@@ -7,17 +7,24 @@ different trading venues.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import aiohttp
 import asyncio
 
 from gal_friday.exceptions import ExecutionError as ExchangeError
+from gal_friday.execution_handler_enhancements import BatchStrategy
+from gal_friday.utils.error_helpers import log_and_transform_exception
 from gal_friday.utils.kraken_api import generate_kraken_signature
+from gal_friday.utils.lazy_imports import LazyImport
+
+# Lazy imports for optional enhancements
+_kraken_error_classifier = LazyImport("gal_friday.execution_handler_enhancements.kraken_error_classifier_cls")
+_optimized_batch_processor = LazyImport("gal_friday.execution_handler_enhancements.optimized_batch_processor_cls")
+
 
 if TYPE_CHECKING:
     from gal_friday.config_manager import ConfigManager
@@ -27,6 +34,7 @@ if TYPE_CHECKING:
 @dataclass
 class OrderRequest:
     """Standardized order request across all exchanges."""
+
     trading_pair: str
     side: str  # "BUY" or "SELL"
     order_type: str  # "MARKET", "LIMIT", etc.
@@ -37,39 +45,46 @@ class OrderRequest:
     stop_price: Decimal | None = None
     metadata: dict[str, Any] | None = None
 
+
 @dataclass
 class OrderResponse:
     """Standardized order response from exchange."""
+
     success: bool
     exchange_order_ids: list[str]
     client_order_id: str | None
     error_message: str | None = None
     raw_response: dict[str, Any] | None = None
 
+
 @dataclass
 class BatchOrderRequest:
     """Request for placing multiple orders simultaneously."""
+
     orders: list[OrderRequest]
     validate_only: bool = False
+
 
 @dataclass
 class BatchOrderResponse:
     """Response from batch order placement."""
+
     success: bool
     order_results: list[OrderResponse]
     error_message: str | None = None
 
-class ExecutionAdapter(ABC):
-    """Abstract base class for exchange execution adapters.
 
-    Defines the interface that all exchange adapters must implement,
-    abstracting away exchange-specific details for order management.
+class ExecutionAdapter:
+    """Base class for exchange execution adapters.
+
+    Provides common functionality and defines the interface that all exchange
+    adapters should implement, abstracting away exchange-specific details for
+    order management.
+
+    This class implements the ExecutionAdapterProtocol from the interfaces module.
     """
 
-    def __init__(
-        self,
-        config: ConfigManager,
-        logger: LoggerService) -> None:
+    def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
         """Initialize the execution adapter.
 
         Args:
@@ -80,17 +95,14 @@ class ExecutionAdapter(ABC):
         self.logger = logger
         self._session: aiohttp.ClientSession | None = None
 
-    @abstractmethod
     async def initialize(self) -> None:
         """Initialize the adapter (load exchange info, setup session, etc.)."""
-        ...
+        raise NotImplementedError("Subclasses must implement initialize()")
 
-    @abstractmethod
     async def cleanup(self) -> None:
         """Clean up resources (close sessions, etc.)."""
-        ...
+        raise NotImplementedError("Subclasses must implement cleanup()")
 
-    @abstractmethod
     async def place_order(self, order_request: OrderRequest) -> OrderResponse:
         """Place a single order on the exchange.
 
@@ -100,9 +112,8 @@ class ExecutionAdapter(ABC):
         Returns:
             Standardized order response
         """
-        ...
+        raise NotImplementedError("Subclasses must implement place_order()")
 
-    @abstractmethod
     async def place_batch_orders(self, orders: list[OrderRequest]) -> list[dict[str, Any]]:
         """Place multiple orders simultaneously (if supported).
 
@@ -112,9 +123,8 @@ class ExecutionAdapter(ABC):
         Returns:
             List of order response dictionaries
         """
-        ...
+        raise NotImplementedError("Subclasses must implement place_batch_orders()")
 
-    @abstractmethod
     async def cancel_order(self, exchange_order_id: str) -> bool:
         """Cancel an order on the exchange.
 
@@ -124,9 +134,8 @@ class ExecutionAdapter(ABC):
         Returns:
             True if cancellation was successful
         """
-        ...
+        raise NotImplementedError("Subclasses must implement cancel_order()")
 
-    @abstractmethod
     async def get_order_status(self, exchange_order_id: str) -> dict[str, Any] | None:
         """Get the current status of an order.
 
@@ -136,38 +145,33 @@ class ExecutionAdapter(ABC):
         Returns:
             Order status information or None if not found
         """
-        ...
+        raise NotImplementedError("Subclasses must implement get_order_status()")
 
-    @abstractmethod
     async def get_account_balances(self) -> dict[str, Decimal]:
         """Get account balances from the exchange.
 
         Returns:
             Dictionary of currency to available balance
         """
-        ...
+        raise NotImplementedError("Subclasses must implement get_account_balances()")
 
-    @abstractmethod
     async def get_open_positions(self) -> dict[str, Any]:
         """Get open positions from the exchange.
 
         Returns:
             Dictionary of position information
         """
-        ...
+        raise NotImplementedError("Subclasses must implement get_open_positions()")
 
-    @abstractmethod
     def get_exchange_name(self) -> str:
         """Get the name identifier for this exchange."""
-        ...
+        raise NotImplementedError("Subclasses must implement get_exchange_name()")
+
 
 class KrakenExecutionAdapter(ExecutionAdapter):
     """Kraken-specific execution adapter implementation."""
 
-    def __init__(
-        self,
-        config: ConfigManager,
-        logger: LoggerService) -> None:
+    def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
         """Initialize the Kraken adapter."""
         super().__init__(config, logger)
 
@@ -191,12 +195,10 @@ class KrakenExecutionAdapter(ExecutionAdapter):
 
         # Initialize enhanced components
         try:
-            from gal_friday.execution_handler_enhancements import (
-                KrakenErrorClassifier,
-                OptimizedBatchProcessor,
-            )
-            self._error_classifier = KrakenErrorClassifier(logger)
-            self._batch_processor = OptimizedBatchProcessor(self, logger, config)
+            kraken_error_classifier_cls = _kraken_error_classifier.get_module()
+            optimized_batch_processor_cls = _optimized_batch_processor.get_module()
+            self._error_classifier = kraken_error_classifier_cls(logger)
+            self._batch_processor = optimized_batch_processor_cls(self, logger, config)
         except ImportError:
             self.logger.warning(
                 "Enhanced execution components not available, using basic functionality",
@@ -213,17 +215,13 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         self._session = aiohttp.ClientSession()
         await self._load_exchange_info()
 
-        self.logger.info(
-            "Kraken execution adapter initialized",
-            source_module=self.__class__.__name__)
+        self.logger.info("Kraken execution adapter initialized", source_module=self.__class__.__name__)
 
     async def cleanup(self) -> None:
         """Clean up Kraken adapter resources."""
         if self._session and not self._session.closed:
             await self._session.close()
-            self.logger.info(
-                "Kraken adapter session closed",
-                source_module=self.__class__.__name__)
+            self.logger.info("Kraken adapter session closed", source_module=self.__class__.__name__)
 
     async def place_order(self, order_request: OrderRequest) -> OrderResponse:
         """Place a single order on Kraken."""
@@ -233,21 +231,20 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 success=False,
                 exchange_order_ids=[],
                 client_order_id=order_request.client_order_id,
-                error_message="Failed to translate order request to Kraken format")
+                error_message="Failed to translate order request to Kraken format",
+            )
 
         try:
             result = await self._make_private_request("/0/private/AddOrder", kraken_params)
             return self._parse_add_order_response(result, order_request.client_order_id)
         except Exception as e:
-            self.logger.exception(
-                "Error placing order on Kraken: %s",
-                str(e),
-                source_module=self.__class__.__name__)
+            self.logger.exception("Error placing order on Kraken", source_module=self.__class__.__name__)
             return OrderResponse(
                 success=False,
                 exchange_order_ids=[],
                 client_order_id=order_request.client_order_id,
-                error_message=f"Exception during order placement: {e!s}")
+                error_message=f"Exception during order placement: {e!s}",
+            )
 
     async def place_batch_orders(self, orders: list[OrderRequest]) -> list[dict[str, Any]]:
         """Place multiple orders on Kraken using AddOrderBatch."""
@@ -276,22 +273,23 @@ class KrakenExecutionAdapter(ExecutionAdapter):
 
         try:
             if self.kraken_api is None:
-                raise ExchangeError("Kraken API not initialized")
-            batch_results = await self.kraken_api.add_order_batch(payloads)
-        except Exception as e:
-            self.logger.exception(
-                "Error placing batch orders on Kraken: %s",
-                str(e),
-                source_module=self.__class__.__name__)
-            raise ExchangeError(f"add_order_batch failed: {e!s}") from e
+                self._raise_exchange_error("Kraken API not initialized")
+            # After validation, we know kraken_api is not None
+            batch_results = await cast("Any", self.kraken_api).add_order_batch(payloads)
+        except Exception:
+            log_and_transform_exception(
+                self.logger,
+                "Error placing batch orders on Kraken",
+                ExchangeError,
+                exception_msg="add_order_batch failed: {e!s}",
+                source_module=self.__class__.__name__,
+            )
 
         if not isinstance(batch_results, list):
             raise ExchangeError("Unexpected response format from add_order_batch")
 
         for order_idx, result in zip(pending_indices, batch_results, strict=False):
-            parsed = self._parse_add_order_response(
-                result,
-                str(orders[order_idx].client_order_id))
+            parsed = self._parse_add_order_response(result, str(orders[order_idx].client_order_id))
             responses[order_idx] = asdict(parsed)
 
         return responses
@@ -306,18 +304,19 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 self.logger.error(
                     "Kraken cancel order error: %s",
                     result["error"],
-                    source_module=self.__class__.__name__)
+                    source_module=self.__class__.__name__,
+                )
                 return False
 
             count = result.get("result", {}).get("count", 0)
             return bool(count > 0)
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                "Exception cancelling order %s: %s",
+                "Exception cancelling order %s",
                 exchange_order_id,
-                str(e),
-                source_module=self.__class__.__name__)
+                source_module=self.__class__.__name__,
+            )
             return False
 
     async def get_order_status(self, exchange_order_id: str) -> dict[str, Any] | None:
@@ -330,19 +329,20 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 self.logger.error(
                     "Kraken query order error: %s",
                     result["error"],
-                    source_module=self.__class__.__name__)
+                    source_module=self.__class__.__name__,
+                )
                 return None
 
             orders = result.get("result", {})
             order_data = orders.get(exchange_order_id)
             # return order_data if order_data is not None else None moved to else block
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                "Exception querying order %s: %s",
+                "Exception querying order %s",
                 exchange_order_id,
-                str(e),
-                source_module=self.__class__.__name__)
+                source_module=self.__class__.__name__,
+            )
             return None
         else:
             return order_data if order_data is not None else None
@@ -356,21 +356,17 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 self.logger.error(
                     "Kraken balance query error: %s",
                     result["error"],
-                    source_module=self.__class__.__name__)
+                    source_module=self.__class__.__name__,
+                )
                 return {}
 
             balances = result.get("result", {})
             return {
-                currency: Decimal(str(balance))
-                for currency, balance in balances.items()
-                if Decimal(str(balance)) > 0
+                currency: Decimal(str(balance)) for currency, balance in balances.items() if Decimal(str(balance)) > 0
             }
 
-        except Exception as e:
-            self.logger.exception(
-                "Exception getting account balances: %s",
-                str(e),
-                source_module=self.__class__.__name__)
+        except Exception:
+            self.logger.exception("Exception getting account balances", source_module=self.__class__.__name__)
             return {}
 
     async def get_open_positions(self) -> dict[str, Any]:
@@ -382,17 +378,15 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 self.logger.error(
                     "Kraken open positions query error: %s",
                     result["error"],
-                    source_module=self.__class__.__name__)
+                    source_module=self.__class__.__name__,
+                )
                 return {}
 
             positions = result.get("result", {})
             return dict(positions)
 
-        except Exception as e:
-            self.logger.exception(
-                "Exception getting open positions: %s",
-                str(e),
-                source_module=self.__class__.__name__)
+        except Exception:
+            self.logger.exception("Exception getting open positions", source_module=self.__class__.__name__)
             return {}
 
     def get_exchange_name(self) -> str:
@@ -401,14 +395,19 @@ class KrakenExecutionAdapter(ExecutionAdapter):
 
     # Private helper methods
 
+    def _raise_exchange_error(self, error_msg: str) -> None:
+        """Helper method to raise ExchangeError, abstracting the raise from try block."""
+        raise ExchangeError(error_msg)
+
     async def _load_exchange_info(self) -> None:
         """Load exchange pair information from Kraken."""
         try:
             url = f"{self.api_base_url}/0/public/AssetPairs"
 
             if self._session is None:
-                raise ExchangeError("Session not initialized")
-            async with self._session.get(url) as response:
+                self._raise_exchange_error("Session not initialized")
+            # After validation, we know session is not None
+            async with cast("aiohttp.ClientSession", self._session).get(url) as response:
                 response.raise_for_status()
                 data = await response.json()
 
@@ -416,7 +415,8 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 self.logger.error(
                     "Error loading Kraken asset pairs: %s",
                     data["error"],
-                    source_module=self.__class__.__name__)
+                    source_module=self.__class__.__name__,
+                )
                 return
 
             result = data.get("result", {})
@@ -449,22 +449,17 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             self.logger.info(
                 "Loaded info for %d trading pairs",
                 len(self._pair_info),
-                source_module=self.__class__.__name__)
+                source_module=self.__class__.__name__,
+            )
 
-        except Exception as e:
-            self.logger.exception(
-                "Exception loading exchange info: %s",
-                str(e),
-                source_module=self.__class__.__name__)
+        except Exception:
+            self.logger.exception("Exception loading exchange info", source_module=self.__class__.__name__)
 
     def _translate_order_request_to_kraken(self, order_request: OrderRequest) -> dict[str, Any] | None:
         """Translate standardized order request to Kraken format."""
         pair_info = self._pair_info.get(order_request.trading_pair)
         if not pair_info:
-            self.logger.error(
-                "No pair info for %s",
-                order_request.trading_pair,
-                source_module=self.__class__.__name__)
+            self.logger.error("No pair info for %s", order_request.trading_pair, source_module=self.__class__.__name__)
             return None
 
         kraken_pair = pair_info.get("altname")
@@ -472,7 +467,8 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             self.logger.error(
                 "No Kraken pair name for %s",
                 order_request.trading_pair,
-                source_module=self.__class__.__name__)
+                source_module=self.__class__.__name__,
+            )
             return None
 
         params = {
@@ -504,7 +500,8 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 exchange_order_ids=[],
                 client_order_id=client_order_id,
                 error_message=str(result["error"]),
-                raw_response=result)
+                raw_response=result,
+            )
 
         kraken_result = result.get("result", {})
         txids = kraken_result.get("txid", [])
@@ -515,13 +512,15 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                 exchange_order_ids=[],
                 client_order_id=client_order_id,
                 error_message="No transaction IDs returned",
-                raw_response=result)
+                raw_response=result,
+            )
 
         return OrderResponse(
             success=True,
             exchange_order_ids=txids,
             client_order_id=client_order_id,
-            raw_response=result)
+            raw_response=result,
+        )
 
     async def _make_private_request(self, uri_path: str, data: dict[str, Any]) -> dict[str, Any]:
         """Make authenticated request to Kraken API."""
@@ -558,11 +557,23 @@ class KrakenExecutionAdapter(ExecutionAdapter):
 
         except Exception as e:
             self.logger.exception(
-                "Error in private API request to %s: %s",
+                "Error in private API request to %s",
                 uri_path,
-                str(e),
-                source_module=self.__class__.__name__)
+                source_module=self.__class__.__name__,
+            )
             return {"error": [f"Request failed: {e!s}"]}
+
+    async def make_private_request_with_retry(self, uri_path: str, params: dict[str, Any]) -> dict[str, Any] | None:
+        """Public wrapper for making private API requests with retry logic.
+
+        Args:
+            uri_path: The API endpoint path
+            params: Request parameters
+
+        Returns:
+            API response dictionary if successful, None otherwise
+        """
+        return cast("dict[str, Any] | None", await self._make_private_request(uri_path, params))
 
     def _format_decimal(self, value: Decimal, precision: int) -> str:
         """Format decimal value to string with specified precision."""
@@ -585,10 +596,8 @@ class KrakenExecutionAdapter(ExecutionAdapter):
 
     async def _place_orders_individually(self, batch_request: BatchOrderRequest) -> BatchOrderResponse:
         """Place orders individually when batch placement is not available."""
-        # Try to use OptimizedBatchProcessor if available
+        # Try to use optimized_batch_processor_cls if available
         if hasattr(self, "_batch_processor") and self._batch_processor is not None:
-            from gal_friday.execution_handler_enhancements import BatchStrategy
-
             # Use smart routing strategy for optimal performance
             batch_result = await self._batch_processor.process_batch_orders(
                 batch_request.orders,
@@ -598,13 +607,15 @@ class KrakenExecutionAdapter(ExecutionAdapter):
             # Convert to BatchOrderResponse format
             order_results = []
             if hasattr(batch_result, "successful_orders") and hasattr(batch_result, "failed_orders"):
-                for order_result in batch_result.successful_orders + batch_result.failed_orders:
-                    order_results.append(OrderResponse(
+                order_results = [
+                    OrderResponse(
                         success=order_result.get("success", False),
                         exchange_order_ids=order_result.get("exchange_order_ids", []),
                         client_order_id=order_result.get("client_order_id"),
                         error_message=order_result.get("error"),
-                    ))
+                    )
+                    for order_result in batch_result.successful_orders + batch_result.failed_orders
+                ]
 
                 success_rate = getattr(batch_result, "success_rate", 0.0)
                 return BatchOrderResponse(
@@ -612,7 +623,8 @@ class KrakenExecutionAdapter(ExecutionAdapter):
                     order_results=order_results,
                     error_message=(
                         f"Batch execution completed with {success_rate:.1%} success rate"
-                        if success_rate < 1.0 else None
+                        if success_rate < 1.0
+                        else None
                     ),
                 )
 
@@ -629,4 +641,5 @@ class KrakenExecutionAdapter(ExecutionAdapter):
         return BatchOrderResponse(
             success=overall_success,
             order_results=results,
-            error_message="Some orders failed" if not overall_success else None)
+            error_message="Some orders failed" if not overall_success else None,
+        )

@@ -29,7 +29,7 @@ __all__ = [
     "Experiment",
     "ExperimentAssignment",
     "ExperimentOutcome",
-    "Log", # Added Log model
+    "Log",  # Added Log model
     "ModelDeployment",
     "ModelVersion",
     "Order",

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Quick test to verify dashboard functionality."""
 
+import logging
 from pathlib import Path
 import sys
 from typing import Any
@@ -23,7 +24,6 @@ async def quick_test() -> None:
     # Initialize services
     config = ConfigManager()
     # Create a basic logger for PubSubManager
-    import logging
     basic_logger = logging.getLogger(__name__)
     pubsub = PubSubManager(basic_logger, config)
     logger = LoggerService(config, pubsub)
@@ -45,7 +45,9 @@ async def quick_test() -> None:
                     "MSFT": {"quantity": 75, "unrealized_pnl": -500.0},
                 },
                 "trades_today": [
-                    {"pnl": 250.0}, {"pnl": -100.0}, {"pnl": 150.0},
+                    {"pnl": 250.0},
+                    {"pnl": -100.0},
+                    {"pnl": 150.0},
                 ],
                 "total_trades": 156,
                 "max_drawdown_pct": -8.5,
@@ -70,14 +72,11 @@ async def quick_test() -> None:
 
     # Check collected data
     if real_time_dashboard.current_data:
-
         for _widget_type, _data in real_time_dashboard.current_data.items():
             pass
 
     # Stop dashboard
     await real_time_dashboard.stop_dashboard()
-
-
 
 
 if __name__ == "__main__":

@@ -57,7 +57,7 @@ class TestHaltCoordinator:
         assert status["halt_reason"] == ""
 
         # Set halt state
-        coordinator.set_halt_state(True, "Test halt", "TEST")
+        coordinator.set_halt_state(is_halted=True, reason="Test halt", source="TEST")
         status = coordinator.get_halt_status()
         assert status["is_halted"]
         assert status["halt_reason"] == "Test halt"
@@ -77,6 +77,7 @@ class TestMonitoringServiceHALT:
     @pytest.fixture
     def mock_portfolio_manager(self, mock_portfolio_state):
         """Create a mock portfolio manager."""
+
         class MockPortfolioManager:
             def __init__(self, state):
                 self.state = state
@@ -87,8 +88,7 @@ class TestMonitoringServiceHALT:
         return MockPortfolioManager(mock_portfolio_state)
 
     @pytest.mark.asyncio
-    async def test_halt_on_drawdown(self, mock_config_manager, pubsub_manager,
-                                    mock_portfolio_manager, mock_logger):
+    async def test_halt_on_drawdown(self, mock_config_manager, pubsub_manager, mock_portfolio_manager, mock_logger):
         """Test HALT triggered by drawdown."""
         # Create portfolio with high drawdown
         mock_portfolio_manager.state["total_drawdown_pct"] = Decimal("20.0")
@@ -102,6 +102,7 @@ class TestMonitoringServiceHALT:
 
         # Subscribe to system state events
         state_events = []
+
         async def capture_state_event(event):
             if isinstance(event, SystemStateEvent):
                 state_events.append(event)
@@ -123,8 +124,13 @@ class TestMonitoringServiceHALT:
         await monitoring.stop()
 
     @pytest.mark.asyncio
-    async def test_position_closure_on_halt(self, mock_config_manager, pubsub_manager,
-                                           mock_portfolio_manager, mock_logger):
+    async def test_position_closure_on_halt(
+        self,
+        mock_config_manager,
+        pubsub_manager,
+        mock_portfolio_manager,
+        mock_logger,
+    ):
         """Test positions are closed when HALT is triggered with close behavior."""
         monitoring = MonitoringService(
             mock_config_manager,
@@ -135,6 +141,7 @@ class TestMonitoringServiceHALT:
 
         # Subscribe to close position commands
         close_commands = []
+
         async def capture_close_command(event):
             if isinstance(event, ClosePositionCommand):
                 close_commands.append(event)
@@ -154,8 +161,13 @@ class TestMonitoringServiceHALT:
         assert close_commands[0].side == "SELL"  # Opposite of BUY position
 
     @pytest.mark.asyncio
-    async def test_halt_coordinator_integration(self, mock_config_manager, pubsub_manager,
-                                               mock_portfolio_manager, mock_logger):
+    async def test_halt_coordinator_integration(
+        self,
+        mock_config_manager,
+        pubsub_manager,
+        mock_portfolio_manager,
+        mock_logger,
+    ):
         """Test monitoring service properly integrates with HALT coordinator."""
         monitoring = MonitoringService(
             mock_config_manager,
@@ -206,8 +218,7 @@ class TestEmergencyPositionClosure:
         assert cmd.event_type == EventType.TRADE_SIGNAL_APPROVED
 
     @pytest.mark.asyncio
-    async def test_multiple_position_closure(self, mock_config_manager, pubsub_manager,
-                                           mock_logger):
+    async def test_multiple_position_closure(self, mock_config_manager, pubsub_manager, mock_logger):
         """Test closing multiple positions on HALT."""
         # Create portfolio with multiple positions
         portfolio_state = {
@@ -236,6 +247,7 @@ class TestEmergencyPositionClosure:
         )
 
         close_commands = []
+
         async def capture_close(event):
             if isinstance(event, ClosePositionCommand):
                 close_commands.append(event)

@@ -106,7 +106,7 @@ class MockKrakenAPI:
 
         # Simulate order lifecycle
         order = self.orders[txid]
-        age = (datetime.now(UTC).timestamp() - order["opentm"])
+        age = datetime.now(UTC).timestamp() - order["opentm"]
 
         # Auto-fill market orders quickly
         if order["descr"]["ordertype"] == "market" and age > 0.5:
@@ -240,8 +240,7 @@ class TestExecutionHandler:
         return MockKrakenAPI()
 
     @pytest.fixture
-    async def execution_handler(self, mock_config_manager, pubsub_manager,
-                                mock_logger, mock_kraken_api):
+    async def execution_handler(self, mock_config_manager, pubsub_manager, mock_logger, mock_kraken_api):
         """Create ExecutionHandler with mocked dependencies."""
         # Configure for testing
         mock_config_manager.config["kraken"] = {
@@ -539,9 +538,11 @@ class TestEdgeCases:
 
         # Order should be rejected during validation
         # Check logs for error
-        assert any("below minimum" in str(log["message"])
-                  for log in execution_handler.logger.messages
-                  if log["level"] == "ERROR")
+        assert any(
+            "below minimum" in str(log["message"])
+            for log in execution_handler.logger.messages
+            if log["level"] == "ERROR"
+        )
 
     @pytest.mark.asyncio
     async def test_decimal_precision_handling(self, execution_handler):
@@ -625,6 +626,7 @@ def create_test_signal(**kwargs):
     }
 
     return TradeSignalApprovedEvent(**defaults)
+
 
 # Monkey patch for testing
 TradeSignalApprovedEvent.create_test_signal = staticmethod(create_test_signal)

@@ -8,7 +8,7 @@ from sqlalchemy import JSON, TIMESTAMP, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gal_friday.dal.models import Base
+from gal_friday.dal.models.models_base import Base
 
 
 class AuditEntry(Base):

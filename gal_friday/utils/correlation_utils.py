@@ -1,3 +1,9 @@
+"""Utilities for computing correlation matrices.
+
+This module provides functions for calculating correlation
+coefficients between features in dataframes.
+"""
+
 import pandas as pd
 
 

@@ -50,11 +50,11 @@ class TestStubImplementation:
     @pytest.fixture
     def sample_data(self):
         """Generate sample price data."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         return {
-            "close": np.random.uniform(100, 110, 100),
-            "high": np.random.uniform(105, 115, 100),
-            "low": np.random.uniform(95, 105, 100),
+            "close": rng.uniform(100, 110, 100),
+            "high": rng.uniform(105, 115, 100),
+            "low": rng.uniform(95, 105, 100),
         }
 
     def test_rsi_returns_neutral_values(self, stub_service, sample_data):
@@ -124,19 +124,19 @@ class TestPandasTAImplementation:
     @pytest.fixture
     def sample_data(self):
         """Generate realistic sample price data."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         dates = pd.date_range("2023-01-01", periods=200, freq="D")
 
         # Generate realistic price movement
         close_prices = 100.0
         close_data = []
         for _ in range(200):
-            close_prices *= (1 + np.random.normal(0, 0.02))
+            close_prices *= 1 + rng.normal(0, 0.02)
             close_data.append(close_prices)
 
         close_array = np.array(close_data)
-        high_array = close_array * (1 + np.abs(np.random.normal(0, 0.01, 200)))
-        low_array = close_array * (1 - np.abs(np.random.normal(0, 0.01, 200)))
+        high_array = close_array * (1 + np.abs(rng.normal(0, 0.01, 200)))
+        low_array = close_array * (1 - np.abs(rng.normal(0, 0.01, 200)))
 
         return {
             "close": close_array,
@@ -252,11 +252,13 @@ class TestFactoryFunction:
 
     def test_production_mode_pandas_ta(self):
         """Test production mode with pandas-ta."""
-        with patch("gal_friday.technical_analysis.PANDAS_TA_AVAILABLE", True):
-            service = create_technical_analysis_service({
-                "use_production_indicators": True,
-                "indicator_library": "pandas_ta",
-            })
+        with patch("gal_friday.technical_analysis.PANDAS_TA_AVAILABLE", new=True):
+            service = create_technical_analysis_service(
+                {
+                    "use_production_indicators": True,
+                    "indicator_library": "pandas_ta",
+                },
+            )
             # Can't check instance without pandas_ta, but we can verify it's not stub
             if service.__class__.__name__ == "PandasTAImplementation":
                 assert True
@@ -265,23 +267,31 @@ class TestFactoryFunction:
 
     def test_production_mode_talib_fallback(self):
         """Test that talib request falls back to pandas-ta if not available."""
-        with patch("gal_friday.technical_analysis.TALIB_AVAILABLE", False):
-            with patch("gal_friday.technical_analysis.PANDAS_TA_AVAILABLE", True):
-                service = create_technical_analysis_service({
+        with (
+            patch("gal_friday.technical_analysis.TALIB_AVAILABLE", new=False),
+            patch("gal_friday.technical_analysis.PANDAS_TA_AVAILABLE", new=True),
+        ):
+            service = create_technical_analysis_service(
+                {
                     "use_production_indicators": True,
                     "indicator_library": "talib",
-                })
-                # Should fall back to pandas-ta or stub
-                assert service is not None
+                },
+            )
+            # Should fall back to pandas-ta or stub
+            assert service is not None
 
     def test_no_libraries_available(self):
         """Test fallback when no libraries are available."""
-        with patch("gal_friday.technical_analysis.PANDAS_TA_AVAILABLE", False):
-            with patch("gal_friday.technical_analysis.TALIB_AVAILABLE", False):
-                service = create_technical_analysis_service({
+        with (
+            patch("gal_friday.technical_analysis.PANDAS_TA_AVAILABLE", new=False),
+            patch("gal_friday.technical_analysis.TALIB_AVAILABLE", new=False),
+        ):
+            service = create_technical_analysis_service(
+                {
                     "use_production_indicators": True,
-                })
-                assert isinstance(service, StubImplementation)
+                },
+            )
+            assert isinstance(service, StubImplementation)
 
 
 class TestBackwardCompatibility:
@@ -289,11 +299,11 @@ class TestBackwardCompatibility:
 
     @pytest.fixture
     def sample_data(self):
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         return {
-            "close": np.random.uniform(100, 110, 50),
-            "high": np.random.uniform(105, 115, 50),
-            "low": np.random.uniform(95, 105, 50),
+            "close": rng.uniform(100, 110, 50),
+            "high": rng.uniform(105, 115, 50),
+            "low": rng.uniform(95, 105, 50),
         }
 
     def test_rsi_wrapper(self, sample_data):

@@ -158,7 +158,7 @@ logging:
 services:
   cli_port: 8080
   cli_host: localhost
-  
+
 trading:
   mode: paper_trading
   initial_capital: 100000
@@ -490,4 +490,4 @@ Main entry point function that replaces the empty pass statement.
 - Error handling
 - Service lifecycle management
 
-For complete API documentation, see the source code docstrings and type hints. 
+For complete API documentation, see the source code docstrings and type hints.

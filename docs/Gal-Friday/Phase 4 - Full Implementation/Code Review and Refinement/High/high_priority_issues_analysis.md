@@ -51,16 +51,16 @@ The system currently has basic ML model infrastructure but lacks comprehensive l
 # gal_friday/model_lifecycle/registry.py
 class ModelRegistry:
     """Centralized model registry with versioning."""
-    
+
     def register_model(self, model_artifact: ModelArtifact) -> str:
         """Register new model version."""
-        
+
     def get_model(self, model_id: str, version: Optional[str] = None) -> Model:
         """Retrieve specific model version."""
-        
+
     def list_models(self, status: ModelStatus = None) -> List[ModelInfo]:
         """List all registered models."""
-        
+
     def promote_model(self, model_id: str, from_stage: str, to_stage: str):
         """Promote model between stages (dev → staging → production)."""
 ```
@@ -97,16 +97,16 @@ CREATE TABLE model_deployments (
 # gal_friday/model_lifecycle/ab_testing.py
 class ABTestingManager:
     """Manage A/B testing for models."""
-    
-    def create_experiment(self, 
+
+    def create_experiment(self,
                          control_model: str,
                          treatment_model: str,
                          traffic_split: float = 0.5) -> Experiment:
         """Create new A/B test experiment."""
-        
+
     def route_request(self, experiment_id: str) -> str:
         """Route prediction request to appropriate model."""
-        
+
     def record_outcome(self, experiment_id: str, model_id: str, outcome: PredictionOutcome):
         """Record prediction outcome for analysis."""
 ```
@@ -154,17 +154,17 @@ The portfolio manager tracks positions but lacks reconciliation with exchange da
 # gal_friday/portfolio/reconciliation_service.py
 class ReconciliationService:
     """Automated portfolio reconciliation with exchange."""
-    
+
     async def reconcile_positions(self) -> ReconciliationReport:
         """Compare internal positions with exchange data."""
         # 1. Fetch current positions from exchange
         # 2. Compare with internal records
         # 3. Identify discrepancies
         # 4. Generate reconciliation report
-        
+
     async def reconcile_balances(self) -> BalanceReconciliationReport:
         """Reconcile cash balances across all currencies."""
-        
+
     async def auto_correct_discrepancies(self, report: ReconciliationReport):
         """Automatically correct minor discrepancies."""
 ```
@@ -239,21 +239,21 @@ The system uses polling for order status updates:
 # gal_friday/execution/websocket_client.py
 class KrakenWebSocketClient:
     """WebSocket client for real-time order and market data."""
-    
+
     async def connect(self):
         """Establish WebSocket connection with authentication."""
-        
+
     async def subscribe_private_orders(self):
         """Subscribe to private order updates channel."""
-        
+
     async def subscribe_market_data(self, pairs: List[str]):
         """Subscribe to market data channels."""
-        
+
     async def handle_order_update(self, message: Dict):
         """Process incoming order update messages."""
         # Convert to ExecutionReportEvent
         # Publish to event bus
-        
+
     async def maintain_connection(self):
         """Handle reconnection and heartbeat."""
 ```
@@ -263,18 +263,18 @@ class KrakenWebSocketClient:
 # gal_friday/execution/websocket_processor.py
 class WebSocketMessageProcessor:
     """Process and validate WebSocket messages."""
-    
+
     def __init__(self):
         self.sequence_tracker = SequenceTracker()
         self.message_cache = MessageCache(ttl=300)  # 5 min cache
-        
+
     async def process_message(self, raw_message: str) -> Optional[Event]:
         """Process raw WebSocket message into system event."""
         # 1. Parse and validate message
         # 2. Check for duplicates
         # 3. Verify sequence
         # 4. Convert to internal event format
-        
+
     async def handle_missed_messages(self, start_seq: int, end_seq: int):
         """Handle gaps in message sequence."""
 ```
@@ -322,20 +322,20 @@ The system has partial database integration:
 # gal_friday/dal/base.py
 class BaseRepository:
     """Base repository with common database operations."""
-    
+
     def __init__(self, db_pool: asyncpg.Pool):
         self.db_pool = db_pool
-        
+
     async def insert(self, table: str, data: Dict) -> Any:
         """Insert record with automatic timestamp."""
-        
+
     async def update(self, table: str, id: Any, data: Dict) -> bool:
         """Update existing record."""
-        
+
     async def find_by_id(self, table: str, id: Any) -> Optional[Dict]:
         """Find record by primary key."""
-        
-    async def find_many(self, table: str, filters: Dict, 
+
+    async def find_many(self, table: str, filters: Dict,
                        limit: int = 100, offset: int = 0) -> List[Dict]:
         """Find multiple records with filtering."""
 ```
@@ -345,27 +345,27 @@ class BaseRepository:
 # gal_friday/dal/repositories/
 class OrderRepository(BaseRepository):
     """Repository for order data."""
-    
+
     async def save_order(self, order: Order) -> str:
         """Persist order to database."""
-        
-    async def update_order_status(self, order_id: str, 
-                                 status: str, 
+
+    async def update_order_status(self, order_id: str,
+                                 status: str,
                                  filled_quantity: Decimal):
         """Update order execution status."""
-        
+
     async def get_active_orders(self) -> List[Order]:
         """Retrieve all active orders."""
 
 class MarketDataRepository(BaseRepository):
     """Repository for market data using TimescaleDB."""
-    
+
     async def insert_ohlcv(self, candles: List[OHLCVData]):
         """Bulk insert OHLCV data."""
-        
-    async def get_candles(self, pair: str, 
+
+    async def get_candles(self, pair: str,
                          timeframe: str,
-                         start: datetime, 
+                         start: datetime,
                          end: datetime) -> List[OHLCVData]:
         """Retrieve historical candles."""
 ```
@@ -375,13 +375,13 @@ class MarketDataRepository(BaseRepository):
 # gal_friday/dal/migrations/
 class MigrationManager:
     """Manage database schema migrations."""
-    
+
     async def run_migrations(self):
         """Execute pending migrations."""
-        
+
     async def rollback_migration(self, version: int):
         """Rollback to specific version."""
-        
+
     def generate_migration(self, name: str):
         """Generate new migration template."""
 ```
@@ -439,4 +439,4 @@ class MigrationManager:
 1. **Database Performance**: Implement caching layer for frequently accessed data
 2. **WebSocket Reliability**: Implement fallback to REST API during outages
 3. **Reconciliation Accuracy**: Manual review process for large discrepancies
-4. **Model Stability**: Gradual rollout with automatic rollback on errors 
+4. **Model Stability**: Gradual rollout with automatic rollback on errors

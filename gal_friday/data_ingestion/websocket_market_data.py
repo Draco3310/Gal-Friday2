@@ -1,6 +1,5 @@
 """WebSocket market data ingestion."""
 
-
 from typing import Any
 
 from gal_friday.config_manager import ConfigManager
@@ -12,10 +11,7 @@ from gal_friday.logger_service import LoggerService
 class WebSocketMarketDataService:
     """Market data ingestion via WebSocket."""
 
-    def __init__(self,
-                 config: ConfigManager,
-                 pubsub: PubSubManager,
-                 logger: LoggerService) -> None:
+    def __init__(self, config: ConfigManager, pubsub: PubSubManager, logger: LoggerService) -> None:
         """Initialize the WebSocket market data service.
 
         Args:
@@ -37,17 +33,13 @@ class WebSocketMarketDataService:
 
     async def start(self) -> None:
         """Start market data service."""
-        self.logger.info(
-            "Starting WebSocket market data service",
-            source_module=self._source_module)
+        self.logger.info("Starting WebSocket market data service", source_module=self._source_module)
 
         # Connect WebSocket
         await self.ws_client.connect()
 
         # Subscribe to market data
-        await self.ws_client.subscribe_market_data(
-            list[Any](self.pairs),
-            self.channels)
+        await self.ws_client.subscribe_market_data(list[Any](self.pairs), self.channels)
 
     async def stop(self) -> None:
         """Stop market data service."""

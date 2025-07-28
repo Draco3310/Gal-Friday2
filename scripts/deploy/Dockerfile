@@ -80,4 +80,4 @@ COPY --chown=galfriday:galfriday scripts/deploy/entrypoint.sh /app/
 RUN chmod +x /app/entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["python", "-m", "gal_friday.main"] 
+CMD ["python", "-m", "gal_friday.main"]

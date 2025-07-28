@@ -226,7 +226,7 @@ class TestExecutionEventPublisher:
 
         assert stats["published_events"] == 10
         assert stats["failed_publications"] == 2
-        assert stats["success_rate"] == 10/12  # 83.33%
+        assert stats["success_rate"] == 10 / 12  # 83.33%
 
 
 class TestFillEnhancements:
@@ -329,7 +329,7 @@ class TestFillEnhancements:
         assert summary["quantity_filled"] == 50.0
         assert summary["fill_price"] == 50000.0
         assert summary["gross_value"] == 2500000.0  # 50 * 50000
-        assert summary["net_value"] == 2499975.0   # gross - commission
+        assert summary["net_value"] == 2499975.0  # gross - commission
 
     def test_dependency_injection_methods(self):
         """Test dependency injection methods."""

@@ -1,4 +1,3 @@
-# ML Prediction Pipeline Module
 """Enterprise-grade ML pipeline for price prediction with comprehensive feature engineering.
 
 This module provides infrastructure for training ML models, feature engineering,
@@ -8,24 +7,28 @@ model lifecycle management, and performance evaluation for trading predictions.
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+import json
 from pathlib import Path
-import pickle
 from typing import Any
 import uuid
 
+import joblib
 import numpy as np
 import pandas as pd
+from scipy import stats
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from sklearn.preprocessing import StandardScaler
+import xgboost as xgb
 
 from gal_friday.logger_service import LoggerService
 
 
 class ModelType(str, Enum):
     """Supported ML model types."""
+
     RANDOM_FOREST = "random_forest"
     XGBOOST = "xgboost"
     LSTM = "lstm"
@@ -34,6 +37,7 @@ class ModelType(str, Enum):
 
 class PipelineStage(str, Enum):
     """ML pipeline execution stages."""
+
     DATA_VALIDATION = "data_validation"
     FEATURE_ENGINEERING = "feature_engineering"
     MODEL_TRAINING = "model_training"
@@ -44,6 +48,7 @@ class PipelineStage(str, Enum):
 @dataclass
 class PredictionRequest:
     """Request for price prediction."""
+
     symbol: str
     features: dict[str, float]
     prediction_horizon: int  # minutes ahead
@@ -55,6 +60,7 @@ class PredictionRequest:
 @dataclass
 class PredictionResult:
     """Result of price prediction."""
+
     symbol: str
     predicted_price: float
     confidence_interval: tuple[float, float]
@@ -69,6 +75,7 @@ class PredictionResult:
 @dataclass
 class ModelTrainingConfig:
     """Configuration for model training."""
+
     model_type: ModelType
     target_column: str = "close"
     feature_columns: list[str] | None = None
@@ -83,6 +90,7 @@ class ModelTrainingConfig:
 @dataclass
 class ModelPerformanceMetrics:
     """Model performance tracking metrics."""
+
     model_id: str
     timestamp: datetime
     mse: float
@@ -169,11 +177,10 @@ class FeatureEngineer:
             )
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Feature engineering failed: %(error)s",
                 source_module=self._source_module,
                 context={"error": str(e)},
-                exc_info=True,
             )
             raise FeatureEngineeringError(f"Feature engineering failed: {e}") from e
         else:
@@ -240,8 +247,7 @@ class FeatureEngineer:
 
         # Price-volume features
         df["price_volume"] = df["close"] * df["volume"]
-        df["vwap"] = (df["price_volume"].rolling(20).sum() /
-                      df["volume"].rolling(20).sum())
+        df["vwap"] = df["price_volume"].rolling(20).sum() / df["volume"].rolling(20).sum()
 
         return df
 
@@ -267,9 +273,7 @@ class FeatureEngineer:
             df[f"close_kurt_{window}"] = df["close"].rolling(window).kurt()
 
             # Percentile features
-            df[f"close_percentile_{window}"] = (
-                df["close"].rolling(window).rank() / window
-            )
+            df[f"close_percentile_{window}"] = df["close"].rolling(window).rank() / window
 
         return df
 
@@ -292,19 +296,22 @@ class FeatureEngineer:
 
         return df
 
-    def _calculate_rsi(self, prices: pd.Series[float], window: int = 14) -> pd.Series[float]:
+    def _calculate_rsi(self, prices: pd.Series, window: int = 14) -> pd.Series:
         """Calculate Relative Strength Index."""
-        delta: pd.Series[float] = prices.diff()
+        delta: pd.Series = prices.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
 
         rs = gain / loss
         return 100 - (100 / (1 + rs))
 
-
-    def _calculate_macd(self, prices: pd.Series[float],
-                       fast: int = 12, slow: int = 26, signal: int = 9,
-                       ) -> tuple[pd.Series[float], pd.Series[float]]:
+    def _calculate_macd(
+        self,
+        prices: pd.Series,
+        fast: int = 12,
+        slow: int = 26,
+        signal: int = 9,
+    ) -> tuple[pd.Series, pd.Series]:
         """Calculate MACD indicator."""
         ema_fast = prices.ewm(span=fast).mean()
         ema_slow = prices.ewm(span=slow).mean()
@@ -327,7 +334,6 @@ class FeatureEngineer:
         return df.ffill().bfill()
 
 
-
 class ModelTrainer:
     """Model training and validation component."""
 
@@ -337,10 +343,12 @@ class ModelTrainer:
         self.logger = logger
         self._source_module = self.__class__.__name__
 
-    async def train_model(self,
-                         training_data: pd.DataFrame,
-                         training_config: ModelTrainingConfig,
-                         symbol: str) -> dict[str, Any]:
+    async def train_model(
+        self,
+        training_data: pd.DataFrame,
+        training_config: ModelTrainingConfig,
+        symbol: str,
+    ) -> dict[str, Any]:
         """Train ML model with comprehensive validation.
 
         Args:
@@ -368,31 +376,34 @@ class ModelTrainer:
             start_time = datetime.now(UTC)
 
             # Prepare training data
-            X, y = self._prepare_training_data(training_data, training_config)
+            X, y = self._prepare_training_data(training_data, training_config)  # noqa: N806
 
             # Create and train model
-            model = self._create_model(training_config.model_type,
-                                     training_config.hyperparameters)
+            model = self._create_model(training_config.model_type, training_config.hyperparameters)
 
             # Create and fit scaler
             scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(X)
+            X_scaled = scaler.fit_transform(X)  # noqa: N806
 
             # Perform cross-validation
-            cv_scores = self._perform_cross_validation(model, X_scaled, np.asarray(y.values),
-                                                     training_config.cv_folds)
+            cv_scores = self._perform_cross_validation(model, X_scaled, np.asarray(y.values), training_config.cv_folds)
 
             # Train final model
             model.fit(X_scaled, y)
 
             # Calculate performance metrics
             metrics = self._calculate_performance_metrics(
-                model, scaler, X, y, symbol, start_time,
+                model,
+                scaler,
+                X,
+                y,
+                symbol,
+                start_time,
             )
 
             # Validate performance threshold
             if metrics.validation_score < training_config.performance_threshold:
-                raise ModelValidationError(
+                self._raise_model_validation_error(
                     f"Model performance {metrics.validation_score:.4f} below "
                     f"threshold {training_config.performance_threshold:.4f}",
                 )
@@ -418,20 +429,20 @@ class ModelTrainer:
             )
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "Model training failed for %(symbol)s: %(error)s",
                 source_module=self._source_module,
                 context={"symbol": symbol, "error": str(e)},
-                exc_info=True,
             )
             raise ModelTrainingError(f"Model training failed: {e}") from e
         else:
             return result
 
-    def _prepare_training_data(self,
-                              data: pd.DataFrame,
-                              config: ModelTrainingConfig,
-                              ) -> tuple[pd.DataFrame, pd.Series[Any]]:
+    def _prepare_training_data(
+        self,
+        data: pd.DataFrame,
+        config: ModelTrainingConfig,
+    ) -> tuple[pd.DataFrame, pd.Series]:
         """Prepare features and target for training."""
         # Select feature columns
         if config.feature_columns:
@@ -441,12 +452,12 @@ class ModelTrainer:
             exclude_cols = {config.target_column, "timestamp", "date", "time"}
             feature_cols = [col for col in data.columns if col not in exclude_cols]
 
-        X = data[feature_cols].copy()
+        X = data[feature_cols].copy()  # noqa: N806
         y = data[config.target_column].copy()
 
         # Remove rows with NaN values
         mask = ~(X.isna().any(axis=1) | y.isna())
-        X = X[mask]
+        X = X[mask]  # noqa: N806
         y = y[mask]
 
         return X, y
@@ -464,7 +475,6 @@ class ModelTrainer:
             return LinearRegression()
         if model_type == ModelType.XGBOOST:
             try:
-                import xgboost as xgb
                 return xgb.XGBRegressor(
                     n_estimators=hyperparameters.get("n_estimators", 100),
                     max_depth=hyperparameters.get("max_depth", 6),
@@ -472,12 +482,17 @@ class ModelTrainer:
                     random_state=hyperparameters.get("random_state", 42),
                 )
             except ImportError:
-                raise ModelTrainingError("XGBoost not available")
+                raise ModelTrainingError("XGBoost not available") from None
         else:
             raise ModelTrainingError(f"Unsupported model type: {model_type}")
 
-    def _perform_cross_validation(self, model: Any, X: np.ndarray[Any, Any], y: np.ndarray[Any, Any],
-                                 cv_folds: int) -> np.ndarray[Any, Any]:
+    def _perform_cross_validation(
+        self,
+        model: Any,
+        X: np.ndarray[Any, Any],
+        y: np.ndarray[Any, Any],
+        cv_folds: int,
+    ) -> np.ndarray[Any, Any]:
         """Perform time series cross-validation."""
         tscv = TimeSeriesSplit(n_splits=cv_folds)
         cv_scores = cross_val_score(model, X, y, cv=tscv, scoring="r2")
@@ -494,15 +509,17 @@ class ModelTrainer:
 
         return np.array(cv_scores)
 
-    def _calculate_performance_metrics(self,
-                                     model: Any,
-                                     scaler: Any,  # StandardScaler instance
-                                     X: pd.DataFrame,
-                                     y: pd.Series[Any],
-                                     symbol: str,
-                                     start_time: datetime) -> ModelPerformanceMetrics:
+    def _calculate_performance_metrics(
+        self,
+        model: Any,
+        scaler: Any,  # StandardScaler instance
+        X: pd.DataFrame,
+        y: pd.Series,
+        symbol: str,
+        start_time: datetime,
+    ) -> ModelPerformanceMetrics:
         """Calculate comprehensive performance metrics."""
-        X_scaled = scaler.transform(X)
+        X_scaled = scaler.transform(X)  # noqa: N806
         y_pred = model.predict(X_scaled)
 
         mse = mean_squared_error(y, y_pred)
@@ -523,6 +540,10 @@ class ModelTrainer:
             feature_count=len(X.columns),
             validation_score=r2,
         )
+
+    def _raise_model_validation_error(self, error_msg: str) -> None:
+        """Helper method to raise ModelValidationError, abstracting the raise from try block."""
+        raise ModelValidationError(error_msg)
 
 
 class MLPredictionPipeline:
@@ -557,10 +578,12 @@ class MLPredictionPipeline:
             "last_prediction_time": None,
         }
 
-    async def train_and_deploy_model(self,
-                                   symbol: str,
-                                   training_data: pd.DataFrame,
-                                   training_config: ModelTrainingConfig) -> str:
+    async def train_and_deploy_model(
+        self,
+        symbol: str,
+        training_data: pd.DataFrame,
+        training_config: ModelTrainingConfig,
+    ) -> str:
         """Complete training and deployment pipeline.
 
         Args:
@@ -586,7 +609,9 @@ class MLPredictionPipeline:
 
             # Model training
             training_result = await self.model_trainer.train_model(
-                features_df, training_config, symbol,
+                features_df,
+                training_config,
+                symbol,
             )
 
             # Deploy model
@@ -602,11 +627,10 @@ class MLPredictionPipeline:
             )
 
         except Exception as e:
-            self.logger.error(
+            self.logger.exception(
                 "ML pipeline failed for %(symbol)s: %(error)s",
                 source_module=self._source_module,
                 context={"symbol": symbol, "error": str(e)},
-                exc_info=True,
             )
             raise MLPipelineError(f"ML pipeline failed: {e}") from e
         else:
@@ -629,7 +653,7 @@ class MLPredictionPipeline:
             symbol = request.symbol
 
             if symbol not in self.models:
-                raise MLPipelineError(f"No trained model available for {symbol}")
+                self._raise_ml_pipeline_error(f"No trained model available for {symbol}")
 
             model = self.models[symbol]
             scaler = self.scalers[symbol]
@@ -644,7 +668,9 @@ class MLPredictionPipeline:
 
             # Calculate confidence interval
             prediction_uncertainty = self._estimate_prediction_uncertainty(
-                model, feature_vector_scaled, request.confidence_level,
+                model,
+                feature_vector_scaled,
+                request.confidence_level,
             )
 
             confidence_interval = (
@@ -662,12 +688,12 @@ class MLPredictionPipeline:
             # Update stats
             current_count = self.prediction_stats.get("predictions_made", 0)
             self.prediction_stats["predictions_made"] = (
-                (int(current_count) if isinstance(current_count, int | float) else 0) + 1
-            )
+                int(current_count) if isinstance(current_count, int | float) else 0
+            ) + 1
             success_count = self.prediction_stats.get("successful_predictions", 0)
             self.prediction_stats["successful_predictions"] = (
-                (int(success_count) if isinstance(success_count, int | float) else 0) + 1
-            )
+                int(success_count) if isinstance(success_count, int | float) else 0
+            ) + 1
             self.prediction_stats["last_prediction_time"] = datetime.now(UTC)
 
             result = PredictionResult(
@@ -697,13 +723,12 @@ class MLPredictionPipeline:
         except Exception as e:
             failed_count = self.prediction_stats.get("failed_predictions", 0)
             self.prediction_stats["failed_predictions"] = (
-                (int(failed_count) if isinstance(failed_count, int | float) else 0) + 1
-            )
-            self.logger.error(
+                int(failed_count) if isinstance(failed_count, int | float) else 0
+            ) + 1
+            self.logger.exception(
                 "Prediction failed for %(symbol)s: %(error)s",
                 source_module=self._source_module,
                 context={"symbol": request.symbol, "error": str(e)},
-                exc_info=True,
             )
             raise MLPipelineError(f"Prediction failed: {e}") from e
         else:
@@ -724,26 +749,23 @@ class MLPredictionPipeline:
         self.model_metrics[symbol] = metrics
 
         # Persist to disk
-        model_path = self.model_storage_path / f"{symbol}_model.pkl"
-        scaler_path = self.model_storage_path / f"{symbol}_scaler.pkl"
-        metadata_path = self.model_storage_path / f"{symbol}_metadata.pkl"
+        model_path = self.model_storage_path / f"{symbol}_model.joblib"
+        scaler_path = self.model_storage_path / f"{symbol}_scaler.joblib"
+        metadata_path = self.model_storage_path / f"{symbol}_metadata.json"
 
-        with open(model_path, "wb") as f:
-            pickle.dump(model, f)
-
-        with open(scaler_path, "wb") as f:
-            pickle.dump(scaler, f)
+        joblib.dump(model, model_path)
+        joblib.dump(scaler, scaler_path)
 
         metadata = {
             "model_version": model_version,
             "feature_names": feature_names,
             "metrics": metrics,
-            "deployment_time": datetime.now(UTC),
+            "deployment_time": datetime.now(UTC).isoformat(),
             "symbol": symbol,
         }
 
-        with open(metadata_path, "wb") as f:
-            pickle.dump(metadata, f)
+        with metadata_path.open("w") as f:
+            json.dump(metadata, f)
 
         self.logger.info(
             "Model deployed for %(symbol)s at %(path)s",
@@ -753,9 +775,11 @@ class MLPredictionPipeline:
 
         return str(model_version)
 
-    def _prepare_prediction_features(self,
-                                   features: dict[str, float],
-                                   expected_features: list[str]) -> np.ndarray[Any, Any]:
+    def _prepare_prediction_features(
+        self,
+        features: dict[str, float],
+        expected_features: list[str],
+    ) -> np.ndarray[Any, Any]:
         """Prepare feature vector for prediction."""
         feature_vector = []
         missing_features = []
@@ -776,10 +800,12 @@ class MLPredictionPipeline:
 
         return np.array(feature_vector, dtype=np.float32)
 
-    def _estimate_prediction_uncertainty(self,
-                                       model: Any,
-                                       features: np.ndarray[Any, Any],
-                                       confidence_level: float) -> float:
+    def _estimate_prediction_uncertainty(
+        self,
+        model: Any,
+        features: np.ndarray[Any, Any],
+        confidence_level: float,
+    ) -> float:
         """Estimate prediction uncertainty."""
         if hasattr(model, "estimators_"):
             # For ensemble models, use prediction variance
@@ -787,7 +813,6 @@ class MLPredictionPipeline:
             std_dev = np.std(predictions)
 
             # Calculate confidence interval multiplier
-            from scipy import stats
             confidence_multiplier = stats.norm.ppf((1 + confidence_level) / 2)
 
             return float(std_dev * confidence_multiplier)
@@ -857,3 +882,11 @@ class MLPredictionPipeline:
                 "feature_count": metrics.feature_count,
             },
         }
+
+    def _raise_model_validation_error(self, error_msg: str) -> None:
+        """Helper method to raise ModelValidationError, abstracting the raise from try block."""
+        raise ModelValidationError(error_msg)
+
+    def _raise_ml_pipeline_error(self, error_msg: str) -> None:
+        """Helper method to raise MLPipelineError, abstracting the raise from try block."""
+        raise MLPipelineError(error_msg)

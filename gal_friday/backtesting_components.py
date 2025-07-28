@@ -21,6 +21,7 @@ from .models.order import Order
 @dataclass
 class SimulatedTimeEvent:
     """Event wrapper for time-based simulation."""
+
     timestamp: datetime
     original_event: Event
     priority: int = 0
@@ -142,7 +143,7 @@ class BacktestPubSubManager:
         # Check queue size limits
         if len(self._event_queue) >= self._max_queue_size:
             # Drop oldest events to make room
-            self._event_queue = self._event_queue[-self._max_queue_size//2:]
+            self._event_queue = self._event_queue[-self._max_queue_size // 2 :]
             self._dropped_events += len(self._event_queue) - len(self._event_queue)
             self.logger.warning("Event queue full, dropped old events", extra={"source_module": self._source_module})
 
@@ -189,10 +190,7 @@ class BacktestPubSubManager:
                     await asyncio.sleep(delay)
 
             except Exception:
-                self.logger.exception(
-                    "Error in event processing loop",
-                    extra={"source_module": self._source_module},
-                )
+                self.logger.exception("Error in event processing loop", extra={"source_module": self._source_module})
                 await asyncio.sleep(0.1)
 
     async def _handle_event(self, event: Event) -> None:
@@ -279,6 +277,7 @@ class BacktestPubSubManager:
 @dataclass
 class BacktestRiskLimits:
     """Risk limits configuration for backtesting."""
+
     max_position_size: Decimal
     max_daily_loss: Decimal
     max_drawdown: Decimal
@@ -290,6 +289,7 @@ class BacktestRiskLimits:
 @dataclass
 class RiskCheckResult:
     """Result of a risk check."""
+
     approved: bool
     reason: str | None = None
 
@@ -342,11 +342,11 @@ class BacktestRiskManager:
         self._total_risk_checks += 1
 
         # Check position size limits
-        if order.quantity * order.limit_price > self.risk_limits.max_position_size:  # type: ignore[attr-defined]
+        if order.quantity_ordered * order.limit_price > self.risk_limits.max_position_size:
             violation = {
                 "type": "position_size_exceeded",
-                "order_id": order.id,  # type: ignore[attr-defined]
-                "amount": order.quantity * order.limit_price,  # type: ignore[attr-defined]
+                "order_id": order.client_order_id,
+                "amount": order.quantity_ordered * order.limit_price,
                 "limit": self.risk_limits.max_position_size,
             }
             self._risk_violations.append(violation)
@@ -355,14 +355,14 @@ class BacktestRiskManager:
             return RiskCheckResult(
                 approved=False,
                 reason=(
-                    f"Position size {order.quantity * order.limit_price} "
+                    f"Position size {order.quantity_ordered * order.limit_price} "
                     f"exceeds limit {self.risk_limits.max_position_size}"
-                ),  # type: ignore[attr-defined]
+                ),
             )
 
         # Check concentration limits
         symbol_exposure = self._calculate_symbol_exposure(cast("str", order.trading_pair))
-        new_exposure = symbol_exposure + (order.quantity * order.limit_price)  # type: ignore[attr-defined]
+        new_exposure = symbol_exposure + (order.quantity_ordered * order.limit_price)
         concentration = new_exposure / self._current_value
 
         if concentration > self.risk_limits.max_concentration:
@@ -450,9 +450,7 @@ class BacktestRiskManager:
     def remove_position(self, position_id: str) -> None:
         """Remove position from tracking."""
         for symbol, positions in self._current_positions.items():
-            self._current_positions[symbol] = [
-                p for p in positions if p.id != position_id
-            ]
+            self._current_positions[symbol] = [p for p in positions if p.id != position_id]
 
     def _calculate_symbol_exposure(self, symbol: str) -> Decimal:
         """Calculate current exposure to a specific symbol."""
@@ -487,6 +485,7 @@ class BacktestRiskManager:
 @dataclass
 class BacktestSymbolInfo:
     """Symbol information for backtesting."""
+
     symbol: str
     base_asset: str
     quote_asset: str

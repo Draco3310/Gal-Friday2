@@ -13,9 +13,9 @@ from typing import Any
 
 import aiohttp
 import asyncio
-from sendgrid import SendGridAPIClient  # type: ignore
-from sendgrid.helpers.mail import Mail  # type: ignore
-from twilio.rest import Client as TwilioClient  # type: ignore
+from sendgrid import SendGridAPIClient  # type: ignore[import-untyped]
+from sendgrid.helpers.mail import Mail  # type: ignore[import-untyped]
+from twilio.rest import Client as TwilioClient  # type: ignore[import-untyped]
 
 from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
@@ -24,6 +24,7 @@ from gal_friday.utils.secrets_manager import SecretsManager
 
 class AlertSeverity(Enum):
     """Alert severity levels."""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -32,6 +33,7 @@ class AlertSeverity(Enum):
 
 class AlertChannel(Enum):
     """Alert delivery channels."""
+
     EMAIL = "email"
     SMS = "sms"
     DISCORD = "discord"
@@ -42,6 +44,7 @@ class AlertChannel(Enum):
 @dataclass
 class Alert:
     """Represents an alert to be sent."""
+
     alert_id: str
     title: str
     message: str
@@ -76,6 +79,7 @@ class Alert:
 @dataclass
 class AlertRecipient:
     """Alert recipient configuration."""
+
     name: str
     channels: list[AlertChannel]
     email: str | None = None
@@ -99,7 +103,7 @@ class AlertRecipient:
 
         # Check quiet hours
         if self.quiet_hours:
-            current_hour = datetime.now().strftime("%H:%M")
+            current_hour = datetime.now(UTC).strftime("%H:%M")
             start = self.quiet_hours["start"]
             end = self.quiet_hours["end"]
 
@@ -167,30 +171,29 @@ class EmailChannel(AlertDeliveryChannel):
                 from_email=self.from_email,
                 to_emails=recipient.email,
                 subject=f"[{alert.severity.value.upper()}] {alert.title}",
-                html_content=html_content)
+                html_content=html_content,
+            )
 
             # Send email
-            response = await asyncio.get_event_loop().run_in_executor(
-                None, self.client.send, message)
+            response = await asyncio.get_event_loop().run_in_executor(None, self.client.send, message)
 
             if response.status_code in [200, 201, 202]:
                 self.logger.info(
                     f"Email alert sent to {recipient.email}",
                     source_module=self._source_module,
-                    context={"alert_id": alert.alert_id})
+                    context={"alert_id": alert.alert_id},
+                )
                 return True
-            else:
-                self.logger.error(
-                    f"Failed to send email: {response.status_code}",
-                    source_module=self._source_module,
-                    context={"response": response.body})
-                return False
+            self.logger.error(
+                f"Failed to send email: {response.status_code}",
+                source_module=self._source_module,
+                context={"response": response.body},
+            )
 
         except Exception:
-            self.logger.exception(
-                "Error sending email alert",
-                source_module=self._source_module)
-            return False
+            self.logger.exception("Error sending email alert", source_module=self._source_module)
+
+        return False
 
     async def test_connection(self) -> bool:
         """Test SendGrid connection."""
@@ -202,12 +205,10 @@ class EmailChannel(AlertDeliveryChannel):
                 message="This is a test alert from Gal-Friday",
                 severity=AlertSeverity.INFO,
                 source="AlertingSystem",
-                tags={"test": True})
+                tags={"test": True},
+            )
 
-            test_recipient = AlertRecipient(
-                name="Test",
-                channels=[AlertChannel.EMAIL],
-                email=self.from_email)
+            test_recipient = AlertRecipient(name="Test", channels=[AlertChannel.EMAIL], email=self.from_email)
 
             return await self.send(test_alert, test_recipient)
 
@@ -225,21 +226,11 @@ class EmailChannel(AlertDeliveryChannel):
 
         color = severity_colors.get(alert.severity, "#000000")
 
-        tag_style = (
-            "background-color: #e9ecef; padding: 2px 6px; "
-            "margin: 2px; border-radius: 3px;"
-        )
+        tag_style = "background-color: #e9ecef; padding: 2px 6px; margin: 2px; border-radius: 3px;"
         # Tags HTML is not currently used in the template
-        _ = "".join(
-            f'<span style="{tag_style}">{k}: {v}</span>'
-            for k, v in alert.tags.items()
-        )
+        _ = "".join(f'<span style="{tag_style}">{k}: {v}</span>' for k, v in alert.tags.items())
 
-        timestamp_str = (
-            alert.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
-            if alert.timestamp
-            else "Unknown"
-        )
+        timestamp_str = alert.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC") if alert.timestamp else "Unknown"
 
         return f"""
         <html>
@@ -269,12 +260,7 @@ class EmailChannel(AlertDeliveryChannel):
 class SMSChannel(AlertDeliveryChannel):
     """Twilio SMS delivery channel."""
 
-    def __init__(
-        self,
-        account_sid: str,
-        auth_token: str,
-        from_number: str,
-        logger: LoggerService) -> None:
+    def __init__(self, account_sid: str, auth_token: str, from_number: str, logger: LoggerService) -> None:
         """Initialize the SMS channel.
 
         Args:
@@ -308,17 +294,17 @@ class SMSChannel(AlertDeliveryChannel):
                 self.client.messages.create,
                 message,
                 self.from_number,
-                recipient.phone)
+                recipient.phone,
+            )
 
             self.logger.info(
                 f"SMS alert sent to {recipient.phone}",
                 source_module=self._source_module,
-                context={"alert_id": alert.alert_id, "sid": result.sid})
+                context={"alert_id": alert.alert_id, "sid": result.sid},
+            )
 
         except Exception:
-            self.logger.exception(
-                "Error sending SMS alert",
-                source_module=self._source_module)
+            self.logger.exception("Error sending SMS alert", source_module=self._source_module)
             return False
         else:
             return True
@@ -328,7 +314,9 @@ class SMSChannel(AlertDeliveryChannel):
         try:
             # Check account status
             account = await asyncio.get_event_loop().run_in_executor(
-                None, self.client.api.accounts(self.client.account_sid).fetch)
+                None,
+                self.client.api.accounts(self.client.account_sid).fetch,
+            )
             return bool(account.status == "active")
         except Exception:
             return False
@@ -358,8 +346,7 @@ class DiscordChannel(AlertDeliveryChannel):
         Returns:
             bool: True if alert was sent successfully, False otherwise
         """
-        if (not recipient.webhook_url or
-            self.DISCORD_WEBHOOK_URL_PATTERN not in recipient.webhook_url):
+        if not recipient.webhook_url or self.DISCORD_WEBHOOK_URL_PATTERN not in recipient.webhook_url:
             return False
 
         try:
@@ -371,23 +358,19 @@ class DiscordChannel(AlertDeliveryChannel):
 
             success_status_codes = (200, 204)
             payload = {"embeds": [embed]}
-            async with self.session.post(
-                recipient.webhook_url, json=payload) as response:
+            async with self.session.post(recipient.webhook_url, json=payload) as response:
                 if response.status in success_status_codes:
                     self.logger.info(
                         "Discord alert sent",
                         source_module=self._source_module,
-                        context={"alert_id": alert.alert_id})
+                        context={"alert_id": alert.alert_id},
+                    )
                     return True
-                self.logger.error(
-                    f"Failed to send Discord alert: {response.status}",
-                    source_module=self._source_module)
+                self.logger.error(f"Failed to send Discord alert: {response.status}", source_module=self._source_module)
                 return False
 
         except Exception:
-            self.logger.exception(
-                "Error sending Discord alert",
-                source_module=self._source_module)
+            self.logger.exception("Error sending Discord alert", source_module=self._source_module)
             return False
 
     async def test_connection(self) -> bool:
@@ -399,10 +382,10 @@ class DiscordChannel(AlertDeliveryChannel):
         """Format alert as Discord embed."""
         # Discord color codes for different severity levels
         discord_colors = {
-            AlertSeverity.INFO: 0x17A2B8,     # Teal
+            AlertSeverity.INFO: 0x17A2B8,  # Teal
             AlertSeverity.WARNING: 0xFFC107,  # Yellow
-            AlertSeverity.ERROR: 0xDC3545,    # Red
-            AlertSeverity.CRITICAL: 0x721C24, # Dark Red
+            AlertSeverity.ERROR: 0xDC3545,  # Red
+            AlertSeverity.CRITICAL: 0x721C24,  # Dark Red
         }
         fields = [
             {"name": "Source", "value": alert.source, "inline": True},
@@ -412,11 +395,7 @@ class DiscordChannel(AlertDeliveryChannel):
         for key, value in alert.tags.items():
             fields.append({"name": key, "value": str(value), "inline": True})
 
-        timestamp_str = (
-            alert.timestamp.isoformat()
-            if alert.timestamp
-            else datetime.now(UTC).isoformat()
-        )
+        timestamp_str = alert.timestamp.isoformat() if alert.timestamp else datetime.now(UTC).isoformat()
 
         return {
             "title": alert.title,
@@ -462,23 +441,19 @@ class SlackChannel(AlertDeliveryChannel):
             # Format Slack message
             payload = self._format_slack_message(alert)
 
-            async with self.session.post(
-                recipient.webhook_url, json=payload) as response:
+            async with self.session.post(recipient.webhook_url, json=payload) as response:
                 if response.status == self.success_status:
                     self.logger.info(
                         "Slack alert sent",
                         source_module=self._source_module,
-                        context={"alert_id": alert.alert_id})
+                        context={"alert_id": alert.alert_id},
+                    )
                     return True
-                self.logger.error(
-                    f"Failed to send Slack alert: {response.status}",
-                    source_module=self._source_module)
+                self.logger.error(f"Failed to send Slack alert: {response.status}", source_module=self._source_module)
                 return False
 
         except Exception:
-            self.logger.exception(
-                "Error sending Slack alert",
-                source_module=self._source_module)
+            self.logger.exception("Error sending Slack alert", source_module=self._source_module)
             return False
 
     async def test_connection(self) -> bool:
@@ -494,43 +469,35 @@ class SlackChannel(AlertDeliveryChannel):
             AlertSeverity.CRITICAL: ":rotating_light:",
         }
 
-        timestamp_str = (
-            alert.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
-            if alert.timestamp
-            else "Unknown"
-        )
+        timestamp_str = alert.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC") if alert.timestamp else "Unknown"
 
         return {
             "text": f"{emoji.get(alert.severity, '')} *{alert.title}*",
-            "attachments": [{
-                "color": {
-                    AlertSeverity.INFO: "#17a2b8",
-                    AlertSeverity.WARNING: "#ffc107",
-                    AlertSeverity.ERROR: "#dc3545",
-                    AlertSeverity.CRITICAL: "#721c24",
-                }.get(alert.severity, "#000000"),
-                "fields": [
-                    {"title": "Message", "value": alert.message},
-                    {"title": "Source", "value": alert.source, "short": True},
-                    {"title": "Severity", "value": alert.severity.value.upper(), "short": True},
-                    {"title": "Time", "value": timestamp_str, "short": True},
-                ] + [
-                    {"title": k, "value": str(v), "short": True}
-                    for k, v in alert.tags.items()
-                ],
-                "footer": f"Alert ID: {alert.alert_id}",
-            }],
+            "attachments": [
+                {
+                    "color": {
+                        AlertSeverity.INFO: "#17a2b8",
+                        AlertSeverity.WARNING: "#ffc107",
+                        AlertSeverity.ERROR: "#dc3545",
+                        AlertSeverity.CRITICAL: "#721c24",
+                    }.get(alert.severity, "#000000"),
+                    "fields": [
+                        {"title": "Message", "value": alert.message},
+                        {"title": "Source", "value": alert.source, "short": True},
+                        {"title": "Severity", "value": alert.severity.value.upper(), "short": True},
+                        {"title": "Time", "value": timestamp_str, "short": True},
+                    ]
+                    + [{"title": k, "value": str(v), "short": True} for k, v in alert.tags.items()],
+                    "footer": f"Alert ID: {alert.alert_id}",
+                },
+            ],
         }
 
 
 class AlertingSystem:
     """Main alerting system coordinator."""
 
-    def __init__(
-        self,
-        config: ConfigManager,
-        secrets: SecretsManager,
-        logger: LoggerService) -> None:
+    def __init__(self, config: ConfigManager, secrets: SecretsManager, logger: LoggerService) -> None:
         """Initialize the alerting system.
 
         Args:
@@ -559,11 +526,8 @@ class AlertingSystem:
             from_email = self.config.get("alerting.email.from_address")
 
             if api_key and from_email:
-                self.channels[AlertChannel.EMAIL] = EmailChannel(
-                    api_key, from_email, self.logger)
-                self.logger.info(
-                    "Email alerting channel initialized",
-                    source_module=self._source_module)
+                self.channels[AlertChannel.EMAIL] = EmailChannel(api_key, from_email, self.logger)
+                self.logger.info("Email alerting channel initialized", source_module=self._source_module)
 
         # SMS channel (Twilio)
         if self.config.get("alerting.sms.enabled", False):
@@ -571,37 +535,29 @@ class AlertingSystem:
             auth_token = self.secrets.get_secret("TWILIO_AUTH_TOKEN")
             from_number = self.config.get("alerting.sms.from_number")
 
-            if account_sid and auth_token and from_number: # Using individual checks for clarity
-                # Assertions to help mypy confirm the types are strings
-                assert isinstance(account_sid, str), "TWILIO_ACCOUNT_SID must be a non-empty string"
-                assert isinstance(auth_token, str), "TWILIO_AUTH_TOKEN must be a non-empty string"
-                assert isinstance(from_number, str), "alerting.sms.from_number must be a non-empty string"
+            # Type checks to ensure we have strings
+            if not isinstance(account_sid, str) or not account_sid:
+                self.logger.error("TWILIO_ACCOUNT_SID must be a non-empty string")
+                return
+            if not isinstance(auth_token, str) or not auth_token:
+                self.logger.error("TWILIO_AUTH_TOKEN must be a non-empty string")
+                return
+            if not isinstance(from_number, str) or not from_number:
+                self.logger.error("alerting.sms.from_number must be a non-empty string")
+                return
 
-                self.channels[AlertChannel.SMS] = SMSChannel(
-                    account_sid, auth_token, from_number, self.logger)
-                self.logger.info(
-                    "SMS alerting channel initialized",
-                    source_module=self._source_module)
-            else:
-                self.logger.warning(
-                    "SMS alerting enabled but missing one or more required configurations "
-                    "(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or alerting.sms.from_number was empty/None). "
-                    "SMS channel will not be initialized.",
-                    source_module=self._source_module)
+            self.channels[AlertChannel.SMS] = SMSChannel(account_sid, auth_token, from_number, self.logger)
+            self.logger.info("SMS alerting channel initialized", source_module=self._source_module)
 
         # Discord channel
         if self.config.get("alerting.discord.enabled", False):
             self.channels[AlertChannel.DISCORD] = DiscordChannel(self.logger)
-            self.logger.info(
-                "Discord alerting channel initialized",
-                source_module=self._source_module)
+            self.logger.info("Discord alerting channel initialized", source_module=self._source_module)
 
         # Slack channel
         if self.config.get("alerting.slack.enabled", False):
             self.channels[AlertChannel.SLACK] = SlackChannel(self.logger)
-            self.logger.info(
-                "Slack alerting channel initialized",
-                source_module=self._source_module)
+            self.logger.info("Slack alerting channel initialized", source_module=self._source_module)
 
     def _load_recipients(self) -> None:
         """Load alert recipients from configuration."""
@@ -614,16 +570,15 @@ class AlertingSystem:
                 email=recipient_data.get("email"),
                 phone=recipient_data.get("phone"),
                 webhook_url=recipient_data.get("webhook_url"),
-                severity_filter=[
-                    AlertSeverity(s) for s in recipient_data.get("severity_filter", [])
-                ] if recipient_data.get("severity_filter") else None,
+                severity_filter=[AlertSeverity(s) for s in recipient_data.get("severity_filter", [])]
+                if recipient_data.get("severity_filter")
+                else None,
                 tag_filters=recipient_data.get("tag_filters"),
-                quiet_hours=recipient_data.get("quiet_hours"))
+                quiet_hours=recipient_data.get("quiet_hours"),
+            )
             self.recipients.append(recipient)
 
-        self.logger.info(
-            f"Loaded {len(self.recipients)} alert recipients",
-            source_module=self._source_module)
+        self.logger.info(f"Loaded {len(self.recipients)} alert recipients", source_module=self._source_module)
 
     async def send_alert(self, alert: Alert) -> dict[str, list[str]]:
         """Send an alert to all configured recipients.
@@ -639,9 +594,7 @@ class AlertingSystem:
         if alert_hash in self.alert_history:
             last_sent = self.alert_history[alert_hash]
             if datetime.now(UTC) - last_sent < self.dedup_window:
-                self.logger.info(
-                    f"Suppressing duplicate alert: {alert.title}",
-                    source_module=self._source_module)
+                self.logger.info(f"Suppressing duplicate alert: {alert.title}", source_module=self._source_module)
                 return {}
 
         # Update history
@@ -649,10 +602,7 @@ class AlertingSystem:
 
         # Clean old history entries
         cutoff = datetime.now(UTC) - self.dedup_window
-        self.alert_history = {
-            h: t for h, t in self.alert_history.items()
-            if t > cutoff
-        }
+        self.alert_history = {h: t for h, t in self.alert_history.items() if t > cutoff}
 
         # Send to recipients
         results: dict[str, list[str]] = {}
@@ -675,7 +625,8 @@ class AlertingSystem:
                     self.logger.exception(
                         f"Error sending alert via {channel.value} to {recipient.name}",
                         source_module=self._source_module,
-                        context={"error": str(e)})
+                        context={"error": str(e)},
+                    )
 
         return results
 
@@ -691,9 +642,7 @@ class AlertingSystem:
             try:
                 results[channel_type.value] = await channel.test_connection()
             except Exception:
-                self.logger.exception(
-                    f"Error testing {channel_type.value} channel",
-                    source_module=self._source_module)
+                self.logger.exception(f"Error testing {channel_type.value} channel", source_module=self._source_module)
                 results[channel_type.value] = False
 
         return results

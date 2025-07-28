@@ -16,8 +16,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_REGISTRY_PATH = "config/feature_registry.yaml"
 
+
 class RegistryLoadError(Exception):
     """Custom exception raised when the feature registry fails to load or parse."""
+
 
 class FeatureRegistryClient:
     """A client for loading and accessing feature definitions from a YAML registry file.
@@ -56,7 +58,9 @@ class FeatureRegistryClient:
         Simple feature retrieval and basic operations:
 
         ```python
-        from gal_friday.core.feature_registry_client import FeatureRegistryClient
+        from gal_friday.core.feature_registry_client import (
+            FeatureRegistryClient,
+        )
 
         # Initialize with default registry path
         client = FeatureRegistryClient()
@@ -365,7 +369,9 @@ class FeatureRegistryClient:
             ...
             ...     # Validate path exists before initialization
             ...     if not registry_path.exists():
-            ...         raise FileNotFoundError(f"Registry file not found: {registry_path}")
+            ...         raise FileNotFoundError(
+            ...             f"Registry file not found: {registry_path}"
+            ...         )
             ...
             ...     client = FeatureRegistryClient(registry_path)
             ...     if not client.is_loaded():
@@ -412,7 +418,7 @@ class FeatureRegistryClient:
         try:
             if not self.registry_path.exists():
                 logger.error("Feature registry file not found: %s", self.registry_path)
-                self._registry_data = {} # Operate in a degraded state
+                self._registry_data = {}  # Operate in a degraded state
                 # Optionally raise RegistryLoadError("Feature registry file not found.")
                 return
 
@@ -420,9 +426,7 @@ class FeatureRegistryClient:
                 data = yaml.safe_load(f)
 
             if not isinstance(data, dict):
-                logger.error(
-                    "Feature registry content is not a dictionary. File: %s",
-                    self.registry_path)
+                logger.error("Feature registry content is not a dictionary. File: %s", self.registry_path)
                 self._registry_data = {}
                 # Optionally raise RegistryLoadError("Invalid registry format: not a dictionary.")
                 return
@@ -430,20 +434,16 @@ class FeatureRegistryClient:
             self._registry_data = data
             logger.info(
                 "Feature registry loaded successfully from %s. Found %d definitions.",
-                self.registry_path, len(self._registry_data))
+                self.registry_path,
+                len(self._registry_data),
+            )
 
         except yaml.YAMLError as e:
-            logger.exception(
-                "Error parsing YAML in feature registry %s",
-                self.registry_path,
-                exc_info=e)
+            logger.exception("Error parsing YAML in feature registry %s", self.registry_path, exc_info=e)
             self._registry_data = {}
             # Optionally raise RegistryLoadError(f"YAML parsing error: {e}")
-        except Exception as e: # Catch any other unexpected errors during file I/O or loading
-            logger.exception(
-                "Unexpected error loading feature registry %s",
-                self.registry_path,
-                exc_info=e)
+        except Exception as e:  # Catch any other unexpected errors during file I/O or loading
+            logger.exception("Unexpected error loading feature registry %s", self.registry_path, exc_info=e)
             self._registry_data = {}
             # Optionally raise RegistryLoadError(f"Unexpected loading error: {e}")
 
@@ -499,9 +499,7 @@ class FeatureRegistryClient:
             to maintain system stability in production environments.
         """
         if self._registry_data is None:
-            logger.warning(
-                "Attempted to get feature definition ('%s'), but registry is not loaded.",
-                feature_key)
+            logger.warning("Attempted to get feature definition ('%s'), but registry is not loaded.", feature_key)
             return None
 
         definition = self._registry_data.get(feature_key)
@@ -532,10 +530,12 @@ class FeatureRegistryClient:
             ...     print(f"  - {feature}")
 
             Filtering features by pattern:
-            >>> rsi_features = [f for f in client.get_all_feature_keys()
-            ...                if f.startswith("rsi_")]
-            >>> macd_features = [f for f in client.get_all_feature_keys()
-            ...                 if "macd" in f.lower()]
+            >>> rsi_features = [
+            ...     f for f in client.get_all_feature_keys() if f.startswith("rsi_")
+            ... ]
+            >>> macd_features = [
+            ...     f for f in client.get_all_feature_keys() if "macd" in f.lower()
+            ... ]
 
             Batch processing pattern:
             >>> def process_all_features():
@@ -609,7 +609,9 @@ class FeatureRegistryClient:
             ...     print(f"RSI: {data_type} in range {value_range}")
 
             Validation using output properties:
-            >>> def validate_feature_output(feature_key: str, computed_value: float) -> bool:
+            >>> def validate_feature_output(
+            ...     feature_key: str, computed_value: float
+            ... ) -> bool:
             ...     props = client.get_output_properties(feature_key)
             ...     if not props:
             ...         return True  # No constraints defined
@@ -663,9 +665,7 @@ class FeatureRegistryClient:
         if definition and isinstance(definition.get("output_properties"), dict):
             return definition["output_properties"]  # type: ignore[no-any-return]
         if definition:
-            logger.debug(
-                "Feature '%s' found, but 'output_properties' missing or not a dict[str, Any].",
-                feature_key)
+            logger.debug("Feature '%s' found, but 'output_properties' missing or not a dict[str, Any].", feature_key)
         return None
 
     def get_calculator_type(self, feature_key: str) -> str | None:
@@ -695,20 +695,32 @@ class FeatureRegistryClient:
             ...     print(f"Feature uses calculator: {calc_type}")
 
             Feature processing dispatch:
-            >>> def compute_feature(feature_key: str, market_data: dict[str, Any]) -> float:
+            >>> def compute_feature(
+            ...     feature_key: str, market_data: dict[str, Any]
+            ... ) -> float:
             ...     calc_type = client.get_calculator_type(feature_key)
             ...     if not calc_type:
-            ...         raise ValueError(f"No calculator type for feature: {feature_key}")
+            ...         raise ValueError(
+            ...             f"No calculator type for feature: {feature_key}"
+            ...         )
             ...
             ...     # Dispatch to appropriate calculator
             ...     if calc_type == "rsi":
-            ...         return compute_rsi(market_data, client.get_parameters(feature_key))
+            ...         return compute_rsi(
+            ...             market_data, client.get_parameters(feature_key)
+            ...         )
             ...     elif calc_type == "macd":
-            ...         return compute_macd(market_data, client.get_parameters(feature_key))
+            ...         return compute_macd(
+            ...             market_data, client.get_parameters(feature_key)
+            ...         )
             ...     elif calc_type == "bollinger_bands":
-            ...         return compute_bollinger(market_data, client.get_parameters(feature_key))
+            ...         return compute_bollinger(
+            ...             market_data, client.get_parameters(feature_key)
+            ...         )
             ...     else:
-            ...         raise NotImplementedError(f"Calculator '{calc_type}' not implemented")
+            ...         raise NotImplementedError(
+            ...             f"Calculator '{calc_type}' not implemented"
+            ...         )
 
             Calculator registry pattern:
             >>> class CalculatorFactory:
@@ -750,9 +762,7 @@ class FeatureRegistryClient:
         if definition and isinstance(definition.get("calculator_type"), str):
             return definition["calculator_type"]  # type: ignore[no-any-return]
         if definition:
-            logger.debug(
-                "Feature '%s' found, but 'calculator_type' missing or not a string.",
-                feature_key)
+            logger.debug("Feature '%s' found, but 'calculator_type' missing or not a string.", feature_key)
         return None
 
     def get_parameters(self, feature_key: str) -> dict[str, Any] | None:
@@ -784,10 +794,14 @@ class FeatureRegistryClient:
             ...     print(f"RSI period: {period}")
 
             Safe parameter handling with defaults:
-            >>> def get_feature_config(feature_key: str, default_params: dict[str, Any]) -> dict[str, Any]:
+            >>> def get_feature_config(
+            ...     feature_key: str, default_params: dict[str, Any]
+            ... ) -> dict[str, Any]:
             ...     params = client.get_parameters(feature_key)
             ...     if params is None:
-            ...         logger.warning(f"No parameters found for {feature_key}, using defaults")
+            ...         logger.warning(
+            ...             f"No parameters found for {feature_key}, using defaults"
+            ...         )
             ...         return default_params
             ...
             ...     # Merge with defaults
@@ -795,7 +809,9 @@ class FeatureRegistryClient:
             ...     config.update(params)
             ...     return config
             >>>
-            >>> rsi_config = get_feature_config("rsi_14", {"period": 14, "source": "close"})
+            >>> rsi_config = get_feature_config(
+            ...     "rsi_14", {"period": 14, "source": "close"}
+            ... )
 
             Parameter validation:
             >>> def validate_rsi_parameters(feature_key: str) -> tuple[bool, str]:
@@ -805,15 +821,27 @@ class FeatureRegistryClient:
             ...
             ...     period = params.get("period")
             ...     if not isinstance(period, int) or period < 1:
-            ...         return False, f"Invalid period: {period} (must be positive integer)"
+            ...         return (
+            ...             False,
+            ...             f"Invalid period: {period} (must be positive integer)",
+            ...         )
             ...
-            ...     if "source" in params and params["source"] not in ["open", "high", "low", "close"]:
+            ...     if "source" in params and params["source"] not in [
+            ...         "open",
+            ...         "high",
+            ...         "low",
+            ...         "close",
+            ...     ]:
             ...         return False, f"Invalid source: {params['source']}"
             ...
             ...     return True, "Parameters are valid"
 
             Dynamic parameter override:
-            >>> def compute_with_override(feature_key: str, param_overrides: dict[str, Any], data: dict[str, Any]):
+            >>> def compute_with_override(
+            ...     feature_key: str,
+            ...     param_overrides: dict[str, Any],
+            ...     data: dict[str, Any],
+            ... ):
             ...     base_params = client.get_parameters(feature_key) or {}
             ...     final_params = {**base_params, **param_overrides}
             ...
@@ -829,7 +857,7 @@ class FeatureRegistryClient:
             ...             param_summary[feature_key] = {
             ...                 "param_count": len(params),
             ...                 "param_keys": list[Any](params.keys()),
-            ...                 "has_period": "period" in params
+            ...                 "has_period": "period" in params,
             ...             }
             ...     return param_summary
 
@@ -846,12 +874,13 @@ class FeatureRegistryClient:
             params = definition.get("parameters")
             if isinstance(params, dict):
                 return params
-            if params is None: # If parameters is explicitly null or not set
+            if params is None:  # If parameters is explicitly null or not set
                 return {}
             logger.debug(
-                "Feature '%s' has 'parameters' defined, but it's not a dictionary "
-                "(found type: %s).",
-                feature_key, type(params).__name__)
+                "Feature '%s' has 'parameters' defined, but it's not a dictionary (found type: %s).",
+                feature_key,
+                type(params).__name__,
+            )
         return None
 
     def is_loaded(self) -> bool:
@@ -880,7 +909,9 @@ class FeatureRegistryClient:
             ...     print("Registry failed to load or is empty")
 
             Defensive programming pattern:
-            >>> def safe_feature_operation(client: FeatureRegistryClient, feature_key: str):
+            >>> def safe_feature_operation(
+            ...     client: FeatureRegistryClient, feature_key: str
+            ... ):
             ...     if not client.is_loaded():
             ...         logger.error("Cannot perform operation: registry not loaded")
             ...         return None
@@ -901,9 +932,13 @@ class FeatureRegistryClient:
             ...     required_features = ["rsi_14", "macd_default", "sma_20"]
             ...     available_features = registry.get_all_feature_keys()
             ...
-            ...     missing_features = [f for f in required_features if f not in available_features]
+            ...     missing_features = [
+            ...         f for f in required_features if f not in available_features
+            ...     ]
             ...     if missing_features:
-            ...         raise RuntimeError(f"Missing required features: {missing_features}")
+            ...         raise RuntimeError(
+            ...             f"Missing required features: {missing_features}"
+            ...         )
 
             Health check implementation:
             >>> def registry_health_check() -> dict[str, Any]:
@@ -915,10 +950,12 @@ class FeatureRegistryClient:
             ...     }
             ...
             ...     if health_status["loaded"]:
-            ...         health_status.update({
-            ...             "feature_count": len(client.get_all_feature_keys()),
-            ...             "status": "healthy"
-            ...         })
+            ...         health_status.update(
+            ...             {
+            ...                 "feature_count": len(client.get_all_feature_keys()),
+            ...                 "status": "healthy",
+            ...             }
+            ...         )
             ...     else:
             ...         health_status["status"] = "degraded"
             ...
@@ -936,7 +973,9 @@ class FeatureRegistryClient:
             ...             return True
             ...
             ...         time.sleep(retry_delay)
-            ...         retry_delay = min(retry_delay * 2, 5)  # Exponential backoff, max 5s
+            ...         retry_delay = min(
+            ...             retry_delay * 2, 5
+            ...         )  # Exponential backoff, max 5s
             ...
             ...     return False
 
@@ -981,16 +1020,16 @@ class FeatureRegistryClient:
             >>>
             >>> # Start background reload thread
             >>> reload_thread = threading.Thread(
-            ...     target=periodic_reload,
-            ...     args=(client, 300),
-            ...     daemon=True
+            ...     target=periodic_reload, args=(client, 300), daemon=True
             ... )
             >>> reload_thread.start()
 
             Configuration hot-swap with validation:
             >>> def safe_reload_with_validation(client: FeatureRegistryClient) -> bool:
             ...     # Store current state for rollback
-            ...     old_features = client.get_all_feature_keys() if client.is_loaded() else []
+            ...     old_features = (
+            ...         client.get_all_feature_keys() if client.is_loaded() else []
+            ...     )
             ...
             ...     try:
             ...         client.reload_registry()
@@ -1003,12 +1042,18 @@ class FeatureRegistryClient:
             ...         new_features = client.get_all_feature_keys()
             ...         critical_features = ["rsi_14", "macd_default"]
             ...
-            ...         missing_critical = [f for f in critical_features if f not in new_features]
+            ...         missing_critical = [
+            ...             f for f in critical_features if f not in new_features
+            ...         ]
             ...         if missing_critical:
-            ...             logger.error(f"Reload removed critical features: {missing_critical}")
+            ...             logger.error(
+            ...                 f"Reload removed critical features: {missing_critical}"
+            ...             )
             ...             return False
             ...
-            ...         logger.info(f"Registry reloaded: {len(old_features)} -> {len(new_features)} features")
+            ...         logger.info(
+            ...             f"Registry reloaded: {len(old_features)} -> {len(new_features)} features"
+            ...         )
             ...         return True
             ...
             ...     except Exception as e:

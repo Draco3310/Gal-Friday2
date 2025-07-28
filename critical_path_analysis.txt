@@ -1,0 +1,123 @@
+CRITICAL PATH MODULE ANALYSIS
+============================
+
+TIER 1: FOUNDATIONAL TYPES (Fix first - affects everything)
+===========================================================
+
+1. **gal_friday/core/types.py** [PRIORITY 1]
+   STATUS: Has MyPy errors that cascade to other modules
+   IMPACT: Affects all modules using core types
+   DEPENDENCIES: None - pure type definitions
+   FIX ORDER: 1st
+
+2. **gal_friday/core/data_request.py** [PRIORITY 2]
+   STATUS: Contains HistoricalDataPoint conflicts affecting 6+ files
+   IMPACT: Blocks all data providers, backtesting adapters
+   DEPENDENCIES: Depends on core/types.py
+   FIX ORDER: 2nd
+
+TIER 2: CORE SERVICES (Fix after types - enables dependency injection)
+=====================================================================
+
+3. **gal_friday/core/service_registration.py** [PRIORITY 3]
+   STATUS: Has MyPy error in ServiceDiscovery.discover_factories
+   IMPACT: Breaks service discovery and dependency injection
+   DEPENDENCIES: Depends on core/types.py
+   FIX ORDER: 3rd
+
+4. **gal_friday/core/registry.py** [PRIORITY 4]
+   STATUS: Has MyPy error in ComponentRegistry._load_lazy_component
+   IMPACT: Breaks lazy component loading
+   DEPENDENCIES: Depends on service_registration.py
+   FIX ORDER: 4th
+
+5. **gal_friday/core/service_container.py** [PRIORITY 5]
+   STATUS: No direct errors, but critical for dependency injection
+   IMPACT: Enables all other service initialization
+   DEPENDENCIES: Depends on registry.py, service_registration.py
+   FIX ORDER: 5th
+
+TIER 3: PROTOCOL DEFINITIONS (Fix after core - defines contracts)
+================================================================
+
+6. **gal_friday/interfaces/data_provider_protocols.py** [PRIORITY 6]
+   STATUS: Missing HistoricalDataProviderProtocol methods
+   IMPACT: Blocks all data provider implementations (3+ files)
+   DEPENDENCIES: Depends on core/data_request.py
+   FIX ORDER: 6th
+
+7. **gal_friday/interfaces/predictor_interface.py** [PRIORITY 7]
+   STATUS: PredictorProtocol constructor mismatch
+   IMPACT: Breaks all ML predictor implementations
+   DEPENDENCIES: Depends on core/types.py
+   FIX ORDER: 7th
+
+8. **gal_friday/interfaces/strategy_interface.py** [PRIORITY 8]
+   STATUS: Has StatisticalAnalyzer unreachable code error
+   IMPACT: Affects strategy performance calculation
+   DEPENDENCIES: Depends on core/types.py
+   FIX ORDER: 8th
+
+TIER 4: SUPPORTING PROTOCOLS (Fix after main protocols)
+=======================================================
+
+9. **gal_friday/interfaces/execution_handler_interface.py** [PRIORITY 9]
+   STATUS: No direct errors, but critical for execution layer
+   IMPACT: Defines execution contracts
+   DEPENDENCIES: Depends on core/types.py
+   FIX ORDER: 9th
+
+10. **gal_friday/interfaces/core_interfaces.py** [PRIORITY 10]
+    STATUS: No direct errors, but foundational
+    IMPACT: Core service contracts
+    DEPENDENCIES: Depends on core/types.py
+    FIX ORDER: 10th
+
+NON-CRITICAL PATH FILES (Fix later):
+===================================
+
+Core files NOT in critical path:
+- gal_friday/core/events.py (important but not blocking others)
+- gal_friday/core/pubsub.py (event system - isolated)
+- gal_friday/core/feature_models.py (feature-specific)
+- gal_friday/core/asset_registry.py (business logic)
+- gal_friday/core/halt_coordinator.py (risk management)
+- gal_friday/core/halt_recovery.py (error handling)
+- gal_friday/core/event_store.py (persistence)
+- gal_friday/core/feature_registry_client.py (ML-specific)
+
+Interface files NOT in critical path:
+- Most other interfaces/ files are domain-specific and don't block others
+
+CRITICAL PATH VALIDATION STRATEGY:
+==================================
+
+After each tier, run incremental validation:
+1. After Tier 1: mypy gal_friday/core/types.py gal_friday/core/data_request.py
+2. After Tier 2: mypy gal_friday/core/ (service-related files)
+3. After Tier 3: mypy gal_friday/interfaces/ (protocol files)
+4. After Tier 4: mypy gal_friday/ (full check)
+
+EXPECTED ERROR REDUCTION:
+========================
+- Tier 1 completion: 6-8 errors resolved (HistoricalDataPoint conflicts)
+- Tier 2 completion: 3-4 errors resolved (service registration issues)
+- Tier 3 completion: 8-10 errors resolved (protocol implementation issues)
+- Tier 4 completion: Foundation ready for business logic fixes
+
+RISK MITIGATION:
+===============
+- Each tier builds on previous - no tier can be skipped
+- Changes in Tier 1 may require updates in dependent files
+- Protocol changes in Tier 3 may require implementer updates
+- Use git branching for each tier to enable rollback
+
+DEPENDENCY CHAIN:
+================
+types.py → data_request.py → service_registration.py → registry.py →
+service_container.py → data_provider_protocols.py → predictor_interface.py →
+strategy_interface.py → execution_handler_interface.py → core_interfaces.py
+
+Total Critical Path Files: 10
+Estimated Fix Time: 3-5 files per work session
+Completion Target: 2-3 work sessions for critical path

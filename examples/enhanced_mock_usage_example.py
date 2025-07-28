@@ -5,6 +5,7 @@ comprehensive and realistic test scenarios for the Gal-Friday trading system.
 """
 
 from decimal import Decimal
+import logging
 from pathlib import Path
 import sys
 
@@ -12,6 +13,8 @@ import asyncio
 
 # Add the project root to the Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+logger = logging.getLogger(__name__)
 
 from gal_friday.cli_service_mocks import (
     ConfigManager,
@@ -369,6 +372,7 @@ async def run_comprehensive_demo():
         try:
             await demo()
         except Exception:
+            logger.exception("Error running demo %s", demo.__name__)
             continue
 
 

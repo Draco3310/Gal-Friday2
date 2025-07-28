@@ -32,7 +32,8 @@ class HistoricalDataService(abc.ABC):
         self,
         trading_pair: str,
         start_time: datetime,
-        end_time: datetime) -> pd.DataFrame | None:
+        end_time: datetime,
+    ) -> pd.DataFrame | None:
         """Get historical trade data for a given pair and time range."""
         # DataFrame should have columns like ['timestamp', 'price', 'volume',
         # 'side']
@@ -55,11 +56,7 @@ class HistoricalDataService(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_atr(
-        self,
-        trading_pair: str,
-        timestamp: datetime,
-        period: int = 14) -> Decimal | None:
+    def get_atr(self, trading_pair: str, timestamp: datetime, period: int = 14) -> Decimal | None:
         """Get the Average True Range indicator value at the given timestamp.
 
         Args:

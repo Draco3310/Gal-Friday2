@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from gal_friday.dal.base import BaseRepository
 from gal_friday.dal.models.position_adjustment import PositionAdjustment
 from gal_friday.dal.models.reconciliation_event import ReconciliationEvent
+from gal_friday.utils.error_helpers import log_and_transform_exception
 
 # ReconciliationReport and ReconciliationStatus would now likely be service-layer
 # or domain models, not directly handled by repo.
@@ -32,8 +33,12 @@ if TYPE_CHECKING:
 class ReconciliationValidationError(Exception):
     """Custom exception for reconciliation data validation errors."""
 
-    def __init__(self, message: str, field_path: str | None = None,
-                 validation_errors: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        field_path: str | None = None,
+        validation_errors: dict[str, Any] | None = None,
+    ) -> None:
         """Initialize reconciliation validation error.
 
         Args:
@@ -48,6 +53,7 @@ class ReconciliationValidationError(Exception):
 
 class ReconciliationStatus(str, Enum):
     """Valid reconciliation event statuses."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -58,6 +64,7 @@ class ReconciliationStatus(str, Enum):
 
 class ReconciliationType(str, Enum):
     """Valid reconciliation types."""
+
     POSITION = "position"
     TRADE = "trade"
     BALANCE = "balance"
@@ -68,6 +75,7 @@ class ReconciliationType(str, Enum):
 
 class AdjustmentType(str, Enum):
     """Valid position adjustment types."""
+
     CORRECTION = "correction"
     REBALANCE = "rebalance"
     SPLIT = "split"
@@ -140,7 +148,7 @@ class ReconciliationEventSchema(BaseModel):
     def validate_report(cls, v: dict[str, Any]) -> dict[str, Any]:
         """Validate report contains required structure."""
         if not isinstance(v, dict):
-            raise ValueError("Report must be a dictionary")
+            raise TypeError("Report must be a dictionary")
 
         # Ensure basic report structure
         required_keys = ["summary", "timestamp"]
@@ -259,7 +267,7 @@ class PositionAdjustmentSchema(BaseModel):
             raise ValueError("Quantity change cannot be zero")
         return v
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, __context: Any, /) -> None:
         """Post-init validation to check business rules."""
         # At least one value field must be provided
         value_fields = [self.old_value, self.new_value, self.quantity_change]
@@ -267,16 +275,16 @@ class PositionAdjustmentSchema(BaseModel):
             raise ValueError("At least one of old_value, new_value, or quantity_change must be provided")
 
         # Business rule: certain adjustment types require specific fields
-        if self.adjustment_type in [AdjustmentType.SPLIT, AdjustmentType.DIVIDEND]:
-            if self.old_value is None or self.new_value is None:
-                raise ValueError(f"{self.adjustment_type.value} adjustments require both old_value and new_value")
+        if self.adjustment_type in [AdjustmentType.SPLIT, AdjustmentType.DIVIDEND] and (
+            self.old_value is None or self.new_value is None
+        ):
+            raise ValueError(f"{self.adjustment_type.value} adjustments require both old_value and new_value")
 
 
 class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
     """Repository for ReconciliationEvent data persistence using SQLAlchemy."""
 
-    def __init__(
-        self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
+    def __init__(self, session_maker: async_sessionmaker[AsyncSession], logger: "LoggerService") -> None:
         """Initialize the reconciliation repository.
 
         Args:
@@ -378,8 +386,13 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
         else:
             return validated_data
 
-    async def _create_audit_trail(self, operation: str, entity_type: str,
-                                entity_id: str, details: dict[str, Any]) -> None:
+    async def _create_audit_trail(
+        self,
+        operation: str,
+        entity_type: str,
+        entity_id: str,
+        details: dict[str, Any],
+    ) -> None:
         """Create audit trail entry for reconciliation operations.
 
         Args:
@@ -402,8 +415,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             source_module=self._source_module,
         )
 
-    async def save_reconciliation_event(
-        self, event_data: dict[str, Any]) -> ReconciliationEvent:
+    async def save_reconciliation_event(self, event_data: dict[str, Any]) -> ReconciliationEvent:
         """Saves a reconciliation event with comprehensive validation.
 
         Args:
@@ -446,21 +458,20 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             # return reconciliation_event moved to else block
 
         except Exception as e:
-            self.logger.exception(
-                f"Failed to save reconciliation event: {e!s}",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to save reconciliation event", source_module=self._source_module)
             raise ValueError(f"Database operation failed: {e!s}") from e
         else:
             return reconciliation_event
 
-    async def get_reconciliation_event(
-        self, reconciliation_id: uuid.UUID) -> ReconciliationEvent | None:
+    async def get_reconciliation_event(self, reconciliation_id: uuid.UUID) -> ReconciliationEvent | None:
         """Get a specific reconciliation event by its ID."""
         return await self.get_by_id(reconciliation_id)
 
     async def get_recent_reconciliation_events(
-        self, days: int = 7, status: str | None = None) -> Sequence[ReconciliationEvent]:
+        self,
+        days: int = 7,
+        status: str | None = None,
+    ) -> Sequence[ReconciliationEvent]:
         """Get reconciliation events from the last N days, optionally filtered by status."""
         cutoff_date = datetime.now(UTC) - timedelta(days=days)
 
@@ -470,7 +481,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
                 ReconciliationStatus(status)
             except ValueError:
                 valid_statuses = [s.value for s in ReconciliationStatus]
-                raise ValueError(f"Invalid status '{status}'. Valid options: {valid_statuses}")
+                raise ValueError(f"Invalid status '{status}'. Valid options: {valid_statuses}") from None
 
         async with self.session_maker() as session:
             stmt = select(ReconciliationEvent).where(ReconciliationEvent.timestamp > cutoff_date)
@@ -486,8 +497,7 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             )
             return events
 
-    async def save_position_adjustment(
-        self, adjustment_data: dict[str, Any]) -> PositionAdjustment:
+    async def save_position_adjustment(self, adjustment_data: dict[str, Any]) -> PositionAdjustment:
         """Saves a position adjustment with comprehensive validation and audit trail.
 
         Args:
@@ -548,14 +558,10 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
                 return instance
 
         except Exception as e:
-            self.logger.exception(
-                f"Failed to save position adjustment: {e!s}",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to save position adjustment", source_module=self._source_module)
             raise ValueError(f"Database operation failed: {e!s}") from e
 
-    async def get_adjustments_for_event(
-        self, reconciliation_id: uuid.UUID) -> Sequence[PositionAdjustment]:
+    async def get_adjustments_for_event(self, reconciliation_id: uuid.UUID) -> Sequence[PositionAdjustment]:
         """Get all position adjustments for a specific reconciliation event."""
         async with self.session_maker() as session:
             stmt = (
@@ -572,7 +578,10 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             return adjustments
 
     async def get_adjustment_history(
-        self, trading_pair: str | None = None, days: int = 30) -> Sequence[PositionAdjustment]:
+        self,
+        trading_pair: str | None = None,
+        days: int = 30,
+    ) -> Sequence[PositionAdjustment]:
         """Get history of position adjustments, optionally filtered by trading_pair."""
         cutoff_date = datetime.now(UTC) - timedelta(days=days)
 
@@ -582,9 +591,15 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
                 # Use the same validation as in the schema
                 trading_pair = trading_pair.strip().upper()
                 if "/" not in trading_pair and "-" not in trading_pair:
-                    raise ValueError("Trading pair must contain separator (/ or -)")
-            except Exception as e:
-                raise ValueError(f"Invalid trading pair format: {e!s}") from e
+                    self._raise_value_error("Trading pair must contain separator (/ or -)")
+            except Exception:
+                log_and_transform_exception(
+                    self.logger,
+                    "Invalid trading pair format",
+                    ValueError,
+                    exception_msg="Invalid trading pair format: {e!s}",
+                    source_module=self._source_module,
+                )
 
         async with self.session_maker() as session:
             stmt = select(PositionAdjustment).where(PositionAdjustment.adjusted_at > cutoff_date)
@@ -596,6 +611,11 @@ class ReconciliationRepository(BaseRepository[ReconciliationEvent]):
             adjustments = result.scalars().all()
             self.logger.debug(f"Retrieved adjustment history for last {days} days.", source_module=self._source_module)
             return adjustments
+
+    def _raise_value_error(self, error_msg: str) -> None:
+        """Helper method to raise ValueError, abstracting the raise from try block."""
+        raise ValueError(error_msg)
+
 
 # _parse_report is removed as the repository now deals with SQLAlchemy models directly.
 # Transformation to domain/service layer objects (like ReconciliationReport) would happen in a service layer.

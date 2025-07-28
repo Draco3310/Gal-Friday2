@@ -148,7 +148,7 @@ def test_strategy_with_stub_indicators():
     ta_service = create_technical_analysis_service({
         'use_production_indicators': False
     })
-    
+
     # RSI will always return 50.0
     rsi = ta_service.rsi(prices)
     assert all(val == 50.0 for val in rsi)
@@ -158,7 +158,7 @@ def test_strategy_with_real_indicators():
     ta_service = create_technical_analysis_service({
         'use_production_indicators': True
     })
-    
+
     # RSI will return actual calculated values
     rsi = ta_service.rsi(prices)
     assert 0 <= min(rsi) <= 100
@@ -172,4 +172,4 @@ The Feature Engine and Technical Analysis modules serve complementary roles in t
 - **Feature Engine**: Enterprise-grade feature calculation with full pipeline support
 - **Technical Analysis**: Flexible, testable technical indicator calculations
 
-Both modules use the same underlying libraries (pandas-ta) ensuring consistency while providing flexibility for different use cases. 
+Both modules use the same underlying libraries (pandas-ta) ensuring consistency while providing flexibility for different use cases.

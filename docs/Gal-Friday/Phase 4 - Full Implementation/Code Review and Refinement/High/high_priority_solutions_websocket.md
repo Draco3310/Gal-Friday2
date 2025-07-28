@@ -73,7 +73,7 @@ class WebSocketMessage:
     data: Dict[str, Any]
     sequence: Optional[int] = None
     timestamp: Optional[datetime] = None
-    
+
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.now(UTC)
@@ -81,8 +81,8 @@ class WebSocketMessage:
 
 class KrakenWebSocketClient:
     """WebSocket client for Kraken real-time data."""
-    
-    def __init__(self, 
+
+    def __init__(self,
                  config: ConfigManager,
                  pubsub: PubSubManager,
                  logger: LoggerService):
@@ -90,22 +90,22 @@ class KrakenWebSocketClient:
         self.pubsub = pubsub
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # Connection settings
         self.ws_url = config.get("kraken.ws_url", "wss://ws.kraken.com")
         self.ws_auth_url = config.get("kraken.ws_auth_url", "wss://ws-auth.kraken.com")
         self.api_key = config.get("kraken.api_key")
         self.api_secret = base64.b64decode(config.get("kraken.secret_key"))
-        
+
         # Connection state
         self.state = ConnectionState.DISCONNECTED
         self.ws_public: Optional[websockets.WebSocketClientProtocol] = None
         self.ws_private: Optional[websockets.WebSocketClientProtocol] = None
-        
+
         # Subscriptions
         self.public_subscriptions: Set[str] = set()
         self.private_subscriptions: Set[str] = set()
-        
+
         # Message handling
         self.sequence_numbers: Dict[str, int] = {}
         self.message_handlers: Dict[str, Callable] = {
@@ -116,39 +116,39 @@ class KrakenWebSocketClient:
             "ownTrades": self._handle_own_trades,
             "openOrders": self._handle_open_orders
         }
-        
+
         # Connection management
         self.reconnect_delay = 1.0
         self.max_reconnect_delay = 60.0
         self.heartbeat_interval = 30.0
         self._connection_tasks: List[asyncio.Task] = []
-        
+
     async def connect(self):
         """Establish WebSocket connections."""
         self.state = ConnectionState.CONNECTING
-        
+
         try:
             # Connect to public WebSocket
             self._connection_tasks.append(
                 asyncio.create_task(self._connect_public())
             )
-            
+
             # Connect to private WebSocket
             self._connection_tasks.append(
                 asyncio.create_task(self._connect_private())
             )
-            
+
             # Start heartbeat
             self._connection_tasks.append(
                 asyncio.create_task(self._heartbeat_loop())
             )
-            
+
             self.state = ConnectionState.CONNECTED
             self.logger.info(
                 "WebSocket connections established",
                 source_module=self._source_module
             )
-            
+
         except Exception:
             self.state = ConnectionState.ERROR
             self.logger.exception(
@@ -156,7 +156,7 @@ class KrakenWebSocketClient:
                 source_module=self._source_module
             )
             await self._reconnect()
-            
+
     async def _connect_public(self):
         """Connect to public WebSocket."""
         while True:
@@ -167,38 +167,38 @@ class KrakenWebSocketClient:
                         "Public WebSocket connected",
                         source_module=self._source_module
                     )
-                    
+
                     # Resubscribe to channels
                     await self._resubscribe_public()
-                    
+
                     # Handle messages
                     async for message in ws:
                         await self._process_public_message(message)
-                        
+
             except websockets.exceptions.ConnectionClosed:
                 self.logger.warning(
                     "Public WebSocket connection closed",
                     source_module=self._source_module
                 )
                 await asyncio.sleep(self.reconnect_delay)
-                
+
             except Exception:
                 self.logger.exception(
                     "Error in public WebSocket",
                     source_module=self._source_module
                 )
                 await asyncio.sleep(self.reconnect_delay)
-                
+
     async def _connect_private(self):
         """Connect to authenticated private WebSocket."""
         while True:
             try:
                 # Get authentication token
                 token = await self._get_ws_token()
-                
+
                 async with websockets.connect(self.ws_auth_url) as ws:
                     self.ws_private = ws
-                    
+
                     # Authenticate
                     auth_message = {
                         "event": "subscribe",
@@ -208,44 +208,44 @@ class KrakenWebSocketClient:
                         }
                     }
                     await ws.send(json.dumps(auth_message))
-                    
+
                     # Wait for authentication confirmation
                     response = await ws.recv()
                     auth_response = json.loads(response)
-                    
+
                     if auth_response.get("status") == "ok":
                         self.state = ConnectionState.AUTHENTICATED
                         self.logger.info(
                             "Private WebSocket authenticated",
                             source_module=self._source_module
                         )
-                        
+
                         # Handle messages
                         async for message in ws:
                             await self._process_private_message(message)
                     else:
                         raise Exception(f"Authentication failed: {auth_response}")
-                        
+
             except websockets.exceptions.ConnectionClosed:
                 self.logger.warning(
                     "Private WebSocket connection closed",
                     source_module=self._source_module
                 )
                 await asyncio.sleep(self.reconnect_delay)
-                
+
             except Exception:
                 self.logger.exception(
                     "Error in private WebSocket",
                     source_module=self._source_module
                 )
                 await asyncio.sleep(self.reconnect_delay)
-                
+
     async def _get_ws_token(self) -> str:
         """Get WebSocket authentication token."""
         # In production, this would call Kraken's GetWebSocketsToken endpoint
         # For now, return a placeholder
         return "test_token"
-        
+
     async def subscribe_market_data(self, pairs: List[str], channels: List[str]):
         """Subscribe to market data channels."""
         if not self.ws_public:
@@ -254,34 +254,34 @@ class KrakenWebSocketClient:
                 source_module=self._source_module
             )
             return
-            
+
         for channel in channels:
             subscription = {
                 "event": "subscribe",
                 "pair": pairs,
                 "subscription": {"name": channel}
             }
-            
+
             await self.ws_public.send(json.dumps(subscription))
             self.public_subscriptions.add(f"{channel}:{','.join(pairs)}")
-            
+
         self.logger.info(
             f"Subscribed to {channels} for {pairs}",
             source_module=self._source_module
         )
-        
+
     async def _resubscribe_public(self):
         """Resubscribe to all public channels after reconnection."""
         for subscription in self.public_subscriptions:
             channel, pairs_str = subscription.split(":", 1)
             pairs = pairs_str.split(",")
             await self.subscribe_market_data(pairs, [channel])
-            
+
     async def _process_public_message(self, raw_message: str):
         """Process public WebSocket message."""
         try:
             message = json.loads(raw_message)
-            
+
             # Handle different message types
             if isinstance(message, dict):
                 if "event" in message:
@@ -294,11 +294,11 @@ class KrakenWebSocketClient:
             elif isinstance(message, list) and len(message) >= 3:
                 # Data message format: [channelID, data, channelName, pair]
                 channel_name = message[2] if len(message) > 2 else None
-                
+
                 if channel_name in self.message_handlers:
                     handler = self.message_handlers[channel_name]
                     await handler(message)
-                    
+
         except json.JSONDecodeError:
             self.logger.error(
                 f"Invalid JSON in WebSocket message: {raw_message}",
@@ -309,29 +309,29 @@ class KrakenWebSocketClient:
                 "Error processing public WebSocket message",
                 source_module=self._source_module
             )
-            
+
     async def _process_private_message(self, raw_message: str):
         """Process private WebSocket message."""
         try:
             message = json.loads(raw_message)
-            
+
             if isinstance(message, list) and len(message) >= 2:
                 channel_name = message[1] if isinstance(message[1], str) else None
-                
+
                 if channel_name in ["ownTrades", "openOrders"]:
                     handler = self.message_handlers[channel_name]
                     await handler(message)
-                    
+
         except Exception:
             self.logger.exception(
                 "Error processing private WebSocket message",
                 source_module=self._source_module
             )
-            
+
     async def _handle_event_message(self, message: Dict):
         """Handle WebSocket event messages."""
         event = message.get("event")
-        
+
         if event == "systemStatus":
             self.logger.info(
                 f"System status: {message.get('status')}",
@@ -349,16 +349,16 @@ class KrakenWebSocketClient:
                     f"Subscription error: {message.get('errorMessage')}",
                     source_module=self._source_module
                 )
-                
+
     async def _handle_orderbook(self, message: List):
         """Handle order book updates."""
         data = message[1]
         pair = message[3] if len(message) > 3 else "UNKNOWN"
-        
+
         # Extract bids and asks
         bids = []
         asks = []
-        
+
         if "bs" in data:  # Snapshot
             bids = [[Decimal(p), Decimal(v)] for p, v in data.get("bs", [])]
             asks = [[Decimal(p), Decimal(v)] for p, v in data.get("as", [])]
@@ -367,7 +367,7 @@ class KrakenWebSocketClient:
                 bids = [[Decimal(p), Decimal(v)] for p, v in data.get("b", [])]
             if "a" in data:
                 asks = [[Decimal(p), Decimal(v)] for p, v in data.get("a", [])]
-                
+
         # Create and publish event
         event = MarketDataL2Event(
             source_module=self._source_module,
@@ -380,16 +380,16 @@ class KrakenWebSocketClient:
             timestamp_exchange=datetime.now(UTC),
             sequence_number=self._get_next_sequence("orderbook")
         )
-        
+
         await self.pubsub.publish(event)
-        
+
     async def _handle_open_orders(self, message: List):
         """Handle open orders updates."""
         orders_data = message[0]
-        
+
         for order_data in orders_data:
             order_id = order_data.get("orderid")
-            
+
             # Map Kraken status to internal status
             status_map = {
                 "pending": "NEW",
@@ -398,9 +398,9 @@ class KrakenWebSocketClient:
                 "canceled": "CANCELLED",
                 "expired": "EXPIRED"
             }
-            
+
             status = status_map.get(order_data.get("status", ""), "UNKNOWN")
-            
+
             # Create execution report event
             event = ExecutionReportEvent(
                 source_module=self._source_module,
@@ -419,17 +419,17 @@ class KrakenWebSocketClient:
                 signal_id=uuid.UUID(order_data.get("userref", str(uuid.uuid4()))),
                 error_message=order_data.get("reason") if status == "CANCELLED" else None
             )
-            
+
             await self.pubsub.publish(event)
-            
+
     async def _handle_own_trades(self, message: List):
         """Handle own trades updates."""
         trades_data = message[0]
-        
+
         for trade_id, trade_data in trades_data.items():
             # This represents a fill, update the order
             order_id = trade_data.get("orderid")
-            
+
             # We'll need to maintain order state to properly track fills
             # For now, publish as execution report
             self.logger.info(
@@ -437,81 +437,81 @@ class KrakenWebSocketClient:
                 source_module=self._source_module,
                 context={"trade_data": trade_data}
             )
-            
+
     async def _handle_ticker(self, message: List):
         """Handle ticker updates."""
         # Implement ticker handling if needed
         pass
-        
+
     async def _handle_trades(self, message: List):
         """Handle public trades."""
         # Implement public trade handling if needed
         pass
-        
+
     async def _handle_ohlc(self, message: List):
         """Handle OHLC candle updates."""
         # Implement OHLC handling if needed
         pass
-        
+
     def _get_next_sequence(self, channel: str) -> int:
         """Get next sequence number for channel."""
         current = self.sequence_numbers.get(channel, 0)
         self.sequence_numbers[channel] = current + 1
         return current + 1
-        
+
     async def _heartbeat_loop(self):
         """Send periodic heartbeat to keep connections alive."""
         while True:
             try:
                 await asyncio.sleep(self.heartbeat_interval)
-                
+
                 # Send ping to both connections
                 if self.ws_public and not self.ws_public.closed:
                     await self.ws_public.ping()
-                    
+
                 if self.ws_private and not self.ws_private.closed:
                     await self.ws_private.ping()
-                    
+
             except Exception:
                 self.logger.exception(
                     "Error in heartbeat loop",
                     source_module=self._source_module
                 )
-                
+
     async def _reconnect(self):
         """Handle reconnection with exponential backoff."""
         self.state = ConnectionState.RECONNECTING
-        
+
         self.logger.info(
             f"Attempting reconnection in {self.reconnect_delay} seconds",
             source_module=self._source_module
         )
-        
+
         await asyncio.sleep(self.reconnect_delay)
-        
+
         # Exponential backoff
         self.reconnect_delay = min(
             self.reconnect_delay * 2,
             self.max_reconnect_delay
         )
-        
+
         await self.connect()
-        
+
     async def disconnect(self):
         """Close WebSocket connections."""
         self.state = ConnectionState.DISCONNECTED
-        
+
         # Cancel connection tasks
         for task in self._connection_tasks:
             task.cancel()
-            
+
         # Close connections
         if self.ws_public:
             await self.ws_public.close()
-            
+
         if self.ws_private:
             await self.ws_private.close()
-            
+
         self.logger.info(
             "WebSocket connections closed",
             source_module=self._source_module
@@ -545,40 +545,40 @@ class SequencedMessage:
 
 class SequenceTracker:
     """Track message sequences for gap detection."""
-    
+
     def __init__(self, logger: LoggerService):
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # Track sequences per channel
         self.sequences: Dict[str, int] = {}
         self.gaps: Dict[str, List[tuple]] = defaultdict(list)
-        
+
     def check_sequence(self, channel: str, sequence: int) -> Optional[List[tuple]]:
         """Check for sequence gaps.
-        
+
         Returns:
             List of gap ranges if gaps detected, None otherwise
         """
         expected = self.sequences.get(channel, 0) + 1
-        
+
         if sequence == expected:
             # Normal sequence
             self.sequences[channel] = sequence
             return None
-            
+
         elif sequence > expected:
             # Gap detected
             gap = (expected, sequence - 1)
             self.gaps[channel].append(gap)
             self.sequences[channel] = sequence
-            
+
             self.logger.warning(
                 f"Sequence gap detected in {channel}: {gap}",
                 source_module=self._source_module
             )
             return [gap]
-            
+
         else:
             # Out of order or duplicate
             self.logger.warning(
@@ -586,11 +586,11 @@ class SequenceTracker:
                 source_module=self._source_module
             )
             return None
-            
+
     def get_gaps(self, channel: str) -> List[tuple]:
         """Get all gaps for a channel."""
         return self.gaps.get(channel, [])
-        
+
     def clear_gap(self, channel: str, start: int, end: int):
         """Clear a gap after recovery."""
         if channel in self.gaps:
@@ -602,59 +602,59 @@ class SequenceTracker:
 
 class MessageCache:
     """Cache for deduplication and replay."""
-    
+
     def __init__(self, ttl_seconds: int = 300, max_size: int = 10000):
         self.ttl_seconds = ttl_seconds
         self.max_size = max_size
         self.cache: Deque[SequencedMessage] = deque(maxlen=max_size)
         self.message_ids: Set[str] = set()
-        
+
     def add(self, message: SequencedMessage) -> bool:
         """Add message to cache.
-        
+
         Returns:
             True if new message, False if duplicate
         """
         # Create unique ID
         msg_id = f"{message.channel}:{message.sequence}"
-        
+
         if msg_id in self.message_ids:
             return False
-            
+
         # Add to cache
         self.cache.append(message)
         self.message_ids.add(msg_id)
-        
+
         # Clean old messages
         self._cleanup()
-        
+
         return True
-        
-    def get_unprocessed(self, channel: str, 
-                       start_seq: int, 
+
+    def get_unprocessed(self, channel: str,
+                       start_seq: int,
                        end_seq: int) -> List[SequencedMessage]:
         """Get unprocessed messages in sequence range."""
         messages = []
-        
+
         for msg in self.cache:
-            if (msg.channel == channel and 
+            if (msg.channel == channel and
                 start_seq <= msg.sequence <= end_seq and
                 not msg.processed):
                 messages.append(msg)
-                
+
         return sorted(messages, key=lambda m: m.sequence)
-        
+
     def mark_processed(self, channel: str, sequence: int):
         """Mark message as processed."""
         for msg in self.cache:
             if msg.channel == channel and msg.sequence == sequence:
                 msg.processed = True
                 break
-                
+
     def _cleanup(self):
         """Remove expired messages."""
         cutoff = datetime.now(UTC) - timedelta(seconds=self.ttl_seconds)
-        
+
         while self.cache and self.cache[0].timestamp < cutoff:
             old_msg = self.cache.popleft()
             msg_id = f"{old_msg.channel}:{old_msg.sequence}"
@@ -663,14 +663,14 @@ class MessageCache:
 
 class WebSocketMessageProcessor:
     """Process and validate WebSocket messages."""
-    
+
     def __init__(self, logger: LoggerService):
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         self.sequence_tracker = SequenceTracker(logger)
         self.message_cache = MessageCache()
-        
+
         # Message validation rules
         self.required_fields = {
             "openOrders": ["orderid", "status", "descr"],
@@ -678,8 +678,8 @@ class WebSocketMessageProcessor:
             "book": ["pair"],
             "ticker": ["pair", "c", "v"]
         }
-        
-    async def process_message(self, 
+
+    async def process_message(self,
                             channel: str,
                             data: Dict,
                             sequence: Optional[int] = None) -> Optional[SequencedMessage]:
@@ -688,7 +688,7 @@ class WebSocketMessageProcessor:
             # Validate message format
             if not self._validate_message(channel, data):
                 return None
-                
+
             # Create sequenced message
             message = SequencedMessage(
                 sequence=sequence or 0,
@@ -696,7 +696,7 @@ class WebSocketMessageProcessor:
                 data=data,
                 timestamp=datetime.now(UTC)
             )
-            
+
             # Check for duplicates
             if not self.message_cache.add(message):
                 self.logger.debug(
@@ -704,27 +704,27 @@ class WebSocketMessageProcessor:
                     source_module=self._source_module
                 )
                 return None
-                
+
             # Check sequence if provided
             if sequence:
                 gaps = self.sequence_tracker.check_sequence(channel, sequence)
                 if gaps:
                     # Handle gaps asynchronously
                     asyncio.create_task(self._handle_gaps(channel, gaps))
-                    
+
             return message
-            
+
         except Exception:
             self.logger.exception(
                 "Error processing WebSocket message",
                 source_module=self._source_module
             )
             return None
-            
+
     def _validate_message(self, channel: str, data: Dict) -> bool:
         """Validate message has required fields."""
         required = self.required_fields.get(channel, [])
-        
+
         for field in required:
             if field not in data:
                 self.logger.error(
@@ -732,9 +732,9 @@ class WebSocketMessageProcessor:
                     source_module=self._source_module
                 )
                 return False
-                
+
         return True
-        
+
     async def _handle_gaps(self, channel: str, gaps: List[tuple]):
         """Handle sequence gaps."""
         for start, end in gaps:
@@ -742,17 +742,17 @@ class WebSocketMessageProcessor:
                 f"Attempting to recover gap {start}-{end} in {channel}",
                 source_module=self._source_module
             )
-            
+
             # Check cache for missing messages
             cached = self.message_cache.get_unprocessed(channel, start, end)
-            
+
             if len(cached) == (end - start + 1):
                 # All messages found in cache
                 self.logger.info(
                     f"Recovered gap from cache: {channel} {start}-{end}",
                     source_module=self._source_module
                 )
-                
+
                 # Mark gap as resolved
                 self.sequence_tracker.clear_gap(channel, start, end)
             else:
@@ -772,77 +772,77 @@ class WebSocketMessageProcessor:
 
 class ExecutionHandler:
     """Execution handler with WebSocket support."""
-    
+
     def __init__(self, config, pubsub, monitoring, logger):
         # ... existing init code ...
-        
+
         # Initialize WebSocket client
         self.ws_client = KrakenWebSocketClient(config, pubsub, logger)
         self.ws_processor = WebSocketMessageProcessor(logger)
-        
+
         # Order tracking
         self.active_orders: Dict[str, Dict] = {}
         self.order_updates_queue: asyncio.Queue = asyncio.Queue()
-        
+
     async def start(self):
         """Start execution handler with WebSocket."""
         await super().start()
-        
+
         # Connect WebSocket
         await self.ws_client.connect()
-        
+
         # Subscribe to private channels
         # Note: Kraken private channels auto-subscribe with authentication
-        
+
         # Start order update processor
         asyncio.create_task(self._process_order_updates())
-        
+
     async def place_order(self, signal: TradeSignalApprovedEvent):
         """Place order with WebSocket tracking."""
         # Place order via REST API as before
         order_id = await self._place_order_rest(signal)
-        
+
         # Track order for WebSocket updates
         self.active_orders[order_id] = {
             "signal_id": signal.signal_id,
             "status": "NEW",
             "placed_at": datetime.now(UTC)
         }
-        
+
         return order_id
-        
+
     async def _process_order_updates(self):
         """Process order updates from WebSocket."""
         while self.running:
             try:
                 # WebSocket client publishes ExecutionReportEvent directly
                 # This method handles any additional processing needed
-                
+
                 # Check for stale orders (fallback to REST)
                 await self._check_stale_orders()
-                
+
                 await asyncio.sleep(1)
-                
+
             except Exception:
                 self.logger.exception(
                     "Error processing order updates",
                     source_module=self._source_module
                 )
-                
+
     async def _check_stale_orders(self):
         """Check for orders without recent updates."""
         stale_threshold = datetime.now(UTC) - timedelta(seconds=30)
-        
+
         for order_id, order_info in self.active_orders.items():
             if (order_info["status"] not in ["CLOSED", "CANCELLED", "EXPIRED"] and
                 order_info.get("last_update", order_info["placed_at"]) < stale_threshold):
-                
+
                 # Fallback to REST API query
                 self.logger.warning(
                     f"Order {order_id} stale, querying via REST",
                     source_module=self._source_module
                 )
-                
+
                 await self._query_order_status_rest(order_id)
 ```
 
@@ -862,7 +862,7 @@ from gal_friday.execution.websocket_client import KrakenWebSocketClient
 
 class WebSocketMarketDataService:
     """Market data ingestion via WebSocket."""
-    
+
     def __init__(self,
                  config: ConfigManager,
                  pubsub: PubSubManager,
@@ -871,40 +871,40 @@ class WebSocketMarketDataService:
         self.pubsub = pubsub
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # WebSocket client
         self.ws_client = KrakenWebSocketClient(config, pubsub, logger)
-        
+
         # Subscriptions
         self.pairs: Set[str] = set(config.get_list("trading.pairs", ["XRP/USD", "DOGE/USD"]))
         self.channels = ["book", "ticker", "trade", "ohlc"]
-        
+
     async def start(self):
         """Start market data service."""
         self.logger.info(
             "Starting WebSocket market data service",
             source_module=self._source_module
         )
-        
+
         # Connect WebSocket
         await self.ws_client.connect()
-        
+
         # Subscribe to market data
         await self.ws_client.subscribe_market_data(
             list(self.pairs),
             self.channels
         )
-        
+
     async def stop(self):
         """Stop market data service."""
         await self.ws_client.disconnect()
-        
+
     async def add_pair(self, pair: str):
         """Add a trading pair subscription."""
         if pair not in self.pairs:
             self.pairs.add(pair)
             await self.ws_client.subscribe_market_data([pair], self.channels)
-            
+
     async def remove_pair(self, pair: str):
         """Remove a trading pair subscription."""
         if pair in self.pairs:
@@ -944,14 +944,14 @@ class ConnectionMetrics:
     connection_time: Optional[datetime] = None
     disconnections: int = 0
     errors: int = 0
-    
+
     @property
     def uptime_seconds(self) -> float:
         """Calculate connection uptime."""
         if self.connection_time:
             return (datetime.now(UTC) - self.connection_time).total_seconds()
         return 0
-        
+
     @property
     def message_rate(self) -> float:
         """Calculate messages per second."""
@@ -962,90 +962,90 @@ class ConnectionMetrics:
 
 class WebSocketConnectionManager:
     """Manages WebSocket connection health and recovery."""
-    
+
     def __init__(self, logger: LoggerService):
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # Connection tracking
         self.connections: Dict[str, ConnectionMetrics] = {}
         self.health_check_interval = 10.0
         self.unhealthy_threshold = 30.0  # No messages for 30 seconds
-        
+
         # Recovery strategies
         self.recovery_attempts: Dict[str, int] = {}
         self.max_recovery_attempts = 5
-        
+
     def register_connection(self, connection_id: str):
         """Register a new connection for monitoring."""
         self.connections[connection_id] = ConnectionMetrics(
             connection_time=datetime.now(UTC)
         )
         self.recovery_attempts[connection_id] = 0
-        
+
     def record_message(self, connection_id: str, direction: str = "received"):
         """Record message activity."""
         if connection_id in self.connections:
             metrics = self.connections[connection_id]
-            
+
             if direction == "received":
                 metrics.messages_received += 1
             else:
                 metrics.messages_sent += 1
-                
+
             metrics.last_message_time = datetime.now(UTC)
-            
+
     def record_error(self, connection_id: str):
         """Record connection error."""
         if connection_id in self.connections:
             self.connections[connection_id].errors += 1
-            
+
     def record_disconnection(self, connection_id: str):
         """Record disconnection event."""
         if connection_id in self.connections:
             self.connections[connection_id].disconnections += 1
             self.recovery_attempts[connection_id] += 1
-            
+
     def check_health(self, connection_id: str) -> ConnectionHealth:
         """Check connection health."""
         if connection_id not in self.connections:
             return ConnectionHealth.UNHEALTHY
-            
+
         metrics = self.connections[connection_id]
-        
+
         # Check last message time
         if metrics.last_message_time:
             time_since_message = (datetime.now(UTC) - metrics.last_message_time).total_seconds()
-            
+
             if time_since_message > self.unhealthy_threshold:
                 return ConnectionHealth.UNHEALTHY
             elif time_since_message > self.unhealthy_threshold / 2:
                 return ConnectionHealth.DEGRADED
-                
+
         # Check error rate
         if metrics.messages_received > 0:
             error_rate = metrics.errors / metrics.messages_received
             if error_rate > 0.1:  # More than 10% errors
                 return ConnectionHealth.DEGRADED
-                
+
         return ConnectionHealth.HEALTHY
-        
+
     def should_reconnect(self, connection_id: str) -> bool:
         """Determine if connection should be reconnected."""
         attempts = self.recovery_attempts.get(connection_id, 0)
         return attempts < self.max_recovery_attempts
-        
+
     def reset_recovery_attempts(self, connection_id: str):
         """Reset recovery attempts after successful reconnection."""
         self.recovery_attempts[connection_id] = 0
-        
+
     async def monitor_connections(self):
         """Monitor all connections and trigger recovery."""
         while True:
             try:
                 for conn_id, metrics in self.connections.items():
                     health = self.check_health(conn_id)
-                    
+
                     if health == ConnectionHealth.UNHEALTHY:
                         self.logger.warning(
                             f"Connection {conn_id} is unhealthy",
@@ -1058,9 +1058,9 @@ class WebSocketConnectionManager:
                                 }
                             }
                         )
-                        
+
                 await asyncio.sleep(self.health_check_interval)
-                
+
             except Exception:
                 self.logger.exception(
                     "Error monitoring connections",
@@ -1084,17 +1084,17 @@ import uuid
 
 class MockKrakenWebSocketServer:
     """Mock Kraken WebSocket server for testing."""
-    
+
     def __init__(self, port: int = 8765):
         self.port = port
         self.clients: Set[websockets.WebSocketServerProtocol] = set()
         self.subscriptions: Dict[str, Set[str]] = {}
         self.order_updates: asyncio.Queue = asyncio.Queue()
-        
+
     async def handler(self, websocket, path):
         """Handle WebSocket connections."""
         self.clients.add(websocket)
-        
+
         try:
             # Send system status
             await websocket.send(json.dumps({
@@ -1103,24 +1103,24 @@ class MockKrakenWebSocketServer:
                 "status": "online",
                 "version": "1.0.0"
             }))
-            
+
             # Handle messages
             async for message in websocket:
                 await self.process_message(websocket, message)
-                
+
         finally:
             self.clients.remove(websocket)
-            
+
     async def process_message(self, websocket, message: str):
         """Process client messages."""
         try:
             data = json.loads(message)
-            
+
             if data.get("event") == "subscribe":
                 # Handle subscription
                 channel = data["subscription"]["name"]
                 pairs = data.get("pair", [])
-                
+
                 await websocket.send(json.dumps({
                     "event": "subscriptionStatus",
                     "channelName": channel,
@@ -1128,23 +1128,23 @@ class MockKrakenWebSocketServer:
                     "status": "subscribed",
                     "subscription": data["subscription"]
                 }))
-                
+
                 # Start sending mock data
                 if channel == "book":
                     asyncio.create_task(self.send_orderbook_updates(websocket, pairs))
                 elif channel == "openOrders":
                     asyncio.create_task(self.send_order_updates(websocket))
-                    
+
         except json.JSONDecodeError:
             await websocket.send(json.dumps({
                 "event": "error",
                 "errorMessage": "Invalid JSON"
             }))
-            
+
     async def send_orderbook_updates(self, websocket, pairs: List[str]):
         """Send mock orderbook updates."""
         channel_id = 100
-        
+
         while websocket in self.clients:
             for pair in pairs:
                 # Send snapshot
@@ -1157,26 +1157,26 @@ class MockKrakenWebSocketServer:
                     "book-10",
                     pair
                 ]
-                
+
                 await websocket.send(json.dumps(message))
-                
+
             await asyncio.sleep(1)
-            
+
     async def send_order_updates(self, websocket):
         """Send mock order updates."""
         while websocket in self.clients:
             try:
                 # Check for queued updates
                 update = await asyncio.wait_for(
-                    self.order_updates.get(), 
+                    self.order_updates.get(),
                     timeout=1.0
                 )
-                
+
                 await websocket.send(json.dumps(update))
-                
+
             except asyncio.TimeoutError:
                 continue
-                
+
     async def simulate_order_fill(self, order_id: str):
         """Simulate an order fill."""
         update = [
@@ -1192,9 +1192,9 @@ class MockKrakenWebSocketServer:
             }],
             "openOrders"
         ]
-        
+
         await self.order_updates.put(update)
-        
+
     async def start(self):
         """Start mock server."""
         async with websockets.serve(self.handler, "localhost", self.port):
@@ -1217,80 +1217,80 @@ from gal_friday.execution.websocket_client import KrakenWebSocketClient
 
 class TestWebSocketIntegration:
     """Test WebSocket integration."""
-    
+
     @pytest.fixture
     async def mock_server(self):
         """Start mock WebSocket server."""
         server = MockKrakenWebSocketServer()
         server_task = asyncio.create_task(server.start())
-        
+
         yield server
-        
+
         server_task.cancel()
-        
+
     @pytest.mark.asyncio
     async def test_connection_establishment(self, mock_server, test_config, pubsub_manager, mock_logger):
         """Test WebSocket connection establishment."""
         # Configure for mock server
         test_config.config["kraken"]["ws_url"] = "ws://localhost:8765"
-        
+
         client = KrakenWebSocketClient(test_config, pubsub_manager, mock_logger)
-        
+
         await client.connect()
         await asyncio.sleep(0.5)  # Allow connection
-        
+
         assert client.state == ConnectionState.CONNECTED
-        
+
         await client.disconnect()
-        
+
     @pytest.mark.asyncio
     async def test_market_data_subscription(self, mock_server, test_config, pubsub_manager, mock_logger):
         """Test market data subscription."""
         test_config.config["kraken"]["ws_url"] = "ws://localhost:8765"
-        
+
         client = KrakenWebSocketClient(test_config, pubsub_manager, mock_logger)
         await client.connect()
-        
+
         # Subscribe to market data
         await client.subscribe_market_data(["XRP/USD"], ["book"])
-        
+
         # Wait for data
         await asyncio.sleep(2)
-        
+
         # Should have received orderbook updates
         # Check via pubsub events
-        
+
         await client.disconnect()
-        
+
     @pytest.mark.asyncio
     async def test_order_update_processing(self, mock_server, test_config, pubsub_manager, mock_logger):
         """Test order update processing."""
         order_updates = []
-        
+
         async def capture_updates(event):
             if isinstance(event, ExecutionReportEvent):
                 order_updates.append(event)
-                
+
         pubsub_manager.subscribe(EventType.EXECUTION_REPORT, capture_updates)
-        
+
         test_config.config["kraken"]["ws_auth_url"] = "ws://localhost:8765"
-        
+
         client = KrakenWebSocketClient(test_config, pubsub_manager, mock_logger)
         await client.connect()
-        
+
         # Simulate order fill
         order_id = "TEST-ORDER-123"
         await mock_server.simulate_order_fill(order_id)
-        
+
         await asyncio.sleep(0.5)
-        
+
         # Check received update
         assert len(order_updates) > 0
         assert order_updates[0].exchange_order_id == order_id
         assert order_updates[0].order_status == "CLOSED"
-        
+
         await client.disconnect()
-        
+
     @pytest.mark.asyncio
     async def test_connection_recovery(self, test_config, pubsub_manager, mock_logger):
         """Test connection recovery after disconnect."""
@@ -1355,4 +1355,4 @@ class TestWebSocketIntegration:
    - Connection health degradation
    - High message latency
    - Excessive reconnections
-   - Sequence gaps detected 
+   - Sequence gaps detected

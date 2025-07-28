@@ -11,9 +11,12 @@ from gal_friday.config_manager import ConfigManager
 from gal_friday.logger_service import LoggerService
 
 # Lazy imports for optional cloud dependencies
-try:
-    import aiofiles  # type: ignore[import-untyped]
+aiofiles: Any = None
 
+try:
+    import aiofiles as aiofiles_module
+
+    aiofiles = aiofiles_module
     HAS_AIOFILES = True
 except ImportError:
     HAS_AIOFILES = False
@@ -24,7 +27,7 @@ except ImportError:
 def _get_aioboto3() -> Any:
     """Lazy import aioboto3."""
     try:
-        import aioboto3  # type: ignore[import-untyped] # noqa: PLC0415 - architectural: lazy loading of optional AWS dependency
+        import aioboto3  # noqa: PLC0415 - architectural: lazy loading of optional AWS dependency
     except ImportError as e:
         raise ImportError("aioboto3 is required for AWS S3 backend. Install with: pip install aioboto3 boto3") from e
     else:
@@ -35,7 +38,7 @@ def _get_aioboto3() -> Any:
 def _get_gcs_client() -> Any:
     """Lazy import Google Cloud Storage."""
     try:
-        from google.cloud import (  # type: ignore[import-untyped] # noqa: PLC0415 - architectural: lazy loading of optional Google Cloud dependency
+        from google.cloud import (  # noqa: PLC0415 - architectural: lazy loading of optional Google Cloud dependency
             storage,
         )
     except ImportError as e:

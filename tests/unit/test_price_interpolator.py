@@ -43,11 +43,7 @@ stub_providers.DatabaseDataProvider = _DummyProvider
 stub_providers.LocalFileDataProvider = _DummyProvider
 sys.modules.setdefault("gal_friday.providers", stub_providers)
 
-SPEC_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "gal_friday"
-    / "simulated_market_price_service.py"
-)
+SPEC_PATH = Path(__file__).resolve().parents[2] / "gal_friday" / "simulated_market_price_service.py"
 spec = importlib.util.spec_from_file_location(
     "gal_friday.simulated_market_price_service",
     SPEC_PATH,

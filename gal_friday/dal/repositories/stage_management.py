@@ -12,6 +12,7 @@ from gal_friday.model_lifecycle.enums import ModelStage
 
 class StageTransition(str, Enum):
     """Valid stage transitions for model lifecycle management."""
+
     DEV_TO_STAGING = "development_to_staging"
     STAGING_TO_PROD = "staging_to_production"
     PROD_TO_RETIRED = "production_to_retired"
@@ -23,6 +24,7 @@ class StageTransition(str, Enum):
 
 class StageValidationLevel(str, Enum):
     """Validation levels for stage transitions."""
+
     NONE = "none"
     BASIC = "basic"
     STRICT = "strict"
@@ -32,8 +34,13 @@ class StageValidationLevel(str, Enum):
 class StageValidationError(Exception):
     """Exception raised for invalid stage operations."""
 
-    def __init__(self, message: str, stage: ModelStage | None = None,
-                 model_id: str | None = None, details: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        stage: ModelStage | None = None,
+        model_id: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         """Initialize stage validation error.
 
         Args:
@@ -51,6 +58,7 @@ class StageValidationError(Exception):
 @dataclass
 class StageConfig:
     """Configuration for a specific model stage."""
+
     stage: ModelStage
     requires_approval: bool = False
     max_models: int | None = None
@@ -65,6 +73,7 @@ class StageConfig:
 @dataclass
 class StageTransitionRecord:
     """Record of a stage transition for audit trail."""
+
     transition_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     model_id: str = ""
     from_stage: ModelStage | None = None
@@ -82,6 +91,7 @@ class StageTransitionRecord:
 @dataclass
 class StageMetrics:
     """Metrics for stage monitoring."""
+
     stage: ModelStage
     model_count: int = 0
     successful_transitions: int = 0
@@ -112,10 +122,7 @@ class ModelStageManager:
         self.transition_history: list[StageTransitionRecord] = []
 
         # Stage metrics tracking
-        self.stage_metrics = {
-            stage: StageMetrics(stage=stage)
-            for stage in ModelStage
-        }
+        self.stage_metrics = {stage: StageMetrics(stage=stage) for stage in ModelStage}
 
     def _initialize_stage_configs(self, config: dict[str, Any]) -> dict[ModelStage, StageConfig]:
         """Initialize stage configurations with enterprise-grade defaults."""
@@ -167,8 +174,11 @@ class ModelStageManager:
             },
             allowed_transitions={ModelStage.STAGING, ModelStage.ARCHIVED},
             metadata_requirements=[
-                "model_type", "created_by", "validation_results",
-                "approval_id", "performance_test_results",
+                "model_type",
+                "created_by",
+                "validation_results",
+                "approval_id",
+                "performance_test_results",
             ],
             validation_level=StageValidationLevel.ENTERPRISE,
         )
@@ -233,42 +243,99 @@ class ModelStageManager:
         try:
             metadata = metadata or {}
 
-            # Check if transition is explicitly allowed
-            if from_stage and to_stage not in self.stage_configs[from_stage].allowed_transitions:
-                return False, f"Transition from {from_stage.value} to {to_stage.value} not allowed"
+            # Perform all validation checks
+            error = self._validate_all_transition_requirements(from_stage, to_stage, metadata)
 
-            # Validate stage requirements
-            stage_config = self.stage_configs[to_stage]
-
-            # Check required metadata fields
-            for required_field in stage_config.metadata_requirements:
-                if required_field not in metadata:
-                    return False, f"Missing required metadata field '{required_field}' for stage {to_stage.value}"
-
-            # Check performance thresholds
-            for metric, threshold in stage_config.performance_thresholds.items():
-                if metric in metadata:
-                    actual_value = metadata.get(metric, 0)
-                    if actual_value < threshold:
-                        return False, (
-                            f"Performance metric '{metric}' ({actual_value}) below threshold "
-                            f"({threshold}) for stage {to_stage.value}"
-                        )
-
-            # Check stage capacity
-            if not self._check_stage_capacity(to_stage):
-                return False, f"Stage {to_stage.value} has reached maximum capacity"
-
-            # Check approval requirements
-            if stage_config.requires_approval and not metadata.get("approval_id"):
-                return False, f"Stage {to_stage.value} requires approval"
-
-            # return True, None moved to else block
+            if error:
+                return False, error
 
         except Exception as e:
             return False, f"Validation error: {e!s}"
         else:
             return True, None
+
+    def _validate_all_transition_requirements(
+        self,
+        from_stage: ModelStage | None,
+        to_stage: ModelStage,
+        metadata: dict[str, Any],
+    ) -> str | None:
+        """Validate all requirements for stage transition."""
+        # Check transition is allowed
+        if error := self._check_transition_allowed(from_stage, to_stage):
+            return error
+
+        stage_config = self.stage_configs[to_stage]
+
+        # Check metadata requirements
+        if error := self._check_metadata_requirements(stage_config, to_stage, metadata):
+            return error
+
+        # Check performance thresholds
+        if error := self._check_performance_thresholds(stage_config, to_stage, metadata):
+            return error
+
+        # Check stage capacity
+        if error := self._check_capacity_limit(to_stage):
+            return error
+
+        # Check approval requirements
+        if error := self._check_approval_requirement(stage_config, to_stage, metadata):
+            return error
+
+        return None
+
+    def _check_transition_allowed(self, from_stage: ModelStage | None, to_stage: ModelStage) -> str | None:
+        """Check if transition is explicitly allowed."""
+        if from_stage and to_stage not in self.stage_configs[from_stage].allowed_transitions:
+            return f"Transition from {from_stage.value} to {to_stage.value} not allowed"
+        return None
+
+    def _check_metadata_requirements(
+        self,
+        stage_config: StageConfig,
+        to_stage: ModelStage,
+        metadata: dict[str, Any],
+    ) -> str | None:
+        """Check required metadata fields."""
+        for required_field in stage_config.metadata_requirements:
+            if required_field not in metadata:
+                return f"Missing required metadata field '{required_field}' for stage {to_stage.value}"
+        return None
+
+    def _check_performance_thresholds(
+        self,
+        stage_config: StageConfig,
+        to_stage: ModelStage,
+        metadata: dict[str, Any],
+    ) -> str | None:
+        """Check performance thresholds."""
+        for metric, threshold in stage_config.performance_thresholds.items():
+            if metric in metadata:
+                actual_value = metadata.get(metric, 0)
+                if actual_value < threshold:
+                    return (
+                        f"Performance metric '{metric}' ({actual_value}) below threshold "
+                        f"({threshold}) for stage {to_stage.value}"
+                    )
+        return None
+
+    def _check_capacity_limit(self, to_stage: ModelStage) -> str | None:
+        """Check stage capacity."""
+        if not self._check_stage_capacity(to_stage):
+            return f"Stage {to_stage.value} has reached maximum capacity"
+        return None
+
+    def _check_approval_requirement(
+        self,
+        stage_config: StageConfig,
+        to_stage: ModelStage,
+        metadata: dict[str, Any],
+    ) -> str | None:
+        """Check approval requirements."""
+        if stage_config.requires_approval and not metadata.get("approval_id"):
+            return f"Stage {to_stage.value} requires approval"
+        return None
 
     def _check_stage_capacity(self, stage: ModelStage) -> bool:
         """Check if stage has capacity for new models."""

@@ -2,10 +2,10 @@
 
 from datetime import datetime
 from decimal import Decimal
-from uuid import UUID as PythonUUID
+from uuid import UUID
 
 from sqlalchemy import DateTime, Index, Numeric, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID  # noqa: N811
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -17,8 +17,11 @@ class TradeSignal(Base):
 
     __tablename__ = "trade_signals"
 
-    id: Mapped[PythonUUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.uuid_generate_v4(),
+    )
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)
     strategy_id: Mapped[str] = mapped_column(String(50), nullable=False)
     side: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -26,20 +29,22 @@ class TradeSignal(Base):
     stop_loss: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     take_profit: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True) # Added index based on schema
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # Added index based on schema
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.current_timestamp(), index=True, # Added index based on schema
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        index=True,  # Added index based on schema
     )
     executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationship to Order (one signal can have multiple orders, though typically one)
     orders = relationship("Order", back_populates="signal")
 
-    __table_args__ = (
-        Index("idx_signals_status", "status"),
-        Index("idx_signals_created_at", "created_at"))
+    __table_args__ = (Index("idx_signals_status", "status"), Index("idx_signals_created_at", "created_at"))
 
     def __repr__(self) -> str:
+        """Return string representation of TradeSignal."""
         return (
             f"<TradeSignal(id={self.id}, trading_pair='{self.trading_pair}', "
             f"strategy_id='{self.strategy_id}', status='{self.status}')>"

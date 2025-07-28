@@ -403,7 +403,7 @@ from pydantic import BaseModel, validator
 class PredictionRequest(BaseModel):
     trading_pair: str
     features: Dict[str, float]
-    
+
     @validator('trading_pair')
     def validate_trading_pair(cls, v):
         if v not in ["XRP/USD", "DOGE/USD"]:
@@ -430,13 +430,13 @@ sudo ufw enable
 server {
     listen 443 ssl http2;
     server_name gal-friday.example.com;
-    
+
     ssl_certificate /etc/nginx/ssl/cert.pem;
     ssl_certificate_key /etc/nginx/ssl/key.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
-    
+
     location / {
         proxy_pass http://app:8000;
         proxy_set_header Host $host;
@@ -461,11 +461,11 @@ scrape_configs:
   - job_name: 'gal-friday'
     static_configs:
       - targets: ['app1:9090', 'app2:9090']
-    
+
   - job_name: 'postgresql'
     static_configs:
       - targets: ['postgres-exporter:9187']
-      
+
   - job_name: 'redis'
     static_configs:
       - targets: ['redis-exporter:9121']
@@ -505,19 +505,19 @@ groups:
         for: 5m
         annotations:
           summary: "High error rate detected"
-          
+
       - alert: HighMemoryUsage
         expr: process_resident_memory_bytes / 1024 / 1024 > 14000
         for: 10m
         annotations:
           summary: "Memory usage exceeds 14GB"
-          
+
       - alert: ModelDriftDetected
         expr: model_drift_score > 0.15
         for: 30m
         annotations:
           summary: "Significant model drift detected"
-          
+
       - alert: DatabaseConnectionPoolExhausted
         expr: postgresql_connections_active / postgresql_connections_max > 0.9
         for: 5m
@@ -728,4 +728,4 @@ This deployment guide provides a comprehensive framework for deploying and opera
 4. **Security**: Defense in depth approach
 5. **Documentation**: Keep runbooks and procedures updated
 
-Regular reviews and updates of these procedures ensure smooth operation and continuous improvement of the system. 
+Regular reviews and updates of these procedures ensure smooth operation and continuous improvement of the system.

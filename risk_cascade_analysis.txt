@@ -1,0 +1,241 @@
+RISK ASSESSMENT AND CASCADE ANALYSIS
+====================================
+
+OVERALL RISK PROFILE:
+=====================
+- Current MyPy errors: 78
+- Target: <20 errors (75% reduction required)
+- Critical path files: 10 foundational modules
+- Non-critical files: 14+ modules with errors
+- Risk tolerance: MEDIUM (enterprise production system)
+
+RISK LEVELS BY CHANGE TYPE:
+===========================
+
+🔴 HIGH RISK (Requires careful coordination):
+=============================================
+
+1. **Core Type Definition Changes**
+   FILES: core/types.py, core/data_request.py
+   RISK FACTORS:
+   - Affects 50+ importing modules
+   - Changes may break binary compatibility
+   - Import chains could create circular dependencies
+   CASCADE POTENTIAL: ⚠️⚠️⚠️ VERY HIGH
+   MITIGATION: Incremental changes, extensive testing after each change
+
+2. **Protocol Interface Changes**
+   FILES: interfaces/data_provider_protocols.py, interfaces/predictor_interface.py
+   RISK FACTORS:
+   - Breaking changes to public contracts
+   - Multiple implementers must be updated simultaneously
+   - Liskov substitution principle violations possible
+   CASCADE POTENTIAL: ⚠️⚠️ HIGH
+   MITIGATION: Backward-compatible additions first, deprecation strategy
+
+🟡 MEDIUM RISK (Standard development risk):
+==========================================
+
+3. **Service Container Changes**
+   FILES: core/service_registration.py, core/registry.py, core/service_container.py
+   RISK FACTORS:
+   - Dependency injection system is complex
+   - Runtime service discovery failures possible
+   - Circular dependency potential
+   CASCADE POTENTIAL: ⚠️ MEDIUM
+   MITIGATION: Unit testing for each component, integration testing
+
+4. **Base Class/Inheritance Changes**
+   FILES: execution/kraken.py, dal/repositories/base.py
+   RISK FACTORS:
+   - Method override conflicts
+   - Constructor signature changes affect derived classes
+   - MRO (Method Resolution Order) impacts
+   CASCADE POTENTIAL: ⚠️ MEDIUM
+   MITIGATION: Check all subclasses, validate inheritance chains
+
+🟢 LOW RISK (Safe to change):
+=============================
+
+5. **Missing Method Implementations**
+   FILES: Multiple files with _raise_*_error patterns
+   RISK FACTORS:
+   - Low risk - adding missing methods
+   - No breaking changes to existing code
+   CASCADE POTENTIAL: ○ LOW
+   MITIGATION: Add defensive implementations with proper error messages
+
+6. **Cleanup Operations**
+   FILES: Various (unused ignores, unreachable code)
+   RISK FACTORS:
+   - Very low risk - removing dead code
+   - May reveal hidden type issues
+   CASCADE POTENTIAL: ○ MINIMAL
+   MITIGATION: Remove incrementally, test after each removal
+
+CASCADE EFFECT ANALYSIS:
+========================
+
+PRIMARY CASCADE CHAINS:
+=======================
+
+1. **Type Definition Cascade** [CRITICAL]
+   core/types.py → core/data_request.py →
+   interfaces/data_provider_protocols.py →
+   providers/*.py → backtesting_engine.py
+
+   IMPACT: 12+ files affected
+   TIMELINE: Changes propagate immediately on import
+   RISK: Type mismatches could break entire data pipeline
+
+2. **Service Registration Cascade** [HIGH]
+   core/service_registration.py → core/registry.py →
+   core/service_container.py → main.py →
+   All service implementations
+
+   IMPACT: 20+ files affected
+   TIMELINE: Runtime failures during service initialization
+   RISK: System may fail to start if broken
+
+3. **Protocol Implementation Cascade** [HIGH]
+   interfaces/*_protocols.py →
+   All implementing classes →
+   Client code using those implementations
+
+   IMPACT: 15+ files affected
+   TIMELINE: Compile-time and runtime failures
+   RISK: Broken contracts cause runtime exceptions
+
+RISK MITIGATION STRATEGIES:
+===========================
+
+PREVENTIVE MEASURES:
+===================
+
+1. **Git Branch Strategy**
+   - Create feature branch for each critical path tier
+   - Atomic commits for each file fix
+   - Tag working states for easy rollback
+   - Use `git stash` for partial work
+
+2. **Incremental Validation**
+   - Run MyPy after each file fix
+   - Run affected unit tests after each change
+   - Integration test checkpoints after each tier
+   - Full regression testing before tier completion
+
+3. **Dependency Coordination**
+   - Fix dependencies before dependents
+   - Never change interfaces and implementations simultaneously
+   - Validate assumptions before implementation changes
+   - Document breaking changes with migration guides
+
+REACTIVE MEASURES:
+=================
+
+4. **Rollback Procedures**
+   - Keep working baseline branch
+   - Document rollback points for each tier
+   - Automated rollback scripts for common failures
+   - Emergency rollback to last known good state
+
+5. **Error Recovery**
+   - Staged deployment with canary testing
+   - Circuit breaker patterns for service failures
+   - Graceful degradation for non-critical features
+   - Monitoring and alerting for type-related failures
+
+TESTING CHECKPOINTS:
+===================
+
+AFTER TIER 1 (Types):
+=====================
+✅ MyPy: gal_friday/core/types.py gal_friday/core/data_request.py
+✅ Unit tests: test_types.py, test_data_request.py
+✅ Import validation: All core modules import successfully
+✅ Integration test: Basic data request flow
+
+AFTER TIER 2 (Services):
+========================
+✅ MyPy: gal_friday/core/service_*.py gal_friday/core/registry.py
+✅ Unit tests: Service registration and discovery
+✅ Integration test: Service container initialization
+✅ Manual test: Application startup sequence
+
+AFTER TIER 3 (Protocols):
+=========================
+✅ MyPy: gal_friday/interfaces/*.py
+✅ Unit tests: Protocol compliance testing
+✅ Integration test: Data provider implementations
+✅ Integration test: Predictor implementations
+
+AFTER TIER 4 (Complete Foundation):
+===================================
+✅ MyPy: Full gal_friday/ scan (expect ~50-60 errors remaining)
+✅ Unit tests: All core and interface tests
+✅ Integration tests: End-to-end data flow
+✅ Performance test: No regression in critical paths
+
+COORDINATION REQUIREMENTS:
+==========================
+
+TEAM COORDINATION:
+==================
+- Single developer working on critical path (avoid conflicts)
+- Code review required for all Tier 1-2 changes
+- Pair programming recommended for complex type changes
+- Documentation updates required for interface changes
+
+DEPLOYMENT COORDINATION:
+========================
+- No production deployments during critical path work
+- Staging environment testing after each tier
+- Database migration coordination if needed
+- Service restart procedures for dependency injection changes
+
+TIMELINE COORDINATION:
+=====================
+- Phase 1 foundation work: 2-3 work sessions
+- Phase 2-3 business logic: 3-4 work sessions
+- Phase 4-5 advanced features/cleanup: 2-3 work sessions
+- Total estimated time: 7-10 work sessions
+
+CONTINGENCY PLANS:
+=================
+
+IF TIER 1 CHANGES BREAK IMPORTS:
+================================
+1. Revert to baseline immediately
+2. Create minimal type aliases for compatibility
+3. Gradual migration approach with deprecation warnings
+4. Consider feature flags for new type implementations
+
+IF SERVICE CONTAINER CHANGES BREAK STARTUP:
+===========================================
+1. Revert service registration changes
+2. Add backward compatibility layer
+3. Test service discovery in isolation
+4. Validate dependency graph before integration
+
+IF PROTOCOL CHANGES BREAK IMPLEMENTATIONS:
+==========================================
+1. Revert protocol changes
+2. Add new methods with default implementations
+3. Use abstract base classes instead of protocols temporarily
+4. Migrate implementations one by one
+
+SUCCESS CRITERIA:
+================
+- MyPy errors reduced from 78 to <20 (75% reduction)
+- No new test failures introduced
+- No performance regression in critical paths
+- All services start and operate normally
+- Documentation updated for any interface changes
+
+ABORT CRITERIA:
+==============
+- MyPy errors increase significantly (>90 total)
+- Critical functionality breaks irreparably
+- More than 50% of tests fail
+- Estimated fix time exceeds 15 work sessions
+- Circular dependency issues emerge

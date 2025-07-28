@@ -1,6 +1,6 @@
 """Enhanced dashboard pages for monitoring all system features."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
@@ -46,16 +46,16 @@ class EnhancedDashboardPages:
     .bg-warning { background-color: #f6c23e; }
     .bg-danger { background-color: #e74a3b; }
     .bg-info { background-color: #36b9cc; }
-    .refresh-btn { 
-        background: #2c3e50; color: white; border: none; padding: 5px 10px; 
-        border-radius: 3px; cursor: pointer; 
+    .refresh-btn {
+        background: #2c3e50; color: white; border: none; padding: 5px 10px;
+        border-radius: 3px; cursor: pointer;
     }
-    .btn { 
-        display: inline-block; font-weight: 400; text-align: center; white-space: nowrap; 
-        vertical-align: middle; user-select: none; border: 1px solid transparent; 
-        padding: .375rem .75rem; font-size: 1rem; line-height: 1.5; border-radius: .25rem; 
+    .btn {
+        display: inline-block; font-weight: 400; text-align: center; white-space: nowrap;
+        vertical-align: middle; user-select: none; border: 1px solid transparent;
+        padding: .375rem .75rem; font-size: 1rem; line-height: 1.5; border-radius: .25rem;
         transition: color .15s ease-in-out,background-color .15s ease-in-out,
-                   border-color .15s ease-in-out,box-shadow .15s ease-in-out; 
+                   border-color .15s ease-in-out,box-shadow .15s ease-in-out;
     }
     .btn-primary { color: #fff; background-color: #4e73df; border-color: #4e73df; }
     .btn-danger { color: #fff; background-color: #e74a3b; border-color: #e74a3b; }
@@ -82,7 +82,8 @@ class EnhancedDashboardPages:
         experiment_manager: ExperimentManager,
         retraining_pipeline: RetrainingPipeline,
         reconciliation_service: ReconciliationService,
-        ws_connection_manager: WebSocketConnectionManager) -> None:
+        ws_connection_manager: WebSocketConnectionManager,
+    ) -> None:
         """Initialize the EnhancedDashboardPages with required services.
 
         Args:
@@ -156,7 +157,7 @@ class EnhancedDashboardPages:
                         </div>
                     </div>
                     <div class="label">Last Updated</div>
-                    <div>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+                    <div>{datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")}</div>
                 </div>
                 <div class="card">
                     <h2>Model Registry</h2>
@@ -190,15 +191,15 @@ class EnhancedDashboardPages:
                     <div class="label">Critical</div>
                     <div class="metric"
                          style="color: #e74c3c;">
-                        {metrics['alerts']['critical']}
+                        {metrics["alerts"]["critical"]}
                     </div>
                     <div class="label">Warnings</div>
                     <div class="metric"
                          style="color: #f39c12;">
-                        {metrics['alerts']['warning']}
+                        {metrics["alerts"]["warning"]}
                     </div>
                     <div class="label">Info</div>
-                    <div class="metric">{metrics['alerts']['info']}</div>
+                    <div class="metric">{metrics["alerts"]["info"]}</div>
                 </div>
             </div>
         </body>
@@ -304,7 +305,7 @@ class EnhancedDashboardPages:
                 <p>
                     <strong>Type:</strong> {model.model_type} |
                     <strong>Version:</strong> {model.version} |
-                    <strong>Created:</strong> {training_completed.strftime('%Y-%m-%d')}
+                    <strong>Created:</strong> {training_completed.strftime("%Y-%m-%d")}
                 </p>
                 <div class="metrics">
                     <div class="metric-box">
@@ -326,16 +327,14 @@ class EnhancedDashboardPages:
                         <div style="font-size: 12px; color: #666;">Recall</div>
                     </div>
                 </div>
-                <p><strong>Description:</strong> {model.description or 'No description'}</p>
+                <p><strong>Description:</strong> {model.description or "No description"}</p>
                 <p><strong>Last Updated:</strong> {
-                    (model.updated_at.strftime('%Y-%m-%d %H:%M')
-                     if model.updated_at else 'N/A')
-                }</p>
-                <p><strong>Training Data:</strong> {model.training_data_path or 'N/A'}</p>
+                (model.updated_at.strftime("%Y-%m-%d %H:%M") if model.updated_at else "N/A")
+            }</p>
+                <p><strong>Training Data:</strong> {model.training_data_path or "N/A"}</p>
                 <p><strong>Pairs:</strong> {
-                    ', '.join(trading_pairs) if isinstance(trading_pairs, list)
-                    else trading_pairs
-                }</p>
+                ", ".join(trading_pairs) if isinstance(trading_pairs, list) else trading_pairs
+            }</p>
             </div>
             """
 
@@ -419,34 +418,33 @@ class EnhancedDashboardPages:
         """
 
         if not experiments:
-            html += ('<p style="text-align: center; color: #666; margin: 40px;">'
-                   'No active experiments</p>')
+            html += '<p style="text-align: center; color: #666; margin: 40px;">No active experiments</p>'
         else:
             for exp in experiments:
                 _ = exp["statistical_significance"]  # Removed unused variable
                 html += f"""
                 <div class="experiment-card">
-                    <h3>{exp['name']}</h3>
+                    <h3>{exp["name"]}</h3>
                     <p>
-                    <strong>Status:</strong> {exp['status']} |
-                    <strong>Started:</strong> {exp['start_time']}
+                    <strong>Status:</strong> {exp["status"]} |
+                    <strong>Started:</strong> {exp["start_time"]}
                 </p>
                 <div class="variant">
                     <div class="variant-box control">
                         <h4>Control</h4>
-                        <p>Model: {exp['control']['model_id'][:8]}...</p>
-                        <div class="metric">{exp['control']['accuracy']*100:.1f}%</div>
+                        <p>Model: {exp["control"]["model_id"][:8]}...</p>
+                        <div class="metric">{exp["control"]["accuracy"] * 100:.1f}%</div>
                         <p>Accuracy</p>
-                        <p>Samples: {exp['control']['samples']:,}</p>
-                        <p>Signals: {exp['control']['signals']}</p>
+                        <p>Samples: {exp["control"]["samples"]:,}</p>
+                        <p>Signals: {exp["control"]["signals"]}</p>
                     </div>
                     <div class="variant-box treatment">
                         <h4>Treatment</h4>
-                        <p>Model: {exp['treatment']['model_id'][:8]}...</p>
-                        <div class="metric">{exp['treatment']['accuracy']*100:.1f}%</div>
+                        <p>Model: {exp["treatment"]["model_id"][:8]}...</p>
+                        <div class="metric">{exp["treatment"]["accuracy"] * 100:.1f}%</div>
                         <p>Accuracy</p>
-                        <p>Samples: {exp['treatment']['samples']:,}</p>
-                        <p>Signals: {exp['treatment']['signals']}</p>
+                        <p>Samples: {exp["treatment"]["samples"]:,}</p>
+                        <p>Signals: {exp["treatment"]["signals"]}</p>
                     </div>
                 </div>
                 """
@@ -506,10 +504,10 @@ class EnhancedDashboardPages:
             <p><a href="/dashboard/" class="back-link">← Back to Dashboard</a></p>
             <div class="status-card">
                 <h3>Current Status</h3>
-                <p><strong>Last Run:</strong> {status.get('last_run', 'Never')}</p>
-                <p><strong>Next Run:</strong> {status.get('next_run', 'Not scheduled')}</p>
+                <p><strong>Last Run:</strong> {status.get("last_run", "Never")}</p>
+                <p><strong>Next Run:</strong> {status.get("next_run", "Not scheduled")}</p>
                 <p><strong>Consecutive Failures:</strong> "
-                   "{status.get('consecutive_failures', 0)}</p>
+                   "{status.get("consecutive_failures", 0)}</p>
             </div>
         """
 
@@ -523,16 +521,14 @@ class EnhancedDashboardPages:
                         <div style="font-size: 24px; font-weight: bold;">
                         <div
                             style="font-weight: bold;"
-                            class="{self._get_discrepancy_class(
-                                report.get('total_discrepancies', 0)
-                            )}">
-                            {report.get('total_discrepancies', 0)}
+                            class="{self._get_discrepancy_class(report.get("total_discrepancies", 0))}">
+                            {report.get("total_discrepancies", 0)}
                         </div>
                         <div>Discrepancies Found</div>
                     </div>
                     <div class="metric-box">
                         <div style="font-size: 24px; font-weight: bold;">
-                            {len(report.get('auto_corrections', []))}
+                            {len(report.get("auto_corrections", []))}
                         </div>
                         <div>Auto-corrections</div>
                     </div>
@@ -614,16 +610,16 @@ class EnhancedDashboardPages:
                 <h3>Pipeline Status</h3>
                 <div class="metric-row">
                     <div>
-                        <strong>Active Jobs:</strong> {len(status['active_jobs'])}
+                        <strong>Active Jobs:</strong> {len(status["active_jobs"])}
                     </div>
                     <div>
-                        <strong>Recent Completed:</strong> {status['recent_completed']}
+                        <strong>Recent Completed:</strong> {status["recent_completed"]}
                     </div>
                     <div>
-                        <strong>Recent Failed:</strong> {status['recent_failed']}
+                        <strong>Recent Failed:</strong> {status["recent_failed"]}
                     </div>
                 </div>
-                <p><strong>Next Check:</strong> {status['next_check']}</p>
+                <p><strong>Next Check:</strong> {status["next_check"]}</p>
             </div>
         """
 
@@ -632,11 +628,11 @@ class EnhancedDashboardPages:
             for job in status["active_jobs"]:
                 html += f"""
                 <div class="job-card">
-                    <h4>{job['model_name']}</h4>
+                    <h4>{job["model_name"]}</h4>
                     <p>
-                        <span class="status {job['status']}">{job['status'].upper()}</span>
-                        <strong>Trigger:</strong> {job['trigger']} |
-                        <strong>Started:</strong> {job['start_time']}
+                        <span class="status {job["status"]}">{job["status"].upper()}</span>
+                        <strong>Trigger:</strong> {job["trigger"]} |
+                        <strong>Started:</strong> {job["start_time"]}
                     </p>
                 </div>
                 """
@@ -705,13 +701,15 @@ class EnhancedDashboardPages:
 # Create singleton instance
 dashboard_pages = None
 
+
 def get_dashboard_pages(
     dashboard_service: DashboardService,
     model_registry: Registry,
     experiment_manager: ExperimentManager,
     retraining_pipeline: RetrainingPipeline,
     reconciliation_service: ReconciliationService,
-    ws_connection_manager: WebSocketConnectionManager) -> EnhancedDashboardPages:
+    ws_connection_manager: WebSocketConnectionManager,
+) -> EnhancedDashboardPages:
     """Get or create dashboard pages instance.
 
     Args:
@@ -732,5 +730,6 @@ def get_dashboard_pages(
             experiment_manager=experiment_manager,
             retraining_pipeline=retraining_pipeline,
             reconciliation_service=reconciliation_service,
-            ws_connection_manager=ws_connection_manager)
+            ws_connection_manager=ws_connection_manager,
+        )
     return dashboard_pages

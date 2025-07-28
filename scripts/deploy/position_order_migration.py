@@ -100,14 +100,12 @@ class PositionOrderMigrationDeployer:
                 source_module=self._source_module,
             )
 
-            return True
-
-        except Exception as e:
-            self.logger.exception(
-                f"Migration deployment failed: {e}",
-                source_module=self._source_module,
-            )
+        except Exception:
+            self.logger.exception("Migration deployment failed",
+                source_module=self._source_module)
             return False
+        else:
+            return True
 
     async def _create_database_engine(self, environment: str):
         """Create database engine for the specified environment."""
@@ -139,10 +137,10 @@ class PositionOrderMigrationDeployer:
                 source_module=self._source_module,
             )
 
-            return engine
-
         except Exception as e:
-            raise MigrationDeploymentError(f"Failed to create database engine: {e}")
+            raise MigrationDeploymentError(f"Failed to create database engine: {e}") from e
+        else:
+            return engine
 
     async def _perform_pre_migration_checks(self, session_maker, environment: str) -> None:
         """Perform comprehensive pre-migration safety checks."""
@@ -176,7 +174,7 @@ class PositionOrderMigrationDeployer:
             self.logger.info("Pre-migration checks completed successfully")
 
         except Exception as e:
-            raise MigrationDeploymentError(f"Pre-migration checks failed: {e}")
+            raise MigrationDeploymentError(f"Pre-migration checks failed: {e}") from e
 
     async def _is_migration_already_applied(self, session: AsyncSession) -> bool:
         """Check if the position_id column already exists in orders table."""
@@ -190,8 +188,8 @@ class PositionOrderMigrationDeployer:
 
             return result.fetchone() is not None
 
-        except Exception as e:
-            self.logger.exception(f"Error checking migration status: {e}")
+        except Exception:
+            self.logger.exception("Error checking migration status")
             raise
 
     async def _check_database_permissions(self, session: AsyncSession) -> None:
@@ -206,7 +204,7 @@ class PositionOrderMigrationDeployer:
             self.logger.debug("Database permissions verified")
 
         except Exception as e:
-            raise MigrationDeploymentError(f"Insufficient database permissions: {e}")
+            raise MigrationDeploymentError(f"Insufficient database permissions: {e}") from e
 
     async def _verify_table_structures(self, session: AsyncSession) -> None:
         """Verify that required tables exist with expected structure."""
@@ -230,7 +228,7 @@ class PositionOrderMigrationDeployer:
             self.logger.debug("Table structures verified")
 
         except Exception as e:
-            raise MigrationDeploymentError(f"Table structure verification failed: {e}")
+            raise MigrationDeploymentError(f"Table structure verification failed: {e}") from e
 
     async def _check_data_conflicts(self, session: AsyncSession) -> None:
         """Check for potential data conflicts that could affect migration."""
@@ -252,7 +250,7 @@ class PositionOrderMigrationDeployer:
             self.logger.debug("Data conflict checks passed")
 
         except Exception as e:
-            raise MigrationDeploymentError(f"Data conflict check failed: {e}")
+            raise MigrationDeploymentError(f"Data conflict check failed: {e}") from e
 
     async def _estimate_migration_impact(self, session: AsyncSession) -> dict[str, Any]:
         """Estimate the impact of the migration."""
@@ -279,7 +277,7 @@ class PositionOrderMigrationDeployer:
             }
 
         except Exception as e:
-            self.logger.exception(f"Error estimating migration impact: {e}")
+            self.logger.exception("Error estimating migration impact")
             return {"error": str(e)}
 
     async def _get_table_size_mb(self, session: AsyncSession, table_name: str) -> float:
@@ -323,7 +321,7 @@ class PositionOrderMigrationDeployer:
             self.logger.debug("Production safety checks passed")
 
         except Exception as e:
-            raise MigrationDeploymentError(f"Production safety checks failed: {e}")
+            raise MigrationDeploymentError(f"Production safety checks failed: {e}") from e
 
     async def _create_database_backup(self, environment: str) -> str:
         """Create database backup before migration."""
@@ -342,7 +340,7 @@ class PositionOrderMigrationDeployer:
             return backup_file
 
         except Exception as e:
-            raise MigrationDeploymentError(f"Backup creation failed: {e}")
+            raise MigrationDeploymentError(f"Backup creation failed: {e}") from e
 
     async def _simulate_migration(self, session_maker):
         """Simulate migration execution for dry run."""
@@ -395,7 +393,7 @@ class PositionOrderMigrationDeployer:
                 self.logger.info(f"Migration executed successfully in {elapsed:.2f} seconds")
 
         except Exception as e:
-            raise MigrationDeploymentError(f"Migration execution failed: {e}")
+            raise MigrationDeploymentError(f"Migration execution failed: {e}") from e
 
     async def _perform_post_migration_verification(self, session_maker):
         """Verify migration was applied correctly."""
@@ -443,7 +441,7 @@ class PositionOrderMigrationDeployer:
                 self.logger.info("Post-migration verification completed successfully")
 
         except Exception as e:
-            raise MigrationDeploymentError(f"Post-migration verification failed: {e}")
+            raise MigrationDeploymentError(f"Post-migration verification failed: {e}") from e
 
 
 async def main():

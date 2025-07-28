@@ -11,7 +11,8 @@ Example Usage:
 """
 
 import argparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, UTC
+import logging
 from pathlib import Path
 import sys
 
@@ -27,6 +28,8 @@ from gal_friday.core.pubsub import PubSubManager
 from gal_friday.logger_service import LoggerService
 from gal_friday.ml_prediction_pipeline import ModelType
 from gal_friday.prediction_service import PredictionService
+
+logger = logging.getLogger(__name__)
 
 
 class MLPipelineExample:
@@ -76,16 +79,16 @@ class MLPipelineExample:
             DataFrame with sample market data
         """
         # Generate date range
-        end_date = datetime.now()
+        end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=days)
         dates = pd.date_range(start=start_date, end=end_date, freq="1H")
 
         # Generate realistic price data with trend and volatility
-        np.random.seed(42)  # For reproducible results
+        rng = np.random.default_rng(42)  # For reproducible results
 
         base_price = 50000 if "BTC" in symbol else 3000
         trend = 0.001 * np.arange(len(dates))  # Slight upward trend
-        noise = np.random.normal(0, 0.02, len(dates))  # 2% volatility
+        noise = rng.normal(0, 0.02, len(dates))  # 2% volatility
 
         # Generate price series
         log_returns = trend + noise
@@ -95,14 +98,14 @@ class MLPipelineExample:
         data = []
         for _i, (date, close) in enumerate(zip(dates, prices, strict=False)):
             # Generate realistic OHLC based on close
-            volatility = abs(np.random.normal(0, 0.01))
+            volatility = abs(rng.normal(0, 0.01))
             high = close * (1 + volatility)
             low = close * (1 - volatility)
-            open_price = close + np.random.normal(0, close * 0.005)
+            open_price = close + rng.normal(0, close * 0.005)
 
             # Generate volume (inverse correlation with price volatility)
             base_volume = 1000000
-            volume = base_volume * (1 + np.random.normal(0, 0.3))
+            volume = base_volume * (1 + rng.normal(0, 0.3))
 
             data.append({
                 "timestamp": date,
@@ -151,14 +154,14 @@ class MLPipelineExample:
 
 
             # Train the model
-            start_time = datetime.now()
+            start_time = datetime.now(UTC)
             await self.prediction_service.train_model(
                 symbol=symbol,
                 training_data=training_data,
                 model_type=model_type_enum,
                 hyperparameters=hyperparameters,
             )
-            (datetime.now() - start_time).total_seconds()
+            (datetime.now(UTC) - start_time).total_seconds()
 
 
             # Get model performance metrics
@@ -197,14 +200,14 @@ class MLPipelineExample:
                 pass
 
             # Make prediction
-            start_time = datetime.now()
+            start_time = datetime.now(UTC)
             prediction_result = await self.prediction_service.predict_with_ml_pipeline(
                 symbol=symbol,
                 features=features,
                 prediction_horizon=60,  # 1 hour ahead
                 confidence_level=0.95,
             )
-            (datetime.now() - start_time).total_seconds()
+            (datetime.now(UTC) - start_time).total_seconds()
 
 
             ci_lower, ci_upper = prediction_result["confidence_interval"]
@@ -317,8 +320,9 @@ async def main():
             await example.run_complete_example(args.symbol)
 
     except KeyboardInterrupt:
-        pass
+        logger.info("Interrupted by user")
     except Exception:
+        logger.exception("Error in main")
         sys.exit(1)
 
 

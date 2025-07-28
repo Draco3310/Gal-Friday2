@@ -5,6 +5,7 @@ from enum import Enum
 
 class ModelStage(Enum):
     """Model lifecycle stages."""
+
     DEVELOPMENT = "development"
     STAGING = "staging"
     PRODUCTION = "production"
@@ -13,6 +14,7 @@ class ModelStage(Enum):
 
 class ModelStatus(Enum):
     """Model training/deployment status."""
+
     TRAINING = "training"
     EVALUATING = "evaluating"
     READY = "ready"

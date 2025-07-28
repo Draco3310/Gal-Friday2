@@ -10,8 +10,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 import json
+from pathlib import Path
 import time
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -22,13 +23,17 @@ from sklearn.impute import KNNImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.preprocessing import StandardScaler
 
+from .feature_engine_enhancements import AdvancedTemporalPatternEngine
+
 # Gal-Friday imports
 from .logger_service import LoggerService
 
 # === Configuration and Data Models ===
 
+
 class ImputationMethod(str, Enum):
     """Available imputation methods."""
+
     MEAN = "mean"
     MEDIAN = "median"
     FORWARD_FILL = "forward_fill"
@@ -45,6 +50,7 @@ class ImputationMethod(str, Enum):
 
 class DataType(str, Enum):
     """Types of financial data for context-aware imputation."""
+
     PRICE = "price"
     VOLUME = "volume"
     VOLATILITY = "volatility"
@@ -55,7 +61,8 @@ class DataType(str, Enum):
 
 class ImputationQuality(str, Enum):
     """Quality levels for imputation strategies."""
-    FAST = "fast"          # Simple, performant methods
+
+    FAST = "fast"  # Simple, performant methods
     BALANCED = "balanced"  # Good accuracy/performance tradeoff
     ACCURATE = "accurate"  # Highest accuracy, more computation
 
@@ -63,6 +70,7 @@ class ImputationQuality(str, Enum):
 @dataclass
 class ImputationConfig:
     """Configuration for imputation strategies."""
+
     feature_key: str
     data_type: DataType
     primary_method: ImputationMethod
@@ -92,7 +100,8 @@ class ImputationConfig:
 @dataclass
 class ImputationResult:
     """Result of an imputation operation."""
-    imputed_values: np.ndarray[Any, Any] | pd.Series[Any]
+
+    imputed_values: "np.ndarray[Any, Any] | pd.Series[Any]"
     method_used: ImputationMethod
     confidence_score: float
     computation_time_ms: float
@@ -103,6 +112,7 @@ class ImputationResult:
 @dataclass
 class ImputationMetrics:
     """Performance metrics for imputation strategies."""
+
     method: ImputationMethod
     feature_key: str
     accuracy_score: float  # R² or similar
@@ -115,6 +125,7 @@ class ImputationMetrics:
 
 
 # === Abstract Base Classes ===
+
 
 class ImputationStrategy(ABC):
     """Abstract base class for all imputation strategies."""
@@ -135,8 +146,8 @@ class ImputationStrategy(ABC):
     @abstractmethod
     async def impute(
         self,
-        data: pd.Series[Any],
-        missing_mask: pd.Series[Any],
+        data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
         context: dict[str, Any] | None = None,
     ) -> ImputationResult:
         """Impute missing values in the data series.
@@ -154,11 +165,47 @@ class ImputationStrategy(ABC):
     def validate_parameters(self) -> bool:
         """Validate strategy-specific parameters."""
 
-    def get_cache_key(self, data: pd.Series[Any], missing_mask: pd.Series[Any]) -> str:
+    def get_cache_key(self, data: "pd.Series[Any]", missing_mask: "pd.Series[Any]") -> str:
         """Generate cache key for imputation results."""
         data_hash = hash(tuple(data.dropna().tail(10)))
         mask_hash = hash(tuple(missing_mask.astype(int)))
         return f"{self.config.feature_key}_{data_hash}_{mask_hash}"
+
+    def _apply_imputation_method(
+        self,
+        data: "pd.Series[Any]",
+        imputed_data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
+        missing_count: int,
+    ) -> tuple["pd.Series[Any]", float]:
+        """Apply the configured imputation method."""
+        if self.config.primary_method == ImputationMethod.MEAN:
+            fill_value = data.mean()
+            imputed_data[missing_mask] = fill_value
+            confidence = 0.6  # Moderate confidence for mean
+
+        elif self.config.primary_method == ImputationMethod.MEDIAN:
+            fill_value = data.median()
+            imputed_data[missing_mask] = fill_value
+            confidence = 0.65  # Slightly better than mean for outliers
+
+        elif self.config.primary_method == ImputationMethod.FORWARD_FILL:
+            imputed_data = data.ffill(limit=self.config.max_gap_minutes)
+            # Calculate confidence based on gap size
+            remaining_missing = imputed_data.isna().sum()
+            confidence = max(0.8 - (remaining_missing / missing_count * 0.3), 0.3)
+
+        elif self.config.primary_method == ImputationMethod.BACKWARD_FILL:
+            imputed_data = data.bfill(limit=self.config.max_gap_minutes)
+            remaining_missing = imputed_data.isna().sum()
+            confidence = max(0.75 - (remaining_missing / missing_count * 0.3), 0.3)
+
+        else:
+            # Default to forward fill
+            imputed_data = data.ffill()
+            confidence = 0.7
+
+        return imputed_data, confidence
 
     def should_use_cache(self, cache_key: str) -> bool:
         """Determine if cached result should be used."""
@@ -182,7 +229,8 @@ class ImputationStrategy(ABC):
             "avg_accuracy_score": float(np.mean(self._accuracy_scores)) if self._accuracy_scores else 0.0,
             "cache_hit_rate": (
                 self._cache_hits / (self._cache_hits + self._cache_misses)
-                if (self._cache_hits + self._cache_misses) > 0 else 0.0
+                if (self._cache_hits + self._cache_misses) > 0
+                else 0.0
             ),
             "total_computations": float(len(self._computation_times)),
         }
@@ -190,13 +238,14 @@ class ImputationStrategy(ABC):
 
 # === Concrete Strategy Implementations ===
 
+
 class SimpleImputationStrategy(ImputationStrategy):
     """Fast, simple imputation methods optimized for real-time trading."""
 
     async def impute(
         self,
-        data: pd.Series[Any],
-        missing_mask: pd.Series[Any],
+        data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
         context: dict[str, Any] | None = None,
     ) -> ImputationResult:
         """Perform simple imputation using statistical methods."""
@@ -224,31 +273,12 @@ class SimpleImputationStrategy(ImputationStrategy):
                 )
 
             # Apply the configured simple method
-            if self.config.primary_method == ImputationMethod.MEAN:
-                fill_value = data.mean()
-                imputed_data[missing_mask] = fill_value
-                confidence = 0.6  # Moderate confidence for mean
-
-            elif self.config.primary_method == ImputationMethod.MEDIAN:
-                fill_value = data.median()
-                imputed_data[missing_mask] = fill_value
-                confidence = 0.65  # Slightly better than mean for outliers
-
-            elif self.config.primary_method == ImputationMethod.FORWARD_FILL:
-                imputed_data = data.ffill(limit=self.config.max_gap_minutes)
-                # Calculate confidence based on gap size
-                remaining_missing = imputed_data.isna().sum()
-                confidence = max(0.8 - (remaining_missing / missing_count * 0.3), 0.3)
-
-            elif self.config.primary_method == ImputationMethod.BACKWARD_FILL:
-                imputed_data = data.bfill(limit=self.config.max_gap_minutes)
-                remaining_missing = imputed_data.isna().sum()
-                confidence = max(0.75 - (remaining_missing / missing_count * 0.3), 0.3)
-
-            else:
-                # Default to forward fill
-                imputed_data = data.ffill()
-                confidence = 0.7
+            imputed_data, confidence = self._apply_imputation_method(
+                data,
+                imputed_data,
+                missing_mask,
+                missing_count,
+            )
 
             # Handle any remaining missing values with fallback
             if imputed_data.isna().any():
@@ -282,7 +312,7 @@ class SimpleImputationStrategy(ImputationStrategy):
         else:
             return result
 
-    def _apply_fallback(self, imputed_data: pd.Series[Any], original_data: pd.Series[Any]) -> pd.Series[Any]:
+    def _apply_fallback(self, imputed_data: "pd.Series[Any]", original_data: "pd.Series[Any]") -> "pd.Series[Any]":
         """Apply fallback method for remaining missing values."""
         if self.config.fallback_method == ImputationMethod.MEAN:
             imputed_data = imputed_data.fillna(original_data.mean())
@@ -297,8 +327,7 @@ class SimpleImputationStrategy(ImputationStrategy):
     def validate_parameters(self) -> bool:
         """Validate simple imputation parameters."""
         return (
-            self.config.max_gap_minutes > 0 and
-            self.config.max_gap_minutes <= 1440  # Max 24 hours
+            self.config.max_gap_minutes > 0 and self.config.max_gap_minutes <= 1440  # Max 24 hours
         )
 
 
@@ -307,8 +336,8 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
 
     async def impute(
         self,
-        data: pd.Series[Any],
-        missing_mask: pd.Series[Any],
+        data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
         context: dict[str, Any] | None = None,
     ) -> ImputationResult:
         """Perform time series interpolation."""
@@ -387,8 +416,8 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
 
     def _calculate_interpolation_confidence(
         self,
-        data: pd.Series[Any],
-        missing_mask: pd.Series[Any],
+        data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
         method: str,
     ) -> float:
         """Calculate confidence based on interpolation quality."""
@@ -404,7 +433,7 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
 
         return max(base_confidence - gap_penalty - volatility_penalty, 0.3)
 
-    def _get_max_consecutive_missing(self, missing_mask: pd.Series[Any]) -> int:
+    def _get_max_consecutive_missing(self, missing_mask: "pd.Series[Any]") -> int:
         """Get maximum consecutive missing values."""
         consecutive_counts = []
         current_count = 0
@@ -425,8 +454,7 @@ class TimeSeriesImputationStrategy(ImputationStrategy):
     def validate_parameters(self) -> bool:
         """Validate time series imputation parameters."""
         return (
-            self.config.max_gap_minutes > 0 and
-            self.config.max_gap_minutes <= 720  # Max 12 hours for interpolation
+            self.config.max_gap_minutes > 0 and self.config.max_gap_minutes <= 720  # Max 12 hours for interpolation
         )
 
 
@@ -441,8 +469,8 @@ class KNNImputationStrategy(ImputationStrategy):
 
     async def impute(
         self,
-        data: pd.Series[Any],
-        missing_mask: pd.Series[Any],
+        data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
         context: dict[str, Any] | None = None,
     ) -> ImputationResult:
         """Perform KNN-based imputation."""
@@ -502,7 +530,6 @@ class KNNImputationStrategy(ImputationStrategy):
                 },
             )
 
-
         except Exception:
             self.logger.exception(
                 f"Error in KNN imputation for {self.config.feature_key}: ",
@@ -514,7 +541,7 @@ class KNNImputationStrategy(ImputationStrategy):
 
     def _prepare_feature_matrix(
         self,
-        data: pd.Series[Any],
+        data: "pd.Series[Any]",
         context: dict[str, Any] | None,
     ) -> np.ndarray[Any, Any] | None:
         """Prepare feature matrix for KNN imputation."""
@@ -536,9 +563,13 @@ class KNNImputationStrategy(ImputationStrategy):
 
             # Add related market data if available
             if "related_series" in context:
-                for series_data in context["related_series"].values():
-                    if len(series_data) == len(data):
-                        features.append(series_data.values.reshape(-1, 1))
+                features.extend(
+                    [
+                        series_data.values.reshape(-1, 1)
+                        for series_data in context["related_series"].values()
+                        if len(series_data) == len(data)
+                    ],
+                )
 
         if len(features) > 1:
             return np.hstack(features)
@@ -546,8 +577,8 @@ class KNNImputationStrategy(ImputationStrategy):
 
     def _calculate_knn_confidence(
         self,
-        data: pd.Series[Any],
-        missing_mask: pd.Series[Any],
+        data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
         feature_matrix: np.ndarray[Any, Any],
     ) -> float:
         """Calculate confidence based on KNN neighbor quality."""
@@ -565,19 +596,25 @@ class KNNImputationStrategy(ImputationStrategy):
     def validate_parameters(self) -> bool:
         """Validate KNN imputation parameters."""
         return (
-            self.config.knn_neighbors > 0 and
-            self.config.knn_neighbors <= 50 and
-            self.config.model_lookback_periods >= 20
+            self.config.knn_neighbors > 0
+            and self.config.knn_neighbors <= 50
+            and self.config.model_lookback_periods >= 20
         )
 
 
 class CryptoFinancialImputationStrategy(ImputationStrategy):
     """Cryptocurrency-specific imputation using financial domain knowledge."""
 
+    def __init__(self, config: ImputationConfig, logger: LoggerService) -> None:
+        """Initialize the instance."""
+        super().__init__(config, logger)
+        # Initialize random number generator
+        self._rng = np.random.default_rng()
+
     async def impute(
         self,
-        data: pd.Series[Any],
-        missing_mask: pd.Series[Any],
+        data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
         context: dict[str, Any] | None = None,
     ) -> ImputationResult:
         """Perform crypto-specific imputation."""
@@ -633,7 +670,6 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
                 },
             )
 
-
         except Exception:
             self.logger.exception(
                 f"Error in crypto financial imputation for {self.config.feature_key}: ",
@@ -643,10 +679,10 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
 
     async def _vwap_weighted_imputation(
         self,
-        data: pd.Series[Any],
-        missing_mask: pd.Series[Any],
+        data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
         context: dict[str, Any] | None,
-    ) -> pd.Series[Any]:
+    ) -> "pd.Series[Any]":
         """Impute using volume-weighted average price logic."""
         imputed_data = data.copy()
 
@@ -665,7 +701,7 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
             for idx in data.index[missing_mask]:
                 # Add small random variation based on recent volatility
                 volatility = recent_data.std()
-                noise = np.random.normal(0, volatility * 0.1)
+                noise = self._rng.normal(0, volatility * 0.1)
                 imputed_data[idx] = vwap + noise
         else:
             # Fallback to weighted average of recent values
@@ -675,10 +711,10 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
 
     async def _volatility_adjusted_imputation(
         self,
-        data: pd.Series[Any],
-        missing_mask: pd.Series[Any],
+        data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
         context: dict[str, Any] | None,
-    ) -> pd.Series[Any]:
+    ) -> "pd.Series[Any]":
         """Impute considering market volatility regime."""
         imputed_data = data.copy()
 
@@ -697,100 +733,147 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
 
     async def _market_session_aware_imputation(
         self,
-        data: pd.Series[Any],
-        missing_mask: pd.Series[Any],
+        data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
         context: dict[str, Any] | None,
-    ) -> pd.Series[Any]:
+    ) -> "pd.Series[Any]":
         """Impute considering different market sessions with advanced patterns."""
         try:
-            # Import enhanced temporal pattern engine if available
-            from .feature_engine_enhancements import AdvancedTemporalPatternEngine
-
             # Use advanced temporal pattern analysis
             pattern_engine = AdvancedTemporalPatternEngine(self.logger)
-
-            # Create DataFrame for pattern analysis
-            df = pd.DataFrame({"value": data})
-            temporal_patterns = pattern_engine.extract_temporal_patterns(df, "value")
+            temporal_patterns = self._extract_temporal_patterns(data, pattern_engine)
 
             imputed_data = data.copy()
 
-            # Use market session effects if available
-            if "market_sessions" in temporal_patterns and hasattr(data.index, "hour"):
-                session_effects = temporal_patterns["market_sessions"]
-
-                for idx in data.index[missing_mask]:
-                    hour = idx.hour
-
-                    # Find which session this hour belongs to
-                    session_value = None
-                    for session_info in session_effects.values():
-                        if "hours" in session_info:
-                            # Parse hours from string like "22:00-10:00 UTC"
-                            hours_str = session_info["hours"].replace(" UTC", "")
-                            start_str, end_str = hours_str.split("-")
-                            start_hour = int(start_str.split(":")[0])
-                            end_hour = int(end_str.split(":")[0])
-
-                            # Check if hour is in session (handle crossing midnight)
-                            if start_hour > end_hour:
-                                if hour >= start_hour or hour < end_hour:
-                                    session_value = session_info.get("mean", data.mean())
-                                    break
-                            elif start_hour <= hour < end_hour:
-                                session_value = session_info.get("mean", data.mean())
-                                break
-
-                    if session_value is not None:
-                        # Add trend adjustment
-                        loc = data.index.get_loc(idx)
-                        recent_data = data.iloc[max(0, loc - 5):loc] if isinstance(loc, int) else pd.Series([])
-                        if len(recent_data.dropna()) > 1:
-                            trend = recent_data.dropna().diff().mean()
-                            imputed_data[idx] = session_value + trend * 0.3
-                        else:
-                            imputed_data[idx] = session_value
-                    # Fallback to hourly patterns
-                    elif "time_of_day" in temporal_patterns:
-                        hourly_stats = temporal_patterns["time_of_day"].get("hourly_statistics", {})
-                        if "mean" in hourly_stats and hour in hourly_stats["mean"]:
-                            imputed_data[idx] = hourly_stats["mean"][hour]
-
+            # Apply appropriate imputation strategy
+            if self._has_market_session_data(temporal_patterns, data):
+                self._apply_market_session_imputation(
+                    data,
+                    imputed_data,
+                    missing_mask,
+                    temporal_patterns,
+                )
             elif hasattr(data.index, "hour"):
-                # Fallback to simple hourly patterns
-                hourly_patterns = data.groupby(data.index.hour).mean()
-
-                for idx in data.index[missing_mask]:
-                    hour = idx.hour
-                    if hour in hourly_patterns:
-                        base_value = hourly_patterns[hour]
-                        recent_trend = data.iloc[-5:].mean() - data.iloc[-10:-5].mean()
-                        imputed_data[idx] = base_value + recent_trend * 0.5
+                self._apply_hourly_pattern_imputation(data, imputed_data, missing_mask)
             else:
-                # Final fallback
                 imputed_data = data.ffill()
 
         except ImportError:
-            # Fallback to simple implementation
-            imputed_data = data.copy()
-
-            if hasattr(data.index, "hour"):
-                hourly_patterns = data.groupby(data.index.hour).mean()
-
-                for idx in data.index[missing_mask]:
-                    hour = idx.hour
-                    if hour in hourly_patterns:
-                        # Use hourly average with some adjustment
-                        base_value = hourly_patterns[hour]
-                        recent_trend = data.iloc[-5:].mean() - data.iloc[-10:-5].mean()
-                        imputed_data[idx] = base_value + recent_trend * 0.5
-            else:
-                # Fallback
-                imputed_data = data.ffill()
-
-            return imputed_data
+            return self._fallback_imputation(data, missing_mask)
         else:
             return imputed_data
+
+    def _extract_temporal_patterns(self, data: "pd.Series[Any]", pattern_engine: Any) -> dict[str, Any]:
+        """Extract temporal patterns from data."""
+        df = pd.DataFrame({"value": data})
+        result = pattern_engine.extract_temporal_patterns(df, "value")
+        return cast("dict[str, Any]", result)
+
+    def _has_market_session_data(self, temporal_patterns: dict[str, Any], data: "pd.Series[Any]") -> bool:
+        """Check if market session data is available."""
+        return "market_sessions" in temporal_patterns and hasattr(data.index, "hour")
+
+    def _apply_market_session_imputation(
+        self,
+        data: "pd.Series[Any]",
+        imputed_data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
+        temporal_patterns: dict[str, Any],
+    ) -> None:
+        """Apply market session-based imputation."""
+        session_effects = temporal_patterns["market_sessions"]
+
+        for idx in data.index[missing_mask]:
+            # Get hour from index - handle both datetime and non-datetime indices
+            hour = idx.hour if hasattr(idx, "hour") else pd.to_datetime(idx).hour
+            session_value = self._find_session_value(hour, session_effects, data)
+
+            if session_value is not None:
+                imputed_data[idx] = self._adjust_for_trend(data, idx, session_value)
+            else:
+                self._apply_hourly_fallback(imputed_data, idx, hour, temporal_patterns)
+
+    def _find_session_value(
+        self,
+        hour: int,
+        session_effects: dict[str, Any],
+        data: "pd.Series[Any]",
+    ) -> float | None:
+        """Find the appropriate session value for given hour."""
+        for session_info in session_effects.values():
+            if "hours" in session_info and self._hour_in_session(hour, session_info["hours"]):
+                return cast("float", session_info.get("mean", data.mean()))
+        return None
+
+    def _hour_in_session(self, hour: int, hours_str: str) -> bool:
+        """Check if hour falls within session hours."""
+        # Parse hours from string like "22:00-10:00 UTC"
+        hours_str = hours_str.replace(" UTC", "")
+        start_str, end_str = hours_str.split("-")
+        start_hour = int(start_str.split(":")[0])
+        end_hour = int(end_str.split(":")[0])
+
+        # Check if hour is in session (handle crossing midnight)
+        if start_hour > end_hour:
+            return hour >= start_hour or hour < end_hour
+        return start_hour <= hour < end_hour
+
+    def _adjust_for_trend(self, data: "pd.Series[Any]", idx: Any, base_value: float) -> float:
+        """Adjust imputed value based on recent trend."""
+        loc = data.index.get_loc(idx)
+        recent_data = data.iloc[max(0, loc - 5) : loc] if isinstance(loc, int) else pd.Series([])
+
+        if len(recent_data.dropna()) > 1:
+            trend = recent_data.dropna().diff().mean()
+            return base_value + trend * 0.3
+        return base_value
+
+    def _apply_hourly_fallback(
+        self,
+        imputed_data: "pd.Series[Any]",
+        idx: Any,
+        hour: int,
+        temporal_patterns: dict[str, Any],
+    ) -> None:
+        """Apply hourly pattern fallback for imputation."""
+        if "time_of_day" in temporal_patterns:
+            hourly_stats = temporal_patterns["time_of_day"].get("hourly_statistics", {})
+            if "mean" in hourly_stats and hour in hourly_stats["mean"]:
+                imputed_data[idx] = hourly_stats["mean"][hour]
+
+    def _apply_hourly_pattern_imputation(
+        self,
+        data: "pd.Series[Any]",
+        imputed_data: "pd.Series[Any]",
+        missing_mask: "pd.Series[Any]",
+    ) -> None:
+        """Apply simple hourly pattern imputation."""
+        # Convert index to DatetimeIndex if needed for hour access
+        if hasattr(data.index, "hour"):
+            hourly_patterns = data.groupby(data.index.hour).mean()
+        else:
+            # Try to convert to datetime if possible
+            datetime_index = pd.to_datetime(data.index)
+            hourly_patterns = data.groupby(datetime_index.hour).mean()
+
+        for idx in data.index[missing_mask]:
+            # Get hour from index - handle both datetime and non-datetime indices
+            hour = idx.hour if hasattr(idx, "hour") else pd.to_datetime(idx).hour
+            if hour in hourly_patterns:
+                base_value = hourly_patterns[hour]
+                recent_trend = data.iloc[-5:].mean() - data.iloc[-10:-5].mean()
+                imputed_data[idx] = base_value + recent_trend * 0.5
+
+    def _fallback_imputation(self, data: "pd.Series[Any]", missing_mask: "pd.Series[Any]") -> "pd.Series[Any]":
+        """Fallback imputation when advanced methods unavailable."""
+        imputed_data = data.copy()
+
+        if hasattr(data.index, "hour"):
+            self._apply_hourly_pattern_imputation(data, imputed_data, missing_mask)
+        else:
+            imputed_data = data.ffill()
+
+        return imputed_data
 
     def validate_parameters(self) -> bool:
         """Validate crypto financial imputation parameters."""
@@ -798,6 +881,7 @@ class CryptoFinancialImputationStrategy(ImputationStrategy):
 
 
 # === Management and Orchestration ===
+
 
 class ImputationManager:
     """Central manager for imputation strategies and execution."""
@@ -854,7 +938,7 @@ class ImputationManager:
     async def impute_feature(
         self,
         feature_key: str,
-        data: pd.Series[Any],
+        data: "pd.Series[Any]",
         context: dict[str, Any] | None = None,
     ) -> ImputationResult:
         """Impute missing values for a specific feature."""
@@ -890,10 +974,7 @@ class ImputationManager:
             )
 
         except Exception:
-            self.logger.exception(
-                f"Error imputing feature {feature_key}: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception(f"Error imputing feature {feature_key}: ", source_module=self._source_module)
             raise
         else:
             return result
@@ -908,17 +989,25 @@ class ImputationManager:
 
         if strategy_key not in self._strategy_instances:
             # Determine strategy type based on method
-            if config.primary_method in [ImputationMethod.MEAN, ImputationMethod.MEDIAN,
-                                       ImputationMethod.FORWARD_FILL, ImputationMethod.BACKWARD_FILL]:
+            if config.primary_method in [
+                ImputationMethod.MEAN,
+                ImputationMethod.MEDIAN,
+                ImputationMethod.FORWARD_FILL,
+                ImputationMethod.BACKWARD_FILL,
+            ]:
                 strategy_class = self._strategies["simple"]
-            elif config.primary_method in [ImputationMethod.LINEAR_INTERPOLATION,
-                                         ImputationMethod.SPLINE_INTERPOLATION]:
+            elif config.primary_method in [
+                ImputationMethod.LINEAR_INTERPOLATION,
+                ImputationMethod.SPLINE_INTERPOLATION,
+            ]:
                 strategy_class = self._strategies["timeseries"]
             elif config.primary_method == ImputationMethod.KNN:
                 strategy_class = self._strategies["knn"]
-            elif config.primary_method in [ImputationMethod.VWAP_WEIGHTED,
-                                         ImputationMethod.VOLATILITY_ADJUSTED,
-                                         ImputationMethod.MARKET_SESSION_AWARE]:
+            elif config.primary_method in [
+                ImputationMethod.VWAP_WEIGHTED,
+                ImputationMethod.VOLATILITY_ADJUSTED,
+                ImputationMethod.MARKET_SESSION_AWARE,
+            ]:
                 strategy_class = self._strategies["crypto_financial"]
             else:
                 strategy_class = self._strategies["simple"]  # Default
@@ -935,7 +1024,7 @@ class ImputationManager:
             feature_key=feature_key,
             accuracy_score=result.confidence_score,  # Using confidence as proxy
             mean_absolute_error=0.0,  # Would need validation data
-            mean_squared_error=0.0,   # Would need validation data
+            mean_squared_error=0.0,  # Would need validation data
             computation_time_ms=result.computation_time_ms,
             cache_hit_rate=0.0,  # Would get from strategy
             samples_evaluated=result.missing_count,
@@ -971,7 +1060,7 @@ class ImputationManager:
     def load_configuration(self, config_path: str) -> None:
         """Load imputation configuration from file."""
         try:
-            with open(config_path) as f:
+            with Path(config_path).open() as f:
                 config_data = json.load(f)
 
             for feature_config in config_data.get("features", []):
@@ -1037,15 +1126,18 @@ class ImputationManager:
             max_gap_minutes=20,
         )
 
-        self._feature_configs.update({
-            "price_default": price_config,
-            "volume_default": volume_config,
-            "volatility_default": volatility_config,
-            "indicator_default": indicator_config,
-        })
+        self._feature_configs.update(
+            {
+                "price_default": price_config,
+                "volume_default": volume_config,
+                "volatility_default": volatility_config,
+                "indicator_default": indicator_config,
+            },
+        )
 
 
 # === Validation and Testing Framework ===
+
 
 class ImputationValidator:
     """Validates and benchmarks imputation strategies."""
@@ -1054,13 +1146,15 @@ class ImputationValidator:
         """Initialize the instance."""
         self.logger = logger
         self._source_module = self.__class__.__name__
+        # Initialize random number generator
+        self._rng = np.random.default_rng()
 
     async def validate_strategy(
         self,
         strategy: ImputationStrategy,
-        test_data: pd.Series[Any],
-        missing_patterns: list[pd.Series[Any]],
-        ground_truth: pd.Series[Any] | None = None,
+        test_data: "pd.Series[Any]",
+        missing_patterns: list["pd.Series[Any]"],
+        ground_truth: "pd.Series[Any] | None" = None,
     ) -> dict[str, float]:
         """Validate a strategy against test data with known missing patterns."""
         results = {}
@@ -1092,10 +1186,7 @@ class ImputationValidator:
                     results[f"pattern_{i}_time_ms"] = result.computation_time_ms
 
             except Exception:
-                self.logger.exception(
-                    f"Error validating strategy for pattern {i}: ",
-                    source_module=self._source_module,
-                )
+                self.logger.exception(f"Error validating strategy for pattern {i}: ", source_module=self._source_module)
                 results[f"pattern_{i}_error"] = True
 
         return results
@@ -1104,7 +1195,7 @@ class ImputationValidator:
         self,
         data_length: int,
         pattern_types: list[str] | None = None,
-    ) -> list[pd.Series[Any]]:
+    ) -> list["pd.Series[Any]"]:
         """Generate various missing data patterns for testing."""
         if pattern_types is None:
             pattern_types = ["random", "consecutive", "periodic", "burst"]
@@ -1114,13 +1205,13 @@ class ImputationValidator:
         for pattern_type in pattern_types:
             if pattern_type == "random":
                 # Random 10% missing
-                mask = np.random.choice([True, False], size=data_length, p=[0.1, 0.9])
+                mask = self._rng.choice([True, False], size=data_length, p=[0.1, 0.9])
 
             elif pattern_type == "consecutive":
                 # Consecutive missing blocks
                 mask = np.zeros(data_length, dtype=bool)
-                start_idx = np.random.randint(0, data_length - 20)
-                mask[start_idx:start_idx + 15] = True
+                start_idx = self._rng.integers(0, data_length - 20)
+                mask[start_idx : start_idx + 15] = True
 
             elif pattern_type == "periodic":
                 # Periodic missing (every 10th value)
@@ -1131,8 +1222,8 @@ class ImputationValidator:
                 # Multiple small bursts
                 mask = np.zeros(data_length, dtype=bool)
                 for _ in range(5):
-                    start_idx = np.random.randint(0, data_length - 5)
-                    mask[start_idx:start_idx + 3] = True
+                    start_idx = self._rng.integers(0, data_length - 5)
+                    mask[start_idx : start_idx + 3] = True
 
             patterns.append(pd.Series(mask))
 
@@ -1141,7 +1232,7 @@ class ImputationValidator:
     async def benchmark_strategies(
         self,
         strategies: list[ImputationStrategy],
-        test_data: pd.Series[Any],
+        test_data: "pd.Series[Any]",
         num_trials: int = 10,
     ) -> pd.DataFrame:
         """Benchmark multiple strategies against each other."""
@@ -1154,7 +1245,10 @@ class ImputationValidator:
 
             for trial in range(num_trials):
                 validation_results = await self.validate_strategy(
-                    strategy, test_data, missing_patterns, test_data,
+                    strategy,
+                    test_data,
+                    missing_patterns,
+                    test_data,
                 )
 
                 # Aggregate results
@@ -1163,19 +1257,22 @@ class ImputationValidator:
                 avg_corr = np.mean([v for k, v in validation_results.items() if k.endswith("_correlation")])
                 avg_time = np.mean([v for k, v in validation_results.items() if k.endswith("_time_ms")])
 
-                results.append({
-                    "strategy": strategy_name,
-                    "trial": trial,
-                    "avg_mae": avg_mae,
-                    "avg_mse": avg_mse,
-                    "avg_correlation": avg_corr,
-                    "avg_time_ms": avg_time,
-                })
+                results.append(
+                    {
+                        "strategy": strategy_name,
+                        "trial": trial,
+                        "avg_mae": avg_mae,
+                        "avg_mse": avg_mse,
+                        "avg_correlation": avg_corr,
+                        "avg_time_ms": avg_time,
+                    },
+                )
 
         return pd.DataFrame(results)
 
 
 # === Integration Helper ===
+
 
 def create_imputation_manager(
     logger: LoggerService,

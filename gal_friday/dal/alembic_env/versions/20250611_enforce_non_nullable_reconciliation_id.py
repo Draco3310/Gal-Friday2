@@ -22,7 +22,8 @@ def upgrade() -> None:
         "position_adjustments",
         "reconciliation_id",
         existing_type=sa.dialects.postgresql.UUID(as_uuid=True),
-        nullable=False)
+        nullable=False,
+    )
 
 
 def downgrade() -> None:
@@ -31,4 +32,5 @@ def downgrade() -> None:
         "position_adjustments",
         "reconciliation_id",
         existing_type=sa.dialects.postgresql.UUID(as_uuid=True),
-        nullable=True)
+        nullable=True,
+    )

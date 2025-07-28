@@ -2,7 +2,7 @@
 
 from collections import deque
 import contextlib  # For SIM105
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar, cast
 from uuid import UUID
 
@@ -10,11 +10,28 @@ import asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from gal_friday.core.events import Event, EventType
+from gal_friday.core.events import (
+    ClosePositionCommand,
+    Event,
+    EventType,
+    ExecutionReportEvent,
+    FillEvent,
+    MarketDataL2Event,
+    MarketDataOHLCVEvent,
+    MarketDataTickerEvent,
+    MarketDataTradeEvent,
+    PotentialHaltTriggerEvent,
+    SystemStateEvent,
+    TradeSignalApprovedEvent,
+    TradeSignalProposedEvent,
+    TradeSignalRejectedEvent,
+)
 from gal_friday.dal.models.event_log import EventLog
 from gal_friday.logger_service import LoggerService
+from gal_friday.utils.error_helpers import log_and_reraise
 
 T = TypeVar("T", bound=Event)
+
 
 class EventStore:
     """Enterprise-grade event store with persistence and caching.
@@ -32,7 +49,8 @@ class EventStore:
         session_maker: async_sessionmaker[AsyncSession],
         logger: LoggerService,
         cache_size: int = 10000,
-        cache_ttl_seconds: int = 3600) -> None:
+        cache_ttl_seconds: int = 3600,
+    ) -> None:
         """Initialize event store.
 
         Args:
@@ -47,7 +65,7 @@ class EventStore:
 
         # In-memory cache with TTL
         self._cache: dict[UUID, tuple[Event, datetime]] = {}
-        self._cache_order: deque[UUID] = deque(maxlen=cache_size) # Added type hint
+        self._cache_order: deque[UUID] = deque(maxlen=cache_size)  # Added type hint
         self._cache_ttl = timedelta(seconds=cache_ttl_seconds)
 
         # Event type registry for deserialization
@@ -60,23 +78,19 @@ class EventStore:
     async def start(self) -> None:
         """Start the event store and background tasks."""
         self._cleanup_task = asyncio.create_task(self._cache_cleanup_loop())
-        self.logger.info(
-            "Event store started",
-            source_module=self._source_module)
+        self.logger.info("Event store started", source_module=self._source_module)
 
     async def stop(self) -> None:
         """Stop the event store and cleanup resources."""
         if self._cleanup_task:
             self._cleanup_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError): # SIM105
+            with contextlib.suppress(asyncio.CancelledError):  # SIM105
                 await self._cleanup_task
 
         self._cache.clear()
         self._cache_order.clear()
 
-        self.logger.info(
-            "Event store stopped",
-            source_module=self._source_module)
+        self.logger.info("Event store stopped", source_module=self._source_module)
 
     async def store_event(self, event: Event) -> None:
         """Store an event in both cache and database.
@@ -92,47 +106,45 @@ class EventStore:
             async with self.session_maker() as session:
                 event_type_attr = getattr(event, "event_type", None)
                 if not isinstance(event_type_attr, EventType):
-                    log_msg = ( # G004, E501
-                        "Event %s (source: %s, type: %s) "
-                        "is missing a valid 'event_type' attribute of type EventType."
+                    log_msg = (  # G004, E501
+                        "Event %s (source: %s, type: %s) is missing a valid 'event_type' attribute of type EventType."
                     )
-                    self.logger.error(
-                        log_msg,
-                        event.event_id,
-                        event.source_module,
-                        type(event).__name__)
+                    self.logger.error(log_msg, event.event_id, event.source_module, type(event).__name__)
                     error_msg = f"Event {event.event_id} is missing a valid event_type."
-                    raise TypeError(error_msg) # TRY004,
+                    self._raise_type_error(error_msg)
+
+                # After validation, we know event_type_attr is a valid EventType
+                validated_event_type = cast("EventType", event_type_attr)
 
                 event_log = EventLog(
                     event_id=event.event_id,
-                    event_type=event_type_attr.value, # Use the validated attribute
+                    event_type=validated_event_type.value,  # Use the validated attribute
                     source_module=event.source_module,
                     timestamp=event.timestamp,
-                    data=self._serialize_event(event))
+                    data=self._serialize_event(event),
+                )
                 session.add(event_log)
                 await session.commit()
 
-            self.logger.debug( # G004
+            self.logger.debug(  # G004
                 "Stored event %s",
                 event.event_id,
                 source_module=self._source_module,
                 context={
-                    "event_type": event_type_attr.value,
+                    "event_type": validated_event_type.value,
                     "source": event.source_module,
-                })
+                },
+            )
 
         except Exception:
-            self.logger.exception(
+            log_and_reraise(
+                self.logger,
                 "Failed to store event",
                 source_module=self._source_module,
-                context={"event_id": str(event.event_id)})
-            raise
+                context={"event_id": str(event.event_id)},
+            )
 
-    async def get_event(
-        self,
-        event_id: UUID,
-        event_type: type[T] | None = None) -> T | None:
+    async def get_event(self, event_id: UUID, event_type: type[T] | None = None) -> T | None:
         """Retrieve a single event by ID.
 
         Args:
@@ -146,19 +158,19 @@ class EventStore:
         cached = self._get_from_cache(event_id)
         if cached:
             if event_type and not isinstance(cached, event_type):
-                self.logger.warning( # G004
+                self.logger.warning(  # G004
                     "Event type mismatch: expected %s, got %s",
                     event_type.__name__,
                     type(cached).__name__,
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 return None
             return cached  # type: ignore[return-value]
 
         # Load from database
         try:
             async with self.session_maker() as session:
-                result = await session.execute(
-                    select(EventLog).where(EventLog.event_id == event_id))
+                result = await session.execute(select(EventLog).where(EventLog.event_id == event_id))
                 event_log = result.scalar_one_or_none()
 
                 if not event_log:
@@ -168,11 +180,12 @@ class EventStore:
 
                 # Validate type if specified
                 if event_type and not isinstance(event, event_type):
-                    self.logger.warning( # G004
+                    self.logger.warning(  # G004
                         "Event type mismatch: expected %s, got %s",
                         event_type.__name__,
                         type(event).__name__,
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
                     return None
 
                 # Add to cache
@@ -185,7 +198,8 @@ class EventStore:
             self.logger.exception(
                 "Failed to retrieve event",
                 source_module=self._source_module,
-                context={"event_id": str(event_id)})
+                context={"event_id": str(event_id)},
+            )
             return None
 
     async def get_events_by_correlation(
@@ -193,7 +207,8 @@ class EventStore:
         correlation_id: UUID,
         event_types: list[type[Event]] | None = None,
         since: datetime | None = None,
-        until: datetime | None = None) -> list[Event]:
+        until: datetime | None = None,
+    ) -> list[Event]:
         """Retrieve all events with a specific correlation ID.
 
         Args:
@@ -207,8 +222,7 @@ class EventStore:
         """
         try:
             async with self.session_maker() as session:
-                query = select(EventLog).where(
-                    EventLog.data["correlation_id"].astext == str(correlation_id))
+                query = select(EventLog).where(EventLog.data["correlation_id"].astext == str(correlation_id))
 
                 if event_types:
                     type_names = [et.__name__ for et in event_types]
@@ -238,7 +252,8 @@ class EventStore:
             self.logger.exception(
                 "Failed to retrieve events by correlation",
                 source_module=self._source_module,
-                context={"correlation_id": str(correlation_id)})
+                context={"correlation_id": str(correlation_id)},
+            )
             return []
 
     async def get_events_by_type(
@@ -246,7 +261,8 @@ class EventStore:
         event_type: type[T],
         since: datetime | None = None,
         until: datetime | None = None,
-        limit: int = 100) -> list[T]:
+        limit: int = 100,
+    ) -> list[T]:
         """Retrieve events of a specific type.
 
         Args:
@@ -260,8 +276,7 @@ class EventStore:
         """
         try:
             async with self.session_maker() as session:
-                query = select(EventLog).where(
-                    EventLog.event_type == event_type.__name__)
+                query = select(EventLog).where(EventLog.event_type == event_type.__name__)
 
                 if since:
                     query = query.where(EventLog.timestamp >= since)
@@ -287,18 +302,18 @@ class EventStore:
             self.logger.exception(
                 "Failed to retrieve events by type",
                 source_module=self._source_module,
-                context={"event_type": event_type.__name__})
+                context={"event_type": event_type.__name__},
+            )
             return []
 
     def _add_to_cache(self, event: Event) -> None:
         """Add event to cache with TTL."""
-        from datetime import UTC
-
         event_id = event.event_id
 
         # Remove oldest if at capacity
         current_maxlen = self._cache_order.maxlen
-        assert current_maxlen is not None, "Deque maxlen should be set during initialization" # noqa: S101
+        if current_maxlen is None:
+            raise ValueError("Deque maxlen should be set during initialization")
         if len(self._cache) >= current_maxlen:
             oldest_id = self._cache_order[0]
             self._cache.pop(oldest_id, None)
@@ -309,8 +324,6 @@ class EventStore:
 
     def _get_from_cache(self, event_id: UUID) -> Event | None:
         """Get event from cache if not expired."""
-        from datetime import UTC
-
         cached = self._cache.get(event_id)
         if not cached:
             return None
@@ -325,8 +338,6 @@ class EventStore:
 
     async def _cache_cleanup_loop(self) -> None:
         """Background task to clean expired cache entries."""
-        from datetime import UTC
-
         while True:
             try:
                 await asyncio.sleep(300)  # Run every 5 minutes
@@ -342,17 +353,16 @@ class EventStore:
                     self._cache.pop(event_id, None)
 
                 if expired_ids:
-                    self.logger.debug( # G004
+                    self.logger.debug(  # G004
                         "Cleaned %s expired cache entries",
                         len(expired_ids),
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
 
             except asyncio.CancelledError:
                 break
             except Exception:
-                self.logger.exception(
-                    "Error in cache cleanup",
-                    source_module=self._source_module)
+                self.logger.exception("Error in cache cleanup", source_module=self._source_module)
 
     def _serialize_event(self, event: Event) -> dict[str, Any]:
         """Serialize event to JSON-compatible dict[str, Any]."""
@@ -369,18 +379,19 @@ class EventStore:
     def _deserialize_event(self, event_log: EventLog) -> Event | None:
         """Deserialize event from database."""
         try:
-            # Ensure event_log.event_type is treated as str for dict[str, Any] key
-            event_type_str = cast("str", event_log.event_type)
+            # Get event_type as string for dict[str, Any] key
+            event_type_str = event_log.event_type
             event_class = self._event_registry.get(event_type_str)
             if not event_class:
-                self.logger.warning( # G004
+                self.logger.warning(  # G004
                     "Unknown event type: %s",
                     event_log.event_type,
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 return None
 
-            # Ensure event_log.data is treated as dict[str, Any] for from_dict method
-            event_data_dict = cast("dict[str, Any]", event_log.data)
+            # Get event_log.data as dict for from_dict method
+            event_data_dict = event_log.data
             # The cast to Event was redundant, event_class.from_dict should
             # return correctly typed event (E501)
             return event_class.from_dict(event_data_dict)
@@ -389,26 +400,12 @@ class EventStore:
             self.logger.exception(
                 "Failed to deserialize event",
                 source_module=self._source_module,
-                context={"event_id": str(event_log.event_id)})
+                context={"event_id": str(event_log.event_id)},
+            )
             return None
 
     def _register_event_types(self) -> None:
         """Register all event types for deserialization."""
-        from gal_friday.core.events import (
-            ClosePositionCommand,
-            ExecutionReportEvent,
-            FillEvent,
-            MarketDataL2Event,
-            MarketDataOHLCVEvent,
-            MarketDataTickerEvent,
-            MarketDataTradeEvent,
-            PotentialHaltTriggerEvent,
-            SystemStateEvent,
-            TradeSignalApprovedEvent,
-            TradeSignalProposedEvent,
-            TradeSignalRejectedEvent,
-        )
-
         event_types = [
             MarketDataOHLCVEvent,
             MarketDataL2Event,
@@ -426,3 +423,7 @@ class EventStore:
 
         for event_type in event_types:
             self._event_registry[event_type.__name__] = event_type
+
+    def _raise_type_error(self, error_msg: str) -> None:
+        """Helper method to raise TypeError, abstracting the raise from try block."""
+        raise TypeError(error_msg)

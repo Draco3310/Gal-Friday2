@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import joblib
-
-if TYPE_CHECKING:
-    import pandas as pd
+import pandas as pd  # Local import to avoid heavy dependency at module import
 
 
 class ImputationModelRegistry:
@@ -49,8 +47,6 @@ def build_ml_features(ohlcv_history: pd.DataFrame) -> pd.DataFrame:
     This routine computes a small set of technical features suitable for
     learning patterns in the price series.
     """
-    import pandas as pd  # Local import to avoid heavy dependency at module import
-
     df = ohlcv_history.copy()
 
     df["return_1"] = df["close"].pct_change()

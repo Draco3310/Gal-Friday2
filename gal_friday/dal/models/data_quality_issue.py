@@ -1,17 +1,21 @@
+"""Data quality issue model for tracking data validation problems.
+
+This module defines the database model for storing data quality issues
+and validation failures in the trading system.
+"""
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from datetime import datetime  # noqa: TC003
+from typing import Any
+from uuid import UUID  # noqa: TC003
 
 from sqlalchemy import DateTime, Index, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID  # noqa: N811
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from .models_base import Base
-
-if TYPE_CHECKING:
-    from datetime import datetime
-    from uuid import UUID as PythonUUID
 
 
 class DataQualityIssue(Base):
@@ -19,9 +23,12 @@ class DataQualityIssue(Base):
 
     __tablename__ = "data_quality_issues"
 
-    id: Mapped[PythonUUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    alert_id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.uuid_generate_v4(),
+    )
+    alert_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
     trading_pair: Mapped[str] = mapped_column(String(20), nullable=False)
     alert_type: Mapped[str] = mapped_column(String(100), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -30,14 +37,15 @@ class DataQualityIssue(Base):
     publication_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     fallback_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
     issue_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    persisted_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now())
+    persisted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
         Index("idx_data_quality_issue_timestamp", "issue_timestamp"),
-        Index("idx_data_quality_issue_trading_pair", "trading_pair"))
+        Index("idx_data_quality_issue_trading_pair", "trading_pair"),
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - simple repr
+        """Return string representation of DataQualityIssue."""
         return (
             f"<DataQualityIssue(id={self.id}, trading_pair='{self.trading_pair}', "
             f"alert_type='{self.alert_type}', severity='{self.severity}')>"

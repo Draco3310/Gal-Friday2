@@ -9,30 +9,33 @@ This example shows how to use the CLI service with:
 - Graceful shutdown
 """
 
+import logging
 from pathlib import Path
 import subprocess
 import sys
+
+logger = logging.getLogger(__name__)
 
 
 def run_cli_command(args: list[str], timeout: int = 10) -> tuple[int, str, str]:
     """Run a CLI command and return the result."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             [sys.executable, "-m", "gal_friday.cli_service", *args],
             check=False, capture_output=True,
             text=True,
             timeout=timeout,
         )
-        return result.returncode, result.stdout, result.stderr
     except subprocess.TimeoutExpired:
         return -1, "", "Command timed out"
     except Exception as e:
         return -1, "", str(e)
+    else:
+        return result.returncode, result.stdout, result.stderr
 
 
-def main():
-    """Demonstrate the enhanced CLI service functionality."""
-    # 1. Show help
+def test_help_command():
+    """Test the help command."""
     returncode, stdout, stderr = run_cli_command(["--help"])
     if returncode == 0:
         for line in stdout.split("\n")[:10]:
@@ -40,14 +43,18 @@ def main():
     else:
         pass
 
-    # 2. Show version
+
+def test_version_command():
+    """Test the version command."""
     returncode, stdout, stderr = run_cli_command(["--version"])
     if returncode == 0:
         pass
     else:
         pass
 
-    # 3. Test config validation (with non-existent config)
+
+def test_config_validation_invalid():
+    """Test config validation with non-existent config."""
     returncode, stdout, stderr = run_cli_command([
         "--validate-config",
         "--config", "non_existent_config.yaml",
@@ -57,7 +64,9 @@ def main():
     else:
         pass
 
-    # 4. Create a basic config file for testing
+
+def test_config_validation_valid():
+    """Test config validation with valid config file."""
     config_path = Path("test_config.yaml")
     try:
         config_content = """
@@ -83,10 +92,14 @@ services:
         else:
             pass
 
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception("Error running command: %s", e)
 
-    # 6. Test health check
+    return config_path
+
+
+def test_health_check(config_path):
+    """Test health check command."""
     returncode, stdout, stderr = run_cli_command([
         "--health-check",
         "--config", str(config_path) if config_path.exists() else "config/default.yaml",
@@ -96,7 +109,9 @@ services:
     else:
         pass
 
-    # 7. Test example mode (brief run)
+
+def test_example_mode():
+    """Test example mode with timeout."""
     returncode, stdout, stderr = run_cli_command(["--example"], timeout=5)
     if returncode in (0, -1):  # Timeout is expected
         if stdout:
@@ -106,7 +121,9 @@ services:
     else:
         pass
 
-    # 8. Test different log levels
+
+def test_log_levels(config_path):
+    """Test different log levels."""
     for log_level in ["DEBUG", "WARNING", "ERROR"]:
         returncode, stdout, stderr = run_cli_command([
             "--validate-config",
@@ -118,7 +135,9 @@ services:
         else:
             pass
 
-    # 9. Show available options
+
+def show_available_options():
+    """Show available CLI options."""
     options = [
         "--config/-c: Configuration file path",
         "--log-level/-l: Set logging level",
@@ -136,12 +155,39 @@ services:
     for _option in options:
         pass
 
+
+def main():
+    """Demonstrate the enhanced CLI service functionality."""
+    # 1. Show help
+    test_help_command()
+
+    # 2. Show version
+    test_version_command()
+
+    # 3. Test config validation (with non-existent config)
+    test_config_validation_invalid()
+
+    # 4. Create a basic config file for testing
+    config_path = test_config_validation_valid()
+
+    # 5. Test health check
+    test_health_check(config_path)
+
+    # 6. Test example mode (brief run)
+    test_example_mode()
+
+    # 7. Test different log levels
+    test_log_levels(config_path)
+
+    # 8. Show available options
+    show_available_options()
+
     # Cleanup
     try:
         if config_path.exists():
             config_path.unlink()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception("Error running command: %s", e)
 
 
 

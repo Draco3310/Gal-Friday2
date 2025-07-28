@@ -150,4 +150,4 @@ The `feature_engine.py` module already uses `pandas-ta` directly for its calcula
 1. Add more technical indicators as needed
 2. Implement caching for expensive calculations
 3. Add parallel processing for multiple indicators
-4. Create specialized implementations for different use cases 
+4. Create specialized implementations for different use cases

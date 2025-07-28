@@ -1,3 +1,9 @@
+"""Portfolio snapshot model for tracking portfolio state over time.
+
+This module defines the database model for storing portfolio snapshots
+including positions, balances, and metrics.
+"""
+
 from typing import Any
 
 from sqlalchemy import JSON, Column, DateTime, Float, Integer, Numeric
@@ -7,12 +13,17 @@ from .base import Base
 
 
 class PortfolioSnapshot(Base):
+    """Database model for portfolio state snapshots."""
+
     __tablename__ = "portfolio_snapshots"
 
     snapshot_pk = Column(Integer, primary_key=True, autoincrement=True)
     snapshot_timestamp = Column(
-        DateTime(timezone=True), unique=True, nullable=False,
-        server_default=func.now(), index=True,
+        DateTime(timezone=True),
+        unique=True,
+        nullable=False,
+        server_default=func.now(),
+        index=True,
     )
     total_equity = Column(Numeric(18, 8), nullable=False)
     available_balance = Column(Numeric(18, 8), nullable=False)
@@ -22,13 +33,18 @@ class PortfolioSnapshot(Base):
     total_drawdown_pct = Column(Float, nullable=False)
     positions = Column(JSON, nullable=False)  # JSON object detailing current positions
 
-    def __repr__(self) -> str: # Added -> str
+    def __repr__(self) -> str:  # Added -> str
+        """Return string representation of PortfolioSnapshot.
+
+        Returns:
+            String representation showing key snapshot attributes.
+        """
         return (
             f"<PortfolioSnapshot(snapshot_pk={self.snapshot_pk}, "
             f"snapshot_timestamp='{self.snapshot_timestamp}', total_equity={self.total_equity})>"
         )
 
-    def to_dict(self) -> dict[str, Any]: # Added to_dict method with type hints
+    def to_dict(self) -> dict[str, Any]:  # Added to_dict method with type hints
         """Converts the PortfolioSnapshot object to a dictionary."""
         return {
             "snapshot_pk": self.snapshot_pk,
@@ -39,5 +55,5 @@ class PortfolioSnapshot(Base):
             "daily_drawdown_pct": self.daily_drawdown_pct,
             "weekly_drawdown_pct": self.weekly_drawdown_pct,
             "total_drawdown_pct": self.total_drawdown_pct,
-            "positions": self.positions, # Assuming positions is already a dict[str, Any] or JSON-serializable
+            "positions": self.positions,  # Assuming positions is already a dict[str, Any] or JSON-serializable
         }

@@ -40,7 +40,8 @@ class PubSubManager:
         """
         # Subscribers stored by EventType enum member
         self._subscribers: dict[
-            EventType, list[Callable[[Event], Coroutine[Any, Any, None]]],
+            EventType,
+            list[Callable[[Event], Coroutine[Any, Any, None]]],
         ] = defaultdict(list[Any])
         self._logger = logger
         self._config = config_manager  # Store config reference
@@ -48,20 +49,18 @@ class PubSubManager:
         # Configure queue size from config
         queue_maxsize = self._config.get_int("pubsub.queue_maxsize", 0)  # Default to 0 (unlimited)
         # Use PriorityQueue with tuple[Any, ...] of (priority, event)
-        self._event_queue: asyncio.PriorityQueue[tuple[int, Event]] = asyncio.PriorityQueue(
-            maxsize=queue_maxsize)
+        self._event_queue: asyncio.PriorityQueue[tuple[int, Event]] = asyncio.PriorityQueue(maxsize=queue_maxsize)
         self._logger.info(
             "PubSubManager initialized with queue maxsize: %s",
-            "unlimited" if queue_maxsize == 0 else queue_maxsize)
+            "unlimited" if queue_maxsize == 0 else queue_maxsize,
+        )
 
         # Configure handler timeout
         self._handler_timeout_s = self._config.get_float("pubsub.handler_timeout_seconds", 10.0)
         self._logger.info("PubSubManager handler timeout: %ss", self._handler_timeout_s)
 
         # Error handling configuration
-        self._consumer_error_sleep_s = self._config.get_float(
-            "pubsub.consumer_error_sleep_seconds",
-            1.0)
+        self._consumer_error_sleep_s = self._config.get_float("pubsub.consumer_error_sleep_seconds", 1.0)
         self._handler_max_failures = self._config.get_int("pubsub.handler_max_failures", 5)
         self._handler_failure_counts: dict[Callable[..., Any], int] = defaultdict(int)
 
@@ -69,9 +68,7 @@ class PubSubManager:
         self._events_published_count = 0
         self._events_processed_count = 0
         self._handler_errors_count = 0
-        self._metrics_log_interval_s = self._config.get_float(
-            "pubsub.metrics_log_interval_s",
-            60.0)
+        self._metrics_log_interval_s = self._config.get_float("pubsub.metrics_log_interval_s", 60.0)
         self._metrics_task: asyncio.Task[Any] | None = None
 
         self._consumer_task: asyncio.Task[Any] | None = None
@@ -100,14 +97,12 @@ class PubSubManager:
                 "Published event: %s (%s) with priority %s",
                 event_type.name,
                 getattr(event, "event_id", "unknown"),
-                priority)
+                priority,
+            )
         except Exception:
             self._logger.exception("Error publishing event %s", event_type.name)
 
-    def subscribe(
-        self,
-        event_type: EventType,
-        handler: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
+    def subscribe(self, event_type: EventType, handler: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
         """Register a handler coroutine for a specific EventType."""
         # Type[Any] hint for handler is broad (Any) because the dict[str, Any] stores handlers for
         # different event types. The dispatcher logic ensures the correct event type is passed.
@@ -115,10 +110,7 @@ class PubSubManager:
         handler_name = getattr(handler, "__name__", repr(handler))
         self._logger.info("Handler %s subscribed to %s", handler_name, event_type.name)
 
-    def unsubscribe(
-        self,
-        event_type: EventType,
-        handler: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
+    def unsubscribe(self, event_type: EventType, handler: Callable[[Any], Coroutine[Any, Any, None]]) -> None:
         """Remove a handler for a specific EventType."""
         try:
             self._subscribers[event_type].remove(handler)
@@ -129,28 +121,25 @@ class PubSubManager:
             self._logger.warning(
                 "Attempted to unsubscribe handler %s from %s, but it was not found.",
                 handler_name,
-                event_type.name)
+                event_type.name,
+            )
 
     async def _dispatch_event_to_handler(
         self,
         handler: Callable[[Event], Coroutine[Any, Any, None]],
-        event: Event) -> None:
+        event: Event,
+    ) -> None:
         """Execute a single handler with timeout and error handling."""
         handler_name = getattr(handler, "__name__", repr(handler))
         event_type = getattr(event, "event_type", None)
-        event_type_name = (
-            getattr(event_type, "name", "UnknownType") if event_type else "UnknownType"
-        )
+        event_type_name = getattr(event_type, "name", "UnknownType") if event_type else "UnknownType"
         event_id = getattr(event, "event_id", "unknown")
 
         try:
             # Wrap the handler call in wait_for
             await asyncio.wait_for(handler(event), timeout=self._handler_timeout_s)
             # Reset failure count on success
-            if (
-                handler in self._handler_failure_counts
-                and self._handler_failure_counts[handler] > 0
-            ):
+            if handler in self._handler_failure_counts and self._handler_failure_counts[handler] > 0:
                 self._handler_failure_counts[handler] = 0
                 self._logger.debug("Reset failure count for handler %s", handler_name)
         except TimeoutError:
@@ -159,28 +148,23 @@ class PubSubManager:
                 handler_name,
                 self._handler_timeout_s,
                 event_type_name,
-                event_id)
+                event_id,
+            )
             self._handler_errors_count += 1
             if event_type and isinstance(event_type, EventType):
-                self._track_handler_failure(
-                    handler,
-                    event_type,
-                    f"timeout (> {self._handler_timeout_s}s)")
+                self._track_handler_failure(handler, event_type, f"timeout (> {self._handler_timeout_s}s)")
         except Exception as e:
             self._logger.exception(
                 "Error executing handler %s for event %s (%s)",
                 handler_name,
                 event_type_name,
-                event_id)
+                event_id,
+            )
             self._handler_errors_count += 1
             if event_type and isinstance(event_type, EventType):
                 self._track_handler_failure(handler, event_type, str(e))
 
-    def _track_handler_failure(
-        self,
-        handler: Callable[..., Any],
-        event_type: EventType,
-        error_reason: str) -> None:
+    def _track_handler_failure(self, handler: Callable[..., Any], event_type: EventType, error_reason: str) -> None:
         """Track handler failures and auto-unsubscribe if threshold is exceeded."""
         handler_name = getattr(handler, "__name__", repr(handler))
 
@@ -191,12 +175,12 @@ class PubSubManager:
         # Check if handler should be auto-unsubscribed
         if failure_count >= self._handler_max_failures:
             self._logger.critical(
-                "Handler %s exceeded maximum failures (%s). Last error: %s. "
-                "Auto-unsubscribing from %s.",
+                "Handler %s exceeded maximum failures (%s). Last error: %s. Auto-unsubscribing from %s.",
                 handler_name,
                 self._handler_max_failures,
                 error_reason,
-                event_type.name)
+                event_type.name,
+            )
             try:
                 self.unsubscribe(event_type, handler)
                 # Clear the failure count after unsubscribing
@@ -210,7 +194,8 @@ class PubSubManager:
                 failure_count,
                 self._handler_max_failures,
                 event_type.name,
-                error_reason)
+                error_reason,
+            )
 
     async def _event_consumer(self) -> None:
         """Consume events from the queue and dispatch them to handlers."""
@@ -224,9 +209,7 @@ class PubSubManager:
                 event_type = getattr(event, "event_type", None)
 
                 if not isinstance(event_type, EventType):
-                    self._logger.warning(
-                        "Received event object with invalid/missing event_type attribute: %s",
-                        event)
+                    self._logger.warning("Received event object with invalid/missing event_type attribute: %s", event)
                     self._event_queue.task_done()
                     continue
 
@@ -262,7 +245,8 @@ class PubSubManager:
                 qsize,
                 self._events_published_count,
                 self._events_processed_count,
-                self._handler_errors_count)
+                self._handler_errors_count,
+            )
 
     async def start(self) -> None:
         """Start the background event consumer task."""
@@ -281,7 +265,7 @@ class PubSubManager:
             try:
                 await self._consumer_task
             except asyncio.CancelledError:
-                pass  # Expected cancellation
+                self._logger.debug("Consumer task cancelled as expected")
             except Exception:
                 self._logger.exception("Error during PubSubManager stop")
 
@@ -290,15 +274,13 @@ class PubSubManager:
             try:
                 await self._metrics_task
             except asyncio.CancelledError:
-                pass  # Expected cancellation
+                self._logger.debug("Metrics task cancelled as expected")
             except Exception:
                 self._logger.exception("Error during metrics task stop")
 
         # Wait for any remaining background tasks to complete
         if self._background_tasks:
-            self._logger.info(
-                "Waiting for %s background tasks to complete...",
-                len(self._background_tasks))
+            self._logger.info("Waiting for %s background tasks to complete...", len(self._background_tasks))
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._logger.info("All background tasks completed.")
 

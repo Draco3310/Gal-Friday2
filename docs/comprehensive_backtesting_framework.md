@@ -8,7 +8,7 @@ The comprehensive backtesting framework builds on the existing BacktestingEngine
 
 - **Multiple Execution Modes**: Vectorized and event-driven backtesting
 - **Enhanced Performance Analytics**: Comprehensive metrics including Sharpe ratio, Calmar ratio, drawdown analysis
-- **Benchmarking System**: Compare strategies against market indices 
+- **Benchmarking System**: Compare strategies against market indices
 - **Strategy Comparison**: Test multiple strategies simultaneously
 - **Parameter Optimization**: Grid search optimization for strategy parameters
 - **Professional Reporting**: Detailed reports with performance summaries
@@ -20,8 +20,8 @@ The comprehensive backtesting framework builds on the existing BacktestingEngine
 import asyncio
 import datetime as dt
 from gal_friday.backtesting_engine import (
-    BacktestingEngine, 
-    BacktestConfig, 
+    BacktestingEngine,
+    BacktestConfig,
     BacktestMode
 )
 
@@ -59,7 +59,7 @@ Configuration class for backtest parameters:
 @dataclass
 class BacktestConfig:
     start_date: dt.datetime          # Backtest start date
-    end_date: dt.datetime            # Backtest end date  
+    end_date: dt.datetime            # Backtest end date
     initial_capital: float           # Starting capital
     symbols: list[str]               # Trading symbols
     mode: BacktestMode              # Execution mode
@@ -129,7 +129,7 @@ Realistic backtesting with full service integration:
 
 ```python
 config = BacktestConfig(
-    # ... other parameters  
+    # ... other parameters
     mode=BacktestMode.EVENT_DRIVEN
 )
 
@@ -162,17 +162,17 @@ class YourStrategy:
     def __init__(self, name: str, **parameters):
         self.name = name
         # Initialize with parameters
-    
+
     def generate_signals(self, timestamp, prices, positions, cash):
         """
         Generate trading signals.
-        
+
         Args:
             timestamp: Current timestamp
             prices: Dict of {symbol: current_price}
-            positions: Dict of {symbol: position_size} 
+            positions: Dict of {symbol: position_size}
             cash: Available cash
-            
+
         Returns:
             List of signal dictionaries:
             [{"symbol": "BTCUSD", "action": "buy", "quantity": 100}, ...]
@@ -231,7 +231,7 @@ parameter_grid = {
 
 optimization_results = engine.optimize_parameters(
     StrategyClass,
-    parameter_grid, 
+    parameter_grid,
     config,
     optimization_metric="sharpe_ratio"
 )
@@ -257,7 +257,7 @@ Load historical data from CSV:
 # Load multi-symbol data
 engine.load_data_from_csv("data.csv", symbol_column="symbol")
 
-# Load single symbol data  
+# Load single symbol data
 engine.load_data_from_csv("btc_data.csv")  # Uses "DEFAULT_SYMBOL"
 ```
 
@@ -349,8 +349,8 @@ To migrate from basic to comprehensive backtesting:
 1. **Update imports**:
 ```python
 from gal_friday.backtesting_engine import (
-    BacktestingEngine, 
-    BacktestConfig, 
+    BacktestingEngine,
+    BacktestConfig,
     BacktestMode
 )
 ```
@@ -360,12 +360,12 @@ from gal_friday.backtesting_engine import (
 # Old way
 run_config = {
     "start_date": "2023-01-01",
-    "end_date": "2023-12-31", 
+    "end_date": "2023-12-31",
     "initial_capital": 100000,
     "trading_pairs": ["BTCUSD"]
 }
 
-# New way  
+# New way
 config = BacktestConfig(
     start_date=dt.datetime(2023, 1, 1),
     end_date=dt.datetime(2023, 12, 31),
@@ -436,7 +436,7 @@ See `examples/comprehensive_backtest_example.py` for a complete working example 
 
 #### Core Methods
 - `run_backtest(config, strategy, services)` - Run comprehensive backtest
-- `run_strategy_comparison(strategies, config)` - Compare multiple strategies  
+- `run_strategy_comparison(strategies, config)` - Compare multiple strategies
 - `optimize_parameters(strategy_class, parameter_grid, config)` - Parameter optimization
 
 #### Data Management
@@ -452,4 +452,4 @@ See `examples/comprehensive_backtest_example.py` for a complete working example 
 - `_add_benchmark_analysis()` - Benchmark comparison
 - `_calculate_enhanced_metrics()` - Enhanced metrics calculation
 
-For more details, see the source code documentation and examples. 
+For more details, see the source code documentation and examples.

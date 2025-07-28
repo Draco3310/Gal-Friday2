@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from gal_friday.config_manager import ConfigManager
+from gal_friday.utils.error_helpers import log_and_reraise
 
 if TYPE_CHECKING:
     from gal_friday.logger_service import LoggerService
@@ -45,17 +46,18 @@ class DatabaseConnectionPool:
                     if not db_url:
                         self.logger.error(
                             "Database connection string is not configured.",
-                            source_module=self._source_module)
-                        raise ValueError("Database connection string is missing.")
+                            source_module=self._source_module,
+                        )
+                        self._raise_value_error("Database connection string is missing.")
 
                     # Note: Pool size and other asyncpg-specific pool params are
                     # handled differently in SQLAlchemy or have defaults.
                     # `pool_size` and `max_overflow` are common SQLAlchemy pool params.
                     # We can expose these via config if needed.
                     pool_size = self.config.get_int("database.pool.min_size", 5)
-                    max_overflow = (
-                        self.config.get_int("database.pool.max_size", 10) -
-                        self.config.get_int("database.pool.min_size", 5)
+                    max_overflow = self.config.get_int("database.pool.max_size", 10) - self.config.get_int(
+                        "database.pool.min_size",
+                        5,
                     )
                     pool_recycle_seconds = 300
                     pool_timeout_seconds = 10
@@ -67,17 +69,16 @@ class DatabaseConnectionPool:
                         max_overflow=max_overflow,
                         pool_recycle=pool_recycle_seconds,
                         pool_timeout=pool_timeout_seconds,
-                        echo=echo_sql)
-                    self._session_maker = async_sessionmaker(
-                        self._engine, expire_on_commit=False, class_=AsyncSession)
-                    self.logger.info(
-                        "SQLAlchemy AsyncEngine initialized",
-                        source_module=self._source_module)
+                        echo=echo_sql,
+                    )
+                    self._session_maker = async_sessionmaker(self._engine, expire_on_commit=False, class_=AsyncSession)
+                    self.logger.info("SQLAlchemy AsyncEngine initialized", source_module=self._source_module)
                 except Exception:
-                    self.logger.exception(
+                    log_and_reraise(
+                        self.logger,
                         "Failed to initialize SQLAlchemy AsyncEngine",
-                        source_module=self._source_module)
-                    raise
+                        source_module=self._source_module,
+                    )
 
     async def close(self) -> None:
         """Dispose of the SQLAlchemy AsyncEngine."""
@@ -86,9 +87,7 @@ class DatabaseConnectionPool:
                 await self._engine.dispose()
                 self._engine = None
                 self._session_maker = None
-                self.logger.info(
-                    "SQLAlchemy AsyncEngine disposed",
-                    source_module=self._source_module)
+                self.logger.info("SQLAlchemy AsyncEngine disposed", source_module=self._source_module)
 
     def is_initialized(self) -> bool:
         """Check if the engine is initialized."""
@@ -107,15 +106,15 @@ class DatabaseConnectionPool:
         if not self._session_maker:
             self.logger.error(
                 "Session maker not initialized. Call initialize() first.",
-                source_module=self._source_module)
-            raise RuntimeError(
-                "Session maker is not initialized. Call initialize() first.")
+                source_module=self._source_module,
+            )
+            raise RuntimeError("Session maker is not initialized. Call initialize() first.")
 
         session = self._session_maker()
         try:
             yield session
             # Note: Transactions should be handled by the calling code (e.g., repository methods)
-            # await session.commit() # Typically not done here, but in the repository
+            # Typically not done here, but in the repository - await session.commit()
         except Exception:
             await session.rollback()
             raise
@@ -128,3 +127,7 @@ class DatabaseConnectionPool:
     def get_session_maker(self) -> async_sessionmaker[AsyncSession] | None:
         """Return the async_sessionmaker instance."""
         return self._session_maker
+
+    def _raise_value_error(self, error_msg: str) -> None:
+        """Helper method to raise ValueError, abstracting the raise from try block."""
+        raise ValueError(error_msg)

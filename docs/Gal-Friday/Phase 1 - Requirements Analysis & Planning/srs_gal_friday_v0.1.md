@@ -219,7 +219,7 @@ Initial user documentation will be limited to configuration file explanations (`
 * **FR-304:** The system **shall** preprocess features as required by the specific loaded model(s) (e.g., scaling, normalization). `[High]`
 * **FR-305:** The system **shall** use the loaded models to generate predictions. The primary prediction target is the probability of the price moving up or down by a configurable threshold (e.g., 0.1%) within a configurable future time window (e.g., 5 minutes). `[High]`
 * **FR-306:** The system **shall** support using multiple models concurrently (e.g., one XGBoost, one LSTM). `[Medium]`
-* **FR-307:** The system **shall** implement a mechanism to combine predictions from multiple models into a single actionable signal (e.g., weighted averaging based on confidence, simple voting). `[Medium]` 
+* **FR-307:** The system **shall** implement a mechanism to combine predictions from multiple models into a single actionable signal (e.g., weighted averaging based on confidence, simple voting). `[Medium]`
 * **FR-308:** The system **shall** publish the final prediction probability (or combined signal) for the Strategy module. `[High]`
 * **FR-309:** The system **shall** include a pipeline script or functionality for retraining models using stored historical feature data. `[High]`
 * **FR-310:** The retraining pipeline **shall** allow configuration of the training data window (e.g., use last 90 days of data). `[High]`

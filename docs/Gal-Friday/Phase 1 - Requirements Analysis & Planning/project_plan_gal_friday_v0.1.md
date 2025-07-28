@@ -18,7 +18,7 @@
     3.1 Phase 1: Requirements Analysis & Planning
     3.2 Phase 2: System Design
     3.3 Phase 3: Implementation
-    3.4 Phase 4: Testing 
+    3.4 Phase 4: Testing
     3.5 Phase 5: Deployment (Sandbox/Controlled Live)
     3.6 Phase 6: Maintenance & Monitoring
 4.  Assumptions & Notes

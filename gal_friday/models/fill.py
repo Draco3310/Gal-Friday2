@@ -1,3 +1,9 @@
+"""Fill model for trade execution records.
+
+This module defines models for recording trade fills (executions)
+in the trading system.
+"""
+
 from datetime import UTC, datetime
 from decimal import Decimal
 import logging
@@ -30,6 +36,7 @@ class ExecutionEventBuilder:
 
     def create_execution_event(self, fill: "Fill") -> ExecutionReportEvent:
         """Create actual ExecutionReportEvent from fill data.
+
         Replaces placeholder logic with complete event construction.
 
         Args:
@@ -182,20 +189,24 @@ class ExecutionEventBuilder:
 
     def _get_limit_price(self, fill: "Fill") -> Decimal | None:
         """Get limit price from related order if it's a limit order."""
-        if (fill.order and
-            hasattr(fill.order, "limit_price") and
-            fill.order.limit_price and
-            self._get_order_type(fill) in ["LIMIT", "STOP_LIMIT"]):
+        if (
+            fill.order
+            and hasattr(fill.order, "limit_price")
+            and fill.order.limit_price
+            and self._get_order_type(fill) in ["LIMIT", "STOP_LIMIT"]
+        ):
             return cast("Decimal | None", fill.order.limit_price)
 
         return None
 
     def _get_stop_price(self, fill: "Fill") -> Decimal | None:
         """Get stop price from related order if it's a stop order."""
-        if (fill.order and
-            hasattr(fill.order, "stop_price") and
-            fill.order.stop_price and
-            "STOP" in self._get_order_type(fill)):
+        if (
+            fill.order
+            and hasattr(fill.order, "stop_price")
+            and fill.order.stop_price
+            and "STOP" in self._get_order_type(fill)
+        ):
             return cast("Decimal | None", fill.order.stop_price)
 
         return None
@@ -255,12 +266,9 @@ class ExecutionEventPublisher:
                 f"Published execution event {event.event_id} for order {event.exchange_order_id}",
             )
 
-        except Exception as e:
+        except Exception:
             self.failed_publications += 1
-            self.logger.error(
-                f"Failed to publish execution event {getattr(event, 'event_id', 'unknown')}: {e}",
-                exc_info=True,
-            )
+            self.logger.exception(f"Failed to publish execution event {getattr(event, 'event_id', 'unknown')}")
             return False
         else:
             return True
@@ -272,7 +280,8 @@ class ExecutionEventPublisher:
             "failed_publications": self.failed_publications,
             "success_rate": (
                 self.published_events / (self.published_events + self.failed_publications)
-                if (self.published_events + self.failed_publications) > 0 else 0.0
+                if (self.published_events + self.failed_publications) > 0
+                else 0.0
             ),
             "last_publication_time": self.last_publication_time.isoformat() if self.last_publication_time else None,
         }
@@ -287,7 +296,9 @@ class Fill(Base):
     fill_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # Exchange fill ID
     order_pk: Mapped[int] = mapped_column(Integer, ForeignKey("orders.order_pk"), nullable=False, index=True)
     exchange_order_id: Mapped[str | None] = mapped_column(
-        String(64), index=True, nullable=True,
+        String(64),
+        index=True,
+        nullable=True,
     )  # From Order, denormalized for easier query
 
     trading_pair: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -304,14 +315,18 @@ class Fill(Base):
     order: Mapped["Order"] = relationship("Order", back_populates="fills")
 
     # Constraints
-    __table_args__ = (
-        UniqueConstraint("exchange", "fill_id", name="uq_exchange_fill_id"),)
+    __table_args__ = (UniqueConstraint("exchange", "fill_id", name="uq_exchange_fill_id"),)
 
     # Class-level builders (can be dependency-injected in production)
     _event_builder: ClassVar[ExecutionEventBuilder | None] = None
     _event_publisher: ClassVar[ExecutionEventPublisher | None] = None
 
     def __repr__(self) -> str:
+        """Return string representation of Fill.
+
+        Returns:
+            String representation showing key fill attributes.
+        """
         return (
             f"<Fill(fill_pk={self.fill_pk}, fill_id='{self.fill_id}', order_pk={self.order_pk}, "
             f"quantity_filled={self.quantity_filled}, fill_price={self.fill_price})>"

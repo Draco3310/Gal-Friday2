@@ -6,21 +6,29 @@ from enum import Enum
 import hashlib
 import logging
 import time
+import types
 from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 
 # Optional imports with graceful fallback
+talib: types.ModuleType | None = None
+ta: types.ModuleType | None = None
+
 try:
-    import talib
+    import talib as talib_module
+
+    talib = talib_module
     TALIB_AVAILABLE = True
 except ImportError:
     TALIB_AVAILABLE = False
     talib = None
 
 try:
-    import pandas_ta as ta
+    import pandas_ta as ta_module
+
+    ta = ta_module
     PANDAS_TA_AVAILABLE = True
 except ImportError:
     PANDAS_TA_AVAILABLE = False
@@ -29,6 +37,7 @@ except ImportError:
 
 class IndicatorType(Enum):
     """Enumeration of available technical indicators."""
+
     ATR = "atr"
     RSI = "rsi"
     MACD = "macd"
@@ -46,6 +55,7 @@ class IndicatorType(Enum):
 @dataclass
 class IndicatorConfig:
     """Configuration for technical indicators."""
+
     indicator_type: IndicatorType
     parameters: dict[str, Any] = field(default_factory=dict[str, Any])
     cache_enabled: bool = True
@@ -56,6 +66,7 @@ class IndicatorConfig:
 @dataclass
 class IndicatorResult:
     """Result container for technical indicator calculations."""
+
     indicator_type: IndicatorType
     values: np.ndarray[Any, Any] | tuple[np.ndarray[Any, Any], ...]
     metadata: dict[str, Any] = field(default_factory=dict[str, Any])
@@ -149,12 +160,15 @@ class TALibBackend(TechnicalAnalysisBackend):
         if talib is None:
             raise RuntimeError("TA-Lib not available")
         timeperiod = params.get("timeperiod", 14)
-        return cast("np.ndarray[Any, Any]", talib.ATR(
-            data["high"].astype(np.float64),
-            data["low"].astype(np.float64),
-            data["close"].astype(np.float64),
-            timeperiod=timeperiod,
-        ))
+        return cast(
+            "np.ndarray[Any, Any]",
+            talib.ATR(
+                data["high"].astype(np.float64),
+                data["low"].astype(np.float64),
+                data["close"].astype(np.float64),
+                timeperiod=timeperiod,
+            ),
+        )
 
     def _calculate_rsi(self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate RSI using TA-Lib."""
@@ -164,7 +178,9 @@ class TALibBackend(TechnicalAnalysisBackend):
         return cast("np.ndarray[Any, Any]", talib.RSI(data["close"].astype(np.float64), timeperiod=timeperiod))
 
     def _calculate_macd(
-        self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any],
+        self,
+        data: dict[str, np.ndarray[Any, Any]],
+        params: dict[str, Any],
     ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using TA-Lib."""
         if talib is None:
@@ -173,15 +189,20 @@ class TALibBackend(TechnicalAnalysisBackend):
         slowperiod = params.get("slowperiod", 26)
         signalperiod = params.get("signalperiod", 9)
 
-        return cast("tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]", talib.MACD(
-            data["close"].astype(np.float64),
-            fastperiod=fastperiod,
-            slowperiod=slowperiod,
-            signalperiod=signalperiod,
-        ))
+        return cast(
+            "tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]",
+            talib.MACD(
+                data["close"].astype(np.float64),
+                fastperiod=fastperiod,
+                slowperiod=slowperiod,
+                signalperiod=signalperiod,
+            ),
+        )
 
     def _calculate_bbands(
-        self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any],
+        self,
+        data: dict[str, np.ndarray[Any, Any]],
+        params: dict[str, Any],
     ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using TA-Lib."""
         if talib is None:
@@ -191,13 +212,16 @@ class TALibBackend(TechnicalAnalysisBackend):
         nbdevdn = params.get("nbdevdn", 2.0)
         matype = params.get("matype", 0)
 
-        return cast("tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]", talib.BBANDS(
-            data["close"].astype(np.float64),
-            timeperiod=timeperiod,
-            nbdevup=nbdevup,
-            nbdevdn=nbdevdn,
-            matype=matype,
-        ))
+        return cast(
+            "tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]",
+            talib.BBANDS(
+                data["close"].astype(np.float64),
+                timeperiod=timeperiod,
+                nbdevup=nbdevup,
+                nbdevdn=nbdevdn,
+                matype=matype,
+            ),
+        )
 
     def _calculate_sma(self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate SMA using TA-Lib."""
@@ -214,7 +238,9 @@ class TALibBackend(TechnicalAnalysisBackend):
         return cast("np.ndarray[Any, Any]", talib.EMA(data["close"].astype(np.float64), timeperiod=timeperiod))
 
     def _calculate_stoch(
-        self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any],
+        self,
+        data: dict[str, np.ndarray[Any, Any]],
+        params: dict[str, Any],
     ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Stochastic using TA-Lib."""
         fastk_period = params.get("fastk_period", 14)
@@ -223,53 +249,67 @@ class TALibBackend(TechnicalAnalysisBackend):
 
         if talib is None:
             raise RuntimeError("TA-Lib not available")
-        return cast("tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]", talib.STOCH(
-            data["high"].astype(np.float64),
-            data["low"].astype(np.float64),
-            data["close"].astype(np.float64),
-            fastk_period=fastk_period,
-            slowk_period=slowk_period,
-            slowd_period=slowd_period,
-        ))
+        return cast(
+            "tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]",
+            talib.STOCH(
+                data["high"].astype(np.float64),
+                data["low"].astype(np.float64),
+                data["close"].astype(np.float64),
+                fastk_period=fastk_period,
+                slowk_period=slowk_period,
+                slowd_period=slowd_period,
+            ),
+        )
 
     def _calculate_williams_r(
-        self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any],
+        self,
+        data: dict[str, np.ndarray[Any, Any]],
+        params: dict[str, Any],
     ) -> np.ndarray[Any, Any]:
         """Calculate Williams %R using TA-Lib."""
         timeperiod = params.get("timeperiod", 14)
         if talib is None:
             raise RuntimeError("TA-Lib not available")
-        return cast("np.ndarray[Any, Any]", talib.WILLR(
-            data["high"].astype(np.float64),
-            data["low"].astype(np.float64),
-            data["close"].astype(np.float64),
-            timeperiod=timeperiod,
-        ))
+        return cast(
+            "np.ndarray[Any, Any]",
+            talib.WILLR(
+                data["high"].astype(np.float64),
+                data["low"].astype(np.float64),
+                data["close"].astype(np.float64),
+                timeperiod=timeperiod,
+            ),
+        )
 
     def _calculate_cci(self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate CCI using TA-Lib."""
         timeperiod = params.get("timeperiod", 14)
         if talib is None:
             raise RuntimeError("TA-Lib not available")
-        return cast("np.ndarray[Any, Any]", talib.CCI(
-            data["high"].astype(np.float64),
-            data["low"].astype(np.float64),
-            data["close"].astype(np.float64),
-            timeperiod=timeperiod,
-        ))
+        return cast(
+            "np.ndarray[Any, Any]",
+            talib.CCI(
+                data["high"].astype(np.float64),
+                data["low"].astype(np.float64),
+                data["close"].astype(np.float64),
+                timeperiod=timeperiod,
+            ),
+        )
 
     def _calculate_mfi(self, data: dict[str, np.ndarray[Any, Any]], params: dict[str, Any]) -> np.ndarray[Any, Any]:
         """Calculate MFI using TA-Lib."""
         timeperiod = params.get("timeperiod", 14)
         if talib is None:
             raise RuntimeError("TA-Lib not available")
-        return cast("np.ndarray[Any, Any]", talib.MFI(
-            data["high"].astype(np.float64),
-            data["low"].astype(np.float64),
-            data["close"].astype(np.float64),
-            data["volume"].astype(np.float64),
-            timeperiod=timeperiod,
-        ))
+        return cast(
+            "np.ndarray[Any, Any]",
+            talib.MFI(
+                data["high"].astype(np.float64),
+                data["low"].astype(np.float64),
+                data["close"].astype(np.float64),
+                data["volume"].astype(np.float64),
+                timeperiod=timeperiod,
+            ),
+        )
 
     def get_backend_name(self) -> str:
         """Get backend name."""
@@ -352,7 +392,9 @@ class PandasTABackend(TechnicalAnalysisBackend):
         return cast("np.ndarray[Any, Any]", result.values)
 
     def _calculate_macd(
-        self, df: pd.DataFrame, params: dict[str, Any],
+        self,
+        df: pd.DataFrame,
+        params: dict[str, Any],
     ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate MACD using pandas-ta."""
         if ta is None:
@@ -373,7 +415,9 @@ class PandasTABackend(TechnicalAnalysisBackend):
         )
 
     def _calculate_bbands(
-        self, df: pd.DataFrame, params: dict[str, Any],
+        self,
+        df: pd.DataFrame,
+        params: dict[str, Any],
     ) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]]:
         """Calculate Bollinger Bands using pandas-ta."""
         if ta is None:
@@ -489,12 +533,12 @@ class CustomBackend(TechnicalAnalysisBackend):
 
         # Calculate ATR using EMA
         atr = np.full_like(tr, np.nan)
-        atr[timeperiod-1] = np.mean(tr[:timeperiod])
+        atr[timeperiod - 1] = np.mean(tr[:timeperiod])
 
         # EMA calculation
         alpha = 1.0 / timeperiod
         for i in range(timeperiod, len(tr)):
-            atr[i] = alpha * tr[i] + (1 - alpha) * atr[i-1]
+            atr[i] = alpha * tr[i] + (1 - alpha) * atr[i - 1]
 
         return np.asarray(atr, dtype=np.float64)
 
@@ -521,8 +565,8 @@ class CustomBackend(TechnicalAnalysisBackend):
         # EMA calculation
         alpha = 1.0 / timeperiod
         for i in range(timeperiod + 1, len(close)):
-            avg_gain[i] = alpha * gains[i-1] + (1 - alpha) * avg_gain[i-1]
-            avg_loss[i] = alpha * losses[i-1] + (1 - alpha) * avg_loss[i-1]
+            avg_gain[i] = alpha * gains[i - 1] + (1 - alpha) * avg_gain[i - 1]
+            avg_loss[i] = alpha * losses[i - 1] + (1 - alpha) * avg_loss[i - 1]
 
         # Calculate RSI
         rs = avg_gain / (avg_loss + 1e-10)  # Avoid division by zero
@@ -537,7 +581,7 @@ class CustomBackend(TechnicalAnalysisBackend):
         timeperiod = params.get("timeperiod", 20)
 
         sma = np.full_like(close, np.nan)
-        sma[timeperiod-1:] = np.convolve(close, np.ones(timeperiod)/timeperiod, mode="valid")
+        sma[timeperiod - 1 :] = np.convolve(close, np.ones(timeperiod) / timeperiod, mode="valid")
 
         return sma
 
@@ -548,10 +592,10 @@ class CustomBackend(TechnicalAnalysisBackend):
 
         alpha = 2.0 / (timeperiod + 1)
         ema = np.full_like(close, np.nan)
-        ema[timeperiod-1] = np.mean(close[:timeperiod])
+        ema[timeperiod - 1] = np.mean(close[:timeperiod])
 
         for i in range(timeperiod, len(close)):
-            ema[i] = alpha * close[i] + (1 - alpha) * ema[i-1]
+            ema[i] = alpha * close[i] + (1 - alpha) * ema[i - 1]
 
         return ema
 
@@ -695,19 +739,19 @@ class TechnicalAnalysisManager:
         """Validate input data for indicator calculation."""
         required_fields = self._get_required_fields(config.indicator_type)
 
-        for field in required_fields:
-            if field not in data:
-                raise ValueError(f"Missing required field '{field}' for {config.indicator_type}")
+        for field_name in required_fields:
+            if field_name not in data:
+                raise ValueError(f"Missing required field '{field_name}' for {config.indicator_type}")
 
-            if not isinstance(data[field], np.ndarray):
-                raise TypeError(f"Field '{field}' must be numpy array")
+            if not isinstance(data[field_name], np.ndarray):
+                raise TypeError(f"Field '{field_name}' must be numpy array")
 
-            if len(data[field]) == 0:
-                raise ValueError(f"Field '{field}' cannot be empty")
+            if len(data[field_name]) == 0:
+                raise ValueError(f"Field '{field_name}' cannot be empty")
 
             # Check for NaN or infinite values
-            if not np.isfinite(data[field]).all():
-                raise ValueError(f"Field '{field}' contains NaN or infinite values")
+            if not np.isfinite(data[field_name]).all():
+                raise ValueError(f"Field '{field_name}' contains NaN or infinite values")
 
     def _get_required_fields(self, indicator_type: IndicatorType) -> list[str]:
         """Get required data fields for indicator type."""
@@ -737,7 +781,7 @@ class TechnicalAnalysisManager:
         params_str = str(sorted(config.parameters.items()))
         key_str = f"{config.indicator_type.value}:{data_str}:{params_str}"
 
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.sha256(key_str.encode()).hexdigest()
 
     def _cache_result(self, cache_key: str, result: IndicatorResult) -> None:
         """Cache calculation result with LRU eviction."""
@@ -749,7 +793,9 @@ class TechnicalAnalysisManager:
         self.cache[cache_key] = result
 
     def _create_fallback_result(
-        self, config: IndicatorConfig, data: dict[str, np.ndarray[Any, Any]],
+        self,
+        config: IndicatorConfig,
+        data: dict[str, np.ndarray[Any, Any]],
     ) -> IndicatorResult:
         """Create fallback result when all backends fail."""
         data_length = len(data.get("close", []))
@@ -776,9 +822,7 @@ class TechnicalAnalysisManager:
         # Update average calculation time
         total = cast("int", self.calculation_stats["total_calculations"])
         current_avg = cast("float", self.calculation_stats["average_calculation_time"])
-        self.calculation_stats["average_calculation_time"] = (
-            (current_avg * (total - 1) + calculation_time) / total
-        )
+        self.calculation_stats["average_calculation_time"] = (current_avg * (total - 1) + calculation_time) / total
 
     def get_diagnostics(self) -> dict[str, Any]:
         """Get diagnostic information about the technical analysis manager."""

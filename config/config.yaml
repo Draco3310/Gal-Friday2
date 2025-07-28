@@ -17,7 +17,7 @@ trading:
     - "XRP/USD"
     - "BTC/USD"
     - "ETH/USD"
-  
+
   # Order execution settings
   order:
     default_order_type: "LIMIT"
@@ -44,7 +44,7 @@ risk:
     max_weekly_drawdown_pct: 8.0
     max_position_size_pct: 20.0
     max_correlation_limit: 0.8
-    
+
   # Position management
   position:
     min_position_value: 10.0
@@ -53,12 +53,12 @@ risk:
     enable_take_profit: true
     default_stop_loss_pct: 2.0
     default_take_profit_pct: 4.0
-    
+
   # Cache and validation
   cache_expiry_seconds: 300
   min_symbol_parts: 2
   min_symbol_length_for_split: 3
-  
+
   # Historical analysis
   volatility_lookback_days: 60
   min_data_points_for_stddev: 10
@@ -66,22 +66,22 @@ risk:
 # Monitoring Service Settings
 monitoring:
   check_interval_seconds: 60
-  
+
   # API monitoring
   api_failure_threshold: 3
   api_error_threshold_count: 5
   api_error_threshold_period_s: 60.0
-  
+
   # Data freshness monitoring
   data_staleness_threshold_s: 120.0
-  
+
   # System resource monitoring
   cpu_threshold_pct: 90.0
   memory_threshold_pct: 90.0
-  
+
   # Trading performance monitoring
   consecutive_loss_limit: 5
-  
+
   # HALT behavior
   halt:
     position_behavior: "maintain"  # Options: "maintain", "close", "liquidate"
@@ -119,7 +119,7 @@ logging:
 backtest:
   # Data source configuration
   data_path: "data/historical_data.csv"  # Primary data file path
-  
+
   # Enterprise data loading configuration
   data_loading:
     # Performance and concurrency settings
@@ -128,42 +128,42 @@ backtest:
     retry_delay_base: 1.0
     retry_delay_multiplier: 2.0
     timeout_seconds: 30.0
-    
+
     # Cache configuration
     cache_enabled: true
     memory_cache_size: 1000
     disk_cache_path: "./cache/backtest_data"
-    
+
     # Data validation settings
     data_validation_enabled: true
     quality_threshold: 0.8
     allow_low_quality_data: false
-    
+
     # Failure handling
     allow_partial_failures: false
     min_success_rate: 0.8
-    
+
     # Data source configuration
     default_data_source: "auto"  # auto, local_files, database, api
     fallback_data_sources: ["local_files", "database"]
     enabled_providers: ["local_files", "database", "api"]
-    
+
     # File source configuration
     file_sources:
       supported_formats: ["csv", "parquet", "json"]
       default_format: "csv"
-    
-    # Database source configuration  
+
+    # Database source configuration
     database_sources:
       query_timeout: 60.0
       connection_pool_size: 5
-    
+
     # API source configuration
     api_sources:
       rate_limit_delay: 1.0
       api_timeout: 30.0
       max_requests_per_minute: 60
-      
+
   # Legacy backtest configuration (maintained for compatibility)
   start_date: "2023-01-01"
   end_date: "2023-12-31"

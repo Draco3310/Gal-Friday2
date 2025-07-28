@@ -1,3 +1,9 @@
+"""Service orchestrator for managing lifecycle of application services.
+
+This module provides the ServiceOrchestrator class for coordinating
+initialization, starting, stopping, and shutdown of multiple services.
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol

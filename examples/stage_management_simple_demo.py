@@ -5,6 +5,7 @@ This script shows the key improvements without importing the full gal_friday mod
 
 import contextlib
 from enum import Enum
+from pathlib import Path
 
 
 # Simplified ModelStage enum (same as in the actual implementation)
@@ -40,7 +41,7 @@ def demonstrate_old_vs_new_approach():
 def count_lines(filepath):
     """Count lines in a file."""
     try:
-        with open(filepath) as f:
+        with Path(filepath).open() as f:
             return len(f.readlines())
     except:
         return "Unknown"
@@ -77,4 +78,3 @@ def demonstrate_validation_benefits():
 if __name__ == "__main__":
     demonstrate_old_vs_new_approach()
     demonstrate_validation_benefits()
-

@@ -11,6 +11,7 @@ import uuid
 import asyncio
 import pytest
 
+from gal_friday.core.events import TradeSignalProposedEvent
 from gal_friday.core.pubsub import PubSubManager
 
 
@@ -72,16 +73,19 @@ async def pubsub_manager():
 @pytest.fixture
 def mock_logger():
     """Create a mock logger for testing."""
+
     class MockLogger:
         def __init__(self):
             self.messages = []
 
         def log(self, level, message, **kwargs):
-            self.messages.append({
-                "level": level,
-                "message": message,
-                "kwargs": kwargs,
-            })
+            self.messages.append(
+                {
+                    "level": level,
+                    "message": message,
+                    "kwargs": kwargs,
+                },
+            )
 
         def info(self, message, **kwargs):
             self.log("INFO", message, **kwargs)
@@ -155,6 +159,7 @@ def sample_market_data():
 @pytest.fixture
 def mock_config_manager(test_config):
     """Create a mock ConfigManager for testing."""
+
     class MockConfigManager:
         def __init__(self, config):
             self.config = config
@@ -216,7 +221,6 @@ def mock_portfolio_state():
 @pytest.fixture
 def sample_trade_signal():
     """Provide sample trade signal for testing."""
-    from gal_friday.core.events import TradeSignalProposedEvent
 
     return TradeSignalProposedEvent(
         source_module="TestModule",
@@ -237,6 +241,7 @@ def sample_trade_signal():
 @pytest.fixture
 def mock_exchange_api():
     """Create a mock exchange API for testing."""
+
     class MockKrakenAPI:
         def __init__(self):
             self.orders = {}
@@ -300,6 +305,7 @@ def mock_exchange_api():
 @pytest.fixture
 def mock_prediction_model():
     """Create a mock ML model for testing."""
+
     class MockPredictionModel:
         def __init__(self, default_prediction=0.5):
             self.default_prediction = default_prediction
@@ -324,6 +330,7 @@ def mock_prediction_model():
 @pytest.fixture
 def integrated_system(mock_config_manager, pubsub_manager, mock_logger):
     """Create an integrated test system with all components."""
+
     class IntegratedTestSystem:
         def __init__(self, config, pubsub, logger):
             self.config = config

@@ -271,3 +271,4 @@ strategies/*_secret.py
 order_history/
 position_history/
 wallet_data/
+.pip-cache/

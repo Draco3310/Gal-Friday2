@@ -5,29 +5,29 @@
 monitoring:
   # Periodic monitoring check intervals
   check_interval_seconds: 60
-  
+
   # Metrics Collection System Configuration
   metrics_collection:
     # Collection intervals
     collection_interval_seconds: 30
     alert_check_interval_seconds: 60
     analytics_interval_seconds: 300
-    
+
     # Buffer and storage settings
     buffer_flush_size: 100
     max_history_points: 10000
     max_alert_history: 1000
-    
+
     # Metric logging (for debugging/development)
     log_metrics: false
-    
+
     # Buffer management
     max_buffer_size_on_error: 1000  # Maximum buffer size when flush fails
-    
+
     # Anomaly detection settings
     anomaly_threshold: 3.0  # Z-score threshold for anomaly detection
     trend_threshold: 1.0    # Threshold for trend detection
-    
+
     # Alert Rules Configuration
     alert_rules:
       # System Resource Alerts
@@ -40,7 +40,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log", "email"]
-      
+
       critical_cpu_usage:
         metric_name: "system.cpu.usage_percent"
         condition: "greater_than"
@@ -50,7 +50,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 180
         notification_channels: ["log", "email", "slack"]
-      
+
       high_memory_usage:
         metric_name: "system.memory.usage_percent"
         condition: "greater_than"
@@ -60,7 +60,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log"]
-      
+
       critical_memory_usage:
         metric_name: "system.memory.usage_percent"
         condition: "greater_than"
@@ -70,7 +70,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 180
         notification_channels: ["log", "email", "slack"]
-      
+
       # Trading System Alerts
       high_total_drawdown:
         metric_name: "portfolio.drawdown.total_pct"
@@ -81,7 +81,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 600
         notification_channels: ["log", "email"]
-      
+
       critical_total_drawdown:
         metric_name: "portfolio.drawdown.total_pct"
         condition: "greater_than"
@@ -91,7 +91,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log", "email", "slack", "sms"]
-      
+
       high_daily_drawdown:
         metric_name: "portfolio.drawdown.daily_pct"
         condition: "greater_than"
@@ -101,7 +101,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log", "email"]
-      
+
       # Real Trading Portfolio Alerts
       portfolio_equity_low:
         metric_name: "trading.portfolio.total_equity_usd"
@@ -112,7 +112,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 600
         notification_channels: ["log", "email"]
-      
+
       large_unrealized_loss:
         metric_name: "trading.portfolio.unrealized_pnl_usd"
         condition: "less_than"
@@ -122,7 +122,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log", "email"]
-      
+
       high_portfolio_concentration:
         metric_name: "trading.portfolio.largest_position_pct"
         condition: "greater_than"
@@ -132,7 +132,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 600
         notification_channels: ["log"]
-      
+
       critical_portfolio_concentration:
         metric_name: "trading.portfolio.largest_position_pct"
         condition: "greater_than"
@@ -142,7 +142,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log", "email", "slack"]
-      
+
       high_portfolio_utilization:
         metric_name: "trading.portfolio.utilization_pct"
         condition: "greater_than"
@@ -152,7 +152,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 600
         notification_channels: ["log"]
-      
+
       consecutive_losses_warning:
         metric_name: "trading.consecutive_losses"
         condition: "greater_than_or_equal"
@@ -162,7 +162,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 600
         notification_channels: ["log"]
-      
+
       consecutive_losses_critical:
         metric_name: "trading.consecutive_losses"
         condition: "greater_than_or_equal"
@@ -172,7 +172,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log", "email", "slack"]
-      
+
       # API Connectivity Alerts
       api_connectivity_degraded:
         metric_name: "api.connectivity.health_score"
@@ -183,7 +183,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log"]
-      
+
       api_connectivity_critical:
         metric_name: "api.connectivity.health_score"
         condition: "less_than"
@@ -193,7 +193,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 180
         notification_channels: ["log", "email", "slack"]
-      
+
       api_response_time_high:
         metric_name: "api.connectivity.response_time_ms"
         condition: "greater_than"
@@ -203,7 +203,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log"]
-      
+
       # Market Data Freshness Alerts
       stale_market_data:
         metric_name: "market_data.freshness.*.age_seconds"
@@ -214,7 +214,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log"]
-      
+
       # Application Metrics Alerts
       high_alert_count:
         metric_name: "metrics.alerts.active_count"
@@ -225,7 +225,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 600
         notification_channels: ["log"]
-      
+
       metrics_collection_errors:
         metric_name: "metrics.collection.errors"
         condition: "greater_than"
@@ -235,7 +235,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log"]
-      
+
       # Real Application Performance Alerts
       metrics_system_memory_high:
         metric_name: "metrics.system.memory_usage_mb"
@@ -246,7 +246,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 600
         notification_channels: ["log"]
-      
+
       metrics_collection_rate_low:
         metric_name: "metrics.collection.rate_per_second"
         condition: "less_than"
@@ -256,7 +256,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log"]
-      
+
       trading_system_halted:
         metric_name: "trading.system.is_halted"
         condition: "equals"
@@ -266,7 +266,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 60
         notification_channels: ["log", "email", "slack", "sms"]
-      
+
       stale_market_data_pairs:
         metric_name: "trading.market_data.stale_pairs_count"
         condition: "greater_than"
@@ -276,7 +276,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log"]
-      
+
       # Real Performance Alerts
       high_api_error_rate:
         metric_name: "api_error_rate_pct"
@@ -287,7 +287,7 @@ monitoring:
         enabled: true
         cooldown_seconds: 300
         notification_channels: ["log"]
-      
+
       trading_loss_rate_high:
         metric_name: "trading_loss_rate_pct"
         condition: "greater_than"
@@ -322,12 +322,12 @@ monitoring:
       warning_threshold: 0.20  # 20%
       action_threshold: 0.25   # 25%
       reduction_percentage: 0.50  # Reduce by 50%
-    
+
     max_position_notional_value_usd:
       warning_threshold: 100000.0
       action_threshold: 150000.0
       reduction_target_notional_value: 100000.0
-    
+
     specific_pair_limits:
       "BTC/USD":
         max_base_qty:
@@ -339,7 +339,7 @@ monitoring:
           warning_threshold: 100.0
           action_threshold: 150.0
           reduction_qty: 100.0
-    
+
     default_reduction_order_type: "MARKET"
 
   # Volatility calculation
@@ -366,14 +366,14 @@ trading:
 # InfluxDB Configuration (Time Series Database)
 influxdb:
   enabled: true
-  
+
   # InfluxDB v2.x Configuration (preferred)
   url: "http://localhost:8086"
   token: "${INFLUXDB_TOKEN}"  # Set via environment variable
   org: "trading"
   bucket: "trading_metrics"
   timeout: 10000  # milliseconds
-  
+
   # InfluxDB v1.x Configuration (fallback)
   # host: "localhost"
   # port: 8086
@@ -390,12 +390,12 @@ postgresql:
   user: "${POSTGRES_USER}"
   password: "${POSTGRES_PASSWORD}"
   database: "trading_metrics"
-  
+
   # Connection pool settings
   min_connections: 2
   max_connections: 10
   timeout: 30  # seconds
-  
+
   # Optional SSL configuration
   # ssl: true
   # ssl_cert: "/path/to/client-cert.pem"
@@ -411,12 +411,12 @@ notifications:
     username: "alerts@example.com"
     password: "${EMAIL_PASSWORD}"
     recipients: ["trader@example.com", "risk@example.com"]
-    
+
   slack:
     enabled: false
     webhook_url: "${SLACK_WEBHOOK_URL}"
     channel: "#trading-alerts"
-    
+
   sms:
     enabled: false
     provider: "twilio"
@@ -431,4 +431,4 @@ logging:
   structured_metrics_logging: true
   log_file: "logs/monitoring_metrics.log"
   max_log_size_mb: 100
-  backup_count: 5 
+  backup_count: 5

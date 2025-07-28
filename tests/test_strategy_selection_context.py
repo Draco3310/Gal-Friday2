@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -54,7 +54,7 @@ async def test_create_selection_context_dynamic_data(mock_logger):
     )
 
     snapshot = MarketConditionSnapshot(
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         volatility_regime=MarketRegime.NORMAL_VOLATILITY,
         realized_volatility_24h=0.03,
         implied_volatility=None,

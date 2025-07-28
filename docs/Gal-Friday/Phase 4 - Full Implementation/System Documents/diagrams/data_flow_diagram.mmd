@@ -52,7 +52,7 @@ graph LR
             ModelRegistry["ModelLifecycle::Registry"]
             ModelArtifacts["Model Artifacts\n(Local/Cloud Storage)"]
         end
-        
+
         %% Trading Strategy & Risk
         subgraph StrategyAndRisk["Strategy & Risk"]
             StrategyArbitrator["StrategyArbitrator"]
@@ -78,11 +78,11 @@ graph LR
             RetrainingPipeline["ModelLifecycle::RetrainingPipeline"]
             DriftDetector["ModelLifecycle::DriftDetector"]
         end
-        
+
         %% DAL - Data Access Layer (conceptual, repositories use DBs)
         subgraph DAL["Data Access Layer (Repositories)"]
         end
-    
+
     %% == Interactions ==
 
     %% Configuration Loading
@@ -107,7 +107,7 @@ graph LR
     %% For bootstrapping/backtesting
     HistoricalDataService -- "Historical OHLCV" --> FeatureEngine;
     KrakenAPI -- "Historical Data (REST)" --> HistoricalDataService;
-    
+
     %% Feature Engineering
     PubSubManager -- "MarketData Events" --> FeatureEngine;
     FeatureEngine -- "FeatureEvent" --> PubSubManager;
@@ -210,7 +210,7 @@ graph LR
 
     %% Market Price Service Interaction with Exchange
     MarketPriceService -- "Fetches Ticker/OHLC (REST)" --> KrakenAPI;
-    
+
     %% Apply styles to nodes
     class PubSubManager eventbus;
     class KrakenAPI external;

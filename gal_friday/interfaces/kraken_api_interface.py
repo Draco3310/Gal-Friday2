@@ -5,16 +5,16 @@ including proper rate limiting, error handling, and comprehensive endpoint cover
 as required by the SRS specifications.
 """
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
 class KrakenOrderStatus(Enum):
     """Kraken order status enumeration."""
+
     PENDING = "pending"
     OPEN = "open"
     CLOSED = "closed"
@@ -24,6 +24,7 @@ class KrakenOrderStatus(Enum):
 
 class KrakenOrderType(Enum):
     """Kraken order types."""
+
     MARKET = "market"
     LIMIT = "limit"
     STOP_LOSS = "stop-loss"
@@ -35,6 +36,7 @@ class KrakenOrderType(Enum):
 @dataclass
 class KrakenOrderResult:
     """Result from placing an order with Kraken."""
+
     success: bool
     order_id: str | None = None
     description: str | None = None
@@ -46,6 +48,7 @@ class KrakenOrderResult:
 @dataclass
 class KrakenOrderInfo:
     """Comprehensive order information from Kraken."""
+
     order_id: str
     status: KrakenOrderStatus
     order_type: KrakenOrderType
@@ -68,6 +71,7 @@ class KrakenOrderInfo:
 @dataclass
 class KrakenBalance:
     """Account balance information."""
+
     currency: str
     balance: Decimal
     hold: Decimal
@@ -77,6 +81,7 @@ class KrakenBalance:
 @dataclass
 class KrakenTickerData:
     """Ticker data from Kraken."""
+
     pair: str
     ask: Decimal
     bid: Decimal
@@ -89,30 +94,31 @@ class KrakenTickerData:
     opening_price: Decimal
 
 
+@runtime_checkable
 class KrakenAPIRateLimit(Protocol):
     """Protocol for Kraken API rate limiting."""
 
-    @abstractmethod
     async def wait_for_private_capacity(self) -> None:
         """Wait until there's capacity for a private API call."""
+        ...
 
-    @abstractmethod
     async def wait_for_public_capacity(self) -> None:
         """Wait until there's capacity for a public API call."""
+        ...
 
-    @abstractmethod
     def reset(self) -> None:
         """Reset rate limit tracking."""
+        ...
 
 
-class KrakenAPIInterface(ABC):
-    """Abstract interface for Kraken API operations.
+@runtime_checkable
+class KrakenAPIInterface(Protocol):
+    """Protocol for Kraken API operations.
 
-    This interface defines all required Kraken API operations for the trading system,
+    This protocol defines all required Kraken API operations for the trading system,
     ensuring comprehensive functionality and proper error handling.
     """
 
-    @abstractmethod
     async def get_server_time(self) -> dict[str, Any]:
         """Get Kraken server time.
 
@@ -122,8 +128,8 @@ class KrakenAPIInterface(ABC):
         Raises:
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_system_status(self) -> dict[str, Any]:
         """Get Kraken system status.
 
@@ -133,8 +139,8 @@ class KrakenAPIInterface(ABC):
         Raises:
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_asset_info(self, assets: list[str] | None = None) -> dict[str, Any]:
         """Get asset information.
 
@@ -147,11 +153,9 @@ class KrakenAPIInterface(ABC):
         Raises:
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
-    async def get_tradable_asset_pairs(
-        self,
-        pairs: list[str] | None = None) -> dict[str, Any]:
+    async def get_tradable_asset_pairs(self, pairs: list[str] | None = None) -> dict[str, Any]:
         """Get tradable asset pairs information.
 
         Args:
@@ -163,8 +167,8 @@ class KrakenAPIInterface(ABC):
         Raises:
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_ticker_data(self, pairs: list[str]) -> dict[str, KrakenTickerData]:
         """Get ticker data for specified pairs.
 
@@ -177,13 +181,9 @@ class KrakenAPIInterface(ABC):
         Raises:
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
-    async def get_ohlc_data(
-        self,
-        pair: str,
-        interval: int = 1,
-        since: int | None = None) -> dict[str, Any]:
+    async def get_ohlc_data(self, pair: str, interval: int = 1, since: int | None = None) -> dict[str, Any]:
         """Get OHLC data for a trading pair.
 
         Args:
@@ -197,12 +197,9 @@ class KrakenAPIInterface(ABC):
         Raises:
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
-    async def get_order_book(
-        self,
-        pair: str,
-        count: int = 100) -> dict[str, Any]:
+    async def get_order_book(self, pair: str, count: int = 100) -> dict[str, Any]:
         """Get order book for a trading pair.
 
         Args:
@@ -215,12 +212,9 @@ class KrakenAPIInterface(ABC):
         Raises:
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
-    async def get_recent_trades(
-        self,
-        pair: str,
-        since: int | None = None) -> dict[str, Any]:
+    async def get_recent_trades(self, pair: str, since: int | None = None) -> dict[str, Any]:
         """Get recent trades for a trading pair.
 
         Args:
@@ -233,10 +227,10 @@ class KrakenAPIInterface(ABC):
         Raises:
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
     # Private API methods
 
-    @abstractmethod
     async def get_account_balance(self) -> dict[str, KrakenBalance]:
         """Get account balance.
 
@@ -247,8 +241,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_trade_balance(self, asset: str = "ZUSD") -> dict[str, Any]:
         """Get trade balance information.
 
@@ -262,8 +256,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_open_orders(self, trades: bool = False) -> dict[str, KrakenOrderInfo]:
         """Get open orders.
 
@@ -277,15 +271,16 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_closed_orders(
         self,
         trades: bool = False,
         start: int | None = None,
         end: int | None = None,
         ofs: int | None = None,
-        closetime: str = "both") -> dict[str, KrakenOrderInfo]:
+        closetime: str = "both",
+    ) -> dict[str, KrakenOrderInfo]:
         """Get closed orders.
 
         Args:
@@ -302,12 +297,9 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
-    async def query_orders_info(
-        self,
-        order_ids: list[str],
-        trades: bool = False) -> dict[str, KrakenOrderInfo]:
+    async def query_orders_info(self, order_ids: list[str], trades: bool = False) -> dict[str, KrakenOrderInfo]:
         """Query information about specific orders.
 
         Args:
@@ -321,15 +313,16 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_trades_history(
         self,
         type_filter: str = "all",
         trades: bool = False,
         start: int | None = None,
         end: int | None = None,
-        ofs: int | None = None) -> dict[str, Any]:
+        ofs: int | None = None,
+    ) -> dict[str, Any]:
         """Get trades history.
 
         Args:
@@ -346,12 +339,9 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
-    async def query_trades_info(
-        self,
-        trade_ids: list[str],
-        trades: bool = False) -> dict[str, Any]:
+    async def query_trades_info(self, trade_ids: list[str], trades: bool = False) -> dict[str, Any]:
         """Query information about specific trades.
 
         Args:
@@ -365,8 +355,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_open_positions(self, do_calcs: bool = False) -> dict[str, Any]:
         """Get open positions.
 
@@ -380,8 +370,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_ledgers_info(
         self,
         asset: str = "all",
@@ -389,7 +379,8 @@ class KrakenAPIInterface(ABC):
         type_filter: str = "all",
         start: int | None = None,
         end: int | None = None,
-        ofs: int | None = None) -> dict[str, Any]:
+        ofs: int | None = None,
+    ) -> dict[str, Any]:
         """Get ledgers information.
 
         Args:
@@ -407,8 +398,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def query_ledgers(self, ledger_ids: list[str]) -> dict[str, Any]:
         """Query specific ledgers.
 
@@ -422,8 +413,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_trade_volume(self, pairs: list[str] | None = None) -> dict[str, Any]:
         """Get trade volume and fees information.
 
@@ -437,8 +428,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def request_export_report(
         self,
         report: str,
@@ -446,7 +437,8 @@ class KrakenAPIInterface(ABC):
         format_type: str = "CSV",
         fields: str | None = None,
         start: int | None = None,
-        end: int | None = None) -> dict[str, Any]:
+        end: int | None = None,
+    ) -> dict[str, Any]:
         """Request export report.
 
         Args:
@@ -464,8 +456,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def get_export_report_status(self, report: str) -> dict[str, Any]:
         """Get export report status.
 
@@ -479,13 +471,13 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
-    async def retrieve_export_report(self, id: str) -> bytes:
+    async def retrieve_export_report(self, report_id: str) -> bytes:
         """Retrieve completed export report.
 
         Args:
-            id: Report ID to retrieve
+            report_id: Report ID to retrieve
 
         Returns:
             Report data as bytes
@@ -494,14 +486,14 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
-    async def delete_export_report(self, id: str, type: str) -> dict[str, Any]:
+    async def delete_export_report(self, report_id: str, report_type: str) -> dict[str, Any]:
         """Delete export report.
 
         Args:
-            id: Report ID to delete
-            type: Type[Any] of report to delete
+            report_id: Report ID to delete
+            report_type: Type of report to delete
 
         Returns:
             Deletion confirmation
@@ -510,10 +502,10 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
     # Trading methods
 
-    @abstractmethod
     async def add_order(
         self,
         pair: str,
@@ -528,7 +520,8 @@ class KrakenAPIInterface(ABC):
         expiretm: str | None = None,
         close: dict[str, str] | None = None,
         trading_agreement: str = "agree",
-        validate: bool = False) -> KrakenOrderResult:
+        validate: bool = False,
+    ) -> KrakenOrderResult:
         """Add a new order.
 
         Args:
@@ -555,8 +548,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerNetworkError: If network request fails
             ExecutionHandlerRateLimited: If rate limited
         """
+        ...
 
-    @abstractmethod
     async def edit_order(
         self,
         txid: str,
@@ -566,7 +559,8 @@ class KrakenAPIInterface(ABC):
         price2: str | None = None,
         oflags: str | None = None,
         newuserref: str | None = None,
-        validate: bool = False) -> dict[str, Any]:
+        validate: bool = False,
+    ) -> dict[str, Any]:
         """Edit an existing order.
 
         Args:
@@ -587,8 +581,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerOrderRejected: If edit is rejected
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def cancel_order(self, txid: str) -> dict[str, Any]:
         """Cancel an order.
 
@@ -602,8 +596,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def cancel_all_orders(self) -> dict[str, Any]:
         """Cancel all open orders.
 
@@ -614,8 +608,8 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
-    @abstractmethod
     async def cancel_all_orders_after(self, timeout: int) -> dict[str, Any]:
         """Cancel all orders after a timeout.
 
@@ -629,10 +623,10 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...
 
     # WebSocket methods
 
-    @abstractmethod
     async def get_websockets_token(self) -> dict[str, Any]:
         """Get WebSocket authentication token.
 
@@ -643,3 +637,4 @@ class KrakenAPIInterface(ABC):
             ExecutionHandlerAuthenticationError: If authentication fails
             ExecutionHandlerNetworkError: If network request fails
         """
+        ...

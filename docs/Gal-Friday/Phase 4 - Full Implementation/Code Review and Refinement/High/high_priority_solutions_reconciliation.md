@@ -77,7 +77,7 @@ class PositionDiscrepancy:
     exchange_value: Optional[Any] = None
     difference: Optional[Decimal] = None
     severity: str = "medium"  # low, medium, high, critical
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -96,39 +96,39 @@ class ReconciliationReport:
     reconciliation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     status: ReconciliationStatus = ReconciliationStatus.IN_PROGRESS
-    
+
     # Position reconciliation
     positions_checked: int = 0
     position_discrepancies: List[PositionDiscrepancy] = field(default_factory=list)
-    
+
     # Balance reconciliation
     balances_checked: int = 0
     balance_discrepancies: List[Dict[str, Any]] = field(default_factory=list)
-    
+
     # Order reconciliation
     orders_checked: int = 0
     untracked_orders: List[str] = field(default_factory=list)
-    
+
     # Adjustments
     auto_corrections: List[Dict[str, Any]] = field(default_factory=list)
     manual_review_required: List[Dict[str, Any]] = field(default_factory=list)
-    
+
     # Metrics
     duration_seconds: Optional[float] = None
     error_messages: List[str] = field(default_factory=list)
-    
+
     @property
     def total_discrepancies(self) -> int:
         """Total number of discrepancies found."""
-        return (len(self.position_discrepancies) + 
-                len(self.balance_discrepancies) + 
+        return (len(self.position_discrepancies) +
+                len(self.balance_discrepancies) +
                 len(self.untracked_orders))
-                
+
     @property
     def requires_manual_review(self) -> bool:
         """Check if manual review is needed."""
         return len(self.manual_review_required) > 0
-        
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
@@ -151,7 +151,7 @@ class ReconciliationReport:
 
 class ReconciliationService:
     """Automated portfolio reconciliation with exchange."""
-    
+
     def __init__(self,
                  config: ConfigManager,
                  portfolio_manager: PortfolioManager,
@@ -168,30 +168,30 @@ class ReconciliationService:
         self.alerting = alerting
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # Configuration
         self.reconciliation_interval = config.get_int("reconciliation.interval_minutes", 60)
         self.auto_correct_threshold = Decimal(str(config.get_float("reconciliation.auto_correct_threshold", 0.01)))
         self.critical_threshold = Decimal(str(config.get_float("reconciliation.critical_threshold", 0.10)))
-        
+
         # State
         self._reconciliation_task: Optional[asyncio.Task] = None
         self._last_reconciliation: Optional[datetime] = None
         self._consecutive_failures = 0
-        
+
     async def start(self):
         """Start reconciliation service."""
         self.logger.info(
             "Starting reconciliation service",
             source_module=self._source_module
         )
-        
+
         # Run initial reconciliation
         await self.run_reconciliation()
-        
+
         # Start periodic reconciliation
         self._reconciliation_task = asyncio.create_task(self._periodic_reconciliation())
-        
+
     async def stop(self):
         """Stop reconciliation service."""
         if self._reconciliation_task:
@@ -200,14 +200,14 @@ class ReconciliationService:
                 await self._reconciliation_task
             except asyncio.CancelledError:
                 pass
-                
+
     async def _periodic_reconciliation(self):
         """Run reconciliation periodically."""
         while True:
             try:
                 await asyncio.sleep(self.reconciliation_interval * 60)
                 await self.run_reconciliation()
-                
+
             except asyncio.CancelledError:
                 break
             except Exception:
@@ -216,36 +216,36 @@ class ReconciliationService:
                     source_module=self._source_module
                 )
                 self._consecutive_failures += 1
-                
+
                 if self._consecutive_failures >= 3:
                     await self._send_critical_alert(
                         "Reconciliation service failing repeatedly"
                     )
-                    
+
     async def run_reconciliation(self) -> ReconciliationReport:
         """Run complete reconciliation process."""
         start_time = datetime.now(UTC)
         report = ReconciliationReport()
-        
+
         try:
             self.logger.info(
                 "Starting reconciliation process",
                 source_module=self._source_module
             )
-            
+
             # 1. Reconcile positions
             await self._reconcile_positions(report)
-            
+
             # 2. Reconcile balances
             await self._reconcile_balances(report)
-            
+
             # 3. Reconcile recent orders
             await self._reconcile_orders(report)
-            
+
             # 4. Apply auto-corrections if enabled
             if self.config.get_bool("reconciliation.auto_correct", True):
                 await self._apply_auto_corrections(report)
-                
+
             # 5. Determine final status
             if report.total_discrepancies == 0:
                 report.status = ReconciliationStatus.SUCCESS
@@ -253,19 +253,19 @@ class ReconciliationService:
                 report.status = ReconciliationStatus.FAILED
             else:
                 report.status = ReconciliationStatus.PARTIAL
-                
+
             # Calculate duration
             report.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
-            
+
             # 6. Save report
             await self.reconciliation_repo.save_report(report)
-            
+
             # 7. Send alerts if needed
             await self._send_reconciliation_alerts(report)
-            
+
             self._last_reconciliation = datetime.now(UTC)
             self._consecutive_failures = 0
-            
+
             self.logger.info(
                 f"Reconciliation completed: {report.status.value}",
                 source_module=self._source_module,
@@ -274,44 +274,44 @@ class ReconciliationService:
                     "discrepancies": report.total_discrepancies
                 }
             )
-            
+
             return report
-            
+
         except Exception as e:
             report.status = ReconciliationStatus.FAILED
             report.error_messages.append(str(e))
             report.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
-            
+
             self.logger.exception(
                 "Reconciliation failed",
                 source_module=self._source_module
             )
-            
+
             await self.reconciliation_repo.save_report(report)
             await self._send_critical_alert(f"Reconciliation failed: {str(e)}")
-            
+
             return report
-            
+
     async def _reconcile_positions(self, report: ReconciliationReport):
         """Reconcile positions with exchange."""
         try:
             # Get positions from both sources
             internal_positions = await self.portfolio_manager.get_all_positions()
             exchange_positions = await self.execution_handler.get_exchange_positions()
-            
+
             report.positions_checked = len(internal_positions) + len(exchange_positions)
-            
+
             # Create position maps
             internal_map = {pos["trading_pair"]: pos for pos in internal_positions}
             exchange_map = {pos["symbol"]: pos for pos in exchange_positions}
-            
+
             # Check all trading pairs
             all_pairs = set(internal_map.keys()) | set(exchange_map.keys())
-            
+
             for pair in all_pairs:
                 internal_pos = internal_map.get(pair)
                 exchange_pos = exchange_map.get(pair)
-                
+
                 # Check for missing positions
                 if internal_pos and not exchange_pos:
                     discrepancy = PositionDiscrepancy(
@@ -326,7 +326,7 @@ class ReconciliationService:
                         "pair": pair,
                         "issue": "Position exists internally but not on exchange"
                     })
-                    
+
                 elif exchange_pos and not internal_pos:
                     discrepancy = PositionDiscrepancy(
                         trading_pair=pair,
@@ -335,7 +335,7 @@ class ReconciliationService:
                         severity="high"
                     )
                     report.position_discrepancies.append(discrepancy)
-                    
+
                     # Auto-correct: Add missing position
                     if self._can_auto_correct(Decimal(str(exchange_pos["quantity"]))):
                         await self._add_missing_position(pair, exchange_pos, report)
@@ -345,16 +345,16 @@ class ReconciliationService:
                             "pair": pair,
                             "issue": "Position exists on exchange but not tracked internally"
                         })
-                        
+
                 elif internal_pos and exchange_pos:
                     # Check quantity match
                     internal_qty = Decimal(str(internal_pos["quantity"]))
                     exchange_qty = Decimal(str(exchange_pos["quantity"]))
                     qty_diff = abs(internal_qty - exchange_qty)
-                    
+
                     if qty_diff > Decimal("0.00000001"):  # Tolerance for rounding
                         severity = self._determine_severity(qty_diff, internal_qty)
-                        
+
                         discrepancy = PositionDiscrepancy(
                             trading_pair=pair,
                             discrepancy_type=DiscrepancyType.QUANTITY_MISMATCH,
@@ -364,7 +364,7 @@ class ReconciliationService:
                             severity=severity
                         )
                         report.position_discrepancies.append(discrepancy)
-                        
+
                         # Auto-correct small differences
                         if self._can_auto_correct(qty_diff):
                             await self._adjust_position_quantity(
@@ -378,26 +378,26 @@ class ReconciliationService:
                                 "exchange": str(exchange_qty),
                                 "difference": str(qty_diff)
                             })
-                            
+
         except Exception as e:
             report.error_messages.append(f"Position reconciliation error: {str(e)}")
             raise
-            
+
     async def _reconcile_balances(self, report: ReconciliationReport):
         """Reconcile account balances."""
         try:
             # Get balances from both sources
             internal_balances = await self.portfolio_manager.get_balances()
             exchange_balances = await self.execution_handler.get_exchange_balances()
-            
+
             report.balances_checked = len(exchange_balances)
-            
+
             # Check each currency
             for currency, exchange_balance in exchange_balances.items():
                 internal_balance = internal_balances.get(currency, Decimal("0"))
-                
+
                 balance_diff = abs(internal_balance - exchange_balance)
-                
+
                 if balance_diff > Decimal("0.00000001"):
                     discrepancy = {
                         "currency": currency,
@@ -409,7 +409,7 @@ class ReconciliationService:
                         )
                     }
                     report.balance_discrepancies.append(discrepancy)
-                    
+
                     # Auto-correct small differences
                     if self._can_auto_correct_balance(balance_diff, currency):
                         await self._adjust_balance(
@@ -421,32 +421,32 @@ class ReconciliationService:
                             "currency": currency,
                             "issue": f"Balance mismatch: {balance_diff}"
                         })
-                        
+
         except Exception as e:
             report.error_messages.append(f"Balance reconciliation error: {str(e)}")
             raise
-            
+
     async def _reconcile_orders(self, report: ReconciliationReport):
         """Reconcile recent orders."""
         try:
             # Get recent orders from exchange (last 24 hours)
             cutoff = datetime.now(UTC) - timedelta(hours=24)
             exchange_orders = await self.execution_handler.get_recent_orders(cutoff)
-            
+
             report.orders_checked = len(exchange_orders)
-            
+
             # Check if all orders are tracked
             for order in exchange_orders:
                 order_id = order["order_id"]
-                
+
                 # Check if order exists in our system
                 tracked_order = await self.execution_handler.get_order_by_exchange_id(
                     order_id
                 )
-                
+
                 if not tracked_order:
                     report.untracked_orders.append(order_id)
-                    
+
                     # Determine if this affects positions
                     if order["status"] == "filled":
                         report.manual_review_required.append({
@@ -457,28 +457,28 @@ class ReconciliationService:
                             "quantity": str(order["quantity"]),
                             "issue": "Filled order not tracked in system"
                         })
-                        
+
         except Exception as e:
             report.error_messages.append(f"Order reconciliation error: {str(e)}")
             raise
-            
+
     def _can_auto_correct(self, difference: Decimal) -> bool:
         """Check if difference is small enough for auto-correction."""
         return difference <= self.auto_correct_threshold
-        
+
     def _can_auto_correct_balance(self, difference: Decimal, currency: str) -> bool:
         """Check if balance difference can be auto-corrected."""
         # More conservative for balance corrections
         threshold = self.auto_correct_threshold / 10
         return difference <= threshold
-        
+
     def _determine_severity(self, difference: Decimal, total: Decimal) -> str:
         """Determine discrepancy severity."""
         if total == 0:
             return "critical"
-            
+
         percentage = (difference / total) * 100
-        
+
         if percentage >= 10:
             return "critical"
         elif percentage >= 5:
@@ -487,7 +487,7 @@ class ReconciliationService:
             return "medium"
         else:
             return "low"
-            
+
     def _determine_balance_severity(self, difference: Decimal, currency: str) -> str:
         """Determine balance discrepancy severity."""
         # USD-based thresholds
@@ -503,14 +503,14 @@ class ReconciliationService:
         else:
             # For crypto, use percentage-based
             return "medium"  # Would need current prices for accurate assessment
-            
+
     async def _apply_auto_corrections(self, report: ReconciliationReport):
         """Apply automatic corrections for small discrepancies."""
         self.logger.info(
             f"Applying {len(report.auto_corrections)} auto-corrections",
             source_module=self._source_module
         )
-        
+
         for correction in report.auto_corrections:
             try:
                 if correction["type"] == "position_quantity":
@@ -525,13 +525,13 @@ class ReconciliationService:
                         correction["new_balance"],
                         reason="Reconciliation auto-correction"
                     )
-                    
+
                 # Record adjustment in database
                 await self.reconciliation_repo.save_adjustment(
                     report.reconciliation_id,
                     correction
                 )
-                
+
             except Exception as e:
                 self.logger.error(
                     f"Failed to apply auto-correction: {e}",
@@ -541,9 +541,9 @@ class ReconciliationService:
                 report.error_messages.append(
                     f"Auto-correction failed: {correction['type']} - {str(e)}"
                 )
-                
-    async def _add_missing_position(self, 
-                                   pair: str, 
+
+    async def _add_missing_position(self,
+                                   pair: str,
                                    exchange_pos: Dict,
                                    report: ReconciliationReport):
         """Add position that exists on exchange but not internally."""
@@ -554,11 +554,11 @@ class ReconciliationService:
             "entry_price": exchange_pos.get("average_price", 0),
             "reason": "Position found on exchange during reconciliation"
         }
-        
+
         report.auto_corrections.append(correction)
-        
+
         # Will be applied in _apply_auto_corrections
-        
+
     async def _adjust_position_quantity(self,
                                       pair: str,
                                       internal_qty: Decimal,
@@ -573,9 +573,9 @@ class ReconciliationService:
             "difference": str(exchange_qty - internal_qty),
             "reason": "Quantity adjustment to match exchange"
         }
-        
+
         report.auto_corrections.append(correction)
-        
+
     async def _adjust_balance(self,
                             currency: str,
                             internal_balance: Decimal,
@@ -590,15 +590,15 @@ class ReconciliationService:
             "difference": str(exchange_balance - internal_balance),
             "reason": "Balance adjustment to match exchange"
         }
-        
+
         report.auto_corrections.append(correction)
-        
+
     async def _send_reconciliation_alerts(self, report: ReconciliationReport):
         """Send alerts based on reconciliation results."""
         if report.status == ReconciliationStatus.SUCCESS:
             # No alerts for successful reconciliation
             return
-            
+
         # Determine alert severity
         if report.status == ReconciliationStatus.FAILED:
             severity = AlertSeverity.CRITICAL
@@ -608,7 +608,7 @@ class ReconciliationService:
             severity = AlertSeverity.ERROR
         else:
             severity = AlertSeverity.WARNING
-            
+
         # Create alert
         alert = Alert(
             alert_id=f"recon_{report.reconciliation_id}",
@@ -622,9 +622,9 @@ class ReconciliationService:
                 "manual_review": report.requires_manual_review
             }
         )
-        
+
         await self.alerting.send_alert(alert)
-        
+
     def _format_alert_message(self, report: ReconciliationReport) -> str:
         """Format reconciliation alert message."""
         lines = [
@@ -635,12 +635,12 @@ class ReconciliationService:
             f"- Auto-corrections applied: {len(report.auto_corrections)}",
             f"- Manual review required: {len(report.manual_review_required)}"
         ]
-        
+
         if report.error_messages:
             lines.append(f"\nErrors encountered: {len(report.error_messages)}")
-            
+
         return "\n".join(lines)
-        
+
     async def _send_critical_alert(self, message: str):
         """Send critical alert."""
         alert = Alert(
@@ -651,15 +651,15 @@ class ReconciliationService:
             source=self._source_module,
             tags={"type": "reconciliation_error"}
         )
-        
+
         await self.alerting.send_alert(alert)
-        
+
     async def get_reconciliation_status(self) -> Dict[str, Any]:
         """Get current reconciliation status."""
         last_report = None
         if self._last_reconciliation:
             last_report = await self.reconciliation_repo.get_latest_report()
-            
+
         return {
             "last_run": self._last_reconciliation.isoformat() if self._last_reconciliation else None,
             "next_run": (
@@ -688,20 +688,20 @@ from gal_friday.portfolio.reconciliation_service import ReconciliationReport
 
 class ReconciliationRepository(BaseRepository):
     """Repository for reconciliation events and reports."""
-    
+
     def __init__(self, db_pool: asyncpg.Pool, logger):
         super().__init__(db_pool, logger, "reconciliation_events")
-        
+
     async def save_report(self, report: ReconciliationReport):
         """Save reconciliation report."""
         query = """
             INSERT INTO reconciliation_events (
-                reconciliation_id, timestamp, reconciliation_type, 
+                reconciliation_id, timestamp, reconciliation_type,
                 status, discrepancies_found, auto_corrected,
                 manual_review_required, report, duration_seconds
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         """
-        
+
         await self.db_pool.execute(
             query,
             report.reconciliation_id,
@@ -714,7 +714,7 @@ class ReconciliationRepository(BaseRepository):
             json.dumps(report.to_dict()),
             report.duration_seconds
         )
-        
+
     async def save_adjustment(self, reconciliation_id: str, adjustment: Dict[str, Any]):
         """Save individual adjustment record."""
         query = """
@@ -723,7 +723,7 @@ class ReconciliationRepository(BaseRepository):
                 old_value, new_value, reason
             ) VALUES ($1, $2, $3, $4, $5, $6)
         """
-        
+
         await self.db_pool.execute(
             query,
             reconciliation_id,
@@ -733,7 +733,7 @@ class ReconciliationRepository(BaseRepository):
             Decimal(adjustment.get("new_quantity") or adjustment.get("new_balance", "0")),
             adjustment["reason"]
         )
-        
+
     async def get_latest_report(self) -> Optional[ReconciliationReport]:
         """Get the most recent reconciliation report."""
         query = """
@@ -741,13 +741,13 @@ class ReconciliationRepository(BaseRepository):
             ORDER BY timestamp DESC
             LIMIT 1
         """
-        
+
         row = await self.db_pool.fetchrow(query)
         if row:
             return self._parse_report(row)
         return None
-        
-    async def get_reports_with_discrepancies(self, 
+
+    async def get_reports_with_discrepancies(self,
                                            days: int = 7) -> List[ReconciliationReport]:
         """Get reports with discrepancies in the last N days."""
         query = """
@@ -756,13 +756,13 @@ class ReconciliationRepository(BaseRepository):
               AND discrepancies_found > 0
             ORDER BY timestamp DESC
         """
-        
+
         cutoff = datetime.now(UTC) - timedelta(days=days)
         rows = await self.db_pool.fetch(query, cutoff)
-        
+
         return [self._parse_report(row) for row in rows]
-        
-    async def get_adjustment_history(self, 
+
+    async def get_adjustment_history(self,
                                    trading_pair: Optional[str] = None,
                                    days: int = 30) -> List[Dict[str, Any]]:
         """Get history of position adjustments."""
@@ -772,23 +772,23 @@ class ReconciliationRepository(BaseRepository):
             JOIN reconciliation_events re ON pa.reconciliation_id = re.reconciliation_id
             WHERE re.timestamp > $1
         """
-        
+
         params = [datetime.now(UTC) - timedelta(days=days)]
-        
+
         if trading_pair:
             query += " AND pa.trading_pair = $2"
             params.append(trading_pair)
-            
+
         query += " ORDER BY pa.adjusted_at DESC"
-        
+
         rows = await self.db_pool.fetch(query, *params)
-        
+
         return [dict(row) for row in rows]
-        
+
     def _parse_report(self, row: asyncpg.Record) -> ReconciliationReport:
         """Parse database row into ReconciliationReport."""
         report_data = json.loads(row["report"])
-        
+
         # Reconstruct ReconciliationReport from stored data
         # This is a simplified version - full implementation would
         # properly deserialize all nested objects
@@ -797,12 +797,12 @@ class ReconciliationRepository(BaseRepository):
             timestamp=row["timestamp"],
             status=ReconciliationStatus(row["status"])
         )
-        
+
         # Populate from report_data
         report.positions_checked = report_data.get("positions_checked", 0)
         report.balances_checked = report_data.get("balances_checked", 0)
         report.orders_checked = report_data.get("orders_checked", 0)
-        
+
         return report
 ```
 
@@ -814,7 +814,7 @@ class ReconciliationRepository(BaseRepository):
 
 class ExecutionHandler:
     """Enhanced execution handler with reconciliation support."""
-    
+
     async def get_exchange_positions(self) -> List[Dict[str, Any]]:
         """Get current positions from exchange."""
         try:
@@ -823,10 +823,10 @@ class ExecutionHandler:
                 "/0/private/OpenPositions",
                 {}
             )
-            
+
             if response.get("error"):
                 raise Exception(f"Failed to get positions: {response['error']}")
-                
+
             positions = []
             for pos_id, pos_data in response.get("result", {}).items():
                 positions.append({
@@ -838,16 +838,16 @@ class ExecutionHandler:
                     "unrealized_pnl": Decimal(pos_data.get("net", "0")),
                     "margin_used": Decimal(pos_data.get("margin", "0"))
                 })
-                
+
             return positions
-            
+
         except Exception:
             self.logger.exception(
                 "Error fetching exchange positions",
                 source_module=self._source_module
             )
             raise
-            
+
     async def get_exchange_balances(self) -> Dict[str, Decimal]:
         """Get current balances from exchange."""
         try:
@@ -855,39 +855,39 @@ class ExecutionHandler:
                 "/0/private/Balance",
                 {}
             )
-            
+
             if response.get("error"):
                 raise Exception(f"Failed to get balances: {response['error']}")
-                
+
             balances = {}
             for asset, balance in response.get("result", {}).items():
                 # Normalize asset names
                 normalized_asset = self._normalize_asset(asset)
                 balances[normalized_asset] = Decimal(balance)
-                
+
             return balances
-            
+
         except Exception:
             self.logger.exception(
                 "Error fetching exchange balances",
                 source_module=self._source_module
             )
             raise
-            
+
     async def get_recent_orders(self, since: datetime) -> List[Dict[str, Any]]:
         """Get recent orders from exchange."""
         try:
             # Convert datetime to unix timestamp
             since_timestamp = int(since.timestamp())
-            
+
             response = await self._make_private_request(
                 "/0/private/ClosedOrders",
                 {"start": since_timestamp}
             )
-            
+
             if response.get("error"):
                 raise Exception(f"Failed to get orders: {response['error']}")
-                
+
             orders = []
             for order_id, order_data in response.get("result", {}).get("closed", {}).items():
                 orders.append({
@@ -899,24 +899,24 @@ class ExecutionHandler:
                     "price": Decimal(order_data.get("price", "0")),
                     "status": order_data["status"],
                     "created_at": datetime.fromtimestamp(order_data["opentm"], UTC),
-                    "closed_at": datetime.fromtimestamp(order_data["closetm"], UTC) 
+                    "closed_at": datetime.fromtimestamp(order_data["closetm"], UTC)
                         if order_data.get("closetm") else None
                 })
-                
+
             return orders
-            
+
         except Exception:
             self.logger.exception(
                 "Error fetching recent orders",
                 source_module=self._source_module
             )
             raise
-            
+
     async def get_order_by_exchange_id(self, exchange_order_id: str) -> Optional[Dict]:
         """Check if we're tracking an order by exchange ID."""
         # Query from order repository
         return await self.order_repo.find_by_exchange_id(exchange_order_id)
-        
+
     def _normalize_pair(self, kraken_pair: str) -> str:
         """Normalize Kraken pair format to standard format."""
         # Kraken uses formats like "XXRPZUSD" or "XRPUSD"
@@ -927,11 +927,11 @@ class ExecutionHandler:
             "ZUSD": "USD",
             "XXBT": "BTC"
         }
-        
+
         pair = kraken_pair
         for old, new in replacements.items():
             pair = pair.replace(old, new)
-            
+
         # Add slash if not present
         if "/" not in pair:
             # Find currency boundary (assumes 3-4 char currencies)
@@ -939,9 +939,9 @@ class ExecutionHandler:
                 if pair[i:] in ["USD", "EUR", "BTC", "ETH"]:
                     pair = f"{pair[:i]}/{pair[i:]}"
                     break
-                    
+
         return pair
-        
+
     def _normalize_asset(self, kraken_asset: str) -> str:
         """Normalize Kraken asset codes."""
         asset_map = {
@@ -951,7 +951,7 @@ class ExecutionHandler:
             "XXBT": "BTC",
             "XETH": "ETH"
         }
-        
+
         return asset_map.get(kraken_asset, kraken_asset)
 ```
 
@@ -978,7 +978,7 @@ async def get_reconciliation_reports(
         reports = await recon_repo.get_reports_with_discrepancies(days)
     else:
         reports = await recon_repo.get_recent_reports(days)
-        
+
     return {
         "reports": [r.to_dict() for r in reports],
         "count": len(reports)
@@ -993,7 +993,7 @@ async def get_adjustment_history(
 ):
     """Get history of reconciliation adjustments."""
     adjustments = await recon_repo.get_adjustment_history(trading_pair, days)
-    
+
     return {
         "adjustments": adjustments,
         "count": len(adjustments)
@@ -1006,7 +1006,7 @@ async def trigger_reconciliation(
 ):
     """Manually trigger reconciliation."""
     report = await recon_service.run_reconciliation()
-    
+
     return {
         "status": "completed",
         "report": report.to_dict()
@@ -1052,7 +1052,7 @@ from gal_friday.portfolio.reconciliation_service import (
 
 class TestReconciliationService:
     """Test reconciliation service functionality."""
-    
+
     @pytest.mark.asyncio
     async def test_position_reconciliation_exact_match(self, reconciliation_service):
         """Test reconciliation when positions match exactly."""
@@ -1063,7 +1063,7 @@ class TestReconciliationService:
         exchange_positions = [
             {"symbol": "XRP/USD", "quantity": Decimal("1000")}
         ]
-        
+
         # Mock the data sources
         reconciliation_service.portfolio_manager.get_all_positions = AsyncMock(
             return_value=internal_positions
@@ -1071,15 +1071,15 @@ class TestReconciliationService:
         reconciliation_service.execution_handler.get_exchange_positions = AsyncMock(
             return_value=exchange_positions
         )
-        
+
         # Run reconciliation
         report = await reconciliation_service.run_reconciliation()
-        
+
         # Verify no discrepancies
         assert report.status == ReconciliationStatus.SUCCESS
         assert len(report.position_discrepancies) == 0
         assert report.total_discrepancies == 0
-        
+
     @pytest.mark.asyncio
     async def test_position_quantity_mismatch(self, reconciliation_service):
         """Test detection of position quantity mismatch."""
@@ -1090,7 +1090,7 @@ class TestReconciliationService:
         exchange_positions = [
             {"symbol": "XRP/USD", "quantity": Decimal("950")}
         ]
-        
+
         # Mock the data sources
         reconciliation_service.portfolio_manager.get_all_positions = AsyncMock(
             return_value=internal_positions
@@ -1098,20 +1098,20 @@ class TestReconciliationService:
         reconciliation_service.execution_handler.get_exchange_positions = AsyncMock(
             return_value=exchange_positions
         )
-        
+
         # Run reconciliation
         report = await reconciliation_service.run_reconciliation()
-        
+
         # Verify discrepancy detected
         assert len(report.position_discrepancies) == 1
-        
+
         discrepancy = report.position_discrepancies[0]
         assert discrepancy.discrepancy_type == DiscrepancyType.QUANTITY_MISMATCH
         assert discrepancy.trading_pair == "XRP/USD"
         assert discrepancy.internal_value == Decimal("1000")
         assert discrepancy.exchange_value == Decimal("950")
         assert discrepancy.difference == Decimal("50")
-        
+
     @pytest.mark.asyncio
     async def test_missing_position_detection(self, reconciliation_service):
         """Test detection of missing positions."""
@@ -1120,7 +1120,7 @@ class TestReconciliationService:
             {"trading_pair": "XRP/USD", "quantity": Decimal("1000")}
         ]
         exchange_positions = []
-        
+
         # Mock the data sources
         reconciliation_service.portfolio_manager.get_all_positions = AsyncMock(
             return_value=internal_positions
@@ -1128,18 +1128,18 @@ class TestReconciliationService:
         reconciliation_service.execution_handler.get_exchange_positions = AsyncMock(
             return_value=exchange_positions
         )
-        
+
         # Run reconciliation
         report = await reconciliation_service.run_reconciliation()
-        
+
         # Verify critical discrepancy
         assert len(report.position_discrepancies) == 1
-        
+
         discrepancy = report.position_discrepancies[0]
         assert discrepancy.discrepancy_type == DiscrepancyType.POSITION_MISSING_EXCHANGE
         assert discrepancy.severity == "critical"
         assert len(report.manual_review_required) == 1
-        
+
     @pytest.mark.asyncio
     async def test_auto_correction(self, reconciliation_service):
         """Test automatic correction of small discrepancies."""
@@ -1150,7 +1150,7 @@ class TestReconciliationService:
         exchange_positions = [
             {"symbol": "XRP/USD", "quantity": Decimal("1000.000")}
         ]
-        
+
         # Mock the data sources
         reconciliation_service.portfolio_manager.get_all_positions = AsyncMock(
             return_value=internal_positions
@@ -1159,24 +1159,24 @@ class TestReconciliationService:
             return_value=exchange_positions
         )
         reconciliation_service.portfolio_manager.adjust_position = AsyncMock()
-        
+
         # Set auto-correct threshold
         reconciliation_service.auto_correct_threshold = Decimal("0.01")
-        
+
         # Run reconciliation
         report = await reconciliation_service.run_reconciliation()
-        
+
         # Verify auto-correction applied
         assert len(report.auto_corrections) == 1
-        
+
         correction = report.auto_corrections[0]
         assert correction["type"] == "position_quantity"
         assert correction["pair"] == "XRP/USD"
         assert Decimal(correction["new_quantity"]) == Decimal("1000.000")
-        
+
         # Verify adjustment was called
         reconciliation_service.portfolio_manager.adjust_position.assert_called_once()
-        
+
     @pytest.mark.asyncio
     async def test_balance_reconciliation(self, reconciliation_service):
         """Test balance reconciliation."""
@@ -1189,7 +1189,7 @@ class TestReconciliationService:
             "USD": Decimal("9999.50"),
             "XRP": Decimal("5000.00")
         }
-        
+
         # Mock the data sources
         reconciliation_service.portfolio_manager.get_balances = AsyncMock(
             return_value=internal_balances
@@ -1197,17 +1197,17 @@ class TestReconciliationService:
         reconciliation_service.execution_handler.get_exchange_balances = AsyncMock(
             return_value=exchange_balances
         )
-        
+
         # Run reconciliation
         report = await reconciliation_service.run_reconciliation()
-        
+
         # Verify balance discrepancy detected
         assert len(report.balance_discrepancies) == 1
-        
+
         discrepancy = report.balance_discrepancies[0]
         assert discrepancy["currency"] == "USD"
         assert Decimal(discrepancy["difference"]) == Decimal("0.50")
-        
+
     @pytest.mark.asyncio
     async def test_untracked_order_detection(self, reconciliation_service):
         """Test detection of untracked orders."""
@@ -1219,7 +1219,7 @@ class TestReconciliationService:
             "quantity": Decimal("100"),
             "status": "filled"
         }]
-        
+
         # Mock the data sources
         reconciliation_service.execution_handler.get_recent_orders = AsyncMock(
             return_value=exchange_orders
@@ -1227,10 +1227,10 @@ class TestReconciliationService:
         reconciliation_service.execution_handler.get_order_by_exchange_id = AsyncMock(
             return_value=None  # Not found
         )
-        
+
         # Run reconciliation
         report = await reconciliation_service.run_reconciliation()
-        
+
         # Verify untracked order detected
         assert len(report.untracked_orders) == 1
         assert report.untracked_orders[0] == "UNTRACKED-123"
@@ -1299,4 +1299,4 @@ class TestReconciliationService:
    - Failed reconciliation
    - Critical discrepancies
    - Manual review backlog
-   - Repeated failures 
+   - Repeated failures

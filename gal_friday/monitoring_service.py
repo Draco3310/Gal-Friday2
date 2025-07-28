@@ -6,23 +6,36 @@ performance tracking, and automatic trading halt triggers when thresholds are ex
 """
 
 from collections import defaultdict, deque  # Added for tracking recent API errors
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 import json
 import statistics
+import sys
 import time
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 import uuid
 
 import asyncio
+import asyncpg
+import numpy as np
 import psutil  # Added for system resource monitoring
 
 from .core.events import (
+    ClosePositionCommand,
     EventType,
+    PositionRiskAlertEvent,
+    ReducePositionCommand,
+    SystemStateEvent,
 )
 from .core.halt_coordinator import HaltCoordinator
+
+try:
+    from .core.halt_coordinator import HaltCoordinator as RealHaltCoordinator
+except ImportError:
+    RealHaltCoordinator = HaltCoordinator  # type: ignore[misc]
 
 # Import actual classes when available, otherwise use placeholders
 from .logger_service import LoggerService
@@ -33,9 +46,17 @@ from .monitoring.alerting_system import (
 )
 from .portfolio_manager import PortfolioManager
 
+# Lazy imports for optional dependencies
+from .utils.lazy_imports import (
+    arch,
+    influxdb,
+    influxdb_point,
+    influxdb_v1,
+)
+
 # Type checking imports
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Coroutine
 
     from .config_manager import ConfigManager
     from .core.events import (
@@ -52,6 +73,7 @@ if TYPE_CHECKING:
 
 class MetricType(str, Enum):
     """Types of metrics to collect."""
+
     COUNTER = "counter"
     GAUGE = "gauge"
     HISTOGRAM = "histogram"
@@ -60,6 +82,7 @@ class MetricType(str, Enum):
 
 class AlertSeverity(str, Enum):
     """Alert severity levels."""
+
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -68,6 +91,7 @@ class AlertSeverity(str, Enum):
 
 class AlertStatus(str, Enum):
     """Alert status states."""
+
     ACTIVE = "active"
     RESOLVED = "resolved"
     ACKNOWLEDGED = "acknowledged"
@@ -77,6 +101,7 @@ class AlertStatus(str, Enum):
 @dataclass
 class Metric:
     """Individual metric data point."""
+
     name: str
     value: float
     timestamp: datetime
@@ -97,6 +122,7 @@ class Metric:
 @dataclass
 class Alert:
     """Alert definition and state."""
+
     alert_id: str
     name: str
     condition: str
@@ -135,6 +161,7 @@ class Alert:
 @dataclass
 class AlertRule:
     """Alert rule configuration."""
+
     name: str
     metric_name: str
     condition: str  # 'greater_than', 'less_than', 'equals', 'not_equals'
@@ -150,6 +177,7 @@ class AlertRule:
 @dataclass
 class PerformanceMetrics:
     """System performance metrics snapshot."""
+
     timestamp: datetime
     cpu_usage_pct: float
     memory_usage_pct: float
@@ -182,12 +210,14 @@ class MetricsCollectionSystem:
         self,
         config: dict[str, Any],
         logger: LoggerService,
-        alerting_system: AlertingSystem | None = None) -> None:
+        alerting_system: AlertingSystem | None = None,
+    ) -> None:
         """Initialize the metrics collection system.
 
         Args:
             config: Configuration dictionary
             logger: Logger service instance
+            alerting_system: Optional alerting system instance for sending alerts
         """
         self.config = config
         self.logger = logger
@@ -238,6 +268,38 @@ class MetricsCollectionSystem:
         # Load alert rules from configuration
         self._load_alert_rules()
 
+    def initialize_shared_state(
+        self,
+        portfolio_manager: Any,
+        service_start_time: datetime,
+        is_halted: bool,
+        consecutive_api_failures: int,
+        consecutive_losses: int,
+        last_market_data_times: dict[str, datetime],
+        recent_api_errors: deque[float],
+        active_pairs: set[str],
+    ) -> None:
+        """Initialize shared state from the monitoring service.
+
+        Args:
+            portfolio_manager: Portfolio manager instance
+            service_start_time: Service start timestamp
+            is_halted: System halt status
+            consecutive_api_failures: API failure count
+            consecutive_losses: Consecutive loss count
+            last_market_data_times: Last market data timestamps
+            recent_api_errors: Recent API error deque
+            active_pairs: Set of active trading pairs
+        """
+        self._portfolio_manager = portfolio_manager
+        self._service_start_time = service_start_time
+        self._is_halted = is_halted
+        self._consecutive_api_failures = consecutive_api_failures
+        self._consecutive_losses = consecutive_losses
+        self._last_market_data_times = last_market_data_times
+        self._recent_api_errors = recent_api_errors
+        self._active_pairs = active_pairs
+
     async def start(self) -> None:
         """Start comprehensive metrics collection and monitoring system."""
         if self._running:
@@ -265,11 +327,10 @@ class MetricsCollectionSystem:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(
-                f"Failed to start MetricsCollectionSystem: {e}",
+                "Failed to start MetricsCollectionSystem",
                 source_module=self._source_module,
-                exc_info=True,
             )
             await self.stop()
             raise
@@ -290,12 +351,9 @@ class MetricsCollectionSystem:
                 try:
                     await task
                 except asyncio.CancelledError:
-                    pass
+                    self.logger.debug("Monitoring task cancelled successfully", source_module=self._source_module)
                 except Exception:
-                    self.logger.exception(
-                        "Error stopping task: ",
-                        source_module=self._source_module,
-                    )
+                    self.logger.exception("Error stopping task: ", source_module=self._source_module)
 
         # Flush remaining metrics
         await self._flush_metrics_buffer()
@@ -348,15 +406,11 @@ class MetricsCollectionSystem:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
+        except Exception:
             error_count = self.collection_stats.get("collection_errors", 0)
             if isinstance(error_count, int):
                 self.collection_stats["collection_errors"] = error_count + 1
-            self.logger.error(
-                f"Error collecting metric {name}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+            self.logger.exception("Error collecting metric {name}", source_module=self._source_module)
 
     async def collect_batch_metrics(self, metrics: list[dict[str, Any]]) -> None:
         """Collect multiple metrics in batch for efficiency.
@@ -398,15 +452,11 @@ class MetricsCollectionSystem:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception:
                 error_count = self.collection_stats.get("collection_errors", 0)
                 if isinstance(error_count, int):
                     self.collection_stats["collection_errors"] = error_count + 1
-                self.logger.error(
-                    f"Error in metrics collection loop: {e}",
-                    source_module=self._source_module,
-                    exc_info=True,
-                )
+                self.logger.exception("Error in metrics collection loop", source_module=self._source_module)
                 await asyncio.sleep(5)  # Brief pause on error
 
     async def _collect_system_metrics(self) -> None:
@@ -432,8 +482,7 @@ class MetricsCollectionSystem:
 
             # Disk metrics
             disk_usage = psutil.disk_usage("/")
-            await self.collect_metric("system.disk.usage_percent",
-                                    (disk_usage.used / disk_usage.total) * 100)
+            await self.collect_metric("system.disk.usage_percent", (disk_usage.used / disk_usage.total) * 100)
             await self.collect_metric("system.disk.free_bytes", disk_usage.free)
             await self.collect_metric("system.disk.used_bytes", disk_usage.used)
 
@@ -451,154 +500,199 @@ class MetricsCollectionSystem:
             await self.collect_metric("system.process.memory_rss_bytes", process.memory_info().rss)
             await self.collect_metric("system.process.threads", process.num_threads())
 
-        except Exception as e:
-            self.logger.error(
-                f"Error collecting system metrics: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error collecting system metrics", source_module=self._source_module)
 
     async def _collect_trading_metrics(self) -> None:
-        """Collect comprehensive trading-specific metrics."""
+        """Collect comprehensive trading-specific metrics.
+
+        This refactored method delegates specific metric collections to
+        specialized helper methods for better organization.
+        """
         try:
-            # Calculate system uptime
-            if self._service_start_time:
-                uptime_seconds = (datetime.now(UTC) - self._service_start_time).total_seconds()
-                await self.collect_metric("trading.system.uptime_seconds", uptime_seconds)
+            # Collect system uptime
+            await self._collect_system_uptime_metrics()
 
-            # Get real portfolio data from portfolio manager
-            try:
-                if self._portfolio_manager is None:
-                    raise ValueError("Portfolio manager not initialized")
-                current_state = self._portfolio_manager.get_current_state()
+            # Collect portfolio-related metrics
+            await self._collect_portfolio_metrics()
 
-                # Portfolio value metrics
-                total_equity = current_state.get("total_equity", 0)
-                available_balance = current_state.get("available_balance", 0)
-                total_unrealized_pnl = current_state.get("total_unrealized_pnl", 0)
-                total_realized_pnl = current_state.get("total_realized_pnl", 0)
+            # Collect system health metrics
+            await self._collect_system_health_metrics()
 
-                await self.collect_batch_metrics([
-                    {"name": "trading.portfolio.total_equity_usd", "value": float(total_equity)},
-                    {"name": "trading.portfolio.available_balance_usd", "value": float(available_balance)},
-                    {"name": "trading.portfolio.unrealized_pnl_usd", "value": float(total_unrealized_pnl)},
-                    {"name": "trading.portfolio.realized_pnl_usd", "value": float(total_realized_pnl)},
-                ])
+            # Collect market data tracking metrics
+            await self._collect_market_data_metrics()
 
-                # Position metrics
-                positions = current_state.get("positions", {})
-                active_positions = {k: v for k, v in positions.items() if float(v.get("quantity", 0)) != 0}
-
-                await self.collect_metric("trading.positions.total_count", len(positions))
-                await self.collect_metric("trading.positions.active_count", len(active_positions))
-
-                # Calculate total portfolio exposure
-                total_exposure: float = 0.0
-                for pair, position in active_positions.items():
-                    market_value = float(position.get("market_value_usd", 0))
-                    total_exposure += abs(market_value)
-
-                await self.collect_metric("trading.portfolio.total_exposure_usd", total_exposure)
-
-                # Position concentration metrics
-                if total_equity > 0:
-                    largest_position_pct: float = 0.0
-                    for pair, position in active_positions.items():
-                        market_value = abs(float(position.get("market_value_usd", 0)))
-                        position_pct = (market_value / float(total_equity)) * 100
-                        largest_position_pct = max(largest_position_pct, position_pct)
-
-                        # Individual position metrics
-                        await self.collect_metric(
-                            f'trading.position.{pair.replace("/", "_")}.market_value_usd',
-                            market_value,
-                            labels={"trading_pair": pair},
-                        )
-                        await self.collect_metric(
-                            f'trading.position.{pair.replace("/", "_")}.portfolio_percentage',
-                            position_pct,
-                            labels={"trading_pair": pair},
-                        )
-
-                    await self.collect_metric("trading.portfolio.largest_position_pct", largest_position_pct)
-
-                    # Portfolio utilization
-                    portfolio_utilization = (total_exposure / float(total_equity)) * 100 if total_equity > 0 else 0
-                    await self.collect_metric("trading.portfolio.utilization_pct", portfolio_utilization)
-
-                # Drawdown metrics (already collected in _check_drawdown_conditions but good for completeness)
-                total_drawdown = current_state.get("total_drawdown_pct", 0)
-                daily_drawdown = current_state.get("daily_drawdown_pct", 0)
-
-                await self.collect_batch_metrics([
-                    {"name": "trading.risk.total_drawdown_pct", "value": float(abs(total_drawdown))},
-                    {"name": "trading.risk.daily_drawdown_pct", "value": float(abs(daily_drawdown))},
-                ])
-
-            except Exception as e:
-                self.logger.error(
-                    f"Error collecting portfolio metrics: {e}",
-                    source_module=self._source_module,
-                    exc_info=True,
-                )
-
-            # Trading system health metrics
-            await self.collect_batch_metrics([
-                {"name": "trading.system.is_halted", "value": 1 if self._is_halted else 0},
-                {"name": "trading.risk.consecutive_api_failures", "value": self._consecutive_api_failures},
-                {"name": "trading.risk.consecutive_losses", "value": self._consecutive_losses},
-                {"name": "trading.system.active_pairs_count", "value": len(self._active_pairs)},
-            ])
-
-            # Market data tracking metrics
-            current_time = datetime.now(UTC)
-            fresh_pairs_count = 0
-            stale_pairs_count = 0
-
-            for pair, last_timestamp in self._last_market_data_times.items():
-                age_seconds = (current_time - last_timestamp).total_seconds()
-                if age_seconds <= self._data_staleness_threshold_s:
-                    fresh_pairs_count += 1
-                else:
-                    stale_pairs_count += 1
-
-            await self.collect_batch_metrics([
-                {"name": "trading.market_data.fresh_pairs_count", "value": fresh_pairs_count},
-                {"name": "trading.market_data.stale_pairs_count", "value": stale_pairs_count},
-                {"name": "trading.market_data.total_pairs_tracked", "value": len(self._last_market_data_times)},
-            ])
-
-            # API error tracking
-            recent_api_errors_count = len(self._recent_api_errors)
-            await self.collect_metric("trading.api.recent_errors_count", recent_api_errors_count)
+            # Collect API error metrics
+            await self._collect_api_error_metrics()
 
             self.logger.debug(
                 "Trading metrics collection completed",
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Error collecting trading metrics: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error collecting trading metrics", source_module=self._source_module)
+
+    async def _collect_system_uptime_metrics(self) -> None:
+        """Collect system uptime metrics."""
+        if self._service_start_time:
+            uptime_seconds = (datetime.now(UTC) - self._service_start_time).total_seconds()
+            await self.collect_metric("trading.system.uptime_seconds", uptime_seconds)
+
+    async def _collect_portfolio_metrics(self) -> None:
+        """Collect portfolio and position metrics."""
+        try:
+            if self._portfolio_manager is None:
+                self._raise_value_error("Portfolio manager not initialized")
+            # After validation, we know portfolio_manager is not None
+            current_state = cast("Any", self._portfolio_manager).get_current_state()
+
+            # Collect basic portfolio values
+            await self._collect_portfolio_value_metrics(current_state)
+
+            # Collect position metrics
+            await self._collect_position_metrics(current_state)
+
+            # Collect drawdown metrics
+            await self._collect_drawdown_metrics(current_state)
+
+        except Exception:
+            self.logger.exception("Error collecting portfolio metrics", source_module=self._source_module)
+
+    async def _collect_portfolio_value_metrics(self, current_state: dict[str, Any]) -> None:
+        """Collect basic portfolio value metrics."""
+        total_equity = current_state.get("total_equity", 0)
+        available_balance = current_state.get("available_balance", 0)
+        total_unrealized_pnl = current_state.get("total_unrealized_pnl", 0)
+        total_realized_pnl = current_state.get("total_realized_pnl", 0)
+
+        await self.collect_batch_metrics(
+            [
+                {"name": "trading.portfolio.total_equity_usd", "value": float(total_equity)},
+                {"name": "trading.portfolio.available_balance_usd", "value": float(available_balance)},
+                {"name": "trading.portfolio.unrealized_pnl_usd", "value": float(total_unrealized_pnl)},
+                {"name": "trading.portfolio.realized_pnl_usd", "value": float(total_realized_pnl)},
+            ],
+        )
+
+    async def _collect_position_metrics(self, current_state: dict[str, Any]) -> None:
+        """Collect position-related metrics."""
+        positions = current_state.get("positions", {})
+        active_positions = {k: v for k, v in positions.items() if float(v.get("quantity", 0)) != 0}
+
+        await self.collect_metric("trading.positions.total_count", len(positions))
+        await self.collect_metric("trading.positions.active_count", len(active_positions))
+
+        # Calculate exposure and concentration
+        total_equity = float(current_state.get("total_equity", 0))
+        total_exposure, largest_position_pct = await self._calculate_exposure_metrics(
+            active_positions,
+            total_equity,
+        )
+
+        await self.collect_metric("trading.portfolio.total_exposure_usd", total_exposure)
+
+        if total_equity > 0:
+            await self.collect_metric("trading.portfolio.largest_position_pct", largest_position_pct)
+            portfolio_utilization = (total_exposure / total_equity) * 100
+            await self.collect_metric("trading.portfolio.utilization_pct", portfolio_utilization)
+
+    async def _calculate_exposure_metrics(
+        self,
+        active_positions: dict[str, Any],
+        total_equity: float,
+    ) -> tuple[float, float]:
+        """Calculate exposure and concentration metrics for positions."""
+        total_exposure = 0.0
+        largest_position_pct = 0.0
+
+        for pair, position in active_positions.items():
+            market_value = abs(float(position.get("market_value_usd", 0)))
+            total_exposure += market_value
+
+            if total_equity > 0:
+                position_pct = (market_value / total_equity) * 100
+                largest_position_pct = max(largest_position_pct, position_pct)
+
+                # Individual position metrics
+                await self.collect_metric(
+                    f"trading.position.{pair.replace('/', '_')}.market_value_usd",
+                    market_value,
+                    labels={"trading_pair": pair},
+                )
+                await self.collect_metric(
+                    f"trading.position.{pair.replace('/', '_')}.portfolio_percentage",
+                    position_pct,
+                    labels={"trading_pair": pair},
+                )
+
+        return total_exposure, largest_position_pct
+
+    async def _collect_drawdown_metrics(self, current_state: dict[str, Any]) -> None:
+        """Collect drawdown metrics."""
+        total_drawdown = current_state.get("total_drawdown_pct", 0)
+        daily_drawdown = current_state.get("daily_drawdown_pct", 0)
+
+        await self.collect_batch_metrics(
+            [
+                {"name": "trading.risk.total_drawdown_pct", "value": float(abs(total_drawdown))},
+                {"name": "trading.risk.daily_drawdown_pct", "value": float(abs(daily_drawdown))},
+            ],
+        )
+
+    async def _collect_system_health_metrics(self) -> None:
+        """Collect trading system health metrics."""
+        await self.collect_batch_metrics(
+            [
+                {"name": "trading.system.is_halted", "value": 1 if self._is_halted else 0},
+                {"name": "trading.risk.consecutive_api_failures", "value": self._consecutive_api_failures},
+                {"name": "trading.risk.consecutive_losses", "value": self._consecutive_losses},
+                {"name": "trading.system.active_pairs_count", "value": len(self._active_pairs)},
+            ],
+        )
+
+    async def _collect_market_data_metrics(self) -> None:
+        """Collect market data tracking metrics."""
+        current_time = datetime.now(UTC)
+        fresh_pairs_count = 0
+        stale_pairs_count = 0
+
+        for last_timestamp in self._last_market_data_times.values():
+            age_seconds = (current_time - last_timestamp).total_seconds()
+            if age_seconds <= self._data_staleness_threshold_s:
+                fresh_pairs_count += 1
+            else:
+                stale_pairs_count += 1
+
+        await self.collect_batch_metrics(
+            [
+                {"name": "trading.market_data.fresh_pairs_count", "value": fresh_pairs_count},
+                {"name": "trading.market_data.stale_pairs_count", "value": stale_pairs_count},
+                {"name": "trading.market_data.total_pairs_tracked", "value": len(self._last_market_data_times)},
+            ],
+        )
+
+    async def _collect_api_error_metrics(self) -> None:
+        """Collect API error tracking metrics."""
+        recent_api_errors_count = len(self._recent_api_errors)
+        await self.collect_metric("trading.api.recent_errors_count", recent_api_errors_count)
 
     async def _collect_application_metrics(self) -> None:
         """Collect comprehensive application-specific metrics."""
         try:
             # Collection system performance metrics
-            await self.collect_batch_metrics([
-                {"name": "metrics.collection.total_count", "value": self.collection_stats["metrics_collected"]},
-                {"name": "metrics.collection.errors", "value": self.collection_stats["collection_errors"]},
-                {"name": "metrics.collection.buffer_flushes", "value": self.collection_stats["buffer_flushes"]},
-                {"name": "metrics.buffer.current_size", "value": len(self.metrics_buffer)},
-                {"name": "metrics.alerts.active_count", "value": len(self.active_alerts)},
-                {"name": "metrics.alerts.total_triggered", "value": self.collection_stats["alerts_triggered"]},
-            ])
+            await self.collect_batch_metrics(
+                [
+                    {"name": "metrics.collection.total_count", "value": self.collection_stats["metrics_collected"]},
+                    {"name": "metrics.collection.errors", "value": self.collection_stats["collection_errors"]},
+                    {"name": "metrics.collection.buffer_flushes", "value": self.collection_stats["buffer_flushes"]},
+                    {"name": "metrics.buffer.current_size", "value": len(self.metrics_buffer)},
+                    {"name": "metrics.alerts.active_count", "value": len(self.active_alerts)},
+                    {"name": "metrics.alerts.total_triggered", "value": self.collection_stats["alerts_triggered"]},
+                ],
+            )
 
             # Memory usage calculations
-            import sys
 
             # Calculate actual memory usage of metrics system components
             metrics_history_size = sum(len(deque_obj) for deque_obj in self.metrics_history.values())
@@ -607,23 +701,25 @@ class MetricsCollectionSystem:
 
             # Estimate memory usage in bytes (rough approximation)
             metrics_memory_bytes = (
-                sys.getsizeof(self.metrics_history) +
-                sys.getsizeof(self.metrics_buffer) +
-                sys.getsizeof(self.active_alerts) +
-                sys.getsizeof(self.alert_history) +
-                (metrics_history_size * 200) +  # Approximate size per metric
-                (alert_history_size * 500) +    # Approximate size per alert
-                (active_alerts_size * 500)      # Approximate size per active alert
+                sys.getsizeof(self.metrics_history)
+                + sys.getsizeof(self.metrics_buffer)
+                + sys.getsizeof(self.active_alerts)
+                + sys.getsizeof(self.alert_history)
+                + (metrics_history_size * 200)  # Approximate size per metric
+                + (alert_history_size * 500)  # Approximate size per alert
+                + (active_alerts_size * 500)  # Approximate size per active alert
             )
 
             metrics_memory_mb = metrics_memory_bytes / (1024 * 1024)
 
-            await self.collect_batch_metrics([
-                {"name": "metrics.system.memory_usage_mb", "value": metrics_memory_mb},
-                {"name": "metrics.system.history_entries_total", "value": metrics_history_size},
-                {"name": "metrics.system.unique_metrics_tracked", "value": len(self.metrics_history)},
-                {"name": "metrics.system.alert_history_size", "value": alert_history_size},
-            ])
+            await self.collect_batch_metrics(
+                [
+                    {"name": "metrics.system.memory_usage_mb", "value": metrics_memory_mb},
+                    {"name": "metrics.system.history_entries_total", "value": metrics_history_size},
+                    {"name": "metrics.system.unique_metrics_tracked", "value": len(self.metrics_history)},
+                    {"name": "metrics.system.alert_history_size", "value": alert_history_size},
+                ],
+            )
 
             # Task[Any] status metrics
             task_status = {
@@ -638,20 +734,20 @@ class MetricsCollectionSystem:
             # Collection efficiency metrics
             last_collection = self.collection_stats.get("last_collection_time")
             if isinstance(last_collection, datetime):
-                time_since_last_collection = (
-                    datetime.now(UTC) - last_collection
-                ).total_seconds()
+                time_since_last_collection = (datetime.now(UTC) - last_collection).total_seconds()
                 await self.collect_metric("metrics.collection.seconds_since_last", time_since_last_collection)
 
             # Alert rule metrics
             enabled_rules = sum(1 for rule in self.alert_rules.values() if rule.enabled)
             disabled_rules = len(self.alert_rules) - enabled_rules
 
-            await self.collect_batch_metrics([
-                {"name": "metrics.alert_rules.total_count", "value": len(self.alert_rules)},
-                {"name": "metrics.alert_rules.enabled_count", "value": enabled_rules},
-                {"name": "metrics.alert_rules.disabled_count", "value": disabled_rules},
-            ])
+            await self.collect_batch_metrics(
+                [
+                    {"name": "metrics.alert_rules.total_count", "value": len(self.alert_rules)},
+                    {"name": "metrics.alert_rules.enabled_count", "value": enabled_rules},
+                    {"name": "metrics.alert_rules.disabled_count", "value": disabled_rules},
+                ],
+            )
 
             # Alert severity distribution
             severity_counts = {"info": 0, "warning": 0, "critical": 0, "emergency": 0}
@@ -676,12 +772,8 @@ class MetricsCollectionSystem:
             # System running status
             await self.collect_metric("metrics.system.running", 1 if self._running else 0)
 
-        except Exception as e:
-            self.logger.error(
-                f"Error collecting application metrics: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error collecting application metrics", source_module=self._source_module)
 
     async def _flush_metrics_buffer(self) -> None:
         """Flush metrics buffer to InfluxDB and PostgreSQL persistent storage."""
@@ -717,11 +809,7 @@ class MetricsCollectionSystem:
             )
 
         except Exception as e:
-            self.logger.error(
-                f"Error flushing metrics buffer: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+            self.logger.exception("Error flushing metrics buffer", source_module=self._source_module)
             # Don't clear buffer on error to avoid data loss
             await self._handle_flush_failure(e)
 
@@ -759,14 +847,12 @@ class MetricsCollectionSystem:
                 # Using influxdb library
                 success = self._influx_client.write_points(points)
                 if not success:
-                    raise Exception("InfluxDB write_points returned False")
+                    self._raise_metrics_collection_error("InfluxDB write_points returned False")
             elif hasattr(self._influx_client, "write"):
                 # Using influxdb-client library
-                from influxdb_client import Point
-
                 influx_points = []
                 for metric in metrics:
-                    influx_point = Point(metric.name)
+                    influx_point = influxdb_point(metric.name)
 
                     # Add tags
                     for key, value in metric.labels.items():
@@ -794,12 +880,8 @@ class MetricsCollectionSystem:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to write metrics to InfluxDB: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to write metrics to InfluxDB", source_module=self._source_module)
             raise
 
     async def _write_to_postgresql(self, metrics: list[Metric]) -> None:
@@ -819,18 +901,20 @@ class MetricsCollectionSystem:
             # Prepare batch insert
             async with self._pg_pool.acquire() as conn:
                 # Insert metrics
-                metric_records = []
-                for metric in metrics:
-                    metric_records.append((
+                metric_records = [
+                    (
                         metric.name,
                         metric.value,
                         metric.timestamp,
                         json.dumps(metric.labels),
                         metric.metric_type.value,
-                    ))
+                    )
+                    for metric in metrics
+                ]
 
                 # Batch insert metrics
-                await conn.executemany("""
+                await conn.executemany(
+                    """
                     INSERT INTO metrics (name, value, timestamp, labels, metric_type, created_at)
                     VALUES ($1, $2, $3, $4, $5, NOW())
                     ON CONFLICT (name, timestamp) DO UPDATE SET
@@ -838,7 +922,9 @@ class MetricsCollectionSystem:
                         labels = EXCLUDED.labels,
                         metric_type = EXCLUDED.metric_type,
                         updated_at = NOW()
-                """, metric_records)
+                """,
+                    metric_records,
+                )
 
                 # Update metric summaries for fast queries
                 await self._update_metric_summaries(conn, metrics)
@@ -848,12 +934,8 @@ class MetricsCollectionSystem:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to write metrics to PostgreSQL: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to write metrics to PostgreSQL", source_module=self._source_module)
             raise
 
     async def _update_metric_summaries(self, conn: Any, metrics: list[Metric]) -> None:
@@ -877,7 +959,8 @@ class MetricsCollectionSystem:
                 max_value = max(values)
 
                 # Upsert metric summary
-                await conn.execute("""
+                await conn.execute(
+                    """
                     INSERT INTO metric_summaries (
                         name, latest_value, latest_timestamp, avg_value,
                         min_value, max_value, sample_count, updated_at
@@ -893,15 +976,18 @@ class MetricsCollectionSystem:
                         max_value = GREATEST(metric_summaries.max_value, EXCLUDED.max_value),
                         sample_count = metric_summaries.sample_count + EXCLUDED.sample_count,
                         updated_at = NOW()
-                """, metric_name, latest_metric.value, latest_metric.timestamp,
-                    avg_value, min_value, max_value, len(values))
+                """,
+                    metric_name,
+                    latest_metric.value,
+                    latest_metric.timestamp,
+                    avg_value,
+                    min_value,
+                    max_value,
+                    len(values),
+                )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to update metric summaries: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to update metric summaries", source_module=self._source_module)
 
     async def _initialize_influxdb_client(self) -> None:
         """Initialize InfluxDB client connection."""
@@ -913,10 +999,8 @@ class MetricsCollectionSystem:
                 return
 
             # Try influxdb-client first (v2.x)
-            try:
-                from influxdb_client import InfluxDBClient
-
-                self._influx_client = InfluxDBClient(
+            if influxdb.available:
+                self._influx_client = influxdb(
                     url=influx_config.get("url", "http://localhost:8086"),
                     token=influx_config.get("token"),
                     org=influx_config.get("org", "trading"),
@@ -926,20 +1010,23 @@ class MetricsCollectionSystem:
                 # Test connection
                 health = self._influx_client.health()
                 if health.status != "pass":
-                    raise Exception(f"InfluxDB health check failed: {health.status}")
+                    self._raise_metrics_collection_error(f"InfluxDB health check failed: {health.status}")
 
                 self.logger.info(
                     "Connected to InfluxDB v2.x",
                     source_module=self._source_module,
                 )
-
-            except ImportError:
+            else:
                 # Fallback to influxdb v1.x
-                from influxdb import (
-                    InfluxDBClient as InfluxDBClientV1,  # type: ignore[import-untyped]
-                )
+                if not influxdb_v1.available:
+                    self.logger.warning(
+                        "No InfluxDB client library available",
+                        source_module=self._source_module,
+                    )
+                    self._influx_client = None
+                    return
 
-                self._influx_client = InfluxDBClientV1(
+                self._influx_client = influxdb_v1(
                     host=influx_config.get("host", "localhost"),
                     port=influx_config.get("port", 8086),
                     username=influx_config.get("username"),
@@ -957,12 +1044,8 @@ class MetricsCollectionSystem:
                     source_module=self._source_module,
                 )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to initialize InfluxDB client: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to initialize InfluxDB client", source_module=self._source_module)
             self._influx_client = None
 
     async def _initialize_postgresql_connection(self) -> None:
@@ -973,8 +1056,6 @@ class MetricsCollectionSystem:
             if not pg_config.get("enabled", True):
                 self._pg_pool = None
                 return
-
-            import asyncpg
 
             # Create connection pool
             self._pg_pool = await asyncpg.create_pool(
@@ -996,20 +1077,17 @@ class MetricsCollectionSystem:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to initialize PostgreSQL connection: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to initialize PostgreSQL connection", source_module=self._source_module)
             self._pg_pool = None
 
     async def _create_postgresql_tables(self) -> None:
         """Create necessary PostgreSQL tables for metrics storage."""
         try:
             if self._pg_pool is None:
-                raise RuntimeError("PostgreSQL pool not initialized")
-            async with self._pg_pool.acquire() as conn:
+                self._raise_runtime_error("PostgreSQL pool not initialized")
+            # After validation, we know pg_pool is not None
+            async with cast("Any", self._pg_pool).acquire() as conn:
                 # Create metrics table
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS metrics (
@@ -1089,12 +1167,8 @@ class MetricsCollectionSystem:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to create PostgreSQL tables: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to create PostgreSQL tables", source_module=self._source_module)
             raise
 
     async def _handle_flush_failure(self, error: Exception) -> None:
@@ -1127,12 +1201,8 @@ class MetricsCollectionSystem:
                 },
             )
 
-        except Exception as e:
-                         self.logger.error(
-                f"Error in flush failure handler: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error in flush failure handler", source_module=self._source_module)
 
     async def _close_database_connections(self) -> None:
         """Close database connections and clean up resources."""
@@ -1151,10 +1221,7 @@ class MetricsCollectionSystem:
                         source_module=self._source_module,
                     )
                 except Exception:
-                    self.logger.exception(
-                        "Error closing InfluxDB connection: ",
-                        source_module=self._source_module,
-                    )
+                    self.logger.exception("Error closing InfluxDB connection: ", source_module=self._source_module)
                 finally:
                     self._influx_client = None
 
@@ -1174,12 +1241,8 @@ class MetricsCollectionSystem:
                 finally:
                     self._pg_pool = None
 
-        except Exception as e:
-            self.logger.error(
-                f"Error in database cleanup: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error in database cleanup", source_module=self._source_module)
 
     async def _alerting_loop(self) -> None:
         """Main alerting evaluation loop."""
@@ -1195,12 +1258,8 @@ class MetricsCollectionSystem:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                self.logger.error(
-                    f"Error in alerting loop: {e}",
-                    source_module=self._source_module,
-                    exc_info=True,
-                )
+            except Exception:
+                self.logger.exception("Error in alerting loop", source_module=self._source_module)
                 await asyncio.sleep(10)
 
     async def _evaluate_alert_rules(self) -> None:
@@ -1223,7 +1282,9 @@ class MetricsCollectionSystem:
 
                 # Evaluate condition
                 alert_triggered = self._evaluate_condition(
-                    current_value, rule.condition, rule.threshold,
+                    current_value,
+                    rule.condition,
+                    rule.threshold,
                 )
 
                 alert_id = f"{rule_name}_{int(time.time())}"
@@ -1298,12 +1359,8 @@ class MetricsCollectionSystem:
                     # Move to history
                     del self.active_alerts[rule_name]
 
-            except Exception as e:
-                self.logger.error(
-                    f"Error evaluating alert rule {rule_name}: {e}",
-                    source_module=self._source_module,
-                    exc_info=True,
-                )
+            except Exception:
+                self.logger.exception("Error evaluating alert rule {rule_name}", source_module=self._source_module)
 
     def _evaluate_condition(self, value: float, condition: str, threshold: float) -> bool:
         """Evaluate alert condition."""
@@ -1336,7 +1393,8 @@ class MetricsCollectionSystem:
                 "Sending alert notifications for %s via channels: %s",
                 alert.name,
                 rule.notification_channels,
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
             if self.alerting_system:
                 severity_map = {
@@ -1351,7 +1409,8 @@ class MetricsCollectionSystem:
                     message=alert.message,
                     severity=severity_map.get(alert.severity, ExternalAlertSeverity.ERROR),
                     source=self._source_module,
-                    tags={"rule": rule.name, **alert.metadata})
+                    tags={"rule": rule.name, **alert.metadata},
+                )
                 await self.alerting_system.send_alert(ext_alert)
             else:
                 notification_data = {
@@ -1359,17 +1418,10 @@ class MetricsCollectionSystem:
                     "channels": rule.notification_channels,
                     "type": "alert_triggered",
                 }
-                self.logger.info(
-                    "NOTIFICATION: %s",
-                    json.dumps(notification_data),
-                    source_module=self._source_module)
+                self.logger.info("NOTIFICATION: %s", json.dumps(notification_data), source_module=self._source_module)
 
-        except Exception as e:
-            self.logger.error(
-                f"Error sending alert notifications: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error sending alert notifications", source_module=self._source_module)
 
     async def _send_resolution_notification(self, alert: Alert, rule: AlertRule) -> None:
         """Send alert resolution notifications."""
@@ -1387,7 +1439,8 @@ class MetricsCollectionSystem:
                     message=alert.message,
                     severity=severity_map.get(alert.severity, ExternalAlertSeverity.INFO),
                     source=self._source_module,
-                    tags={"rule": rule.name, **alert.metadata, "resolution": "true"})
+                    tags={"rule": rule.name, **alert.metadata, "resolution": "true"},
+                )
                 await self.alerting_system.send_alert(ext_alert)
             else:
                 notification_data = {
@@ -1398,14 +1451,11 @@ class MetricsCollectionSystem:
                 self.logger.info(
                     "RESOLUTION NOTIFICATION: %s",
                     json.dumps(notification_data),
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
-        except Exception as e:
-            self.logger.error(
-                f"Error sending resolution notification: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error sending resolution notification", source_module=self._source_module)
 
     async def _process_alert_escalations(self) -> None:
         """Process alert escalations based on configured rules."""
@@ -1417,10 +1467,11 @@ class MetricsCollectionSystem:
             time_since_trigger = datetime.now(UTC) - alert.triggered_at
 
             # Simple escalation logic - can be enhanced with more complex rules
-            if (time_since_trigger.total_seconds() > 1800 and  # 30 minutes
-                alert.escalation_level == 0 and
-                alert.severity in [AlertSeverity.CRITICAL, AlertSeverity.EMERGENCY]):
-
+            if (
+                time_since_trigger.total_seconds() > 1800  # 30 minutes
+                and alert.escalation_level == 0
+                and alert.severity in [AlertSeverity.CRITICAL, AlertSeverity.EMERGENCY]
+            ):
                 alert.escalation_level += 1
 
                 self.logger.warning(
@@ -1446,12 +1497,8 @@ class MetricsCollectionSystem:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                self.logger.error(
-                    f"Error in analytics loop: {e}",
-                    source_module=self._source_module,
-                    exc_info=True,
-                )
+            except Exception:
+                self.logger.exception("Error in analytics loop", source_module=self._source_module)
                 await asyncio.sleep(30)
 
     async def _update_metric_aggregates(self) -> None:
@@ -1463,10 +1510,7 @@ class MetricsCollectionSystem:
 
                 # Get recent values (last hour)
                 cutoff_time = datetime.now(UTC) - timedelta(hours=1)
-                recent_values = [
-                    m.value for m in history
-                    if m.timestamp > cutoff_time
-                ]
+                recent_values = [m.value for m in history if m.timestamp > cutoff_time]
 
                 if not recent_values:
                     continue
@@ -1485,12 +1529,8 @@ class MetricsCollectionSystem:
 
                 self.metric_aggregates[metric_name] = aggregates
 
-        except Exception as e:
-            self.logger.error(
-                f"Error updating metric aggregates: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error updating metric aggregates", source_module=self._source_module)
 
     async def _perform_trend_analysis(self) -> None:
         """Perform basic trend analysis on metrics."""
@@ -1518,12 +1558,8 @@ class MetricsCollectionSystem:
                             source_module=self._source_module,
                         )
 
-        except Exception as e:
-            self.logger.error(
-                f"Error in trend analysis: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error in trend analysis", source_module=self._source_module)
 
     async def _detect_anomalies(self) -> None:
         """Basic anomaly detection using statistical methods."""
@@ -1558,12 +1594,8 @@ class MetricsCollectionSystem:
                         # Create anomaly alert if not already active
                         await self._create_anomaly_alert(metric_name, latest_value, z_score)
 
-        except Exception as e:
-            self.logger.error(
-                f"Error in anomaly detection: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error in anomaly detection", source_module=self._source_module)
 
     async def _create_anomaly_alert(self, metric_name: str, value: float, z_score: float) -> None:
         """Create an alert for detected anomaly."""
@@ -1607,7 +1639,8 @@ class MetricsCollectionSystem:
 
             async with self._pg_pool.acquire() as conn:
                 # Insert or update alert in database
-                await conn.execute("""
+                await conn.execute(
+                    """
                     INSERT INTO alerts (
                         alert_id, name, condition, severity, message, threshold,
                         current_value, status, triggered_at, resolved_at,
@@ -1644,12 +1677,8 @@ class MetricsCollectionSystem:
                     source_module=self._source_module,
                 )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to persist alert to PostgreSQL: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to persist alert to PostgreSQL", source_module=self._source_module)
 
     def _load_alert_rules(self) -> None:
         """Load alert rules from configuration."""
@@ -1679,12 +1708,8 @@ class MetricsCollectionSystem:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Error loading alert rules: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error loading alert rules", source_module=self._source_module)
 
     async def get_metrics_summary(self) -> dict[str, Any]:
         """Get comprehensive summary of collected metrics and system status."""
@@ -1715,9 +1740,7 @@ class MetricsCollectionSystem:
                     by_severity[severity] = by_severity.get(severity, 0) + 1
 
             # Recent alerts (last 10)
-            alerts_summary["recent_alerts"] = [
-                alert.to_dict() for alert in list[Any](self.alert_history)[-10:]
-            ]
+            alerts_summary["recent_alerts"] = [alert.to_dict() for alert in list[Any](self.alert_history)[-10:]]
 
             return {
                 "collection_stats": self.collection_stats,
@@ -1741,13 +1764,8 @@ class MetricsCollectionSystem:
                 },
             }
 
-
         except Exception as e:
-            self.logger.error(
-                f"Error generating metrics summary: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+            self.logger.exception("Error generating metrics summary", source_module=self._source_module)
             return {"error": str(e)}
 
     async def acknowledge_alert(self, alert_name: str, acknowledged_by: str) -> bool:
@@ -1793,6 +1811,18 @@ class MetricsCollectionSystem:
         history = list[Any](self.metrics_history[metric_name])[-limit:]
         return [metric.to_dict() for metric in history]
 
+    def _raise_value_error(self, error_msg: str) -> None:
+        """Helper method to raise ValueError, abstracting the raise from try block."""
+        raise ValueError(error_msg)
+
+    def _raise_metrics_collection_error(self, error_msg: str) -> None:
+        """Helper method to raise MetricsCollectionError, abstracting the raise from try block."""
+        raise MetricsCollectionError(error_msg)
+
+    def _raise_runtime_error(self, error_msg: str) -> None:
+        """Helper method to raise RuntimeError, abstracting the raise from try block."""
+        raise RuntimeError(error_msg)
+
 
 class MetricsCollectionError(Exception):
     """Exception raised for metrics collection errors."""
@@ -1814,7 +1844,8 @@ class MonitoringService:
         execution_handler: "ExecutionHandler | None" = None,
         halt_coordinator: Optional["HaltCoordinator"] = None,
         history_repo: "HistoryRepository | None" = None,
-        alerting_system: AlertingSystem | None = None) -> None:
+        alerting_system: AlertingSystem | None = None,
+    ) -> None:
         """Initialize the MonitoringService.
 
         Args:
@@ -1825,6 +1856,8 @@ class MonitoringService:
             logger_service: The shared logger instance.
             execution_handler: Optional execution handler for API connectivity checks.
             halt_coordinator: Optional HALT coordinator for centralized HALT management.
+            history_repo: Optional history repository for accessing historical data.
+            alerting_system: Optional alerting system instance for sending alerts.
         """
         self.config_manager = config_manager
         self.pubsub_manager = pubsub_manager
@@ -1837,20 +1870,11 @@ class MonitoringService:
 
         # Initialize HALT coordinator if not provided
         if halt_coordinator is None:
-            try:
-                from .core.halt_coordinator import (
-                    HaltCoordinator as RealHaltCoordinator,
-                )
-                self._halt_coordinator = RealHaltCoordinator(
-                    config_manager=config_manager,
-                    pubsub_manager=pubsub_manager,
-                    logger_service=logger_service)
-            except ImportError:
-                # Fall back to placeholder if real implementation not available
-                self._halt_coordinator = HaltCoordinator(
-                    config_manager=config_manager,
-                    pubsub_manager=pubsub_manager,
-                    logger_service=logger_service)
+            self._halt_coordinator = RealHaltCoordinator(
+                config_manager=config_manager,
+                pubsub_manager=pubsub_manager,
+                logger_service=logger_service,
+            )
         else:
             self._halt_coordinator = halt_coordinator
 
@@ -1872,8 +1896,7 @@ class MonitoringService:
         self._last_market_data_prices: dict[str, Decimal] = {}
         self._consecutive_api_failures: int = 0
         self._consecutive_losses: int = 0
-        self._recent_api_errors: deque[float] = deque(
-            maxlen=10)  # Store timestamps of recent errors
+        self._recent_api_errors: deque[float] = deque(maxlen=10)  # Store timestamps of recent errors
         self._active_pairs: set[str] = set()  # Track active trading pairs
 
         # Load configuration values instead of hardcoded constants
@@ -1884,11 +1907,20 @@ class MonitoringService:
         self._metrics_system = MetricsCollectionSystem(
             config=metrics_config,
             logger=logger_service,
-            alerting_system=self.alerting_system)
+            alerting_system=self.alerting_system,
+        )
 
-        # Share necessary references with metrics system
-        self._metrics_system._portfolio_manager = self._portfolio_manager
-        self._sync_metrics_system_state()
+        # Initialize metrics system with shared state
+        self._metrics_system.initialize_shared_state(
+            portfolio_manager=self._portfolio_manager,
+            service_start_time=self._service_start_time or datetime.now(UTC),
+            is_halted=self._is_halted,
+            consecutive_api_failures=self._consecutive_api_failures,
+            consecutive_losses=self._consecutive_losses,
+            last_market_data_times=self._last_market_data_times,
+            recent_api_errors=self._recent_api_errors,
+            active_pairs=getattr(self, "_active_pairs", set()),
+        )
 
         self.logger.info(
             "MonitoringService initialized with enterprise metrics collection.",
@@ -1898,32 +1930,48 @@ class MonitoringService:
     def _sync_metrics_system_state(self) -> None:
         """Synchronize shared state with the metrics collection system."""
         if hasattr(self, "_metrics_system"):
-            self._metrics_system._service_start_time = self._service_start_time
-            self._metrics_system._is_halted = self._is_halted
-            self._metrics_system._consecutive_api_failures = self._consecutive_api_failures
-            self._metrics_system._consecutive_losses = self._consecutive_losses
-            self._metrics_system._last_market_data_times = self._last_market_data_times
-            self._metrics_system._recent_api_errors = self._recent_api_errors
-
-            # Sync active pairs
-            if hasattr(self, "_active_pairs"):
-                self._metrics_system._active_pairs = self._active_pairs
-            else:
-                self._active_pairs = set()
-                self._metrics_system._active_pairs = self._active_pairs
+            self._metrics_system.initialize_shared_state(
+                portfolio_manager=self._portfolio_manager,
+                service_start_time=self._service_start_time or datetime.now(UTC),
+                is_halted=self._is_halted,
+                consecutive_api_failures=self._consecutive_api_failures,
+                consecutive_losses=self._consecutive_losses,
+                last_market_data_times=self._last_market_data_times,
+                recent_api_errors=self._recent_api_errors,
+                active_pairs=getattr(self, "_active_pairs", set()),
+            )
 
     def is_halted(self) -> bool:
         """Return whether the system is currently halted."""
         return self._is_halted
 
+    def get_halt_coordinator_status(self) -> dict[str, Any]:
+        """Get the halt coordinator status for monitoring/dashboard purposes.
+
+        Returns:
+            Dictionary with halt status information, or empty dict if no coordinator
+        """
+        if hasattr(self, "_halt_coordinator") and self._halt_coordinator:
+            return self._halt_coordinator.get_halt_status()
+        return {}
+
+    def _raise_value_error(self, error_msg: str) -> None:
+        """Helper method to raise ValueError, abstracting the raise from try block."""
+        raise ValueError(error_msg)
+
+    def _raise_metrics_collection_error(self, error_msg: str) -> None:
+        """Helper method to raise MetricsCollectionError, abstracting the raise from try block."""
+        raise MetricsCollectionError(error_msg)
+
+    def _raise_runtime_error(self, error_msg: str) -> None:
+        """Helper method to raise RuntimeError, abstracting the raise from try block."""
+        raise RuntimeError(error_msg)
+
     async def start(self) -> None:
         """Start the periodic monitoring checks and metrics collection."""
         # Record when the service actually started
         self._service_start_time = datetime.now(UTC)
-        self.logger.info(
-            "MonitoringService started at %s",
-            self._service_start_time,
-            source_module=self._source)
+        self.logger.info("MonitoringService started at %s", self._service_start_time, source_module=self._source)
 
         # Sync state with metrics system
         self._sync_metrics_system_state()
@@ -1932,24 +1980,15 @@ class MonitoringService:
         try:
             await self._metrics_system.start()
             self.logger.info("Enterprise metrics collection system started", source_module=self._source)
-        except Exception as e:
-            self.logger.error(
-                f"Failed to start metrics collection system: {e}",
-                source_module=self._source,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to start metrics collection system", source_module=self._source)
 
         # Publish initial state when starting, if not already halted
         if not self._is_halted:
-            await self._publish_state_change(
-                "RUNNING",
-                "System startup",
-                "MonitoringService Start")
+            await self._publish_state_change("RUNNING", "System startup", "MonitoringService Start")
 
         if self._periodic_check_task and not self._periodic_check_task.done():
-            self.logger.warning(
-                "MonitoringService periodic check task already running.",
-                source_module=self._source)
+            self.logger.warning("MonitoringService periodic check task already running.", source_module=self._source)
             return
 
         msg = f"Starting MonitoringService periodic checks every {self._check_interval} seconds."
@@ -1959,118 +1998,93 @@ class MonitoringService:
 
         # Subscribe to potential halt events
         self._potential_halt_handler = self._handle_potential_halt_trigger
-        self.pubsub_manager.subscribe(
-            EventType.POTENTIAL_HALT_TRIGGER,
-            self._potential_halt_handler)
-        self.logger.info(
-            "Subscribed to POTENTIAL_HALT_TRIGGER events.",
-            source_module=self._source)
+        self.pubsub_manager.subscribe(EventType.POTENTIAL_HALT_TRIGGER, self._potential_halt_handler)
+        self.logger.info("Subscribed to POTENTIAL_HALT_TRIGGER events.", source_module=self._source)
 
         # Subscribe to API error events
         self._api_error_handler = self._handle_api_error
         self.pubsub_manager.subscribe(EventType.SYSTEM_ERROR, self._api_error_handler)
-        self.logger.info(
-            "Subscribed to SYSTEM_ERROR events for API error tracking.",
-            source_module=self._source)
+        self.logger.info("Subscribed to SYSTEM_ERROR events for API error tracking.", source_module=self._source)
 
         # Subscribe to market data events to track freshness
         self._market_data_l2_handler = self._update_market_data_timestamp
         self._market_data_ohlcv_handler = self._update_market_data_timestamp
         self.pubsub_manager.subscribe(EventType.MARKET_DATA_L2, self._market_data_l2_handler)
         self.pubsub_manager.subscribe(EventType.MARKET_DATA_OHLCV, self._market_data_ohlcv_handler)
-        self.logger.info(
-            "Subscribed to market data events for freshness tracking.",
-            source_module=self._source)
+        self.logger.info("Subscribed to market data events for freshness tracking.", source_module=self._source)
 
         # Subscribe to execution reports to track consecutive losses
         self._execution_report_handler = self._handle_execution_report
         self.pubsub_manager.subscribe(EventType.EXECUTION_REPORT, self._execution_report_handler)
-        self.logger.info(
-            "Subscribed to execution reports for loss tracking.",
-            source_module=self._source)
+        self.logger.info("Subscribed to execution reports for loss tracking.", source_module=self._source)
 
     async def stop(self) -> None:
         """Stop the periodic monitoring checks and metrics collection."""
-        # Stop enterprise metrics collection system first
+        # Execute shutdown phases
+        await self._stop_metrics_system()
+        await self._unsubscribe_from_events()
+        await self._stop_periodic_tasks()
+
+    async def _stop_metrics_system(self) -> None:
+        """Stop the enterprise metrics collection system."""
         try:
             await self._metrics_system.stop()
             self.logger.info("Enterprise metrics collection system stopped", source_module=self._source)
-        except Exception as e:
-            self.logger.error(
-                f"Error stopping metrics collection system: {e}",
-                source_module=self._source,
-                exc_info=True,
-            )
-
-        # Unsubscribe from all event types
-        try:
-            # Potential HALT trigger events
-            if self._potential_halt_handler:
-                self.pubsub_manager.unsubscribe(
-                    EventType.POTENTIAL_HALT_TRIGGER,
-                    self._potential_halt_handler)
-                self.logger.info(
-                    "Unsubscribed from POTENTIAL_HALT_TRIGGER events.",
-                    source_module=self._source)
-                self._potential_halt_handler = None
-
-            # API error events
-            if hasattr(self, "_api_error_handler") and self._api_error_handler:
-                self.pubsub_manager.unsubscribe(EventType.SYSTEM_ERROR, self._api_error_handler)
-                self.logger.info(
-                    "Unsubscribed from SYSTEM_ERROR events.",
-                    source_module=self._source)
-                self._api_error_handler = None
-
-            # Market data events
-            if self._market_data_l2_handler:
-                self.pubsub_manager.unsubscribe(
-                    EventType.MARKET_DATA_L2,
-                    self._market_data_l2_handler)
-                self._market_data_l2_handler = None
-
-            if self._market_data_ohlcv_handler:
-                self.pubsub_manager.unsubscribe(
-                    EventType.MARKET_DATA_OHLCV,
-                    self._market_data_ohlcv_handler)
-                self._market_data_ohlcv_handler = None
-
-            # Execution report events
-            if self._execution_report_handler:
-                self.pubsub_manager.unsubscribe(
-                    EventType.EXECUTION_REPORT,
-                    self._execution_report_handler)
-                self._execution_report_handler = None
-
-            self.logger.info(
-                "Unsubscribed from all monitoring events.",
-                source_module=self._source)
         except Exception:
-            self.logger.exception(
-                "Error unsubscribing from events",
-                source_module=self._source)
+            self.logger.exception("Error stopping metrics collection system", source_module=self._source)
 
+    async def _unsubscribe_from_events(self) -> None:
+        """Unsubscribe from all event types."""
+        try:
+            # Define event handlers to unsubscribe
+            event_handlers = [
+                (EventType.POTENTIAL_HALT_TRIGGER, "_potential_halt_handler", "POTENTIAL_HALT_TRIGGER"),
+                (EventType.SYSTEM_ERROR, "_api_error_handler", "SYSTEM_ERROR"),
+                (EventType.MARKET_DATA_L2, "_market_data_l2_handler", None),
+                (EventType.MARKET_DATA_OHLCV, "_market_data_ohlcv_handler", None),
+                (EventType.EXECUTION_REPORT, "_execution_report_handler", None),
+            ]
+
+            for event_type, handler_attr, log_name in event_handlers:
+                await self._unsubscribe_single_event(event_type, handler_attr, log_name)
+
+            self.logger.info("Unsubscribed from all monitoring events.", source_module=self._source)
+        except Exception:
+            self.logger.exception("Error unsubscribing from events", source_module=self._source)
+
+    async def _unsubscribe_single_event(
+        self,
+        event_type: EventType,
+        handler_attr: str,
+        log_name: str | None,
+    ) -> None:
+        """Unsubscribe from a single event type."""
+        if hasattr(self, handler_attr):
+            handler = getattr(self, handler_attr)
+            if handler:
+                self.pubsub_manager.unsubscribe(event_type, handler)
+                if log_name:
+                    self.logger.info(f"Unsubscribed from {log_name} events.", source_module=self._source)
+                setattr(self, handler_attr, None)
+
+    async def _stop_periodic_tasks(self) -> None:
+        """Stop periodic monitoring tasks."""
         if self._periodic_check_task and not self._periodic_check_task.done():
-            self.logger.info(
-                "Stopping MonitoringService periodic checks...",
-                source_module=self._source)
+            self.logger.info("Stopping MonitoringService periodic checks...", source_module=self._source)
             self._periodic_check_task.cancel()
-            try:
-                await self._periodic_check_task
-            except asyncio.CancelledError:
-                self.logger.info(
-                    "Monitoring check task successfully cancelled.",
-                    source_module=self._source)
-            except Exception:
-                self.logger.exception(
-                    "Error encountered while stopping monitoring task.",
-                    source_module=self._source)
-            finally:
-                self._periodic_check_task = None
+            await self._await_task_cancellation(self._periodic_check_task)
+            self._periodic_check_task = None
         else:
-            self.logger.info(
-                "MonitoringService periodic check task was not running.",
-                source_module=self._source)
+            self.logger.info("MonitoringService periodic check task was not running.", source_module=self._source)
+
+    async def _await_task_cancellation(self, task: asyncio.Task[Any]) -> None:
+        """Await task cancellation with proper error handling."""
+        try:
+            await task
+        except asyncio.CancelledError:
+            self.logger.info("Monitoring check task successfully cancelled.", source_module=self._source)
+        except Exception:
+            self.logger.exception("Error encountered while stopping monitoring task.", source_module=self._source)
 
     async def trigger_halt(self, reason: str, source: str) -> None:
         """Halt the system operations.
@@ -2084,22 +2098,16 @@ class MonitoringService:
             self.logger.warning(
                 "System already halted. Ignoring HALT trigger from %s.",
                 source,
-                source_module=self._source)
+                source_module=self._source,
+            )
             return
 
         self._is_halted = True
 
         # Update HALT coordinator state
-        self._halt_coordinator.set_halt_state(
-            is_halted=True,
-            reason=reason,
-            source=source)
+        self._halt_coordinator.set_halt_state(is_halted=True, reason=reason, source=source)
 
-        self.logger.critical(
-            "SYSTEM HALTED by %s. Reason: %s",
-            source,
-            reason,
-            source_module=self._source)
+        self.logger.critical("SYSTEM HALTED by %s. Reason: %s", source, reason, source_module=self._source)
         await self._publish_state_change("HALTED", reason, source)
 
         # Handle positions based on configuration
@@ -2111,24 +2119,17 @@ class MonitoringService:
         Can close positions, maintain them, or perform other actions.
         """
         halt_behavior = self._halt_position_behavior
-        self.logger.info(
-            "HALT triggered. Position behavior set to: %s",
-            halt_behavior,
-            source_module=self._source)
+        self.logger.info("HALT triggered. Position behavior set to: %s", halt_behavior, source_module=self._source)
 
         if halt_behavior in {"close", "liquidate"}:
-            self.logger.warning(
-                "Attempting to close all open positions due to HALT.",
-                source_module=self._source)
+            self.logger.warning("Attempting to close all open positions due to HALT.", source_module=self._source)
             try:
                 # Get current positions from portfolio manager
                 current_state = self._portfolio_manager.get_current_state()
                 open_positions = current_state.get("positions", {})
 
                 if not open_positions:
-                    self.logger.info(
-                        "No open positions found to close during HALT.",
-                        source_module=self._source)
+                    self.logger.info("No open positions found to close during HALT.", source_module=self._source)
                     return
 
                 for pair, pos_data in open_positions.items():
@@ -2143,7 +2144,8 @@ class MonitoringService:
                         self.logger.warning(
                             "Could not convert position quantity to Decimal: %s",
                             qty_str,
-                            source_module=self._source)
+                            source_module=self._source,
+                        )
                         continue
 
                     if abs(qty) > Decimal("1e-12"):  # Check if position exists (non-zero)
@@ -2153,7 +2155,8 @@ class MonitoringService:
                             pair,
                             close_side,
                             abs(qty),
-                            source_module=self._source)
+                            source_module=self._source,
+                        )
 
                         # For future implementation: Create and publish a close position command
                         self.logger.info(
@@ -2161,30 +2164,31 @@ class MonitoringService:
                             pair,
                             close_side,
                             abs(qty),
-                            source_module=self._source)
-                        # TODO: Uncomment when ClosePositionCommand is implemented
-                        # close_command = ClosePositionCommand(
-                        #     timestamp=datetime.now(UTC),
-                        #     event_id=uuid.uuid4(),
-                        #     source_module=self._source,
-                        #     trading_pair=pair,
-                        #     quantity=abs(qty),
-                        #     side=close_side)
-                        # await self.pubsub_manager.publish(close_command)
+                            source_module=self._source,
+                        )
+                        close_command = ClosePositionCommand(
+                            timestamp=datetime.now(UTC),
+                            event_id=uuid.uuid4(),
+                            source_module=self._source,
+                            trading_pair=pair,
+                            quantity=abs(qty),
+                            side=close_side,
+                        )
+                        await self.pubsub_manager.publish(close_command)
 
             except Exception:
-                self.logger.exception(
-                    "Error during attempt to close positions on HALT",
-                    source_module=self._source)
+                self.logger.exception("Error during attempt to close positions on HALT", source_module=self._source)
         elif halt_behavior == "maintain":
             self.logger.info(
                 "Maintaining existing positions during HALT as per configuration.",
-                source_module=self._source)
+                source_module=self._source,
+            )
         else:
             self.logger.warning(
                 "Unknown halt position behavior configured: %s. Maintaining positions.",
                 halt_behavior,
-                source_module=self._source)
+                source_module=self._source,
+            )
 
     async def trigger_resume(self, source: str) -> None:
         """Resume system operations after a HALT.
@@ -2197,7 +2201,8 @@ class MonitoringService:
             self.logger.warning(
                 "System not halted. Ignoring RESUME trigger from %s.",
                 source,
-                source_module=self._source)
+                source_module=self._source,
+            )
             return
 
         self._is_halted = False
@@ -2205,10 +2210,7 @@ class MonitoringService:
         # Clear HALT coordinator state
         self._halt_coordinator.clear_halt_state()
 
-        self.logger.info(
-            "SYSTEM RESUMED by %s.",
-            source,
-            source_module=self._source)
+        self.logger.info("SYSTEM RESUMED by %s.", source, source_module=self._source)
         await self._publish_state_change("RUNNING", "Manual resume", source)
 
     async def _publish_state_change(self, new_state: str, reason: str, source: str) -> None:
@@ -2221,24 +2223,23 @@ class MonitoringService:
             source: The source triggering the state change.
         """
         try:
-            # TODO: Uncomment when SystemStateEvent is implemented
-            # event = SystemStateEvent(
-            #     source_module=source,
-            #     event_id=uuid.uuid4(),
-            #     timestamp=datetime.now().replace(microsecond=0),
-            #     new_state=new_state,
-            #     reason=reason)
-            # # Correct publish method call - only passing the event
-            # await self.pubsub_manager.publish(event)
+            event = SystemStateEvent(
+                source_module=source,
+                event_id=uuid.uuid4(),
+                timestamp=datetime.now(UTC).replace(microsecond=0),
+                new_state=new_state,
+                reason=reason,
+            )
+            # Correct publish method call - only passing the event
+            await self.pubsub_manager.publish(event)
             self.logger.debug(
                 "Published SYSTEM_STATE_CHANGE event: %s - %s",
                 new_state,
                 reason,
-                source_module=self._source)
+                source_module=self._source,
+            )
         except Exception:
-            self.logger.exception(
-                "Failed to publish SYSTEM_STATE_CHANGE event",
-                source_module=self._source)
+            self.logger.exception("Failed to publish SYSTEM_STATE_CHANGE event", source_module=self._source)
 
     async def _handle_potential_halt_trigger(self, event: "PotentialHaltTriggerEvent") -> None:
         """Handle events that suggest a potential HALT condition.
@@ -2252,12 +2253,11 @@ class MonitoringService:
             self.logger.warning(
                 "Received invalid potential halt trigger event: %s",
                 type(event),
-                source_module=self._source)
+                source_module=self._source,
+            )
             return
 
-        warning_msg = (
-            f"Potential HALT condition received from {event.source_module}: {event.reason}"
-        )
+        warning_msg = f"Potential HALT condition received from {event.source_module}: {event.reason}"
         self.logger.warning(warning_msg, source_module=self._source)
         # Trigger actual halt - might add confirmation logic later
         await self.trigger_halt(reason=event.reason, source=event.source_module)
@@ -2267,29 +2267,24 @@ class MonitoringService:
 
         This method runs at regular intervals defined by the check_interval configuration.
         """
-        self.logger.info(
-            "MonitoringService periodic check task started.",
-            source_module=self._source)
+        self.logger.info("MonitoringService periodic check task started.", source_module=self._source)
         while True:
             try:
                 await asyncio.sleep(self._check_interval)
 
                 if not self._is_halted:
-                    self.logger.debug(
-                        "Running periodic checks...",
-                        source_module=self._source)
+                    self.logger.debug("Running periodic checks...", source_module=self._source)
                     # Comprehensive check of all HALT conditions
                     await self._check_all_halt_conditions()
 
             except asyncio.CancelledError:
-                self.logger.info(
-                    "MonitoringService periodic check task cancelled.",
-                    source_module=self._source)
+                self.logger.info("MonitoringService periodic check task cancelled.", source_module=self._source)
                 break
             except Exception:
                 self.logger.exception(
                     "Unhandled error during periodic monitoring check. Continuing...",
-                    source_module=self._source)
+                    source_module=self._source,
+                )
                 # Avoid tight loop on unexpected errors
                 await asyncio.sleep(self._check_interval)
 
@@ -2317,14 +2312,12 @@ class MonitoringService:
         triggered_conditions = self._halt_coordinator.check_all_conditions()
         if triggered_conditions:
             # Build comprehensive reason from all triggered conditions
-            reasons = [
-                f"{c.name}: {c.current_value} > {c.threshold}"
-                for c in triggered_conditions
-            ]
+            reasons = [f"{c.name}: {c.current_value} > {c.threshold}" for c in triggered_conditions]
             combined_reason = "; ".join(reasons)
             await self.trigger_halt(
                 reason=f"Multiple HALT conditions triggered: {combined_reason}",
-                source="AUTO: Multiple Conditions")
+                source="AUTO: Multiple Conditions",
+            )
 
     async def _check_drawdown_conditions(self) -> None:
         """Check all drawdown-related conditions and collect metrics."""
@@ -2347,7 +2340,8 @@ class MonitoringService:
             if self._halt_coordinator.update_condition("max_total_drawdown", abs(total_dd)):
                 await self.trigger_halt(
                     reason=f"Maximum total drawdown exceeded: {abs(total_dd):.2f}%",
-                    source="AUTO: Max Drawdown")
+                    source="AUTO: Max Drawdown",
+                )
 
             # Daily drawdown
             daily_dd = current_state.get("daily_drawdown_pct", Decimal(0))
@@ -2364,7 +2358,8 @@ class MonitoringService:
             if self._halt_coordinator.update_condition("max_daily_drawdown", abs(daily_dd)):
                 await self.trigger_halt(
                     reason=f"Maximum daily drawdown exceeded: {abs(daily_dd):.2f}%",
-                    source="AUTO: Daily Drawdown")
+                    source="AUTO: Daily Drawdown",
+                )
 
             # Consecutive losses
             consecutive_losses = self._consecutive_losses
@@ -2376,11 +2371,11 @@ class MonitoringService:
                 labels={"type": "risk_tracking"},
             )
 
-            if self._halt_coordinator.update_condition(
-                "max_consecutive_losses", consecutive_losses):
+            if self._halt_coordinator.update_condition("max_consecutive_losses", consecutive_losses):
                 await self.trigger_halt(
                     reason=f"Maximum consecutive losses reached: {consecutive_losses}",
-                    source="AUTO: Consecutive Losses")
+                    source="AUTO: Consecutive Losses",
+                )
 
             # Collect portfolio state metrics
             portfolio_metrics = [
@@ -2392,9 +2387,7 @@ class MonitoringService:
             await self.collect_batch_metrics(portfolio_metrics)
 
         except Exception:
-            self.logger.exception(
-                "Error checking drawdown conditions",
-                source_module=self._source)
+            self.logger.exception("Error checking drawdown conditions", source_module=self._source)
 
     async def _check_system_health(self) -> None:
         """Check system resource health."""
@@ -2403,187 +2396,266 @@ class MonitoringService:
     async def _check_position_risk(self) -> None:
         """Check position-specific risk metrics.
 
-        Monitors individual position sizes, concentration risk, and triggers
-        automated position reduction or closure when risk thresholds are breached.
+        This refactored method coordinates risk checks across all open positions,
+        delegating specific risk evaluations to specialized helper methods.
         """
         self.logger.debug("Running periodic check for position-specific risks.", source_module=self._source)
 
-        # 1. Fetch Current Portfolio State
-        try:
-            current_positions = await self._get_all_open_positions()
-            portfolio_summary = await self._get_portfolio_summary()
-            total_portfolio_value = portfolio_summary.get("total_equity", 0)
-        except Exception as e:
-            self.logger.error(
-                "Failed to fetch position or portfolio data for risk check: %s",
-                e,
-                source_module=self._source)
-            return  # Cannot proceed without position data
+        # Fetch portfolio data
+        portfolio_data = await self._fetch_portfolio_data_for_risk_check()
+        if not portfolio_data:
+            return
+
+        current_positions, total_portfolio_value = portfolio_data
 
         if not current_positions:
             self.logger.debug("No open positions to check for risk.", source_module=self._source)
             return
 
-        # 2. Load Position Risk Configuration
+        # Load risk configuration
         position_risk_config = self.config_manager.get("monitoring", {}).get("position_risk_checks", {})
-        global_max_pos_pct_config = position_risk_config.get("max_single_position_percentage_of_portfolio", {})
-        global_max_pos_notional_usd_config = position_risk_config.get("max_position_notional_value_usd", {})
-        specific_pair_limits_config = position_risk_config.get("specific_pair_limits", {})
 
-        # 3. Iterate Through Each Open Position and Check Risks
+        # Check each position
         for position in current_positions:
-            trading_pair = position.get("trading_pair")
-            position_value_usd = position.get("current_market_value_usd", 0)
-            position_base_quantity = position.get("quantity", 0)
-
-            if not trading_pair:
-                continue
-
-            # Convert to Decimal for precise calculations
-            try:
-                position_value_usd = Decimal(str(position_value_usd))
-                position_base_quantity = Decimal(str(position_base_quantity))
-                total_portfolio_value_decimal = Decimal(str(total_portfolio_value))
-            except (ValueError, TypeError):
-                self.logger.warning(
-                    "Could not convert position values to Decimal for %s",
-                    trading_pair,
-                    source_module=self._source)
-                continue
-
-            # 3.1. Check: Position Size as Percentage of Total Portfolio
-            if total_portfolio_value_decimal > 0:
-                position_pct_of_portfolio = position_value_usd / total_portfolio_value_decimal
-                warning_thresh_pct = global_max_pos_pct_config.get("warning_threshold", 0.20)
-                action_thresh_pct = global_max_pos_pct_config.get("action_threshold")
-
-                if position_pct_of_portfolio > warning_thresh_pct:
-                    alert_details = {
-                        "trading_pair": trading_pair,
-                        "metric": "position_percentage_of_portfolio",
-                        "value": float(position_pct_of_portfolio),
-                        "warning_threshold": warning_thresh_pct,
-                        "action_threshold": action_thresh_pct,
-                        "position_value_usd": float(position_value_usd),
-                        "total_portfolio_value_usd": float(total_portfolio_value_decimal),
-                    }
-
-                    self.logger.warning(
-                        "Position Risk Alert: %s (%.2f%%) exceeds warning portfolio percentage (%.2f%%)",
-                        trading_pair,
-                        position_pct_of_portfolio * 100,
-                        warning_thresh_pct * 100,
-                        source_module=self._source)
-
-                    await self._publish_position_risk_alert(alert_details, "WARNING")
-
-                    if action_thresh_pct is not None and position_pct_of_portfolio > action_thresh_pct:
-                        self.logger.critical(
-                            "Position Risk Breach: %s (%.2f%%) exceeds ACTION portfolio percentage "
-                            "(%.2f%%). Initiating reduction.",
-                            trading_pair,
-                            position_pct_of_portfolio * 100,
-                            action_thresh_pct * 100,
-                            source_module=self._source)
-
-                        reduction_pct = global_max_pos_pct_config.get("reduction_percentage")
-                        if reduction_pct is not None:
-                            await self._initiate_position_reduction(
-                                position=position,
-                                reduction_type="PERCENTAGE_OF_CURRENT",
-                                reduction_value=Decimal(str(reduction_pct)),
-                                reason="EXCEEDED_MAX_PORTFOLIO_PERCENTAGE_LIMIT",
-                                breach_details=alert_details)
-
-            # 3.2. Check: Position Notional Value (Absolute USD Limit)
-            warn_thresh_notional = global_max_pos_notional_usd_config.get("warning_threshold")
-            action_thresh_notional = global_max_pos_notional_usd_config.get("action_threshold")
-
-            if warn_thresh_notional is not None and position_value_usd > Decimal(str(warn_thresh_notional)):
-                alert_details = {
-                    "trading_pair": trading_pair,
-                    "metric": "position_notional_value_usd",
-                    "value": float(position_value_usd),
-                    "warning_threshold": warn_thresh_notional,
-                    "action_threshold": action_thresh_notional,
-                }
-
-                self.logger.warning(
-                    "Position Risk Alert: %s value ($%.2f) exceeds warning notional value ($%.2f)",
-                    trading_pair,
-                    position_value_usd,
-                    warn_thresh_notional,
-                    source_module=self._source)
-
-                await self._publish_position_risk_alert(alert_details, "WARNING")
-
-                if action_thresh_notional is not None and position_value_usd > Decimal(str(action_thresh_notional)):
-                    self.logger.critical(
-                        "Position Risk Breach: %s value ($%.2f) exceeds ACTION notional "
-                        "value ($%.2f). Initiating reduction.",
-                        trading_pair,
-                        position_value_usd,
-                        action_thresh_notional,
-                        source_module=self._source)
-
-                    reduction_target_notional = global_max_pos_notional_usd_config.get(
-                        "reduction_target_notional_value",
-                    )
-                    if reduction_target_notional is not None:
-                        await self._initiate_position_reduction(
-                            position=position,
-                            reduction_type="NOTIONAL_TARGET",
-                            reduction_value=Decimal(str(reduction_target_notional)),
-                            reason="EXCEEDED_MAX_NOTIONAL_VALUE_LIMIT",
-                            breach_details=alert_details)
-
-            # 3.3. Check: Specific Pair Limits (if configured)
-            pair_specific_config = specific_pair_limits_config.get(trading_pair, {})
-            base_qty_limits = pair_specific_config.get("max_base_qty", {})
-            warn_thresh_base_qty = base_qty_limits.get("warning_threshold")
-            action_thresh_base_qty = base_qty_limits.get("action_threshold")
-
-            if warn_thresh_base_qty is not None and abs(position_base_quantity) > Decimal(str(warn_thresh_base_qty)):
-                alert_details = {
-                    "trading_pair": trading_pair,
-                    "metric": "position_base_quantity",
-                    "value": float(abs(position_base_quantity)),
-                    "warning_threshold": warn_thresh_base_qty,
-                    "action_threshold": action_thresh_base_qty,
-                    "asset": trading_pair.split("/")[0] if "/" in trading_pair else trading_pair,
-                }
-
-                self.logger.warning(
-                    "Position Risk Alert: %s quantity (%.6f) exceeds specific pair warning base quantity (%.6f)",
-                    trading_pair,
-                    abs(position_base_quantity),
-                    warn_thresh_base_qty,
-                    source_module=self._source)
-
-                await self._publish_position_risk_alert(alert_details, "WARNING")
-
-                if (
-                    action_thresh_base_qty is not None
-                    and abs(position_base_quantity) > Decimal(str(action_thresh_base_qty))
-                ):
-                    self.logger.critical(
-                        "Position Risk Breach: %s quantity (%.6f) exceeds specific pair ACTION "
-                        "base quantity (%.6f). Initiating reduction.",
-                        trading_pair,
-                        abs(position_base_quantity),
-                        action_thresh_base_qty,
-                        source_module=self._source)
-
-                    reduction_qty_val = base_qty_limits.get("reduction_qty")
-                    if reduction_qty_val is not None:
-                        await self._initiate_position_reduction(
-                            position=position,
-                            reduction_type="QUANTITY",
-                            reduction_value=Decimal(str(reduction_qty_val)),
-                            reason="EXCEEDED_PAIR_MAX_BASE_QUANTITY_LIMIT",
-                            breach_details=alert_details)
+            await self._check_single_position_risk(position, total_portfolio_value, position_risk_config)
 
         self.logger.debug("Position risk check completed.", source_module=self._source)
+
+    async def _fetch_portfolio_data_for_risk_check(self) -> tuple[list[dict[str, Any]], Decimal] | None:
+        """Fetch portfolio data needed for risk checks."""
+        try:
+            current_positions = await self._get_all_open_positions()
+            portfolio_summary = await self._get_portfolio_summary()
+            total_portfolio_value = Decimal(str(portfolio_summary.get("total_equity", 0)))
+        except Exception:
+            self.logger.exception(
+                "Failed to fetch portfolio data for risk check",
+                source_module=self._source,
+            )
+            return None
+        else:
+            return current_positions, total_portfolio_value
+
+    async def _check_single_position_risk(
+        self,
+        position: dict[str, Any],
+        total_portfolio_value: Decimal,
+        position_risk_config: dict[str, Any],
+    ) -> None:
+        """Check all risk metrics for a single position."""
+        trading_pair = position.get("trading_pair")
+        if not trading_pair:
+            return
+
+        # Convert values to Decimal
+        position_values = self._convert_position_values_to_decimal(position, total_portfolio_value)
+        if not position_values:
+            return
+
+        position_value_usd, position_base_quantity, total_portfolio_value_decimal = position_values
+
+        # Perform risk checks
+        await self._check_position_portfolio_percentage(
+            position,
+            position_value_usd,
+            total_portfolio_value_decimal,
+            position_risk_config.get("max_single_position_percentage_of_portfolio", {}),
+        )
+
+        await self._check_position_notional_value(
+            position,
+            position_value_usd,
+            position_risk_config.get("max_position_notional_value_usd", {}),
+        )
+
+        await self._check_pair_specific_limits(
+            position,
+            position_base_quantity,
+            position_risk_config.get("specific_pair_limits", {}).get(trading_pair, {}),
+        )
+
+    def _convert_position_values_to_decimal(
+        self,
+        position: dict[str, Any],
+        total_portfolio_value: Any,
+    ) -> tuple[Decimal, Decimal, Decimal] | None:
+        """Convert position values to Decimal for precise calculations."""
+        try:
+            position_value_usd = Decimal(str(position.get("current_market_value_usd", 0)))
+            position_base_quantity = Decimal(str(position.get("quantity", 0)))
+            total_portfolio_value_decimal = Decimal(str(total_portfolio_value))
+        except (ValueError, TypeError):
+            self.logger.warning(
+                "Could not convert position values to Decimal for %s",
+                position.get("trading_pair"),
+                source_module=self._source,
+            )
+            return None
+        else:
+            return position_value_usd, position_base_quantity, total_portfolio_value_decimal
+
+    async def _check_position_portfolio_percentage(
+        self,
+        position: dict[str, Any],
+        position_value_usd: Decimal,
+        total_portfolio_value: Decimal,
+        config: dict[str, Any],
+    ) -> None:
+        """Check if position exceeds maximum percentage of portfolio."""
+        if total_portfolio_value <= 0:
+            return
+
+        position_pct_of_portfolio = position_value_usd / total_portfolio_value
+        warning_thresh_pct = config.get("warning_threshold", 0.20)
+        action_thresh_pct = config.get("action_threshold")
+
+        if position_pct_of_portfolio > warning_thresh_pct:
+            alert_details = {
+                "trading_pair": position["trading_pair"],
+                "metric": "position_percentage_of_portfolio",
+                "value": float(position_pct_of_portfolio),
+                "warning_threshold": warning_thresh_pct,
+                "action_threshold": action_thresh_pct,
+                "position_value_usd": float(position_value_usd),
+                "total_portfolio_value_usd": float(total_portfolio_value),
+            }
+
+            await self._handle_risk_breach(
+                position,
+                alert_details,
+                position_pct_of_portfolio,
+                warning_thresh_pct,
+                action_thresh_pct,
+                config.get("reduction_percentage"),
+                "portfolio percentage",
+                "EXCEEDED_MAX_PORTFOLIO_PERCENTAGE_LIMIT",
+                "PERCENTAGE_OF_CURRENT",
+            )
+
+    async def _check_position_notional_value(
+        self,
+        position: dict[str, Any],
+        position_value_usd: Decimal,
+        config: dict[str, Any],
+    ) -> None:
+        """Check if position exceeds maximum notional value in USD."""
+        warn_thresh = config.get("warning_threshold")
+        action_thresh = config.get("action_threshold")
+
+        if warn_thresh is not None and position_value_usd > Decimal(str(warn_thresh)):
+            alert_details = {
+                "trading_pair": position["trading_pair"],
+                "metric": "position_notional_value_usd",
+                "value": float(position_value_usd),
+                "warning_threshold": warn_thresh,
+                "action_threshold": action_thresh,
+            }
+
+            await self._handle_risk_breach(
+                position,
+                alert_details,
+                position_value_usd,
+                Decimal(str(warn_thresh)),
+                Decimal(str(action_thresh)) if action_thresh is not None else None,
+                config.get("reduction_target_notional_value"),
+                "notional value",
+                "EXCEEDED_MAX_NOTIONAL_VALUE_LIMIT",
+                "NOTIONAL_TARGET",
+                format_value=lambda v: f"${v:.2f}",
+            )
+
+    async def _check_pair_specific_limits(
+        self,
+        position: dict[str, Any],
+        position_base_quantity: Decimal,
+        pair_config: dict[str, Any],
+    ) -> None:
+        """Check if position exceeds pair-specific limits."""
+        base_qty_limits = pair_config.get("max_base_qty", {})
+        warn_thresh = base_qty_limits.get("warning_threshold")
+        action_thresh = base_qty_limits.get("action_threshold")
+
+        if warn_thresh is not None and abs(position_base_quantity) > Decimal(str(warn_thresh)):
+            trading_pair = position["trading_pair"]
+            alert_details = {
+                "trading_pair": trading_pair,
+                "metric": "position_base_quantity",
+                "value": float(abs(position_base_quantity)),
+                "warning_threshold": warn_thresh,
+                "action_threshold": action_thresh,
+                "asset": trading_pair.split("/")[0] if "/" in trading_pair else trading_pair,
+            }
+
+            await self._handle_risk_breach(
+                position,
+                alert_details,
+                abs(position_base_quantity),
+                Decimal(str(warn_thresh)),
+                Decimal(str(action_thresh)) if action_thresh is not None else None,
+                base_qty_limits.get("reduction_qty"),
+                "base quantity",
+                "EXCEEDED_PAIR_MAX_BASE_QUANTITY_LIMIT",
+                "QUANTITY",
+                format_value=lambda v: f"{v:.6f}",
+            )
+
+    async def _handle_risk_breach(
+        self,
+        position: dict[str, Any],
+        alert_details: dict[str, Any],
+        actual_value: Decimal,
+        warning_threshold: Decimal,
+        action_threshold: Decimal | None,
+        reduction_value: Any,
+        metric_name: str,
+        reason: str,
+        reduction_type: str,
+        format_value: Callable[[Decimal], str] | None = None,
+    ) -> None:
+        """Handle a risk threshold breach with logging, alerting, and position reduction."""
+        trading_pair = position["trading_pair"]
+
+        # Format values for display
+        if format_value:
+            actual_str = format_value(actual_value)
+            warning_str = format_value(warning_threshold)
+            action_str = format_value(action_threshold) if action_threshold else "N/A"
+        else:
+            actual_str = f"{actual_value * 100:.2f}%"
+            warning_str = f"{warning_threshold * 100:.2f}%"
+            action_str = f"{action_threshold * 100:.2f}%" if action_threshold else "N/A"
+
+        # Log warning
+        self.logger.warning(
+            "Position Risk Alert: %s (%s) exceeds warning %s (%s)",
+            trading_pair,
+            actual_str,
+            metric_name,
+            warning_str,
+            source_module=self._source,
+        )
+
+        await self._publish_position_risk_alert(alert_details, "WARNING")
+
+        # Check action threshold
+        if action_threshold is not None and actual_value > action_threshold:
+            self.logger.critical(
+                "Position Risk Breach: %s (%s) exceeds ACTION %s (%s). Initiating reduction.",
+                trading_pair,
+                actual_str,
+                metric_name,
+                action_str,
+                source_module=self._source,
+            )
+
+            if reduction_value is not None:
+                await self._initiate_position_reduction(
+                    position=position,
+                    reduction_type=reduction_type,
+                    reduction_value=Decimal(str(reduction_value)),
+                    reason=reason,
+                    breach_details=alert_details,
+                )
 
     async def _get_all_open_positions(self) -> list[dict[str, Any]]:
         """Get all open positions from portfolio manager."""
@@ -2602,11 +2674,8 @@ class MonitoringService:
                         **pos_data,  # Include all other position data
                     }
                     positions.append(position)
-        except Exception as e:
-            self.logger.exception(
-                "Failed to get open positions: %s",
-                e,
-                source_module=self._source)
+        except Exception:
+            self.logger.exception("Failed to get open positions", source_module=self._source)
             return []
         else:
             return positions
@@ -2620,40 +2689,34 @@ class MonitoringService:
                 "available_balance": current_state.get("available_balance", 0),
                 "total_unrealized_pnl": current_state.get("total_unrealized_pnl", 0),
             }
-        except Exception as e:
-            self.logger.exception(
-                "Failed to get portfolio summary: %s",
-                e,
-                source_module=self._source)
+        except Exception:
+            self.logger.exception("Failed to get portfolio summary", source_module=self._source)
             return {"total_equity": 0, "available_balance": 0, "total_unrealized_pnl": 0}
 
     async def _publish_position_risk_alert(self, alert_details: dict[str, Any], severity: str) -> None:
         """Publish a position risk alert event."""
         try:
-            # Create a position risk alert event (would need to be defined in events.py)
-            {
-                "timestamp": datetime.now(UTC),
-                "event_id": uuid.uuid4(),
-                "source_module": self._source,
-                "alert_type": "POSITION_RISK",
-                "severity": severity,
-                "details": alert_details,
-            }
+            # Create a position risk alert event
+            alert_event = PositionRiskAlertEvent(
+                timestamp=datetime.now(UTC),
+                event_id=uuid.uuid4(),
+                source_module=self._source,
+                alert_type="POSITION_RISK",
+                severity=severity,
+                details=alert_details,
+            )
 
             self.logger.info(
                 "Publishing position risk alert for %s: %s",
                 alert_details.get("trading_pair"),
                 alert_details.get("metric"),
-                source_module=self._source)
+                source_module=self._source,
+            )
 
-            # In a real implementation, this would publish a proper PositionRiskAlertEvent
-            # await self.pubsub_manager.publish(PositionRiskAlertEvent(**alert_event))
+            await self.pubsub_manager.publish(alert_event)
 
-        except Exception as e:
-            self.logger.exception(
-                "Failed to publish position risk alert: %s",
-                e,
-                source_module=self._source)
+        except Exception:
+            self.logger.exception("Failed to publish position risk alert", source_module=self._source)
 
     async def _initiate_position_reduction(
         self,
@@ -2661,9 +2724,14 @@ class MonitoringService:
         reduction_type: str,
         reduction_value: Decimal,
         reason: str,
-        breach_details: dict[str, Any]) -> None:
+        breach_details: dict[str, Any],
+    ) -> None:
         """Initiate position reduction by publishing a ReducePositionCommand."""
         trading_pair = position.get("trading_pair")
+        if not trading_pair:
+            self.logger.error("Position missing trading_pair, cannot initiate reduction", source_module=self._source)
+            return
+
         current_quantity = Decimal(str(position.get("quantity", 0)))
         quantity_to_reduce = Decimal(0)
 
@@ -2681,7 +2749,8 @@ class MonitoringService:
                 self.logger.error(
                     "Cannot get current market price for %s. Unable to calculate NOTIONAL_TARGET reduction.",
                     trading_pair,
-                    source_module=self._source)
+                    source_module=self._source,
+                )
                 return
 
             # Calculate target quantity from notional value
@@ -2699,14 +2768,16 @@ class MonitoringService:
                     target_quantity,
                     reduction_value,
                     current_price,
-                    source_module=self._source)
+                    source_module=self._source,
+                )
                 return
         else:
             self.logger.error(
                 "Unknown reduction_type: %s for %s",
                 reduction_type,
                 trading_pair,
-                source_module=self._source)
+                source_module=self._source,
+            )
             return
 
         if quantity_to_reduce <= Decimal(0):
@@ -2714,7 +2785,8 @@ class MonitoringService:
                 "Calculated reduction quantity for %s is zero or negative (%.6f). No action taken.",
                 trading_pair,
                 quantity_to_reduce,
-                source_module=self._source)
+                source_module=self._source,
+            )
             return
 
         # Ensure reduction doesn't exceed current position size
@@ -2727,7 +2799,8 @@ class MonitoringService:
             reduction_type,
             reduction_value,
             reason,
-            source_module=self._source)
+            source_module=self._source,
+        )
 
         command_id = uuid.uuid4()
         timestamp = datetime.now(UTC)
@@ -2740,31 +2813,32 @@ class MonitoringService:
         )
 
         try:
-            # Create reduce position command (would need to be defined in events.py)
-            {
-                "command_id": command_id,
-                "timestamp": timestamp,
-                "source_module": self._source,
-                "trading_pair": trading_pair,
-                "quantity_to_reduce": float(quantity_to_reduce),
-                "order_type_preference": reduction_order_type,
-                "reason": f"AUTOMATED_RISK_REDUCTION: {reason}",
-                "metadata": {
+            # Create reduce position command
+            reduce_command = ReducePositionCommand(
+                command_id=command_id,
+                timestamp=timestamp,
+                event_id=uuid.uuid4(),
+                source_module=self._source,
+                trading_pair=trading_pair,
+                quantity_to_reduce=float(quantity_to_reduce),
+                order_type_preference=reduction_order_type,
+                reason=f"AUTOMATED_RISK_REDUCTION: {reason}",
+                metadata={
                     "breach_details": breach_details,
                     "reduction_type": reduction_type,
                     "reduction_value_config": str(reduction_value),
                 },
-            }
+            )
 
             self.logger.info(
                 "Successfully created ReducePositionCommand (%s) for %s to reduce by %.6f",
                 str(command_id)[:8],
                 trading_pair,
                 quantity_to_reduce,
-                source_module=self._source)
+                source_module=self._source,
+            )
 
-            # In a real implementation, this would publish a proper ReducePositionCommand
-            # await self.pubsub_manager.publish(ReducePositionCommand(**reduce_command))
+            await self.pubsub_manager.publish(reduce_command)
 
         except Exception as e:
             self.logger.critical(
@@ -2772,12 +2846,8 @@ class MonitoringService:
                 str(command_id)[:8],
                 trading_pair,
                 e,
-                source_module=self._source)
-
-    # Duplicate method - commented out
-    # async def _check_system_health(self) -> None:
-    #     """Check system resource health."""
-    #     await self._check_system_resources()
+                source_module=self._source,
+            )
 
     async def _check_drawdown(self) -> None:
         """Check if the maximum total portfolio drawdown has been exceeded.
@@ -2786,17 +2856,19 @@ class MonitoringService:
         and compares it against the configured maximum drawdown threshold.
         """
         try:
-            # PortfolioManager.get_current_state() is synchronous; run in executor
+            # Run synchronous PortfolioManager.get_current_state() in executor
             loop = asyncio.get_running_loop()
             current_state = await loop.run_in_executor(
-                None, self._portfolio_manager.get_current_state,
+                None,
+                self._portfolio_manager.get_current_state,
             )
             drawdown_pct = current_state.get("total_drawdown_pct")
 
             if drawdown_pct is None:
                 self.logger.warning(
                     "Could not retrieve 'total_drawdown_pct' from PortfolioManager state.",
-                    source_module=self._source)
+                    source_module=self._source,
+                )
                 return
 
             # Ensure drawdown_pct is Decimal
@@ -2807,14 +2879,16 @@ class MonitoringService:
                     self.logger.warning(
                         "Invalid type for 'total_drawdown_pct': %s. Skipping check.",
                         type(drawdown_pct),
-                        source_module=self._source)
+                        source_module=self._source,
+                    )
                     return
 
             self.logger.debug(
                 "Current total drawdown: %.2f%% (Limit: %s%%)",
                 drawdown_pct,
                 self._max_total_drawdown_pct,
-                source_module=self._source)
+                source_module=self._source,
+            )
 
             # Check if drawdown exceeds the limit (absolute value)
             if abs(drawdown_pct) > self._max_total_drawdown_pct:
@@ -2825,9 +2899,7 @@ class MonitoringService:
                 await self.trigger_halt(reason=reason, source="AUTO: Max Drawdown")
 
         except Exception:
-            self.logger.exception(
-                "Error occurred during drawdown check.",
-                source_module=self._source)
+            self.logger.exception("Error occurred during drawdown check.", source_module=self._source)
 
     async def _check_api_connectivity(self) -> None:
         """Check connectivity to Kraken API and collect connectivity metrics.
@@ -2837,7 +2909,8 @@ class MonitoringService:
         if not self._execution_handler:
             self.logger.warning(
                 "No execution handler available for API connectivity check.",
-                source_module=self._source)
+                source_module=self._source,
+            )
             # Collect metric indicating no execution handler
             await self.collect_metric(
                 "api.connectivity.execution_handler_available",
@@ -2887,35 +2960,32 @@ class MonitoringService:
                 self.logger.debug("API connectivity check passed.", source_module=self._source)
 
                 # Collect successful connectivity metrics
-                await self.collect_batch_metrics([
-                    {"name": "api.connectivity.status", "value": 1, "labels": {"status": "success"}},
-                    {"name": "api.connectivity.consecutive_failures", "value": self._consecutive_api_failures},
-                    {"name": "api.connectivity.health_score", "value": 100.0},
-                ])
+                await self.collect_batch_metrics(
+                    [
+                        {"name": "api.connectivity.status", "value": 1, "labels": {"status": "success"}},
+                        {"name": "api.connectivity.consecutive_failures", "value": self._consecutive_api_failures},
+                        {"name": "api.connectivity.health_score", "value": 100.0},
+                    ],
+                )
             else:
                 self._consecutive_api_failures += 1
                 warning_msg = (
-                    "API connectivity check failed "
-                    f"({self._consecutive_api_failures}/"
-                    f"{self._api_failure_threshold})"
+                    f"API connectivity check failed ({self._consecutive_api_failures}/{self._api_failure_threshold})"
                 )
-                self.logger.warning(
-                    warning_msg,
-                    source_module=self._source)
+                self.logger.warning(warning_msg, source_module=self._source)
 
                 # Collect failed connectivity metrics
                 health_score = max(0, 100 - (self._consecutive_api_failures * 20))
-                await self.collect_batch_metrics([
-                    {"name": "api.connectivity.status", "value": 0, "labels": {"status": "failure"}},
-                    {"name": "api.connectivity.consecutive_failures", "value": self._consecutive_api_failures},
-                    {"name": "api.connectivity.health_score", "value": health_score},
-                ])
+                await self.collect_batch_metrics(
+                    [
+                        {"name": "api.connectivity.status", "value": 0, "labels": {"status": "failure"}},
+                        {"name": "api.connectivity.consecutive_failures", "value": self._consecutive_api_failures},
+                        {"name": "api.connectivity.health_score", "value": health_score},
+                    ],
+                )
 
                 if self._consecutive_api_failures >= self._api_failure_threshold:
-                    reason = (
-                        f"API connectivity failed "
-                        f"{self._consecutive_api_failures} consecutive times."
-                    )
+                    reason = f"API connectivity failed {self._consecutive_api_failures} consecutive times."
                     self.logger.exception(reason, source_module=self._source)
 
                     # Collect critical connectivity failure metric
@@ -2931,27 +3001,24 @@ class MonitoringService:
             self._consecutive_api_failures += 1
             api_response_time = (time.time() - api_check_start) * 1000
 
-            self.logger.exception(
-                "Error during API connectivity check",
-                source_module=self._source)
+            self.logger.exception("Error during API connectivity check", source_module=self._source)
 
             # Collect error metrics
-            await self.collect_batch_metrics([
-                {"name": "api.connectivity.status", "value": 0, "labels": {"status": "error"}},
-                {"name": "api.connectivity.consecutive_failures", "value": self._consecutive_api_failures},
-                {
-                    "name": "api.connectivity.response_time_ms",
-                    "value": api_response_time,
-                    "labels": {"endpoint": "status_check"},
-                },
-                {"name": "api.connectivity.error_count", "value": 1, "labels": {"error_type": type(e).__name__}},
-            ])
+            await self.collect_batch_metrics(
+                [
+                    {"name": "api.connectivity.status", "value": 0, "labels": {"status": "error"}},
+                    {"name": "api.connectivity.consecutive_failures", "value": self._consecutive_api_failures},
+                    {
+                        "name": "api.connectivity.response_time_ms",
+                        "value": api_response_time,
+                        "labels": {"endpoint": "status_check"},
+                    },
+                    {"name": "api.connectivity.error_count", "value": 1, "labels": {"error_type": type(e).__name__}},
+                ],
+            )
 
             if self._consecutive_api_failures >= self._api_failure_threshold:
-                reason = (
-                    f"API connectivity check errors: "
-                    f"{self._consecutive_api_failures} consecutive failures."
-                )
+                reason = f"API connectivity check errors: {self._consecutive_api_failures} consecutive failures."
 
                 # Collect critical error metric
                 await self.collect_metric(
@@ -2975,14 +3042,16 @@ class MonitoringService:
         if not self._active_pairs:
             self.logger.warning(
                 "No active trading pairs configured for market data freshness check.",
-                source_module=self._source)
+                source_module=self._source,
+            )
             return
 
         # Determine system uptime for startup grace period
         if self._service_start_time is None:
             self.logger.warning(
                 "Service start time not recorded. Staleness check might be unreliable during initial startup phase.",
-                source_module=self._source)
+                source_module=self._source,
+            )
             system_uptime_seconds = float("inf")  # Effectively disables startup grace period
         else:
             system_uptime_seconds = (now - self._service_start_time).total_seconds()
@@ -2998,7 +3067,8 @@ class MonitoringService:
                         "Awaiting initial market data for active pair %s. System uptime: %.2fs.",
                         pair,
                         system_uptime_seconds,
-                        source_module=self._source)
+                        source_module=self._source,
+                    )
                     potentially_stale_awaiting_initial_data.append(pair)
                     # Do NOT add to stale_pairs yet
                 else:
@@ -3008,7 +3078,8 @@ class MonitoringService:
                         "Marking as stale.",
                         pair,
                         system_uptime_seconds,
-                        source_module=self._source)
+                        source_module=self._source,
+                    )
                     stale_pairs.append(pair)  # Now it's considered genuinely stale
             elif (now - last_ts).total_seconds() > self._data_staleness_threshold_s:
                 # Case 2: Data was received, but it's now older than the staleness threshold
@@ -3034,7 +3105,8 @@ class MonitoringService:
         if potentially_stale_awaiting_initial_data:
             self.logger.info(
                 f"Pairs awaiting initial data (within startup grace period): {potentially_stale_awaiting_initial_data}",
-                source_module=self._source)
+                source_module=self._source,
+            )
 
     async def _check_system_resources(self) -> None:
         """Monitor CPU and Memory usage.
@@ -3049,18 +3121,13 @@ class MonitoringService:
                 "System Resources: CPU=%.1f%%, Memory=%.1f%%",
                 cpu_usage,
                 mem_usage,
-                source_module=self._source)
+                source_module=self._source,
+            )
 
             # Check CPU usage
             if cpu_usage > self._cpu_threshold_pct:
-                warning_msg = (
-                    "High CPU usage detected: "
-                    f"{cpu_usage:.1f}% "
-                    f"(Threshold: {self._cpu_threshold_pct}%)"
-                )
-                self.logger.warning(
-                    warning_msg,
-                    source_module=self._source)
+                warning_msg = f"High CPU usage detected: {cpu_usage:.1f}% (Threshold: {self._cpu_threshold_pct}%)"
+                self.logger.warning(warning_msg, source_module=self._source)
                 # Only trigger HALT on extremely high CPU usage that would impact trading
                 if cpu_usage > self._cpu_threshold_pct + 5:  # Extra 5% buffer
                     reason = f"Critical CPU usage: {cpu_usage:.1f}%"
@@ -3068,23 +3135,15 @@ class MonitoringService:
 
             # Check memory usage
             if mem_usage > self._memory_threshold_pct:
-                warning_msg = (
-                    "High Memory usage detected: "
-                    f"{mem_usage:.1f}% "
-                    f"(Threshold: {self._memory_threshold_pct}%)"
-                )
-                self.logger.warning(
-                    warning_msg,
-                    source_module=self._source)
+                warning_msg = f"High Memory usage detected: {mem_usage:.1f}% (Threshold: {self._memory_threshold_pct}%)"
+                self.logger.warning(warning_msg, source_module=self._source)
                 # Only trigger HALT on extremely high memory usage that would impact trading
                 if mem_usage > self._memory_threshold_pct + 5:  # Extra 5% buffer
                     reason = f"Critical Memory usage: {mem_usage:.1f}%"
                     await self.trigger_halt(reason=reason, source="AUTO: System Resources")
 
         except Exception:
-            self.logger.exception(
-                "Error checking system resources",
-                source_module=self._source)
+            self.logger.exception("Error checking system resources", source_module=self._source)
 
     async def _check_market_volatility(self) -> None:
         """Check for excessive market volatility.
@@ -3096,23 +3155,13 @@ class MonitoringService:
                 # Calculate rolling volatility (would need price history)
                 volatility = await self._calculate_volatility(pair)
 
-                if (
-                    volatility is not None and
-                    self._halt_coordinator.update_condition("max_volatility", volatility)
-                ):
-                    reason = (
-                        f"Market volatility for {pair} ({volatility:.2f}%) "
-                        f"exceeds threshold"
-                    )
-                    await self.trigger_halt(
-                        reason=reason,
-                        source="AUTO: Market Volatility")
+                if volatility is not None and self._halt_coordinator.update_condition("max_volatility", volatility):
+                    reason = f"Market volatility for {pair} ({volatility:.2f}%) exceeds threshold"
+                    await self.trigger_halt(reason=reason, source="AUTO: Market Volatility")
                     break
 
         except Exception:
-            self.logger.exception(
-                "Error checking market volatility",
-                source_module=self._source)
+            self.logger.exception("Error checking market volatility", source_module=self._source)
 
     async def _calculate_volatility(self, pair: str) -> Decimal | None:
         """Calculate rolling volatility for a trading pair.
@@ -3142,11 +3191,14 @@ class MonitoringService:
             return await self._calculate_stddev_volatility_internal(pair, vol_config)
         self.logger.error(
             f"Unknown volatility calculation method configured: {calculation_method}. Defaulting to None.",
-            source_module=self._source)
+            source_module=self._source,
+        )
         return None
 
     async def _calculate_stddev_volatility_internal(
-        self, trading_pair: str, vol_config: dict[str, Any],
+        self,
+        trading_pair: str,
+        vol_config: dict[str, Any],
     ) -> Decimal | None:
         """Calculate standard deviation volatility for a trading pair.
 
@@ -3178,7 +3230,8 @@ class MonitoringService:
                     f"Unsupported candle_interval_minutes ({candle_interval_minutes}) for default "
                     f"annualization factor. Volatility will not be annualized correctly without "
                     f"explicit 'annualization_periods_per_year' config.",
-                    source_module=self._source)
+                    source_module=self._source,
+                )
                 periods_per_year = 1  # Effectively no annualization
             annualization_factor = (periods_per_year) ** 0.5
         else:
@@ -3188,25 +3241,27 @@ class MonitoringService:
             price_history_candles = await self._get_historical_candles_for_volatility(
                 trading_pair=trading_pair,
                 num_candles=window_size + 1,
-                interval_minutes=candle_interval_minutes)
+                interval_minutes=candle_interval_minutes,
+            )
 
             if price_history_candles is None or len(price_history_candles) < min_required_data_points + 1:
                 self.logger.warning(
                     f"StdDev Vol: Insufficient historical price data for {trading_pair}. "
                     f"Required: {min_required_data_points + 1}, "
                     f"Got: {len(price_history_candles) if price_history_candles else 0}.",
-                    source_module=self._source)
+                    source_module=self._source,
+                )
                 return None
 
             closing_prices = [Decimal(str(candle.get("close", 0))) for candle in price_history_candles]
-        except Exception as e:
-            self.logger.error(
-                f"StdDev Vol: Failed to fetch/process price history for {trading_pair}: {e}",
-                source_module=self._source)
+        except Exception:
+            self.logger.exception(
+                f"StdDev Vol: Failed to fetch/process price history for {trading_pair}",
+                source_module=self._source,
+            )
             return None
 
         # Convert to numpy for calculations
-        import numpy as np
         np_closing_prices = np.array([float(p) for p in closing_prices])
 
         if use_log_returns:
@@ -3230,11 +3285,14 @@ class MonitoringService:
 
         self.logger.info(
             f"StdDev Vol for {trading_pair}: {annualized_volatility_decimal:.2f}%",
-            source_module=self._source)
+            source_module=self._source,
+        )
         return annualized_volatility_decimal.quantize(Decimal("0.0001"))
 
     async def _calculate_garch_volatility_internal(
-        self, trading_pair: str, vol_config: dict[str, Any],
+        self,
+        trading_pair: str,
+        vol_config: dict[str, Any],
     ) -> Decimal | None:
         """Calculate GARCH volatility for a trading pair.
 
@@ -3246,17 +3304,19 @@ class MonitoringService:
             Decimal: Annualized volatility percentage, or None if insufficient data or GARCH unavailable
         """
         self.logger.debug(
-            f"Calculating GARCH volatility for {trading_pair}.", source_module=self._source,
+            f"Calculating GARCH volatility for {trading_pair}.",
+            source_module=self._source,
         )
 
-        try:
-            from arch import arch_model
-        except ImportError:  # pragma: no cover - dependency missing
+        if not arch.available:
             self.logger.warning(
                 f"GARCH volatility calculation for {trading_pair} requires 'arch' library. "
                 "Falling back to standard deviation method.",
-                source_module=self._source)
+                source_module=self._source,
+            )
             return await self._calculate_stddev_volatility_internal(trading_pair, vol_config)
+
+        arch_model = arch.arch_model
 
         window_size = vol_config.get("garch_window_size_candles", 200)
         p = vol_config.get("garch_p", 1)
@@ -3281,20 +3341,21 @@ class MonitoringService:
         candles = await self._get_historical_candles_for_volatility(
             trading_pair=trading_pair,
             num_candles=window_size + 1,
-            interval_minutes=candle_interval_minutes)
+            interval_minutes=candle_interval_minutes,
+        )
 
         if candles is None or len(candles) < window_size + 1:
             self.logger.warning(
-                f"GARCH Vol: insufficient data for {trading_pair}", source_module=self._source,
+                f"GARCH Vol: insufficient data for {trading_pair}",
+                source_module=self._source,
             )
             return None
-
-        import numpy as np
 
         prices = np.array([float(c["close"]) for c in candles])
         if np.any(prices <= 0):
             self.logger.error(
-                f"GARCH Vol: non-positive prices for {trading_pair}", source_module=self._source,
+                f"GARCH Vol: non-positive prices for {trading_pair}",
+                source_module=self._source,
             )
             return None
         returns = np.log(prices[1:] / prices[:-1]) * 100
@@ -3307,34 +3368,35 @@ class MonitoringService:
             variance_value = forecast.variance.iloc[-1, 0]
             # Handle numpy scalar or pandas object
             variance_float = variance_value.item() if hasattr(variance_value, "item") else float(str(variance_value))
-            sigma = variance_float ** 0.5
+            sigma = variance_float**0.5
             annualized = Decimal(str((sigma / 100) * annualization_factor * 100))
             return annualized.quantize(Decimal("0.0001"))
-        except Exception as exc:  # pragma: no cover - model issues
-            self.logger.error(
-                f"GARCH volatility calculation failed for {trading_pair}: {exc}",
-                source_module=self._source)
+        except Exception:  # pragma: no cover - model issues
+            self.logger.exception(
+                f"GARCH volatility calculation failed for {trading_pair}",
+                source_module=self._source,
+            )
             return None
 
     async def _get_historical_candles_for_volatility(
         self,
         trading_pair: str,
         num_candles: int,
-        interval_minutes: int) -> list[dict[str, Any]] | None:
+        interval_minutes: int,
+    ) -> list[dict[str, Any]] | None:
         """Get historical candles for volatility calculation."""
         if self.history_repo is None:
             self.logger.debug(
-                "History repository not configured for volatility calculation", source_module=self._source,
+                "History repository not configured for volatility calculation",
+                source_module=self._source,
             )
             return None
 
         interval = f"{interval_minutes}m"
         try:
             df = await self.history_repo.get_recent_ohlcv(trading_pair, num_candles, interval)
-        except Exception as exc:  # pragma: no cover - fetch failures
-            self.logger.exception(
-                f"Failed to fetch historical candles for {trading_pair}: {exc}",
-                source_module=self._source)
+        except Exception:  # pragma: no cover - fetch failures
+            self.logger.exception("Failed to fetch historical candles for {trading_pair}", source_module=self._source)
             return None
 
         if df is None or df.empty:
@@ -3369,109 +3431,150 @@ class MonitoringService:
             Current market price as Decimal, or None if unable to determine price
         """
         try:
-            # Method 1: Try to get price from portfolio manager
-            try:
-                current_state = self._portfolio_manager.get_current_state()
-                positions = current_state.get("positions", {})
+            # Try price sources in order of preference
+            price_sources = [
+                self._get_price_from_portfolio,
+                self._get_price_from_market_data_cache,
+                self._get_price_from_execution_handler,
+            ]
 
-                if trading_pair in positions:
-                    position_data = positions[trading_pair]
-
-                    # Try to extract current price from position market value
-                    market_value = position_data.get("market_value_usd", 0)
-                    quantity = position_data.get("quantity", 0)
-
-                    if float(quantity) != 0 and float(market_value) != 0:
-                        # Calculate implied price from market value and quantity
-                        # Note: This assumes USD-denominated market value
-                        implied_price = Decimal(str(abs(float(market_value)))) / Decimal(str(abs(float(quantity))))
-
-                        self.logger.debug(
-                            f"Got market price for {trading_pair} from portfolio position: ${implied_price:.4f}",
-                            source_module=self._source,
-                        )
-                        return implied_price
-            except Exception as e:
-                self.logger.debug(
-                    f"Could not get price from portfolio manager for {trading_pair}: {e}",
-                    source_module=self._source,
-                )
-
-            # Method 2: Try to get price from recent market data events
-            ts = self._last_market_data_times.get(trading_pair)
-            price = self._last_market_data_prices.get(trading_pair)
-            if ts and price is not None:
-                age = (datetime.now(UTC) - ts).total_seconds()
-                if age < self._data_staleness_threshold_s:
-                    self.logger.debug(
-                        "Got market price for %s from cached market data: $%s",
-                        trading_pair,
-                        price,
-                        source_module=self._source)
+            for source in price_sources:
+                price = await source(trading_pair)
+                if price is not None:
                     return price
 
-            # Method 3: Try to get price from execution handler if it has price lookup
-            if self._execution_handler:
-                try:
-                    # Check if execution handler has a method to get current price
-                    if hasattr(self._execution_handler, "get_current_price"):
-                        price = await self._execution_handler.get_current_price(trading_pair)
-                        if price is not None:
-                            price_decimal = Decimal(str(price))
-                            self.logger.debug(
-                                f"Got market price for {trading_pair} from execution handler: ${price_decimal:.4f}",
-                                source_module=self._source,
-                            )
-                            return price_decimal
-
-                    # Alternative: Try to get ticker data if available
-                    if hasattr(self._execution_handler, "get_ticker"):
-                        ticker_data = await self._execution_handler.get_ticker(trading_pair)
-                        if ticker_data and "last_price" in ticker_data:
-                            price_decimal = Decimal(str(ticker_data["last_price"]))
-                            self.logger.debug(
-                                f"Got market price for {trading_pair} from ticker: ${price_decimal:.4f}",
-                                source_module=self._source,
-                            )
-                            return price_decimal
-
-                    # Alternative: Try to get from orderbook if available
-                    if hasattr(self._execution_handler, "get_orderbook"):
-                        orderbook = await self._execution_handler.get_orderbook(trading_pair)
-                        if orderbook and "bid" in orderbook and "ask" in orderbook:
-                            bid_price = Decimal(str(orderbook["bid"]))
-                            ask_price = Decimal(str(orderbook["ask"]))
-                            mid_price = (bid_price + ask_price) / Decimal(2)
-
-                            self.logger.debug(
-                                f"Got market price for {trading_pair} from orderbook mid: ${mid_price:.4f} "
-                                f"(bid: ${bid_price:.4f}, ask: ${ask_price:.4f})",
-                                source_module=self._source,
-                            )
-                            return mid_price
-
-                except Exception as e:
-                    self.logger.debug(
-                        f"Could not get price from execution handler for {trading_pair}: {e}",
-                        source_module=self._source,
-                    )
-
-            # Method 4: Fallback - use a simple price estimation or API call
-            # This could be enhanced to call external price APIs as a last resort
-
+        except Exception:
+            self.logger.exception("Error getting current market price for {trading_pair}", source_module=self._source)
+            return None
+        else:
+            # No price found from any source
             self.logger.warning(
                 f"Unable to determine current market price for {trading_pair} from any available source",
                 source_module=self._source,
             )
-        except Exception as e:
-            self.logger.error(
-                f"Error getting current market price for {trading_pair}: {e}",
+            return None
+
+    async def _get_price_from_portfolio(self, trading_pair: str) -> Decimal | None:
+        """Get price from portfolio manager position data."""
+        try:
+            current_state = self._portfolio_manager.get_current_state()
+            positions = current_state.get("positions", {})
+
+            if trading_pair not in positions:
+                return None
+
+            position_data = positions[trading_pair]
+            market_value = position_data.get("market_value_usd", 0)
+            quantity = position_data.get("quantity", 0)
+
+            if float(quantity) == 0 or float(market_value) == 0:
+                return None
+
+            # Calculate implied price from market value and quantity
+            implied_price = Decimal(str(abs(float(market_value)))) / Decimal(str(abs(float(quantity))))
+
+            self.logger.debug(
+                f"Got market price for {trading_pair} from portfolio position: ${implied_price:.4f}",
                 source_module=self._source,
-                exc_info=True,
+            )
+
+        except Exception as e:
+            self.logger.debug(
+                f"Could not get price from portfolio manager for {trading_pair}: {e}",
+                source_module=self._source,
             )
             return None
         else:
+            return implied_price
+
+    async def _get_price_from_market_data_cache(self, trading_pair: str) -> Decimal | None:
+        """Get price from recent market data events cache."""
+        ts = self._last_market_data_times.get(trading_pair)
+        price = self._last_market_data_prices.get(trading_pair)
+
+        if ts is None or price is None:
             return None
+
+        age = (datetime.now(UTC) - ts).total_seconds()
+        if age >= self._data_staleness_threshold_s:
+            return None
+
+        self.logger.debug(
+            "Got market price for %s from cached market data: $%s",
+            trading_pair,
+            price,
+            source_module=self._source,
+        )
+        return price
+
+    async def _get_price_from_execution_handler(self, trading_pair: str) -> Decimal | None:
+        """Get price from execution handler using various methods."""
+        if not self._execution_handler:
+            return None
+
+        try:
+            # Try different methods in order
+            price_methods = [
+                ("get_current_price", self._extract_direct_price),
+                ("get_ticker", self._extract_ticker_price),
+                ("get_orderbook", self._extract_orderbook_midprice),
+            ]
+
+            for method_name, extractor in price_methods:
+                if hasattr(self._execution_handler, method_name):
+                    method = getattr(self._execution_handler, method_name)
+                    data = await method(trading_pair)
+                    price = extractor(data, trading_pair)
+                    if price is not None:
+                        return price
+
+        except Exception as e:
+            self.logger.debug(
+                f"Could not get price from execution handler for {trading_pair}: {e}",
+                source_module=self._source,
+            )
+
+        return None
+
+    def _extract_direct_price(self, price: Any, trading_pair: str) -> Decimal | None:
+        """Extract price from direct price method."""
+        if price is None:
+            return None
+
+        price_decimal = Decimal(str(price))
+        self.logger.debug(
+            f"Got market price for {trading_pair} from execution handler: ${price_decimal:.4f}",
+            source_module=self._source,
+        )
+        return price_decimal
+
+    def _extract_ticker_price(self, ticker_data: dict[str, Any] | None, trading_pair: str) -> Decimal | None:
+        """Extract price from ticker data."""
+        if not ticker_data or "last_price" not in ticker_data:
+            return None
+
+        price_decimal = Decimal(str(ticker_data["last_price"]))
+        self.logger.debug(
+            f"Got market price for {trading_pair} from ticker: ${price_decimal:.4f}",
+            source_module=self._source,
+        )
+        return price_decimal
+
+    def _extract_orderbook_midprice(self, orderbook: dict[str, Any] | None, trading_pair: str) -> Decimal | None:
+        """Extract mid-price from orderbook data."""
+        if not orderbook or "bid" not in orderbook or "ask" not in orderbook:
+            return None
+
+        bid_price = Decimal(str(orderbook["bid"]))
+        ask_price = Decimal(str(orderbook["ask"]))
+        mid_price = (bid_price + ask_price) / Decimal(2)
+
+        self.logger.debug(
+            f"Got market price for {trading_pair} from orderbook mid: ${mid_price:.4f} "
+            f"(bid: ${bid_price:.4f}, ask: ${ask_price:.4f})",
+            source_module=self._source,
+        )
+        return mid_price
 
     async def _handle_execution_report(self, event: "ExecutionReportEvent") -> None:
         """Handle execution report events to track consecutive losses.
@@ -3484,11 +3587,7 @@ class MonitoringService:
         """
         try:
             # Check for filled order with realized PnL
-            if (
-                hasattr(event, "order_status")
-                and event.order_status == "FILLED"
-                and hasattr(event, "realized_pnl")
-            ):
+            if hasattr(event, "order_status") and event.order_status == "FILLED" and hasattr(event, "realized_pnl"):
                 # Convert to Decimal if needed
                 pnl = event.realized_pnl
                 if not isinstance(pnl, Decimal):
@@ -3498,19 +3597,15 @@ class MonitoringService:
                         self.logger.warning(
                             "Could not convert realized_pnl to Decimal: %s",
                             pnl,
-                            source_module=self._source)
+                            source_module=self._source,
+                        )
                         return
 
                 # Update consecutive losses counter
                 if pnl < Decimal(0):
                     self._consecutive_losses += 1
-                    warning_msg = (
-                        f"Trade loss detected: {pnl}. "
-                        f"Consecutive losses: {self._consecutive_losses}"
-                    )
-                    self.logger.warning(
-                        warning_msg,
-                        source_module=self._source)
+                    warning_msg = f"Trade loss detected: {pnl}. Consecutive losses: {self._consecutive_losses}"
+                    self.logger.warning(warning_msg, source_module=self._source)
 
                     # Check if we've hit the consecutive loss limit
                     if self._consecutive_losses >= self._consecutive_loss_limit:
@@ -3519,18 +3614,11 @@ class MonitoringService:
                 else:
                     # Reset counter on profitable trade
                     if self._consecutive_losses > 0:
-                        info_msg = (
-                            f"Profitable trade resets consecutive loss counter "
-                            f"(was {self._consecutive_losses})"
-                        )
-                        self.logger.info(
-                            info_msg,
-                            source_module=self._source)
+                        info_msg = f"Profitable trade resets consecutive loss counter (was {self._consecutive_losses})"
+                        self.logger.info(info_msg, source_module=self._source)
                     self._consecutive_losses = 0
         except Exception:
-            self.logger.exception(
-                "Error handling execution report",
-                source_module=self._source)
+            self.logger.exception("Error handling execution report", source_module=self._source)
 
     async def _handle_api_error(self, event: "APIErrorEvent") -> None:
         """Count and evaluate API errors to detect excessive error rates.
@@ -3554,20 +3642,13 @@ class MonitoringService:
                 f"{errors_in_period} errors in the last "
                 f"{self._api_error_threshold_period_s}s"
             )
-            self.logger.warning(
-                warning_msg,
-                source_module=self._source)
+            self.logger.warning(warning_msg, source_module=self._source)
 
             if errors_in_period >= self._api_error_threshold_count:
-                reason = (
-                    f"High frequency of API errors: {errors_in_period} "
-                    f"in {self._api_error_threshold_period_s}s"
-                )
+                reason = f"High frequency of API errors: {errors_in_period} in {self._api_error_threshold_period_s}s"
                 await self.trigger_halt(reason=reason, source="AUTO: API Errors")
         except Exception:
-            self.logger.exception(
-                "Error handling API error event",
-                source_module=self._source)
+            self.logger.exception("Error handling API error event", source_module=self._source)
 
     def _load_configuration(self) -> None:
         """Load configuration values from ConfigManager."""
@@ -3579,14 +3660,10 @@ class MonitoringService:
         self._check_interval = monitoring_config.get("check_interval_seconds", 60)
 
         # API monitoring configuration
-        self._api_failure_threshold = monitoring_config.get(
-            "api_failure_threshold", 3)
-        self._api_error_threshold_count = monitoring_config.get(
-            "api_error_threshold_count", 5)
-        self._api_error_threshold_period_s = monitoring_config.get(
-            "api_error_threshold_period_s", 60)
-        self._data_staleness_threshold_s = monitoring_config.get(
-            "data_staleness_threshold_s", 120.0)
+        self._api_failure_threshold = monitoring_config.get("api_failure_threshold", 3)
+        self._api_error_threshold_count = monitoring_config.get("api_error_threshold_count", 5)
+        self._api_error_threshold_period_s = monitoring_config.get("api_error_threshold_period_s", 60)
+        self._data_staleness_threshold_s = monitoring_config.get("data_staleness_threshold_s", 120.0)
 
         # System resource monitoring configuration
         self._cpu_threshold_pct = monitoring_config.get("cpu_threshold_pct", 90.0)
@@ -3597,8 +3674,7 @@ class MonitoringService:
 
         # Risk management configuration
         risk_limits = risk_config.get("limits", {})
-        self._max_total_drawdown_pct = Decimal(
-            str(risk_limits.get("max_total_drawdown_pct", 10.0)))
+        self._max_total_drawdown_pct = Decimal(str(risk_limits.get("max_total_drawdown_pct", 10.0)))
 
         # HALT behavior configuration
         halt_config = monitoring_config.get("halt", {})
@@ -3607,9 +3683,7 @@ class MonitoringService:
         # Active trading pairs
         self._active_pairs = trading_config.get("pairs", [])
 
-    async def _update_market_data_timestamp(
-        self,
-        event: "MarketDataL2Event | MarketDataOHLCVEvent") -> None:
+    async def _update_market_data_timestamp(self, event: "MarketDataL2Event | MarketDataOHLCVEvent") -> None:
         """Update the last received timestamp for market data events.
 
         This helps track market data freshness.
@@ -3619,89 +3693,121 @@ class MonitoringService:
             event: Either a MarketDataL2Event or MarketDataOHLCVEvent
         """
         try:
-            # Extract pair from the event
-            if hasattr(event, "trading_pair"):
-                pair = event.trading_pair
-            else:
-                self.logger.warning(
-                    "Market data event missing trading_pair attribute: %s",
-                    type(event),
-                    source_module=self._source)
+            # Extract required data from event
+            pair = self._extract_trading_pair(event)
+            if not pair:
                 return
 
-            # Extract timestamp, preferring exchange timestamp if available
-            if hasattr(event, "timestamp_exchange") and event.timestamp_exchange:
-                ts = event.timestamp_exchange
-            elif hasattr(event, "timestamp"):
-                ts = event.timestamp
-            else:
-                self.logger.warning(
-                    "Market data event missing timestamp: %s",
-                    type(event),
-                    source_module=self._source)
+            ts = self._extract_timestamp(event)
+            if not ts:
                 return
 
-            # Ensure timestamp is timezone-aware UTC
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=UTC)
-
-            # Update the timestamp for this pair
-            self._last_market_data_times[pair] = ts
-            self.logger.debug(
-                "Updated market data timestamp for %s: %s",
-                pair,
-                ts,
-                source_module=self._source)
-
-            # Extract price information if available
-            price: Decimal | None = None
-            if hasattr(event, "close"):
-                price = Decimal(str(event.close))
-            elif hasattr(event, "last_price"):
-                price = Decimal(str(event.last_price))
-            elif hasattr(event, "price"):
-                price = Decimal(str(event.price))
-            elif hasattr(event, "bids") and hasattr(event, "asks"):
-                try:
-                    bid = Decimal(str(event.bids[0][0])) if event.bids else None
-                    ask = Decimal(str(event.asks[0][0])) if event.asks else None
-                    if bid is not None and ask is not None:
-                        price = (bid + ask) / Decimal(2)
-                except Exception:
-                    price = None
-
-            if price is not None:
-                self._last_market_data_prices[pair] = price
-                try:
-                    await self.collect_metric(
-                        f"market_data.price.{pair}",
-                        float(price),
-                        labels={"trading_pair": pair})
-                except Exception as e:
-                    self.logger.debug(
-                        "Error collecting market price metric: %s",
-                        e,
-                        source_module=self._source)
-
-            # Collect market data freshness metric
-            try:
-                current_time = datetime.now(UTC)
-                data_age_seconds = (current_time - ts).total_seconds()
-                await self.collect_metric(
-                    f"market_data.freshness.{pair}.age_seconds",
-                    data_age_seconds,
-                    labels={"trading_pair": pair, "data_type": type(event).__name__},
-                )
-            except Exception as e:
-                self.logger.debug(
-                    f"Error collecting market data freshness metric: {e}",
-                    source_module=self._source,
-                )
+            # Process the market data update
+            await self._process_market_data_update(event, pair, ts)
 
         except Exception:
-            self.logger.exception(
-                "Error updating market data timestamp",
-                source_module=self._source)
+            self.logger.exception("Error updating market data timestamp", source_module=self._source)
+
+    def _extract_trading_pair(self, event: Any) -> str | None:
+        """Extract trading pair from market data event."""
+        if hasattr(event, "trading_pair"):
+            return cast("str | None", event.trading_pair)
+
+        self.logger.warning(
+            "Market data event missing trading_pair attribute: %s",
+            type(event),
+            source_module=self._source,
+        )
+        return None
+
+    def _extract_timestamp(self, event: Any) -> datetime | None:
+        """Extract timestamp from market data event, preferring exchange timestamp."""
+        ts = None
+
+        if hasattr(event, "timestamp_exchange") and event.timestamp_exchange:
+            ts = event.timestamp_exchange
+        elif hasattr(event, "timestamp"):
+            ts = event.timestamp
+        else:
+            self.logger.warning("Market data event missing timestamp: %s", type(event), source_module=self._source)
+            return None
+
+        # Ensure timestamp is timezone-aware UTC
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+
+        return cast("datetime | None", ts)
+
+    async def _process_market_data_update(self, event: Any, pair: str, ts: datetime) -> None:
+        """Process the market data update - store timestamp and extract price."""
+        # Update the timestamp for this pair
+        self._last_market_data_times[pair] = ts
+        self.logger.debug("Updated market data timestamp for %s: %s", pair, ts, source_module=self._source)
+
+        # Extract and store price
+        price = self._extract_price_from_event(event)
+        if price is not None:
+            await self._store_and_collect_price_metric(pair, price)
+
+        # Collect freshness metric
+        await self._collect_freshness_metric(pair, ts, event)
+
+    def _extract_price_from_event(self, event: Any) -> Decimal | None:
+        """Extract price from various event attributes."""
+        # Direct price attributes
+        price_attributes = ["close", "last_price", "price"]
+        for attr in price_attributes:
+            if hasattr(event, attr):
+                try:
+                    return Decimal(str(getattr(event, attr)))
+                except Exception:
+                    self.logger.debug(f"Failed to extract price from attribute {attr}", source_module=self._source)
+                    continue
+
+        # Try to calculate mid-price from bid/ask
+        return self._calculate_midprice_from_orderbook(event)
+
+    def _calculate_midprice_from_orderbook(self, event: Any) -> Decimal | None:
+        """Calculate mid-price from bid/ask data if available."""
+        if not (hasattr(event, "bids") and hasattr(event, "asks")):
+            return None
+
+        try:
+            bid = Decimal(str(event.bids[0][0])) if event.bids else None
+            ask = Decimal(str(event.asks[0][0])) if event.asks else None
+            if bid is not None and ask is not None:
+                return (bid + ask) / Decimal(2)
+        except Exception as e:
+            self.logger.debug(
+                f"Failed to calculate mid-price from order book: {e}",
+                source_module=self._source,
+            )
+
+        return None
+
+    async def _store_and_collect_price_metric(self, pair: str, price: Decimal) -> None:
+        """Store price and collect metric."""
+        self._last_market_data_prices[pair] = price
+        try:
+            await self.collect_metric(f"market_data.price.{pair}", float(price), labels={"trading_pair": pair})
+        except Exception as e:
+            self.logger.debug("Error collecting market price metric: %s", e, source_module=self._source)
+
+    async def _collect_freshness_metric(self, pair: str, ts: datetime, event: Any) -> None:
+        """Collect market data freshness metric."""
+        try:
+            current_time = datetime.now(UTC)
+            data_age_seconds = (current_time - ts).total_seconds()
+            await self.collect_metric(
+                f"market_data.freshness.{pair}.age_seconds",
+                data_age_seconds,
+                labels={"trading_pair": pair, "data_type": type(event).__name__},
+            )
+        except Exception as e:
+            self.logger.debug(
+                f"Error collecting market data freshness metric: {e}",
+                source_module=self._source,
+            )
 
     # ===== Enterprise Metrics Collection API =====
 
@@ -3722,12 +3828,8 @@ class MonitoringService:
         """
         try:
             await self._metrics_system.collect_metric(name, value, labels, metric_type)
-        except Exception as e:
-            self.logger.error(
-                f"Error collecting metric through MonitoringService: {e}",
-                source_module=self._source,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error collecting metric through MonitoringService", source_module=self._source)
 
     async def collect_batch_metrics(self, metrics: list[dict[str, Any]]) -> None:
         """Collect multiple metrics in batch for efficiency.
@@ -3737,11 +3839,10 @@ class MonitoringService:
         """
         try:
             await self._metrics_system.collect_batch_metrics(metrics)
-        except Exception as e:
-            self.logger.error(
-                f"Error collecting batch metrics through MonitoringService: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error collecting batch metrics through MonitoringService",
                 source_module=self._source,
-                exc_info=True,
             )
 
     async def get_comprehensive_metrics_summary(self) -> dict[str, Any]:
@@ -3770,7 +3871,8 @@ class MonitoringService:
                     "active_conditions": self._halt_coordinator.check_all_conditions(),
                     "summary": (
                         self._halt_coordinator.get_stage_summary()
-                        if hasattr(self._halt_coordinator, "get_stage_summary") else {}
+                        if hasattr(self._halt_coordinator, "get_stage_summary")
+                        else {}
                     ),
                 },
             }
@@ -3782,13 +3884,8 @@ class MonitoringService:
                 "timestamp": datetime.now(UTC).isoformat(),
             }
 
-
         except Exception as e:
-            self.logger.error(
-                f"Error generating comprehensive metrics summary: {e}",
-                source_module=self._source,
-                exc_info=True,
-            )
+            self.logger.exception("Error generating comprehensive metrics summary", source_module=self._source)
             return {"error": str(e), "timestamp": datetime.now(UTC).isoformat()}
 
     async def acknowledge_alert(self, alert_name: str, acknowledged_by: str) -> bool:
@@ -3803,12 +3900,8 @@ class MonitoringService:
         """
         try:
             return await self._metrics_system.acknowledge_alert(alert_name, acknowledged_by)
-        except Exception as e:
-            self.logger.error(
-                f"Error acknowledging alert: {e}",
-                source_module=self._source,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error acknowledging alert", source_module=self._source)
             return False
 
     def get_metric_history(self, metric_name: str, limit: int = 100) -> list[dict[str, Any]]:
@@ -3823,12 +3916,8 @@ class MonitoringService:
         """
         try:
             return self._metrics_system.get_metric_history(metric_name, limit)
-        except Exception as e:
-            self.logger.error(
-                f"Error getting metric history: {e}",
-                source_module=self._source,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error getting metric history", source_module=self._source)
             return []
 
     def get_active_alerts(self) -> list[dict[str, Any]]:
@@ -3839,12 +3928,8 @@ class MonitoringService:
         """
         try:
             return [alert.to_dict() for alert in self._metrics_system.active_alerts.values()]
-        except Exception as e:
-            self.logger.error(
-                f"Error getting active alerts: {e}",
-                source_module=self._source,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error getting active alerts", source_module=self._source)
             return []
 
     async def get_system_performance_snapshot(self) -> PerformanceMetrics:
@@ -3883,18 +3968,16 @@ class MonitoringService:
             )
 
             # Also collect this as metrics
-            await self.collect_batch_metrics([
-                {"name": "performance.cpu_usage_pct", "value": performance.cpu_usage_pct},
-                {"name": "performance.memory_usage_pct", "value": performance.memory_usage_pct},
-                {"name": "performance.disk_usage_pct", "value": performance.disk_usage_pct},
-                {"name": "performance.active_connections", "value": performance.active_connections},
-            ])
-        except Exception as e:
-            self.logger.error(
-                f"Error creating performance snapshot: {e}",
-                source_module=self._source,
-                exc_info=True,
+            await self.collect_batch_metrics(
+                [
+                    {"name": "performance.cpu_usage_pct", "value": performance.cpu_usage_pct},
+                    {"name": "performance.memory_usage_pct", "value": performance.memory_usage_pct},
+                    {"name": "performance.disk_usage_pct", "value": performance.disk_usage_pct},
+                    {"name": "performance.active_connections", "value": performance.active_connections},
+                ],
             )
+        except Exception:
+            self.logger.exception("Error creating performance snapshot", source_module=self._source)
             # Return empty snapshot on error
             return PerformanceMetrics(
                 timestamp=datetime.now(UTC),
@@ -3991,59 +4074,88 @@ class MonitoringService:
 
     def _calculate_throughput_metrics(self) -> dict[str, float]:
         """Calculate system throughput metrics."""
-        throughput = {}
-
         try:
-            # Market data update rate
             current_time = datetime.now(UTC)
-            recent_market_updates = 0
 
-            for last_update in self._last_market_data_times.values():
-                if (current_time - last_update).total_seconds() < 300:  # Updates in last 5 minutes
-                    recent_market_updates += 1
+            # Calculate individual throughput metrics
+            metrics = {
+                "market_data_updates_per_minute": self._calculate_market_data_rate(current_time),
+                "metrics_collected_per_minute": self._calculate_metrics_collection_rate(current_time),
+                "estimated_trades_per_hour": self._calculate_trading_throughput(),
+                "alerts_triggered_per_hour": self._calculate_alert_rate(current_time),
+            }
 
-            # Estimate updates per minute (rough approximation)
-            market_data_rate = recent_market_updates * (60 / 300) if recent_market_updates > 0 else 0.0
-            throughput["market_data_updates_per_minute"] = market_data_rate
-
-            # Metrics collection rate
-            if hasattr(self._metrics_system, "collection_stats"):
-                total_metrics_raw = self._metrics_system.collection_stats.get("metrics_collected", 0)
-                # Ensure we have a numeric value
-                total_metrics = float(total_metrics_raw) if isinstance(total_metrics_raw, int | float) else 0.0
-
-                if self._service_start_time:
-                    uptime_minutes = (current_time - self._service_start_time).total_seconds() / 60
-                    if uptime_minutes > 0:
-                        metrics_per_minute = total_metrics / uptime_minutes
-                        throughput["metrics_collected_per_minute"] = metrics_per_minute
-
-            # Trading throughput (estimated from portfolio changes)
-            try:
-                current_state = self._portfolio_manager.get_current_state()
-                positions = current_state.get("positions", {})
-                active_positions = len([p for p in positions.values() if float(p.get("quantity", 0)) != 0])
-
-                # Very rough estimate: assume each position represents recent trading activity
-                estimated_trades_per_hour = active_positions * 0.5  # Conservative estimate
-                throughput["estimated_trades_per_hour"] = estimated_trades_per_hour
-
-            except Exception:
-                throughput["estimated_trades_per_hour"] = 0.0
-
-            # Alert processing rate
-            if hasattr(self._metrics_system, "collection_stats"):
-                total_alerts_raw = self._metrics_system.collection_stats.get("alerts_triggered", 0)
-                # Ensure we have a numeric value
-                total_alerts = float(total_alerts_raw) if isinstance(total_alerts_raw, int | float) else 0.0
-
-                if self._service_start_time:
-                    uptime_hours = (current_time - self._service_start_time).total_seconds() / 3600
-                    if uptime_hours > 0:
-                        alerts_per_hour = total_alerts / uptime_hours
-                        throughput["alerts_triggered_per_hour"] = alerts_per_hour
+            # Filter out None values
+            return {k: v for k, v in metrics.items() if v is not None}
 
         except Exception as e:
             self.logger.debug(f"Error calculating throughput metrics: {e}", source_module=self._source)
+            return {}
 
-        return throughput
+    def _calculate_market_data_rate(self, current_time: datetime) -> float:
+        """Calculate market data update rate."""
+        recent_market_updates = 0
+        time_window = 300  # 5 minutes
+
+        for last_update in self._last_market_data_times.values():
+            if (current_time - last_update).total_seconds() < time_window:
+                recent_market_updates += 1
+
+        # Convert to updates per minute
+        return recent_market_updates * (60 / time_window) if recent_market_updates > 0 else 0.0
+
+    def _calculate_metrics_collection_rate(self, current_time: datetime) -> float | None:
+        """Calculate metrics collection rate per minute."""
+        if not hasattr(self._metrics_system, "collection_stats"):
+            return None
+
+        total_metrics = self._get_numeric_stat("metrics_collected")
+        if total_metrics is None or not self._service_start_time:
+            return None
+
+        uptime_minutes = (current_time - self._service_start_time).total_seconds() / 60
+        if uptime_minutes <= 0:
+            return None
+
+        return total_metrics / uptime_minutes
+
+    def _calculate_trading_throughput(self) -> float:
+        """Calculate estimated trading throughput from portfolio state."""
+        try:
+            current_state = self._portfolio_manager.get_current_state()
+            positions = current_state.get("positions", {})
+            active_positions = len([p for p in positions.values() if float(p.get("quantity", 0)) != 0])
+
+            # Conservative estimate: each position represents recent trading activity
+            return active_positions * 0.5
+
+        except Exception:
+            return 0.0
+
+    def _calculate_alert_rate(self, current_time: datetime) -> float | None:
+        """Calculate alert triggering rate per hour."""
+        if not hasattr(self._metrics_system, "collection_stats"):
+            return None
+
+        total_alerts = self._get_numeric_stat("alerts_triggered")
+        if total_alerts is None or not self._service_start_time:
+            return None
+
+        uptime_hours = (current_time - self._service_start_time).total_seconds() / 3600
+        if uptime_hours <= 0:
+            return None
+
+        return total_alerts / uptime_hours
+
+    def _get_numeric_stat(self, stat_name: str) -> float | None:
+        """Get a numeric statistic from collection stats."""
+        if not hasattr(self._metrics_system, "collection_stats"):
+            return None
+
+        raw_value = self._metrics_system.collection_stats.get(stat_name, 0)
+
+        # Ensure we have a numeric value
+        if isinstance(raw_value, int | float):
+            return float(raw_value)
+
+        return None

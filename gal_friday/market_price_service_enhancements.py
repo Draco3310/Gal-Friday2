@@ -25,6 +25,7 @@ from gal_friday.logger_service import LoggerService
 
 class MarketRegime(str, Enum):
     """Market regime classifications."""
+
     TRENDING_UP = "trending_up"
     TRENDING_DOWN = "trending_down"
     SIDEWAYS = "sideways"
@@ -36,6 +37,7 @@ class MarketRegime(str, Enum):
 
 class PriceModelType(str, Enum):
     """Types of price generation models."""
+
     GEOMETRIC_BROWNIAN = "geometric_brownian"
     JUMP_DIFFUSION = "jump_diffusion"
     HESTON_STOCHASTIC_VOL = "heston_stochastic_vol"
@@ -46,6 +48,7 @@ class PriceModelType(str, Enum):
 
 class MarketEventType(str, Enum):
     """Types of market events."""
+
     NEWS_ANNOUNCEMENT = "news_announcement"
     REGULATORY_CHANGE = "regulatory_change"
     MAJOR_TRADE = "major_trade"
@@ -57,6 +60,7 @@ class MarketEventType(str, Enum):
 @dataclass
 class MarketParameters:
     """Comprehensive market simulation parameters."""
+
     # Basic price dynamics
     initial_price: Decimal
     drift_rate: float  # Expected return
@@ -83,15 +87,17 @@ class MarketParameters:
 
     # Regime switching
     regime_transition_prob: float = 0.02
-    regime_volatility_multipliers: dict[MarketRegime, float] = field(default_factory=lambda: {
-        MarketRegime.TRENDING_UP: 0.8,
-        MarketRegime.TRENDING_DOWN: 1.2,
-        MarketRegime.SIDEWAYS: 0.6,
-        MarketRegime.HIGH_VOLATILITY: 2.0,
-        MarketRegime.LOW_VOLATILITY: 0.4,
-        MarketRegime.CRISIS: 3.0,
-        MarketRegime.RECOVERY: 1.5,
-    })
+    regime_volatility_multipliers: dict[MarketRegime, float] = field(
+        default_factory=lambda: {
+            MarketRegime.TRENDING_UP: 0.8,
+            MarketRegime.TRENDING_DOWN: 1.2,
+            MarketRegime.SIDEWAYS: 0.6,
+            MarketRegime.HIGH_VOLATILITY: 2.0,
+            MarketRegime.LOW_VOLATILITY: 0.4,
+            MarketRegime.CRISIS: 3.0,
+            MarketRegime.RECOVERY: 1.5,
+        },
+    )
 
     # Correlation and cross-asset effects
     correlation_half_life: float = 30.0  # Days
@@ -107,6 +113,7 @@ class MarketParameters:
 @dataclass
 class MarketEvent:
     """Market event definition."""
+
     event_id: str
     event_type: MarketEventType
     timestamp: datetime
@@ -126,6 +133,7 @@ class MarketEvent:
 @dataclass
 class PricePoint:
     """Single price observation with market microstructure."""
+
     timestamp: datetime
     price: Decimal
     volume: Decimal
@@ -189,7 +197,9 @@ class EnterpriseConfigurationManager:
         return {
             "market_parameters": {
                 "required_fields": [
-                    "initial_price", "drift_rate", "volatility",
+                    "initial_price",
+                    "drift_rate",
+                    "volatility",
                 ],
                 "field_types": {
                     "initial_price": (int, float, Decimal),
@@ -206,7 +216,8 @@ class EnterpriseConfigurationManager:
             },
             "simulation_settings": {
                 "required_fields": [
-                    "time_step_seconds", "total_duration_hours",
+                    "time_step_seconds",
+                    "total_duration_hours",
                 ],
                 "field_types": {
                     "time_step_seconds": (int, float),
@@ -222,7 +233,7 @@ class EnterpriseConfigurationManager:
             "doge_usd": {
                 "initial_price": Decimal("0.08"),  # Typical DOGE price
                 "drift_rate": 0.25,  # 25% annual return (higher volatility)
-                "volatility": 1.2,   # 120% annual volatility (very volatile)
+                "volatility": 1.2,  # 120% annual volatility (very volatile)
                 "jump_intensity": 3.0,
                 "bid_ask_spread_bps": 5.0,  # Higher spread for smaller cap
                 "market_depth": Decimal(1000000),
@@ -231,7 +242,7 @@ class EnterpriseConfigurationManager:
             "xrp_usd": {
                 "initial_price": Decimal("0.50"),  # Typical XRP price
                 "drift_rate": 0.20,  # 20% annual return
-                "volatility": 1.0,   # 100% annual volatility
+                "volatility": 1.0,  # 100% annual volatility
                 "jump_intensity": 2.5,
                 "bid_ask_spread_bps": 4.0,
                 "market_depth": Decimal(2000000),
@@ -293,12 +304,8 @@ class EnterpriseConfigurationManager:
             self._config_cache[cache_key] = market_params
             self._cache_timestamps[cache_key] = datetime.now(UTC)
 
-        except Exception as e:
-            self.logger.error(
-                f"Error getting market parameters for {symbol}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error getting market parameters for {symbol}", source_module=self._source_module)
             # Return safe defaults for DOGE
             return MarketParameters(
                 initial_price=Decimal("0.08"),
@@ -335,12 +342,8 @@ class EnterpriseConfigurationManager:
             self._config_cache[cache_key] = merged_config
             self._cache_timestamps[cache_key] = datetime.now(UTC)
 
-        except Exception as e:
-            self.logger.error(
-                f"Error getting simulation settings: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error getting simulation settings", source_module=self._source_module)
             return self._default_configs["simulation"]
         else:
             return merged_config
@@ -368,8 +371,7 @@ class EnterpriseConfigurationManager:
 
             # Update in config manager
             old_value = self.config_manager.get(config_path)
-            # TODO: ConfigManager doesn't have a set method - need to implement or use alternative approach
-            # self.config_manager.set(config_path, new_value)
+            self.config_manager.set(config_path, new_value)
 
             # Invalidate related cache entries
             self._invalidate_related_cache(config_path)
@@ -382,12 +384,8 @@ class EnterpriseConfigurationManager:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Error updating configuration {config_path}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error updating configuration {config_path}", source_module=self._source_module)
             return False
         else:
             return True
@@ -403,23 +401,23 @@ class EnterpriseConfigurationManager:
 
         # Check required fields
         required_fields = schema.get("required_fields", [])
-        for field in required_fields:
-            if field not in config:
-                errors.append(f"Missing required field: {field}")
+        errors.extend(
+            [f"Missing required field: {field_name}" for field_name in required_fields if field_name not in config],
+        )
 
         # Check field types
         field_types = schema.get("field_types", {})
-        for field, expected_types in field_types.items():
-            if field in config and not isinstance(config[field], expected_types):
-                errors.append(f"Field {field} has wrong type: expected {expected_types}")
+        for field_name, expected_types in field_types.items():
+            if field_name in config and not isinstance(config[field_name], expected_types):
+                errors.append(f"Field {field_name} has wrong type: expected {expected_types}")
 
         # Check field ranges
         field_ranges = schema.get("field_ranges", {})
-        for field, (min_val, max_val) in field_ranges.items():
-            if field in config:
-                value = config[field]
+        for field_name, (min_val, max_val) in field_ranges.items():
+            if field_name in config:
+                value = config[field_name]
                 if isinstance(value, int | float) and (value < min_val or value > max_val):
-                    errors.append(f"Field {field} out of range: {value} not in [{min_val}, {max_val}]")
+                    errors.append(f"Field {field_name} out of range: {value} not in [{min_val}, {max_val}]")
 
         return errors
 
@@ -461,10 +459,7 @@ class EnterpriseConfigurationManager:
                 else:
                     listener(config_path, old_value, new_value)
             except Exception:
-                self.logger.exception(
-                    "Error in configuration change listener: ",
-                    source_module=self._source_module,
-                )
+                self.logger.exception("Error in configuration change listener: ", source_module=self._source_module)
 
 
 class AdvancedPriceGenerator:
@@ -492,7 +487,7 @@ class AdvancedPriceGenerator:
         self._last_jump_time: datetime | None = None
 
         # Random number generation
-        self._rng = np.random.RandomState()
+        self._rng = np.random.default_rng()
 
         # Market microstructure state
         self._order_book_state = {
@@ -514,7 +509,7 @@ class AdvancedPriceGenerator:
         """Generate comprehensive price series with market microstructure."""
         try:
             if seed is not None:
-                self._rng.seed(seed)
+                self._rng = np.random.default_rng(seed)
 
             # Get market parameters
             market_params = await self.config_manager.get_market_parameters(symbol)
@@ -525,10 +520,7 @@ class AdvancedPriceGenerator:
             time_step_years = time_step_seconds / (365.25 * 24 * 3600)
 
             # Generate time stamps
-            timestamps = [
-                start_time + timedelta(seconds=i * time_step_seconds)
-                for i in range(num_steps)
-            ]
+            timestamps = [start_time + timedelta(seconds=i * time_step_seconds) for i in range(num_steps)]
 
             # Initialize price series
             price_series = []
@@ -596,12 +588,8 @@ class AdvancedPriceGenerator:
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Error generating price series for {symbol}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error generating price series for {symbol}", source_module=self._source_module)
             return []
         else:
             return price_series
@@ -618,7 +606,7 @@ class AdvancedPriceGenerator:
         dt = time_step_years
 
         # Generate random component
-        dW = self._rng.normal(0, math.sqrt(dt))
+        dW = self._rng.normal(0, math.sqrt(dt))  # noqa: N806
 
         # Calculate price change
         drift_component = market_params.drift_rate * dt
@@ -646,7 +634,7 @@ class AdvancedPriceGenerator:
         dt = time_step_years
 
         # Regular Brownian motion component
-        dW = self._rng.normal(0, math.sqrt(dt))
+        dW = self._rng.normal(0, math.sqrt(dt))  # noqa: N806
         drift_component = market_params.drift_rate * dt
         diffusion_component = current_volatility * dW
 
@@ -693,9 +681,9 @@ class AdvancedPriceGenerator:
         rho = -0.7  # Correlation between price and volatility
 
         # Generate correlated random numbers
-        dW1 = self._rng.normal(0, math.sqrt(dt))
-        dW2_independent = self._rng.normal(0, math.sqrt(dt))
-        dW2 = rho * dW1 + math.sqrt(1 - rho**2) * dW2_independent
+        dW1 = self._rng.normal(0, math.sqrt(dt))  # noqa: N806
+        dW2_independent = self._rng.normal(0, math.sqrt(dt))  # noqa: N806
+        dW2 = rho * dW1 + math.sqrt(1 - rho**2) * dW2_independent  # noqa: N806
 
         # Update volatility (CIR process)
         vol_drift = kappa * (theta - current_volatility) * dt
@@ -740,7 +728,8 @@ class AdvancedPriceGenerator:
 
         # Adjust parameters based on current regime
         regime_multiplier = market_params.regime_volatility_multipliers.get(
-            self._current_regime, 1.0,
+            self._current_regime,
+            1.0,
         )
 
         regime_volatility = current_volatility * regime_multiplier
@@ -755,7 +744,7 @@ class AdvancedPriceGenerator:
             regime_drift *= -2.0
 
         # Generate price using adjusted parameters
-        dW = self._rng.normal(0, math.sqrt(dt))
+        dW = self._rng.normal(0, math.sqrt(dt))  # noqa: N806
         drift_component = regime_drift * dt
         volatility_component = regime_volatility * dW
 
@@ -782,10 +771,10 @@ class AdvancedPriceGenerator:
 
         # Simplified fBM implementation
         # In practice, would use more sophisticated methods
-        dW = self._rng.normal(0, math.sqrt(dt))
+        dW = self._rng.normal(0, math.sqrt(dt))  # noqa: N806
 
         # Apply Hurst scaling (simplified)
-        scaling_factor = dt**(hurst_exponent - 0.5)
+        scaling_factor = dt ** (hurst_exponent - 0.5)
 
         drift_component = market_params.drift_rate * dt
         fractional_component = current_volatility * dW * scaling_factor
@@ -811,7 +800,7 @@ class AdvancedPriceGenerator:
         dt = time_step_years
 
         # Base Geometric Brownian Motion
-        dW = self._rng.normal(0, math.sqrt(dt))
+        dW = self._rng.normal(0, math.sqrt(dt))  # noqa: N806
         base_drift = market_params.drift_rate * dt
         base_diffusion = current_volatility * dW
 
@@ -830,11 +819,7 @@ class AdvancedPriceGenerator:
         intraday_impact = self._calculate_intraday_impact(timestamp)
 
         # Combine all effects
-        total_return = (
-            base_drift + base_diffusion +
-            bid_ask_impact + volume_impact +
-            liquidity_impact + intraday_impact
-        )
+        total_return = base_drift + base_diffusion + bid_ask_impact + volume_impact + liquidity_impact + intraday_impact
 
         new_price = current_price * Decimal(str(math.exp(total_return)))
 
@@ -883,7 +868,7 @@ class AdvancedPriceGenerator:
         # Higher volatility during traditional market hours
         if 9 <= hour <= 16:  # Traditional market hours
             pattern_effect = 0.0002
-        elif 0 <= hour <= 6:   # Low activity hours
+        elif 0 <= hour <= 6:  # Low activity hours
             pattern_effect = -0.0001
         else:
             pattern_effect = 0.0
@@ -950,6 +935,13 @@ class RealisticHistoricalDataGenerator:
         price_generator: AdvancedPriceGenerator,
         logger: LoggerService,
     ) -> None:
+        """Initialize the RealisticHistoricalDataGenerator.
+
+        Args:
+            config_manager: Configuration manager instance.
+            price_generator: Advanced price generator for creating realistic prices.
+            logger: Logger service for logging operations.
+        """
         self.config_manager = config_manager
         self.price_generator = price_generator
         self.logger = logger
@@ -958,6 +950,9 @@ class RealisticHistoricalDataGenerator:
         # Historical patterns database
         self._regime_patterns = self._initialize_regime_patterns()
         self._seasonal_patterns = self._initialize_seasonal_patterns()
+
+        # Initialize random number generator
+        self._rng = np.random.default_rng()
 
     def _initialize_regime_patterns(self) -> dict[MarketRegime, dict[str, Any]]:
         """Initialize realistic regime patterns based on market history."""
@@ -998,26 +993,26 @@ class RealisticHistoricalDataGenerator:
         """Initialize seasonal and calendar effects."""
         return {
             "monthly_volatility_multipliers": {
-                1: 1.1,   # January effect
+                1: 1.1,  # January effect
                 2: 0.9,
                 3: 1.0,
                 4: 0.95,
                 5: 1.05,  # "Sell in May"
                 6: 0.9,
                 7: 0.85,
-                8: 1.2,   # Summer volatility
+                8: 1.2,  # Summer volatility
                 9: 1.1,
                 10: 1.3,  # October effect
                 11: 0.95,
-                12: 0.8,   # Holiday effect
+                12: 0.8,  # Holiday effect
             },
             "day_of_week_effects": {
-                0: 1.1,   # Monday
+                0: 1.1,  # Monday
                 1: 1.0,
                 2: 0.95,
                 3: 1.0,
                 4: 1.05,  # Friday
-                5: 0.7,   # Weekend (for crypto)
+                5: 0.7,  # Weekend (for crypto)
                 6: 0.7,
             },
         }
@@ -1066,17 +1061,12 @@ class RealisticHistoricalDataGenerator:
             quality_score = await self._validate_data_quality(df)
 
             self.logger.info(
-                f"Generated historical dataset for {symbol}: {len(df)} records, "
-                f"quality score: {quality_score:.3f}",
+                f"Generated historical dataset for {symbol}: {len(df)} records, quality score: {quality_score:.3f}",
                 source_module=self._source_module,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Error generating historical dataset for {symbol}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error generating historical dataset for {symbol}", source_module=self._source_module)
             return pd.DataFrame()
         else:
             return df
@@ -1106,27 +1096,27 @@ class RealisticHistoricalDataGenerator:
 
         while current_date < end_date:
             # Probability of event per day
-            if np.random.random() < 0.05:  # 5% chance per day
-                event_type = np.random.choice(list[Any](MarketEventType))
+            if self._rng.random() < 0.05:  # 5% chance per day
+                event_type = self._rng.choice(list[Any](MarketEventType))
 
                 # Event characteristics based on type
                 if event_type == MarketEventType.NEWS_ANNOUNCEMENT:
-                    impact = np.random.normal(0, 0.02)  # ±2% average
-                    duration = np.random.exponential(2)  # 2 hour average
+                    impact = self._rng.normal(0, 0.02)  # ±2% average
+                    duration = self._rng.exponential(2)  # 2 hour average
                 elif event_type == MarketEventType.MAJOR_TRADE:
-                    impact = np.random.normal(0, 0.005)  # ±0.5% average
-                    duration = np.random.exponential(0.5)  # 30 min average
+                    impact = self._rng.normal(0, 0.005)  # ±0.5% average
+                    duration = self._rng.exponential(0.5)  # 30 min average
                 elif event_type == MarketEventType.REGULATORY_CHANGE:
-                    impact = np.random.normal(-0.02, 0.05)  # Usually negative
-                    duration = np.random.exponential(12)  # 12 hour average
+                    impact = self._rng.normal(-0.02, 0.05)  # Usually negative
+                    duration = self._rng.exponential(12)  # 12 hour average
                 else:
-                    impact = np.random.normal(0, 0.01)
-                    duration = np.random.exponential(1)
+                    impact = self._rng.normal(0, 0.01)
+                    duration = self._rng.exponential(1)
 
                 event = MarketEvent(
                     event_id=str(uuid.uuid4()),
                     event_type=event_type,
-                    timestamp=current_date + timedelta(hours=np.random.uniform(0, 24)),
+                    timestamp=current_date + timedelta(hours=self._rng.uniform(0, 24)),
                     price_impact_percent=impact,
                     volatility_impact_multiplier=1.0 + abs(impact) * 10,
                     duration_hours=duration,
@@ -1173,12 +1163,14 @@ class RealisticHistoricalDataGenerator:
 
             # Monthly effect
             month_multiplier = self._seasonal_patterns["monthly_volatility_multipliers"].get(
-                timestamp.month, 1.0,
+                timestamp.month,
+                1.0,
             )
 
             # Day of week effect
             dow_multiplier = self._seasonal_patterns["day_of_week_effects"].get(
-                timestamp.weekday(), 1.0,
+                timestamp.weekday(),
+                1.0,
             )
 
             # Apply to volatility
@@ -1193,9 +1185,8 @@ class RealisticHistoricalDataGenerator:
             return pd.DataFrame()
 
         # Convert to basic DataFrame
-        data = []
-        for point in price_series:
-            data.append({
+        data = [
+            {
                 "timestamp": point.timestamp,
                 "open": float(point.price),
                 "high": float(point.price * Decimal("1.001")),  # Simplified
@@ -1209,7 +1200,9 @@ class RealisticHistoricalDataGenerator:
                 "volatility": point.volatility,
                 "liquidity_score": point.liquidity_score,
                 "regime": point.market_regime.value,
-            })
+            }
+            for point in price_series
+        ]
 
         df = pd.DataFrame(data)
         df.set_index("timestamp", inplace=True)
@@ -1234,7 +1227,7 @@ class RealisticHistoricalDataGenerator:
             df["macd"] = df["ema_12"] - df["ema_26"]
             df["macd_signal"] = df["macd"].ewm(span=9).mean()
 
-            # RSI (simplified)
+            # Calculate RSI using simplified method
             delta = df["close"].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()  # type: ignore[operator]
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()  # type: ignore[operator]
@@ -1303,7 +1296,9 @@ async def create_enterprise_market_service(
 
     # Create historical data generator
     historical_generator = RealisticHistoricalDataGenerator(
-        enterprise_config, price_generator, logger,
+        enterprise_config,
+        price_generator,
+        logger,
     )
 
     return enterprise_config, price_generator, historical_generator

@@ -1,13 +1,26 @@
+"""API provider for fetching historical market data from external sources.
+
+This module provides classes for retrieving historical market data
+from cryptocurrency exchange APIs for backtesting purposes.
+"""
+
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 import logging
 import time
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import aiohttp
 import asyncio
 
-from gal_friday.simulated_market_price_service import DataRequest, HistoricalDataPoint, HistoricalDataProvider
+from gal_friday.interfaces.data_provider_protocols import HistoricalDataProviderProtocol
+
+if TYPE_CHECKING:
+    from gal_friday.core.data_request import DataRequest, HistoricalDataPoint
+else:
+    # Runtime imports to avoid circular imports
+    from gal_friday.core.data_request import DataRequest, HistoricalDataPoint
+
 from gal_friday.utils.kraken_api import generate_kraken_signature, prepare_kraken_request_data
 
 
@@ -58,7 +71,10 @@ class CircuitBreaker:
         """Execute function with circuit breaker protection."""
         async with self._lock:
             if self.state == "open":
-                if self.last_failure_time is not None and time.monotonic() - self.last_failure_time > self.recovery_timeout:
+                if (
+                    self.last_failure_time is not None
+                    and time.monotonic() - self.last_failure_time > self.recovery_timeout
+                ):
                     self.state = "half-open"
                 else:
                     raise APIError("Circuit breaker is open")
@@ -89,7 +105,7 @@ class CircuitBreaker:
             self.state = "open"
 
 
-class APIDataProvider(HistoricalDataProvider):
+class APIDataProvider(HistoricalDataProviderProtocol):
     """Production-ready provider for fetching historical data from Kraken API."""
 
     def __init__(self, config: dict[str, Any], logger: logging.Logger) -> None:
@@ -159,7 +175,7 @@ class APIDataProvider(HistoricalDataProvider):
             await self._session.close()
             self._session = None
 
-    async def fetch_data(self, request: DataRequest) -> list[HistoricalDataPoint]:
+    async def fetch_data(self, request: "DataRequest") -> list["HistoricalDataPoint"]:
         """Fetch historical data from Kraken API."""
         # Ensure initialized
         if not self._session:
@@ -194,7 +210,7 @@ class APIDataProvider(HistoricalDataProvider):
 
             # Record metrics
             response_time = time.monotonic() - start_time
-            self._update_api_metrics(True, response_time)
+            self._update_api_metrics(success=True, response_time=response_time)
 
             self.logger.debug(
                 f"Fetched {len(data_points)} data points in {response_time:.3f}s",
@@ -208,21 +224,20 @@ class APIDataProvider(HistoricalDataProvider):
 
             return cast("list[HistoricalDataPoint]", data_points)
 
-        except Exception as e:
+        except Exception:
             self._circuit_breaker.record_failure()
-            self._update_api_metrics(False, time.monotonic() - start_time)
+            self._update_api_metrics(success=False, response_time=time.monotonic() - start_time)
 
-            self.logger.error(
-                f"Failed to fetch data from API: {e}",
+            self.logger.exception(
+                "Failed to fetch data from API",
                 extra={
                     "source_module": self._source_module,
                     "symbol": request.symbol,
                 },
-                exc_info=True,
             )
             raise
 
-    async def _fetch_ohlc_data(self, request: DataRequest) -> list[HistoricalDataPoint]:
+    async def _fetch_ohlc_data(self, request: "DataRequest") -> list["HistoricalDataPoint"]:
         """Fetch OHLC data from Kraken API."""
         # Convert symbol to Kraken format
         kraken_pair = self._map_to_kraken_pair(request.symbol)
@@ -278,7 +293,10 @@ class APIDataProvider(HistoricalDataProvider):
                     headers = {
                         "API-Key": self.api_key,
                         "API-Sign": generate_kraken_signature(
-                            endpoint, request_data, nonce, self.api_secret,
+                            endpoint,
+                            request_data,
+                            nonce,
+                            self.api_secret,
                         ),
                     }
 
@@ -305,7 +323,7 @@ class APIDataProvider(HistoricalDataProvider):
             except aiohttp.ClientError as e:
                 last_error = e
                 if attempt < retries - 1:
-                    wait_time = 2 ** attempt  # Exponential backoff
+                    wait_time = 2**attempt  # Exponential backoff
                     await asyncio.sleep(wait_time)
                 continue
 
@@ -314,8 +332,8 @@ class APIDataProvider(HistoricalDataProvider):
     def _parse_kraken_ohlc_response(
         self,
         response: dict[str, Any],
-        request: DataRequest,
-    ) -> list[HistoricalDataPoint]:
+        request: "DataRequest",
+    ) -> list["HistoricalDataPoint"]:
         """Parse Kraken OHLC response into HistoricalDataPoint objects."""
         data_points: list[HistoricalDataPoint] = []
 
@@ -441,7 +459,6 @@ class APIDataProvider(HistoricalDataProvider):
                         "margin_stop": info.get("margin_stop"),
                     }
 
-
         except Exception as e:
             self.logger.exception(
                 f"Failed to get symbol info for {symbol}: ",
@@ -491,7 +508,7 @@ class APIDataProvider(HistoricalDataProvider):
 
         return interval
 
-    def _validate_data_point(self, dp: HistoricalDataPoint) -> bool:
+    def _validate_data_point(self, dp: "HistoricalDataPoint") -> bool:
         """Validate OHLCV data integrity."""
         # Basic OHLCV validation
         if dp.high < dp.low:
@@ -528,13 +545,15 @@ class APIDataProvider(HistoricalDataProvider):
         age = (datetime.now(UTC) - cache_entry["timestamp"]).total_seconds()
         return cast("bool", age < self._cache_ttl)
 
-    def _cache_query_result(self, cache_key: str, data_points: list[HistoricalDataPoint]) -> None:
+    def _cache_query_result(self, cache_key: str, data_points: list["HistoricalDataPoint"]) -> None:
         """Cache query results with LRU eviction."""
         # Implement simple LRU by removing oldest entries
         if len(self._query_cache) >= self._cache_max_size:
             # Remove oldest entry
-            oldest_key = min(self._query_cache.keys(),
-                           key=lambda k: self._query_cache[k].get("timestamp", datetime.min))
+            oldest_key = min(
+                self._query_cache.keys(),
+                key=lambda k: self._query_cache[k].get("timestamp", datetime.min.replace(tzinfo=UTC)),
+            )
             del self._query_cache[oldest_key]
 
         self._query_cache[cache_key] = {
@@ -556,8 +575,8 @@ class APIDataProvider(HistoricalDataProvider):
         total_requests = self._api_metrics["total_requests"]
 
         self._api_metrics["average_response_time"] = (
-            (current_avg * (total_requests - 1) + response_time) / total_requests
-        )
+            current_avg * (total_requests - 1) + response_time
+        ) / total_requests
 
     async def get_diagnostics(self) -> dict[str, Any]:
         """Get diagnostic information about API provider health."""
@@ -569,9 +588,9 @@ class APIDataProvider(HistoricalDataProvider):
             "cache_stats": {
                 "query_cache_size": len(self._query_cache),
                 "symbol_cache_size": len(self._valid_symbols_cache),
-                "cache_hit_rate": (
-                    self._api_metrics["cache_hits"] / max(1, self._api_metrics["total_requests"])
-                ) if self._api_metrics["total_requests"] > 0 else 0,
+                "cache_hit_rate": (self._api_metrics["cache_hits"] / max(1, self._api_metrics["total_requests"]))
+                if self._api_metrics["total_requests"] > 0
+                else 0,
             },
             "circuit_breaker": {
                 "state": self._circuit_breaker.state,

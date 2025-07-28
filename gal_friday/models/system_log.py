@@ -1,3 +1,9 @@
+"""System log model for recording system-level events and diagnostics.
+
+This module defines the database model for storing system logs,
+errors, and diagnostic information.
+"""
+
 from datetime import UTC, datetime
 from typing import Any
 import uuid
@@ -15,12 +21,16 @@ from .base import Base
 
 
 class SystemLog(Base):
+    """Database model for system-level logging and diagnostics."""
+
     __tablename__ = "system_logs"
 
     log_pk: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     log_timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        server_default=func.now(), index=True,
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
     )
     source_module: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     log_level: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
@@ -36,19 +46,23 @@ class SystemLog(Base):
     # Using generic JSON for broader compatibility, can be switched to JSONB if PG-specific features are needed.
     context: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
-    def __repr__(self) -> str: # Added -> str
+    def __repr__(self) -> str:  # Added -> str
+        """Return string representation of SystemLog.
+
+        Returns:
+            String representation showing key log attributes.
+        """
         return (
             f"<SystemLog(log_pk={self.log_pk}, source_module='{self.source_module}', "
             f"log_level='{self.log_level}', message='{self.message[:50]}...')>"
         )
 
-    def to_event(self) -> "LogEvent": # Added to_event with type hints
-        """Converts the SystemLog object to a LogEvent."""
-        # Assuming LogEvent is importable from gal_friday.core.events
-        # import uuid # Already imported
-        # from datetime import datetime # Already imported
-        # from gal_friday.core.events import LogEvent
+    def to_event(self) -> "LogEvent":  # Added to_event with type hints
+        """Convert the SystemLog object to a LogEvent.
 
+        Returns:
+            LogEvent instance representing this system log.
+        """
         # Construct context, including optional fields if they exist
         event_context: dict[str, Any] = self.context or {}
         if self.trading_pair:
@@ -59,7 +73,7 @@ class SystemLog(Base):
             event_context["order_pk"] = self.order_pk
         if self.exception_type:
             event_context["exception_type"] = self.exception_type
-        if self.stack_trace: # Be cautious about event size with full stack traces
+        if self.stack_trace:  # Be cautious about event size with full stack traces
             event_context["stack_trace_preview"] = self.stack_trace[:200]
 
         # Call LogEvent constructor with explicit keyword arguments
@@ -67,7 +81,8 @@ class SystemLog(Base):
         return LogEvent(
             source_module=self.source_module,
             event_id=uuid.uuid4(),  # Generate a new UUID for this event instance
-            timestamp=self.log_timestamp or datetime.now(UTC), # Use the log's timestamp if available
+            timestamp=self.log_timestamp or datetime.now(UTC),  # Use the log's timestamp if available
             level=self.log_level.upper(),
             message=self.message,
-            context=event_context)
+            context=event_context,
+        )

@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 import gc
-import random
+import secrets
 import time
 from typing import (
     TYPE_CHECKING,
@@ -34,9 +34,9 @@ from gal_friday.core.pubsub import PubSubManager
 # Import SQLAlchemy models that this manager might deal with if it transforms data
 from gal_friday.dal.models.experiment import Experiment as ExperimentModel
 from gal_friday.dal.repositories.experiment_repository import ExperimentRepository
-from gal_friday.logger_service import LoggerService
 
 if TYPE_CHECKING:
+    from gal_friday.logger_service import LoggerService
     from gal_friday.model_lifecycle.registry import (
         Registry as ModelRegistryType,  # Updated to new Registry
     )
@@ -59,6 +59,7 @@ DEFAULT_MIN_DETECTABLE_EFFECT = Decimal("0.01")
 # Enterprise-grade unsubscribe logic infrastructure
 class SubscriptionType(str, Enum):
     """Types of subscriptions for prediction handlers."""
+
     PREDICTION_HANDLER = "prediction_handler"
     MODEL_UPDATE = "model_update"
     EXPERIMENT_EVENT = "experiment_event"
@@ -68,6 +69,7 @@ class SubscriptionType(str, Enum):
 
 class HandlerState(str, Enum):
     """States of prediction handlers during lifecycle."""
+
     ACTIVE = "active"
     STOPPING = "stopping"
     STOPPED = "stopped"
@@ -77,6 +79,7 @@ class HandlerState(str, Enum):
 @dataclass
 class SubscriptionInfo:
     """Comprehensive information about a prediction handler subscription."""
+
     subscription_id: str
     handler_id: str
     subscription_type: SubscriptionType
@@ -91,6 +94,7 @@ class SubscriptionInfo:
 @dataclass
 class UnsubscribeResult:
     """Detailed result of unsubscribe operation for monitoring and debugging."""
+
     subscription_id: str
     success: bool
     error_message: str | None = None
@@ -117,7 +121,7 @@ class PredictionHandlerProtocol(Protocol):
 class SubscriptionManager:
     """Enterprise-grade manager for all prediction handler subscriptions."""
 
-    def __init__(self, logger_service: LoggerService) -> None:
+    def __init__(self, logger_service: "LoggerService") -> None:
         """Initialize the instance."""
         self.logger = logger_service
         self._source_module = "SubscriptionManager"
@@ -140,8 +144,11 @@ class SubscriptionManager:
             "resources_freed": {},
         }
 
-    async def register_subscription(self, subscription_info: SubscriptionInfo,
-                                  handler: PredictionHandlerProtocol) -> None:
+    async def register_subscription(
+        self,
+        subscription_info: SubscriptionInfo,
+        handler: PredictionHandlerProtocol,
+    ) -> None:
         """Register a new prediction handler subscription with full tracking."""
         async with self.subscription_lock:
             self.subscriptions[subscription_info.subscription_id] = subscription_info
@@ -163,135 +170,23 @@ class SubscriptionManager:
 
         try:
             async with self.subscription_lock:
-                if subscription_id not in self.subscriptions:
-                    return UnsubscribeResult(
-                        subscription_id=subscription_id,
-                        success=False,
-                        error_message="Subscription not found",
-                    )
+                # Validate subscription exists
+                validation_result = await self._validate_subscription(subscription_id, start_time)
+                if validation_result:
+                    return validation_result
 
                 subscription = self.subscriptions[subscription_id]
                 handler = self.handlers.get(subscription.handler_id)
 
+                # Handle orphaned subscription
                 if not handler:
-                    # Clean up orphaned subscription
-                    del self.subscriptions[subscription_id]
-                    self.logger.warning(
-                        f"Cleaned up orphaned subscription: {subscription_id}",
-                        source_module=self._source_module,
-                    )
-                    return UnsubscribeResult(
-                        subscription_id=subscription_id,
-                        success=True,
-                        cleanup_time=time.time() - start_time,
-                    )
+                    return await self._handle_orphaned_subscription(subscription_id, start_time)
 
-                # Mark as stopping
-                subscription.state = HandlerState.STOPPING
-
-                try:
-                    # Graceful shutdown with timeout
-                    if not force:
-                        await asyncio.wait_for(
-                            handler.stop(),
-                            timeout=self.shutdown_timeout / 2,
-                        )
-
-                    # Cleanup resources with timeout
-                    await asyncio.wait_for(
-                        handler.cleanup(),
-                        timeout=self.shutdown_timeout / 4,
-                    )
-
-                    # Remove from tracking
-                    del self.subscriptions[subscription_id]
-                    del self.handlers[subscription.handler_id]
-
-                    subscription.state = HandlerState.STOPPED
-
-                    # Get resource info before cleanup
-                    resources_freed = {}
-                    if hasattr(handler, "get_subscription_info"):
-                        try:
-                            resources_freed = handler.get_subscription_info()
-                        except Exception as e:
-                            self.logger.warning(
-                                f"Failed to get subscription info during cleanup: {e}",
-                                source_module=self._source_module,
-                            )
-
-                    result = UnsubscribeResult(
-                        subscription_id=subscription_id,
-                        success=True,
-                        cleanup_time=time.time() - start_time,
-                        resources_freed=resources_freed,
-                    )
-
-                    self.unsubscribe_stats["successful_unsubscribes"] = (
-                        self.unsubscribe_stats.get("successful_unsubscribes", 0) + 1
-                    )
-                    self.logger.info(
-                        f"Successfully unsubscribed handler: {subscription_id}",
-                        source_module=self._source_module,
-                        context={
-                            "cleanup_time": result.cleanup_time,
-                            "resources_freed": bool(resources_freed),
-                        },
-                    )
-
-                    # return result moved to else block
-
-                except TimeoutError:
-                    # Force shutdown if timeout
-                    subscription.state = HandlerState.ERROR
-                    self.unsubscribe_stats["forced_shutdowns"] = self.unsubscribe_stats.get("forced_shutdowns", 0) + 1
-
-                    # Still remove from tracking to prevent leaks
-                    if subscription_id in self.subscriptions:
-                        del self.subscriptions[subscription_id]
-                    if subscription.handler_id in self.handlers:
-                        del self.handlers[subscription.handler_id]
-
-                    self.logger.warning(
-                        f"Forced shutdown of handler due to timeout: {subscription_id}",
-                        source_module=self._source_module,
-                        context={"timeout": self.shutdown_timeout},
-                    )
-
-                    return UnsubscribeResult(
-                        subscription_id=subscription_id,
-                        success=True,  # Consider forced shutdown as success
-                        error_message="Forced shutdown due to timeout",
-                        cleanup_time=time.time() - start_time,
-                    )
-
-                except Exception as e:
-                    subscription.state = HandlerState.ERROR
-                    self.unsubscribe_stats["failed_unsubscribes"] = (
-                        self.unsubscribe_stats.get("failed_unsubscribes", 0) + 1
-                    )
-
-                    self.logger.exception(
-                        f"Error unsubscribing handler {subscription_id}: {e}",
-                        source_module=self._source_module,
-                        exc_info=True,
-                    )
-
-                    return UnsubscribeResult(
-                        subscription_id=subscription_id,
-                        success=False,
-                        error_message=str(e),
-                        cleanup_time=time.time() - start_time,
-                    )
-                else:
-                    return result
+                # Process unsubscription
+                return await self._process_unsubscription(subscription, handler, force, start_time)
 
         except Exception as e:
-            self.logger.error(
-                f"Critical error during unsubscribe: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+            self.logger.exception("Critical error during unsubscribe", source_module=self._source_module)
             return UnsubscribeResult(
                 subscription_id=subscription_id,
                 success=False,
@@ -301,6 +196,171 @@ class SubscriptionManager:
 
         finally:
             self.unsubscribe_stats["total_unsubscribes"] = self.unsubscribe_stats.get("total_unsubscribes", 0) + 1
+
+    async def _validate_subscription(self, subscription_id: str, start_time: float) -> UnsubscribeResult | None:
+        """Validate subscription exists and return error result if not."""
+        if subscription_id not in self.subscriptions:
+            return UnsubscribeResult(
+                subscription_id=subscription_id,
+                success=False,
+                error_message="Subscription not found",
+            )
+        return None
+
+    async def _handle_orphaned_subscription(self, subscription_id: str, start_time: float) -> UnsubscribeResult:
+        """Clean up orphaned subscription."""
+        del self.subscriptions[subscription_id]
+        self.logger.warning(
+            f"Cleaned up orphaned subscription: {subscription_id}",
+            source_module=self._source_module,
+        )
+        return UnsubscribeResult(
+            subscription_id=subscription_id,
+            success=True,
+            cleanup_time=time.time() - start_time,
+        )
+
+    async def _process_unsubscription(
+        self,
+        subscription: Any,
+        handler: Any,
+        force: bool,
+        start_time: float,
+    ) -> UnsubscribeResult:
+        """Process the actual unsubscription with timeout handling."""
+        subscription.state = HandlerState.STOPPING
+
+        try:
+            # Perform shutdown operations
+            await self._shutdown_handler(handler, force)
+
+            # Cleanup and get result
+            result = await self._cleanup_handler_resources(
+                subscription.subscription_id,
+                subscription.handler_id,
+                handler,
+                start_time,
+            )
+
+            subscription.state = HandlerState.STOPPED
+            self._update_successful_unsubscribe_stats(result)
+
+        except TimeoutError:
+            return await self._handle_timeout_shutdown(subscription, start_time)
+        except Exception as e:
+            return await self._handle_unsubscribe_error(subscription, e, start_time)
+        else:
+            return result
+
+    async def _shutdown_handler(self, handler: Any, force: bool) -> None:
+        """Shutdown handler gracefully or forcefully."""
+        if not force:
+            await asyncio.wait_for(
+                handler.stop(),
+                timeout=self.shutdown_timeout / 2,
+            )
+
+        await asyncio.wait_for(
+            handler.cleanup(),
+            timeout=self.shutdown_timeout / 4,
+        )
+
+    async def _cleanup_handler_resources(
+        self,
+        subscription_id: str,
+        handler_id: str,
+        handler: Any,
+        start_time: float,
+    ) -> UnsubscribeResult:
+        """Cleanup handler resources and tracking."""
+        # Remove from tracking
+        del self.subscriptions[subscription_id]
+        del self.handlers[handler_id]
+
+        # Get resource info
+        resources_freed = await self._get_handler_resource_info(handler)
+
+        return UnsubscribeResult(
+            subscription_id=subscription_id,
+            success=True,
+            cleanup_time=time.time() - start_time,
+            resources_freed=resources_freed,
+        )
+
+    async def _get_handler_resource_info(self, handler: Any) -> dict[str, Any]:
+        """Safely get resource information from handler."""
+        resources_freed = {}
+        if hasattr(handler, "get_subscription_info"):
+            try:
+                resources_freed = handler.get_subscription_info()
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to get subscription info during cleanup: {e}",
+                    source_module=self._source_module,
+                )
+        return resources_freed
+
+    def _update_successful_unsubscribe_stats(self, result: UnsubscribeResult) -> None:
+        """Update statistics for successful unsubscription."""
+        self.unsubscribe_stats["successful_unsubscribes"] = self.unsubscribe_stats.get("successful_unsubscribes", 0) + 1
+        self.logger.info(
+            f"Successfully unsubscribed handler: {result.subscription_id}",
+            source_module=self._source_module,
+            context={
+                "cleanup_time": result.cleanup_time,
+                "resources_freed": bool(result.resources_freed),
+            },
+        )
+
+    async def _handle_timeout_shutdown(
+        self,
+        subscription: Any,
+        start_time: float,
+    ) -> UnsubscribeResult:
+        """Handle timeout during shutdown."""
+        subscription.state = HandlerState.ERROR
+        self.unsubscribe_stats["forced_shutdowns"] = self.unsubscribe_stats.get("forced_shutdowns", 0) + 1
+
+        # Clean up tracking
+        if subscription.subscription_id in self.subscriptions:
+            del self.subscriptions[subscription.subscription_id]
+        if subscription.handler_id in self.handlers:
+            del self.handlers[subscription.handler_id]
+
+        self.logger.warning(
+            f"Forced shutdown of handler due to timeout: {subscription.subscription_id}",
+            source_module=self._source_module,
+            context={"timeout": self.shutdown_timeout},
+        )
+
+        return UnsubscribeResult(
+            subscription_id=subscription.subscription_id,
+            success=True,
+            error_message="Forced shutdown due to timeout",
+            cleanup_time=time.time() - start_time,
+        )
+
+    async def _handle_unsubscribe_error(
+        self,
+        subscription: Any,
+        error: Exception,
+        start_time: float,
+    ) -> UnsubscribeResult:
+        """Handle error during unsubscription."""
+        subscription.state = HandlerState.ERROR
+        self.unsubscribe_stats["failed_unsubscribes"] = self.unsubscribe_stats.get("failed_unsubscribes", 0) + 1
+
+        self.logger.exception(
+            f"Error unsubscribing handler {subscription.subscription_id}",
+            source_module=self._source_module,
+        )
+
+        return UnsubscribeResult(
+            subscription_id=subscription.subscription_id,
+            success=False,
+            error_message=str(error),
+            cleanup_time=time.time() - start_time,
+        )
 
 
 class ExperimentShutdownManager:
@@ -319,6 +379,7 @@ class ExperimentShutdownManager:
 
     async def shutdown_all_handlers(self) -> dict[str, UnsubscribeResult]:
         """Shutdown all prediction handlers with comprehensive error handling and batching.
+
         Replaces the pass statement with enterprise-grade unsubscribe logic.
         """
         try:
@@ -328,122 +389,168 @@ class ExperimentShutdownManager:
                 source_module=self._source_module,
             )
 
-            # Get all active subscriptions
-            async with self.subscription_manager.subscription_lock:
-                active_subscriptions = [
-                    sub_id for sub_id, sub_info in self.subscription_manager.subscriptions.items()
-                    if sub_info.state == HandlerState.ACTIVE
-                ]
-
+            # Get active subscriptions
+            active_subscriptions = await self._get_active_subscriptions()
             if not active_subscriptions:
-                self.logger.info(
-                    "No active handlers to shutdown",
-                    source_module=self._source_module,
-                )
                 return {}
 
-            self.logger.info(
-                f"Shutting down {len(active_subscriptions)} prediction handlers",
-                source_module=self._source_module,
-                context={"handler_count": len(active_subscriptions)},
-            )
+            # Log shutdown start
+            self._log_shutdown_start(active_subscriptions)
 
-            # Shutdown in batches for better resource management
-            results = {}
-            batch_count = len(range(0, len(active_subscriptions), self.batch_size))
+            # Process shutdowns in batches
+            results = await self._shutdown_in_batches(active_subscriptions)
 
-            for i in range(0, len(active_subscriptions), self.batch_size):
-                batch = active_subscriptions[i:i + self.batch_size]
-                batch_num = i // self.batch_size + 1
-
-                self.logger.info(
-                    f"Shutting down batch {batch_num}/{batch_count}: {len(batch)} handlers",
-                    source_module=self._source_module,
-                )
-
-                # Shutdown batch concurrently
-                batch_tasks = [
-                    self.subscription_manager.unsubscribe_handler(sub_id)
-                    for sub_id in batch
-                ]
-
-                try:
-                    batch_results = await asyncio.wait_for(
-                        asyncio.gather(*batch_tasks, return_exceptions=True),
-                        timeout=self.shutdown_timeout / batch_count,
-                    )
-
-                    # Process batch results
-                    for sub_id, result in zip(batch, batch_results, strict=False):
-                        if isinstance(result, Exception):
-                            results[sub_id] = UnsubscribeResult(
-                                subscription_id=sub_id,
-                                success=False,
-                                error_message=str(result),
-                            )
-                            self.logger.error(
-                                f"Batch shutdown exception for {sub_id}: {result}",
-                                source_module=self._source_module,
-                            )
-                        elif isinstance(result, UnsubscribeResult):
-                            results[sub_id] = result
-                        else:
-                            # Handle unexpected result type
-                            results[sub_id] = UnsubscribeResult(
-                                subscription_id=sub_id,
-                                success=False,
-                                error_message=f"Unexpected result type: {type(result)}",
-                            )
-
-                except TimeoutError:
-                    # Handle batch timeout - force shutdown remaining handlers
-                    self.logger.warning(
-                        f"Batch {batch_num} timeout - forcing shutdown of remaining handlers",
-                        source_module=self._source_module,
-                    )
-
-                    for sub_id in batch:
-                        if sub_id not in results:
-                            force_result = await self.subscription_manager.unsubscribe_handler(sub_id, force=True)
-                            results[sub_id] = force_result
-
-                # Grace period between batches unless it's the last batch
-                if i + self.batch_size < len(active_subscriptions):
-                    await asyncio.sleep(self.grace_period)
-
-            # Summary logging
-            successful = sum(1 for r in results.values() if r.success)
-            failed = len(results) - successful
-
-            self.logger.info(
-                f"Shutdown complete: {successful} successful, {failed} failed",
-                source_module=self._source_module,
-                context={
-                    "successful_shutdowns": successful,
-                    "failed_shutdowns": failed,
-                    "total_handlers": len(results),
-                },
-            )
-
-            # Force cleanup any remaining subscriptions
+            # Log summary and cleanup
+            self._log_shutdown_summary(results)
             await self._cleanup_remaining_subscriptions()
 
-            # return results moved to else block
-
-        except Exception as e:
-            self.logger.error(
-                f"Critical error during shutdown: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
-            # Emergency cleanup
+        except Exception:
+            self.logger.exception("Critical error during shutdown", source_module=self._source_module)
             await self._emergency_cleanup()
             raise
         else:
             return results
-
         finally:
             self.subscription_manager.shutdown_in_progress = False
+
+    async def _get_active_subscriptions(self) -> list[str]:
+        """Get all active subscription IDs."""
+        async with self.subscription_manager.subscription_lock:
+            active_subscriptions = [
+                sub_id
+                for sub_id, sub_info in self.subscription_manager.subscriptions.items()
+                if sub_info.state == HandlerState.ACTIVE
+            ]
+
+        if not active_subscriptions:
+            self.logger.info(
+                "No active handlers to shutdown",
+                source_module=self._source_module,
+            )
+
+        return active_subscriptions
+
+    def _log_shutdown_start(self, active_subscriptions: list[str]) -> None:
+        """Log the start of shutdown process."""
+        self.logger.info(
+            f"Shutting down {len(active_subscriptions)} prediction handlers",
+            source_module=self._source_module,
+            context={"handler_count": len(active_subscriptions)},
+        )
+
+    async def _shutdown_in_batches(self, active_subscriptions: list[str]) -> dict[str, UnsubscribeResult]:
+        """Shutdown handlers in batches."""
+        results = {}
+        batch_count = len(range(0, len(active_subscriptions), self.batch_size))
+
+        for i in range(0, len(active_subscriptions), self.batch_size):
+            batch = active_subscriptions[i : i + self.batch_size]
+            batch_num = i // self.batch_size + 1
+
+            batch_results = await self._process_shutdown_batch(batch, batch_num, batch_count)
+            results.update(batch_results)
+
+            # Grace period between batches
+            if i + self.batch_size < len(active_subscriptions):
+                await asyncio.sleep(self.grace_period)
+
+        return results
+
+    async def _process_shutdown_batch(
+        self,
+        batch: list[str],
+        batch_num: int,
+        batch_count: int,
+    ) -> dict[str, UnsubscribeResult]:
+        """Process a single batch of shutdowns."""
+        self.logger.info(
+            f"Shutting down batch {batch_num}/{batch_count}: {len(batch)} handlers",
+            source_module=self._source_module,
+        )
+
+        # Create shutdown tasks
+        batch_tasks = [self.subscription_manager.unsubscribe_handler(sub_id) for sub_id in batch]
+
+        try:
+            batch_results = await asyncio.wait_for(
+                asyncio.gather(*batch_tasks, return_exceptions=True),
+                timeout=self.shutdown_timeout / batch_count,
+            )
+            return self._process_batch_results(batch, batch_results)
+
+        except TimeoutError:
+            return await self._handle_batch_timeout(batch, batch_num)
+
+    def _process_batch_results(
+        self,
+        batch: list[str],
+        batch_results: list[Any],
+    ) -> dict[str, UnsubscribeResult]:
+        """Process results from a batch of shutdowns."""
+        results = {}
+
+        for sub_id, result in zip(batch, batch_results, strict=False):
+            if isinstance(result, Exception):
+                results[sub_id] = self._create_error_result(sub_id, result)
+            elif isinstance(result, UnsubscribeResult):
+                results[sub_id] = result
+            else:
+                results[sub_id] = self._create_unexpected_type_result(sub_id, result)
+
+        return results
+
+    def _create_error_result(self, sub_id: str, error: Exception) -> UnsubscribeResult:
+        """Create error result for failed shutdown."""
+        self.logger.error(
+            f"Batch shutdown exception for {sub_id}: {error}",
+            source_module=self._source_module,
+        )
+        return UnsubscribeResult(
+            subscription_id=sub_id,
+            success=False,
+            error_message=str(error),
+        )
+
+    def _create_unexpected_type_result(self, sub_id: str, result: Any) -> UnsubscribeResult:
+        """Create error result for unexpected result type."""
+        return UnsubscribeResult(
+            subscription_id=sub_id,
+            success=False,
+            error_message=f"Unexpected result type: {type(result)}",
+        )
+
+    async def _handle_batch_timeout(
+        self,
+        batch: list[str],
+        batch_num: int,
+    ) -> dict[str, UnsubscribeResult]:
+        """Handle timeout for a batch of shutdowns."""
+        self.logger.warning(
+            f"Batch {batch_num} timeout - forcing shutdown of remaining handlers",
+            source_module=self._source_module,
+        )
+
+        results = {}
+        for sub_id in batch:
+            force_result = await self.subscription_manager.unsubscribe_handler(sub_id, force=True)
+            results[sub_id] = force_result
+
+        return results
+
+    def _log_shutdown_summary(self, results: dict[str, UnsubscribeResult]) -> None:
+        """Log summary of shutdown results."""
+        successful = sum(1 for r in results.values() if r.success)
+        failed = len(results) - successful
+
+        self.logger.info(
+            f"Shutdown complete: {successful} successful, {failed} failed",
+            source_module=self._source_module,
+            context={
+                "successful_shutdowns": successful,
+                "failed_shutdowns": failed,
+                "total_handlers": len(results),
+            },
+        )
 
     async def _cleanup_remaining_subscriptions(self) -> None:
         """Cleanup any remaining subscriptions after shutdown."""
@@ -490,7 +597,7 @@ class ExperimentShutdownManager:
 class PredictionHandlerUnsubscriber:
     """Main class for handling prediction handler unsubscribe operations."""
 
-    def __init__(self, logger_service: LoggerService) -> None:
+    def __init__(self, logger_service: "LoggerService") -> None:
         """Initialize the instance."""
         self.logger = logger_service
         self._source_module = "PredictionHandlerUnsubscriber"
@@ -511,6 +618,7 @@ class PredictionHandlerUnsubscriber:
 
     async def unsubscribe_prediction_handler(self, handler_id: str) -> bool:
         """Unsubscribe specific prediction handler.
+
         Implements the logic that was missing at line 230.
         """
         try:
@@ -549,11 +657,10 @@ class PredictionHandlerUnsubscriber:
 
             # return result.success moved to else block
 
-        except Exception as e:
-            self.logger.error(
-                f"Error unsubscribing prediction handler {handler_id}: {e}",
+        except Exception:
+            self.logger.exception(
+                "Error unsubscribing prediction handler {handler_id}",
                 source_module=self._source_module,
-                exc_info=True,
             )
             return False
         else:
@@ -561,6 +668,7 @@ class PredictionHandlerUnsubscriber:
 
     async def shutdown(self) -> None:
         """Complete shutdown with comprehensive unsubscribe logic.
+
         Replaces pass statement with full enterprise implementation.
         """
         try:
@@ -586,12 +694,8 @@ class PredictionHandlerUnsubscriber:
                 context=stats,
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Error during comprehensive shutdown: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Error during comprehensive shutdown", source_module=self._source_module)
             raise
 
     async def _health_monitor(self) -> None:
@@ -620,12 +724,8 @@ class PredictionHandlerUnsubscriber:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                self.logger.error(
-                    f"Error in health monitor: {e}",
-                    source_module=self._source_module,
-                    exc_info=True,
-                )
+            except Exception:
+                self.logger.exception("Error in health monitor", source_module=self._source_module)
 
     def get_unsubscribe_statistics(self) -> dict[str, Any]:
         """Get comprehensive unsubscribe and health statistics."""
@@ -639,6 +739,7 @@ class PredictionHandlerUnsubscriber:
 
 class ExperimentStatus(Enum):
     """Experiment lifecycle status."""
+
     CREATED = "created"
     RUNNING = "running"
     PAUSED = "paused"
@@ -648,13 +749,33 @@ class ExperimentStatus(Enum):
 
 class AllocationStrategy(Enum):
     """Traffic allocation strategies."""
+
     RANDOM = "random"
     DETERMINISTIC = "deterministic"
     WEIGHTED = "weighted"
     EPSILON_GREEDY = "epsilon_greedy"
+
+
+@dataclass
+class ExperimentInfo:
+    """Information about an active experiment."""
+
+    experiment_id: str
+    control_model_id: str
+    treatment_model_id: str
+    allocation_strategy: str
+    traffic_split: float
+    start_time: datetime
+    end_time: datetime | None
+    status: ExperimentStatus
+    name: str = ""
+    confidence_level: Decimal | None = None
+
+
 @dataclass
 class VariantPerformance:
     """Performance metrics for a model variant."""
+
     model_id: str
     variant_name: str  # 'control' or 'treatment'
     sample_count: int = 0
@@ -702,11 +823,11 @@ class ExperimentManager:
 
     def __init__(
         self,
-        config_manager: ConfigManager, # Renamed for clarity
-        model_registry: "ModelRegistryType", # Updated type hint
-        session_maker: async_sessionmaker[AsyncSession], # Changed from experiment_repo
-        pubsub_manager: PubSubManager, # Renamed for clarity
-        logger_service: LoggerService, # Renamed for clarity
+        config_manager: ConfigManager,  # Renamed for clarity
+        model_registry: "ModelRegistryType",  # Updated type hint
+        session_maker: async_sessionmaker[AsyncSession],  # Changed from experiment_repo
+        pubsub_manager: PubSubManager,  # Renamed for clarity
+        logger_service: "LoggerService",  # Renamed for clarity
     ) -> None:
         """Initialize the ExperimentManager.
 
@@ -719,20 +840,22 @@ class ExperimentManager:
         """
         self.config_manager = config_manager
         self.model_registry = model_registry
-        self.session_maker = session_maker # Store session_maker
-        self.experiment_repo = ExperimentRepository(session_maker, logger_service) # Instantiate repo
+        self.session_maker = session_maker  # Store session_maker
+        self.experiment_repo = ExperimentRepository(session_maker, logger_service)  # Instantiate repo
         self.pubsub = pubsub_manager
         self.logger = logger_service
         self._source_module = self.__class__.__name__
 
         # Active experiments
-        self.active_experiments: dict[str, ExperimentModel] = {}
+        self.active_experiments: dict[str, ExperimentInfo] = {}
         self.experiment_performance: dict[str, dict[str, VariantPerformance]] = {}
 
         # Configuration
         self.max_concurrent_experiments = self.config_manager.get_int("experiments.max_concurrent", 3)
         self.auto_stop_on_significance = self.config_manager.get_bool(
-            "experiments.auto_stop_on_significance", default=True)
+            "experiments.auto_stop_on_significance",
+            default=True,
+        )
         self.check_interval_minutes = self.config_manager.get_int("experiments.check_interval_minutes", 60)
 
         # State
@@ -747,7 +870,8 @@ class ExperimentManager:
         """Start the experiment manager."""
         self.logger.info(
             "Starting experiment manager with enterprise-grade unsubscribe management",
-            source_module=self._source_module)
+            source_module=self._source_module,
+        )
 
         # Initialize enterprise-grade unsubscriber
         await self._unsubscriber.initialize()
@@ -774,7 +898,7 @@ class ExperimentManager:
 
             # Create a wrapper that implements the PredictionHandlerProtocol
             class PredictionHandlerWrapper:
-                def __init__(self, handler_func: Callable[..., Any], logger: LoggerService) -> None:
+                def __init__(self, handler_func: Callable[..., Any], logger: "LoggerService") -> None:
                     """Initialize the instance."""
                     self.handler_func = handler_func
                     self.logger = logger
@@ -865,16 +989,15 @@ class ExperimentManager:
                     },
                 )
 
-            except Exception as e:
-                self.logger.error(
-                    f"Error during comprehensive prediction handler unsubscribe: {e}",
+            except Exception:
+                self.logger.exception(
+                    "Error during comprehensive prediction handler unsubscribe",
                     source_module=self._source_module,
-                    exc_info=True,
                 )
                 # Continue with shutdown even if unsubscribe fails
 
-        # Traditional pubsub unsubscribe as fallback (commented out as noted in original)
-        # self.pubsub.unsubscribe(EventType.PREDICTION_GENERATED, self._prediction_handler)
+        # Note: Traditional pubsub unsubscribe not used here in favor of comprehensive handler approach
+        # which provides better cleanup and error handling
 
         self.logger.info(
             "Experiment manager shutdown completed",
@@ -911,9 +1034,7 @@ class ExperimentManager:
 
         return self._unsubscriber.get_unsubscribe_statistics()
 
-    async def create_experiment(
-        self,
-        params: ExperimentModel | dict[str, Any]) -> str:
+    async def create_experiment(self, params: ExperimentModel | dict[str, Any]) -> str:
         """Create a new A/B testing experiment.
 
         Args:
@@ -925,125 +1046,133 @@ class ExperimentManager:
         try:
             # Validate configuration
             await self._validate_experiment_config(params)
+            self._check_concurrent_experiment_limit()
 
-            # Check concurrent experiment limit
-            max_concurrent = self.max_concurrent_experiments
-            if len(self.active_experiments) >= max_concurrent:
-                msg = f"Maximum concurrent experiments ({max_concurrent}) reached"
-                raise ValueError(msg)
+            # Prepare experiment data
+            exp_data = self._prepare_experiment_data(params)
+            experiment_data_dict = self._normalize_experiment_data(exp_data)
 
-            # Initialize performance tracking
-            exp_data: dict[str, Any]
-            if isinstance(params, ExperimentModel):
-                exp_data = {
-                    column.name: getattr(params, column.name)
-                    for column in params.__table__.columns
-                }
-            else:
-                exp_data = params
-
-            # Save to database - experiment_repo.save_experiment now takes a dict[str, Any]
-            experiment_data_dict = exp_data
-            # Ensure UUIDs are actual UUID objects if repo expects them
-            if "experiment_id" in experiment_data_dict and isinstance(
-                experiment_data_dict["experiment_id"], str,
-            ):
-                experiment_data_dict["experiment_id"] = uuid.UUID(
-                    experiment_data_dict["experiment_id"],
-                )
-            for key in ["control_model_id", "treatment_model_id"]:
-                if key in experiment_data_dict and isinstance(
-                    experiment_data_dict[key], str,
-                ):
-                    experiment_data_dict[key] = uuid.UUID(experiment_data_dict[key])
-
-            # Convert specific Decimal fields back to Decimal if to_dict stringified them
-            for key in ["traffic_split", "confidence_level", "minimum_detectable_effect", "max_loss_threshold"]:
-                if key in experiment_data_dict and experiment_data_dict[key] is not None:
-                    experiment_data_dict[key] = Decimal(str(experiment_data_dict[key]))
-
-            # Dates should be datetime objects
-            if "start_time" in experiment_data_dict and isinstance(
-                experiment_data_dict["start_time"], str,
-            ):
-                experiment_data_dict["start_time"] = datetime.fromisoformat(
-                    experiment_data_dict["start_time"],
-                )
-            if "end_time" in experiment_data_dict and isinstance(
-                experiment_data_dict["end_time"], str,
-            ):
-                experiment_data_dict["end_time"] = datetime.fromisoformat(
-                    experiment_data_dict["end_time"],
-                )
-
-
+            # Save to database
             created_experiment_model = await self.experiment_repo.save_experiment(experiment_data_dict)
 
-            # Helper to safely get .hex
-            def safe_hex(val: Any, name: str) -> str:
-                if isinstance(val, uuid.UUID):
-                    return val.hex
-                # Assuming val is a SQLAlchemy UUID object that can be stringified or has 'hex'
-                try:
-                    # Attempt to convert to string then to UUID, then get hex
-                    return uuid.UUID(str(val)).hex
-                except (ValueError, TypeError) as e:
-                    # Fallback if str(val) is not a valid UUID hex string,
-                    # or if val itself has a .hex attribute (e.g. already a Python UUID somehow)
-                    # This path is less likely if the primary path is `isinstance(val, uuid.UUID)`
-                    # but as a safeguard if it's some other proxy object.
-                    if hasattr(val, "hex") and callable(val.hex) :
-                        return val.hex # type: ignore
-
-                    err_msg = f"Cannot convert {name} (type: {type(val)}) to UUID hex: {e}"
-                    self.logger.error(err_msg, source_module=self._source_module)
-                    raise TypeError(err_msg) from e
-
-            exp_id_hex = safe_hex(
-                created_experiment_model.experiment_id,
-                "created_experiment_model.experiment_id")
-            control_id_hex = safe_hex(
-                created_experiment_model.control_model_id,
-                "created_experiment_model.control_model_id",
-            )
-            treatment_id_hex = safe_hex(
-                created_experiment_model.treatment_model_id,
-                "created_experiment_model.treatment_model_id",
-            )
-
-            # Add to active experiments
-            self.active_experiments[exp_id_hex] = created_experiment_model
-
-            # Initialize performance tracking
-            self.experiment_performance[exp_id_hex] = {
-                "control": VariantPerformance(
-                    model_id=control_id_hex,
-                    variant_name="control"),
-                "treatment": VariantPerformance(
-                    model_id=treatment_id_hex,
-                    variant_name="treatment"),
-            }
-
-            self.logger.info(
-                f"Created experiment: {created_experiment_model.name}",
-                source_module=self._source_module,
-                context={
-                    "experiment_id": exp_id_hex,
-                    "control": control_id_hex,
-                    "treatment": treatment_id_hex,
-                })
+            # Process created experiment
+            return await self._process_created_experiment(created_experiment_model)
 
         except Exception:
             self.logger.exception(
                 "Failed to create experiment",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             raise
-        else:
-            return exp_id_hex # Return UUID as hex string
 
-    async def _validate_experiment_config(
-        self,
-        config: ExperimentModel | dict[str, Any]) -> None:
+    def _check_concurrent_experiment_limit(self) -> None:
+        """Check if concurrent experiment limit is reached."""
+        max_concurrent = self.max_concurrent_experiments
+        if len(self.active_experiments) >= max_concurrent:
+            msg = f"Maximum concurrent experiments ({max_concurrent}) reached"
+            raise ValueError(msg)
+
+    def _prepare_experiment_data(self, params: ExperimentModel | dict[str, Any]) -> dict[str, Any]:
+        """Prepare experiment data from params."""
+        if isinstance(params, ExperimentModel):
+            return {column.name: getattr(params, column.name) for column in params.__table__.columns}
+        return params
+
+    def _normalize_experiment_data(self, exp_data: dict[str, Any]) -> dict[str, Any]:
+        """Normalize experiment data types for database."""
+        experiment_data_dict = exp_data.copy()
+
+        # Normalize UUIDs
+        self._normalize_uuid_fields(experiment_data_dict)
+
+        # Normalize Decimal fields
+        self._normalize_decimal_fields(experiment_data_dict)
+
+        # Normalize datetime fields
+        self._normalize_datetime_fields(experiment_data_dict)
+
+        return experiment_data_dict
+
+    def _normalize_uuid_fields(self, data: dict[str, Any]) -> None:
+        """Convert string UUIDs to UUID objects."""
+        uuid_fields = ["experiment_id", "control_model_id", "treatment_model_id"]
+
+        for field_name in uuid_fields:
+            if field_name in data and isinstance(data[field_name], str):
+                data[field_name] = uuid.UUID(data[field_name])
+
+    def _normalize_decimal_fields(self, data: dict[str, Any]) -> None:
+        """Convert numeric strings to Decimal objects."""
+        decimal_fields = ["traffic_split", "confidence_level", "minimum_detectable_effect", "max_loss_threshold"]
+
+        for field_name in decimal_fields:
+            if field_name in data and data[field_name] is not None:
+                data[field_name] = Decimal(str(data[field_name]))
+
+    def _normalize_datetime_fields(self, data: dict[str, Any]) -> None:
+        """Convert datetime strings to datetime objects."""
+        datetime_fields = ["start_time", "end_time"]
+
+        for field_name in datetime_fields:
+            if field_name in data and isinstance(data[field_name], str):
+                data[field_name] = datetime.fromisoformat(data[field_name])
+
+    async def _process_created_experiment(self, created_experiment_model: Any) -> str:
+        """Process the created experiment and return its ID."""
+        # Get hex IDs
+        exp_id_hex = self._safe_hex(created_experiment_model.experiment_id, "experiment_id")
+        control_id_hex = self._safe_hex(created_experiment_model.control_model_id, "control_model_id")
+        treatment_id_hex = self._safe_hex(created_experiment_model.treatment_model_id, "treatment_model_id")
+
+        # Store in active experiments
+        self.active_experiments[exp_id_hex] = ExperimentInfo(
+            experiment_id=exp_id_hex,
+            control_model_id=control_id_hex,
+            treatment_model_id=treatment_id_hex,
+            allocation_strategy=created_experiment_model.allocation_strategy,
+            traffic_split=float(created_experiment_model.traffic_split),
+            start_time=created_experiment_model.start_time,
+            end_time=created_experiment_model.end_time,
+            status=ExperimentStatus(created_experiment_model.status),
+        )
+
+        # Initialize performance tracking
+        self.experiment_performance[exp_id_hex] = {
+            "control": VariantPerformance(model_id=control_id_hex, variant_name="control"),
+            "treatment": VariantPerformance(model_id=treatment_id_hex, variant_name="treatment"),
+        }
+
+        # Log creation
+        self.logger.info(
+            f"Created experiment {exp_id_hex} with control={control_id_hex}, treatment={treatment_id_hex}",
+            source_module=self._source_module,
+            context={
+                "experiment_id": exp_id_hex,
+                "control_model_id": control_id_hex,
+                "treatment_model_id": treatment_id_hex,
+                "traffic_split": float(created_experiment_model.traffic_split),
+            },
+        )
+
+        return exp_id_hex
+
+    def _safe_hex(self, val: Any, name: str) -> str:
+        """Safely convert value to UUID hex string."""
+        if isinstance(val, uuid.UUID):
+            return val.hex
+
+        try:
+            return uuid.UUID(str(val)).hex
+        except (ValueError, TypeError) as e:
+            # Check if val has hex attribute
+            if hasattr(val, "hex") and callable(val.hex):
+                return val.hex  # type: ignore[no-any-return]
+
+            err_msg = f"Cannot convert {name} (type: {type(val)}) to UUID hex: {e}"
+            self.logger.exception(err_msg, source_module=self._source_module)
+            raise TypeError(err_msg) from e
+
+    async def _validate_experiment_config(self, config: ExperimentModel | dict[str, Any]) -> None:
         """Validate experiment configuration.
 
         Args:
@@ -1106,10 +1235,7 @@ class ExperimentManager:
 
                 break
 
-    def _should_participate_in_experiment(
-        self,
-        event: T,
-        config: ExperimentModel) -> bool:
+    def _should_participate_in_experiment(self, event: T, config: ExperimentInfo) -> bool:
         """Determine if this prediction should participate in the experiment.
 
         Args:
@@ -1122,10 +1248,7 @@ class ExperimentManager:
         now = datetime.now(UTC)
         return not (now < config.start_time or (config.end_time and now > config.end_time))
 
-    def _select_variant(
-        self,
-        event: T,
-        config: ExperimentModel) -> str:
+    def _select_variant(self, event: T, config: ExperimentInfo) -> str:
         """Select variant based on allocation strategy.
 
         Args:
@@ -1136,8 +1259,8 @@ class ExperimentManager:
             str: Selected variant ('treatment' or 'control').
         """
         traffic_split = float(config.traffic_split)
-        # Not used for security, just for random assignment
-        rand_val = random.random()  # noqa: S311
+        # Use secure random for experiment assignment
+        rand_val = secrets.SystemRandom().random()
 
         if config.allocation_strategy == "random":
             return "treatment" if rand_val < traffic_split else "control"
@@ -1162,9 +1285,7 @@ class ExperimentManager:
         # Default to random
         return "treatment" if rand_val < traffic_split else "control"
 
-    def _get_best_performer(
-        self,
-        experiment_id: str) -> str:
+    def _get_best_performer(self, experiment_id: str) -> str:
         """Get the best performing variant so far."""
         performance = self.experiment_performance.get(experiment_id, {})
         control_perf = performance.get("control", VariantPerformance("", ""))
@@ -1174,36 +1295,28 @@ class ExperimentManager:
 
         return "treatment" if treatment_accuracy > control_accuracy else "control"
 
-    async def _record_assignment(
-        self,
-        experiment_id: str,
-        variant: str,
-        event: T) -> None:
+    async def _record_assignment(self, experiment_id: str, variant: str, event: T) -> None:
         """Record variant assignment."""
         # experiment_repo.record_assignment takes a dictionary
         assignment_data = {
-            "experiment_id": uuid.UUID(experiment_id), # Ensure UUID
+            "experiment_id": uuid.UUID(experiment_id),  # Ensure UUID
             "variant": variant,
-            "event_id": uuid.UUID(str(event.event_id)), # Ensure UUID
-            "assigned_at": datetime.now(UTC), # Use timezone.utc
+            "event_id": uuid.UUID(str(event.event_id)),  # Ensure UUID
+            "assigned_at": datetime.now(UTC),  # Use timezone.utc
         }
         await self.experiment_repo.record_assignment(assignment_data)
 
-    async def record_outcome(
-        self,
-        experiment_id: str,
-        event_id: str,
-        outcome: dict[str, Any]) -> None:
+    async def record_outcome(self, experiment_id: str, event_id: str, outcome: dict[str, Any]) -> None:
         """Record the outcome of a prediction for analysis."""
         try:
             # Get the variant assignment (repo returns ExperimentAssignmentModel or None)
             assignment_model = await self.experiment_repo.get_assignment(
-                uuid.UUID(experiment_id), uuid.UUID(event_id), # Ensure UUIDs
+                uuid.UUID(experiment_id),
+                uuid.UUID(event_id),  # Ensure UUIDs
             )
             if not assignment_model:
                 self.logger.warning(
-                    f"No assignment found for experiment {experiment_id}, event {event_id}. "
-                    f"Cannot record outcome.",
+                    f"No assignment found for experiment {experiment_id}, event {event_id}. Cannot record outcome.",
                     source_module=self._source_module,
                 )
                 return
@@ -1211,35 +1324,32 @@ class ExperimentManager:
             variant = assignment_model.variant
 
             # Update performance metrics (in-memory, consider if this should also be DB driven)
-            if experiment_id in self.experiment_performance: # experiment_id is string here
+            if experiment_id in self.experiment_performance:  # experiment_id is string here
                 # Ensure variant is a valid key ('control' or 'treatment')
                 if variant in self.experiment_performance[experiment_id]:
                     performance = self.experiment_performance[experiment_id][variant]
                     performance.update_metrics(outcome)
                 else:
                     self.logger.warning(
-                        f"Variant '{variant}' not found in performance tracking for experiment "
-                        f"{experiment_id}.",
+                        f"Variant '{variant}' not found in performance tracking for experiment {experiment_id}.",
                         source_module=self._source_module,
                     )
 
             # Save outcome to database (repo takes a dictionary)
             outcome_data_for_db = {
-                "experiment_id": uuid.UUID(experiment_id), # Ensure UUID
-                "event_id": uuid.UUID(event_id),           # Ensure UUID
+                "experiment_id": uuid.UUID(experiment_id),  # Ensure UUID
+                "event_id": uuid.UUID(event_id),  # Ensure UUID
                 "variant": variant,
-                "outcome_data": outcome, # This is already a dict[str, Any]
+                "outcome_data": outcome,  # This is already a dict[str, Any]
                 "correct_prediction": outcome.get("correct_prediction"),
                 "signal_generated": outcome.get("signal_generated"),
-                "trade_return": Decimal(str(outcome.get("return", "0"))), # Ensure Decimal
-                "recorded_at": datetime.now(UTC), # Use timezone.utc
+                "trade_return": Decimal(str(outcome.get("return", "0"))),  # Ensure Decimal
+                "recorded_at": datetime.now(UTC),  # Use timezone.utc
             }
             await self.experiment_repo.save_outcome(outcome_data_for_db)
 
         except Exception:
-            self.logger.exception(
-                "Failed to record experiment outcome",
-                source_module=self._source_module)
+            self.logger.exception("Failed to record experiment outcome", source_module=self._source_module)
 
     async def _monitor_experiments(self) -> None:
         """Monitor experiments and check for statistical significance."""
@@ -1257,13 +1367,9 @@ class ExperimentManager:
             except asyncio.CancelledError:
                 break
             except Exception:
-                self.logger.exception(
-                    "Error in experiment monitoring",
-                    source_module=self._source_module)
+                self.logger.exception("Error in experiment monitoring", source_module=self._source_module)
 
-    async def _check_stopping_criteria(self,
-                                     experiment_id: str,
-                                     config: ExperimentModel) -> tuple[bool, str]:
+    async def _check_stopping_criteria(self, experiment_id: str, config: ExperimentModel) -> tuple[bool, str]:
         """Check if experiment should be stopped.
 
         Args:
@@ -1283,28 +1389,24 @@ class ExperimentManager:
 
         # Check sample size before significance test
         min_samples = config.min_samples_per_variant or 0
-        if all([
-            control_perf.sample_count >= min_samples,
-            treatment_perf.sample_count >= min_samples,
-            self.auto_stop_on_significance,
-        ]):
-            is_significant, p_value = self._calculate_significance(
-                control_perf,
-                treatment_perf)
+        if all(
+            [
+                control_perf.sample_count >= min_samples,
+                treatment_perf.sample_count >= min_samples,
+                self.auto_stop_on_significance,
+            ],
+        ):
+            is_significant, p_value = self._calculate_significance(control_perf, treatment_perf)
             if is_significant:
                 return True, f"Statistical significance reached (p={p_value:.4f})"
 
         # Check for early stopping due to poor performance
-        if config.max_loss_threshold is not None and \
-           treatment_perf.total_return < -config.max_loss_threshold:
+        if config.max_loss_threshold is not None and treatment_perf.total_return < -config.max_loss_threshold:
             return True, "Maximum loss threshold exceeded"
 
         return False, ""
 
-    def _calculate_significance(
-        self,
-        control: VariantPerformance,
-        treatment: VariantPerformance) -> tuple[bool, float]:
+    def _calculate_significance(self, control: VariantPerformance, treatment: VariantPerformance) -> tuple[bool, float]:
         """Calculate statistical significance between variants.
 
         Args:
@@ -1314,8 +1416,10 @@ class ExperimentManager:
         Returns:
             tuple[bool, float]: (is_significant, p_value)
         """
-        if (control.predictions_made < MIN_SAMPLES_FOR_SIGNIFICANCE or
-                treatment.predictions_made < MIN_SAMPLES_FOR_SIGNIFICANCE):
+        if (
+            control.predictions_made < MIN_SAMPLES_FOR_SIGNIFICANCE
+            or treatment.predictions_made < MIN_SAMPLES_FOR_SIGNIFICANCE
+        ):
             return False, 1.0
 
         # Simple two-proportion z-test
@@ -1328,7 +1432,7 @@ class ExperimentManager:
         p_pool = (control.correct_predictions + treatment.correct_predictions) / (n1 + n2)
 
         # Standard error
-        se = np.sqrt(p_pool * (1 - p_pool) * (1/n1 + 1/n2))
+        se = np.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2))
 
         if se == 0:
             return False, 1.0
@@ -1336,7 +1440,7 @@ class ExperimentManager:
         # Z-score
         z = (p1 - p2) / se
 
-        # P-value (two-tailed)
+        # Calculate P-value (two-tailed test)
         p_value = 2 * (1 - stats.norm.cdf(abs(z)))
 
         # Check significance at specified confidence level
@@ -1359,8 +1463,9 @@ class ExperimentManager:
             if control_perf.mean_accuracy and treatment_perf.mean_accuracy:
                 if treatment_perf.mean_accuracy > control_perf.mean_accuracy:
                     winner = "treatment"
-                    lift = ((treatment_perf.mean_accuracy - control_perf.mean_accuracy) /
-                           control_perf.mean_accuracy * 100)
+                    lift = (
+                        (treatment_perf.mean_accuracy - control_perf.mean_accuracy) / control_perf.mean_accuracy * 100
+                    )
                 else:
                     winner = "control"
                     lift = 0
@@ -1388,7 +1493,7 @@ class ExperimentManager:
                 },
             }
 
-            await self.experiment_repo.save_results(uuid.UUID(experiment_id), results) # Convert str to UUID
+            await self.experiment_repo.save_results(uuid.UUID(experiment_id), results)  # Convert str to UUID
 
             # Remove from active experiments
             del self.active_experiments[experiment_id]
@@ -1402,26 +1507,23 @@ class ExperimentManager:
                     "reason": reason,
                     "winner": winner,
                     "lift": f"{lift:.2f}%",
-                })
+                },
+            )
 
             # If treatment wins significantly, consider promoting it
             if winner == "treatment" and lift > MIN_IMPROVEMENT_PERCENT:
                 self.logger.info(
-                    f"Treatment model shows {lift:.2f}% improvement. "
-                    "Consider promoting to production.",
-                    source_module=self._source_module)
+                    f"Treatment model shows {lift:.2f}% improvement. Consider promoting to production.",
+                    source_module=self._source_module,
+                )
 
         except Exception:
-            self.logger.exception(
-                "Failed to complete experiment",
-                source_module=self._source_module)
+            self.logger.exception("Failed to complete experiment", source_module=self._source_module)
 
     async def _load_active_experiments(self) -> None:
         """Load active experiments from database."""
         try:
-            active_experiment_models: Sequence[ExperimentModel] = (
-                await self.experiment_repo.get_active_experiments()
-            )
+            active_experiment_models: Sequence[ExperimentModel] = await self.experiment_repo.get_active_experiments()
 
             for exp_model in active_experiment_models:
                 # Handle experiment_id whether it's a UUID object or string
@@ -1430,7 +1532,18 @@ class ExperimentManager:
                 else:
                     exp_id_hex = str(exp_model.experiment_id)
 
-                self.active_experiments[exp_id_hex] = exp_model
+                # Convert ExperimentModel to ExperimentInfo
+                experiment_info = ExperimentInfo(
+                    experiment_id=exp_id_hex,
+                    control_model_id=str(exp_model.control_model_id),
+                    treatment_model_id=str(exp_model.treatment_model_id),
+                    allocation_strategy=exp_model.allocation_strategy,
+                    traffic_split=float(exp_model.traffic_split),
+                    start_time=exp_model.start_time,
+                    end_time=exp_model.end_time,
+                    status=ExperimentStatus(exp_model.status),
+                )
+                self.active_experiments[exp_id_hex] = experiment_info
 
                 perf_data = await self.experiment_repo.get_experiment_performance(
                     uuid.UUID(str(exp_model.experiment_id)),
@@ -1452,7 +1565,8 @@ class ExperimentManager:
                             else str(exp_model.treatment_model_id)
                         )
                     vp = VariantPerformance(
-                        model_id=model_id_for_variant, variant_name=variant_name,
+                        model_id=model_id_for_variant,
+                        variant_name=variant_name,
                     )
                     vp.sample_count = metrics.get("sample_count", 0)
                     vp.correct_predictions = metrics.get("correct_predictions", 0)
@@ -1463,15 +1577,13 @@ class ExperimentManager:
                         vp.mean_accuracy = vp.correct_predictions / vp.predictions_made
                     self.experiment_performance[exp_id_hex][variant_name] = vp
 
-
             self.logger.info(
                 f"Loaded {len(self.active_experiments)} active experiments from DB",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
         except Exception:
-            self.logger.exception(
-                "Failed to load active experiments",
-                source_module=self._source_module)
+            self.logger.exception("Failed to load active experiments", source_module=self._source_module)
 
     async def get_experiment_status(self, experiment_id: str) -> dict[str, Any]:
         """Get current status of an experiment."""

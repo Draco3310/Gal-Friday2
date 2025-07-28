@@ -93,7 +93,8 @@ class StrategyConfig(Base):
 
     __table_args__ = (
         Index("idx_strategy_configs_type_active", "strategy_type", "is_active"),
-        Index("idx_strategy_configs_updated_at", "updated_at"))
+        Index("idx_strategy_configs_updated_at", "updated_at"),
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -203,7 +204,8 @@ class StrategyPerformanceSnapshot(Base):
     __table_args__ = (
         Index("idx_perf_snapshots_strategy_date", "strategy_config_id", "snapshot_date"),
         Index("idx_perf_snapshots_sharpe", "sharpe_ratio"),
-        Index("idx_perf_snapshots_return", "total_return"))
+        Index("idx_perf_snapshots_return", "total_return"),
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -300,7 +302,8 @@ class StrategySelectionEvent(Base):
     __table_args__ = (
         Index("idx_selection_events_timestamp", "selection_timestamp"),
         Index("idx_selection_events_type", "selection_type"),
-        Index("idx_selection_events_strategy", "selected_strategy_id"))
+        Index("idx_selection_events_strategy", "selected_strategy_id"),
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -316,8 +319,7 @@ class StrategySelectionEvent(Base):
             "market_conditions": self.market_conditions,
             "transition_phase": self.transition_phase,
             "transition_completed_at": (
-                self.transition_completed_at.isoformat()
-                if self.transition_completed_at else None
+                self.transition_completed_at.isoformat() if self.transition_completed_at else None
             ),
             "allocation_percentage": float(self.allocation_percentage),
             "triggered_by": self.triggered_by,
@@ -387,7 +389,8 @@ class StrategyBacktestResult(Base):
 
     __table_args__ = (
         Index("idx_backtest_results_strategy_date", "strategy_config_id", "created_at"),
-        Index("idx_backtest_results_status", "validation_status"))
+        Index("idx_backtest_results_status", "validation_status"),
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""

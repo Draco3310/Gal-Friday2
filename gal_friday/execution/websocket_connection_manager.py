@@ -3,14 +3,17 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import asyncio
 
-from gal_friday.logger_service import LoggerService
+if TYPE_CHECKING:
+    from gal_friday.logger_service import LoggerService
 
 
 class ConnectionHealth(Enum):
     """Connection health status."""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
@@ -19,6 +22,7 @@ class ConnectionHealth(Enum):
 @dataclass
 class ConnectionMetrics:
     """WebSocket connection metrics."""
+
     messages_received: int = 0
     messages_sent: int = 0
     last_message_time: datetime | None = None
@@ -47,7 +51,7 @@ class WebSocketConnectionManager:
     # Constants for connection health thresholds
     ERROR_RATE_THRESHOLD = 0.1  # 10% error rate threshold
 
-    def __init__(self, logger: LoggerService) -> None:
+    def __init__(self, logger: "LoggerService") -> None:
         """Initialize the WebSocket connection manager.
 
         Args:
@@ -67,8 +71,7 @@ class WebSocketConnectionManager:
 
     def register_connection(self, connection_id: str) -> None:
         """Register a new connection for monitoring."""
-        self.connections[connection_id] = ConnectionMetrics(
-            connection_time=datetime.now(UTC))
+        self.connections[connection_id] = ConnectionMetrics(connection_time=datetime.now(UTC))
         self.recovery_attempts[connection_id] = 0
 
     def record_message(self, connection_id: str, direction: str = "received") -> None:
@@ -144,11 +147,10 @@ class WebSocketConnectionManager:
                                     "messages": metrics.messages_received,
                                     "errors": metrics.errors,
                                 },
-                            })
+                            },
+                        )
 
                 await asyncio.sleep(self.health_check_interval)
 
             except Exception:
-                self.logger.exception(
-                    "Error monitoring connections",
-                    source_module=self._source_module)
+                self.logger.exception("Error monitoring connections", source_module=self._source_module)

@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 class TradeType(str, Enum):
     """Trade type enumeration."""
+
     BUY = "BUY"
     SELL = "SELL"
 
@@ -29,6 +30,7 @@ class TradeType(str, Enum):
 @dataclass
 class TradeRecord:
     """Comprehensive trade record with all required fields."""
+
     trade_id: str
     symbol: str
     trade_type: TradeType
@@ -65,6 +67,7 @@ class TradeRecord:
 @dataclass
 class TradeHistoryRequest:
     """Request parameters for trade history retrieval."""
+
     trading_pair: str
     start_date: datetime | None = None
     end_date: datetime | None = None
@@ -87,6 +90,7 @@ class TradeHistoryRequest:
 @dataclass
 class TradeHistoryResponse:
     """Response containing trade history data with metadata."""
+
     trades: list[TradeRecord]
     total_count: int
     page_info: dict[str, Any]
@@ -119,7 +123,8 @@ class TradeHistoryService:
         session_maker: async_sessionmaker[AsyncSession],
         logger: "LoggerService",
         cache_size: int = 500,
-        cache_ttl_seconds: int = 300) -> None:
+        cache_ttl_seconds: int = 300,
+    ) -> None:
         """Initialize the trade history service.
 
         Args:
@@ -140,13 +145,11 @@ class TradeHistoryService:
         self._cache_timestamps: dict[str, datetime] = {}
 
         self.logger.info(
-            f"TradeHistoryService initialized with cache_size={cache_size}, "
-            f"cache_ttl={cache_ttl_seconds}s",
-            source_module=self._source_module)
+            f"TradeHistoryService initialized with cache_size={cache_size}, cache_ttl={cache_ttl_seconds}s",
+            source_module=self._source_module,
+        )
 
-    async def get_trade_history(
-        self,
-        request: TradeHistoryRequest) -> TradeHistoryResponse:
+    async def get_trade_history(self, request: TradeHistoryRequest) -> TradeHistoryResponse:
         """Retrieve trade history with caching and comprehensive filtering.
 
         Args:
@@ -166,7 +169,8 @@ class TradeHistoryService:
         if cached_response:
             self.logger.debug(
                 f"Returning cached trade history for {request.trading_pair}",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             return cached_response
 
         # Query database
@@ -201,7 +205,8 @@ class TradeHistoryService:
                     "cached": False,
                     "query_time_seconds": round(query_time, 3),
                     "cache_key": cache_key,
-                })
+                },
+            )
 
             # Cache the response
             await self._cache_response(cache_key, response)
@@ -209,12 +214,14 @@ class TradeHistoryService:
             self.logger.info(
                 f"Retrieved {len(trade_records)} trades for {request.trading_pair} "
                 f"(total: {total_count}, query_time: {query_time:.3f}s)",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
         except Exception:
             self.logger.exception(
                 f"Error retrieving trade history for {request.trading_pair}: ",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             raise
         else:
             return response
@@ -225,7 +232,8 @@ class TradeHistoryService:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         limit: int = 1000,
-        offset: int = 0) -> list[dict[str, Any]]:
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         """Simplified interface for getting trade history for a trading pair.
 
         This method provides a simplified interface that returns the trade data
@@ -246,7 +254,8 @@ class TradeHistoryService:
             start_date=start_date,
             end_date=end_date,
             limit=limit,
-            offset=offset)
+            offset=offset,
+        )
 
         response = await self.get_trade_history(request)
 
@@ -267,7 +276,8 @@ class TradeHistoryService:
         self,
         trading_pair: str,
         start_date: datetime | None = None,
-        end_date: datetime | None = None) -> dict[str, Any]:
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
         """Get analytics summary for trade history.
 
         Args:
@@ -345,9 +355,7 @@ class TradeHistoryService:
 
         # Update cache info to indicate it was cached
         cached_response.cache_info["cached"] = True
-        cached_response.cache_info["cache_age_seconds"] = (
-            datetime.now(UTC) - cache_time
-        ).total_seconds()
+        cached_response.cache_info["cache_age_seconds"] = (datetime.now(UTC) - cache_time).total_seconds()
 
         return cached_response
 
@@ -364,20 +372,23 @@ class TradeHistoryService:
                 start_date=request.start_date,
                 end_date=request.end_date,
                 limit=request.limit,
-                offset=request.offset)
+                offset=request.offset,
+            )
         return await self.fill_repository.get_fills_by_trading_pair(
             trading_pair=request.trading_pair,
             start_date=request.start_date,
             end_date=request.end_date,
             limit=request.limit,
-            offset=request.offset)
+            offset=request.offset,
+        )
 
     async def _get_total_count(self, request: TradeHistoryRequest) -> int:
         """Get total count of records for pagination."""
         return await self.fill_repository.get_fills_count_by_trading_pair(
             trading_pair=request.trading_pair,
             start_date=request.start_date,
-            end_date=request.end_date)
+            end_date=request.end_date,
+        )
 
     def _convert_fill_to_trade_record(self, fill: Fill) -> TradeRecord:
         """Convert a Fill model to a TradeRecord."""
@@ -394,7 +405,8 @@ class TradeHistoryService:
             realized_pnl=None,  # This would be calculated at the position level
             order_id=fill.exchange_order_id,
             liquidity_type=fill.liquidity_type,
-            exchange=fill.exchange)
+            exchange=fill.exchange,
+        )
 
     async def clear_cache(self) -> None:
         """Clear all cached data."""

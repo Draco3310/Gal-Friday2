@@ -111,9 +111,9 @@
             "info": "Informational logging only"
         },
         "supported_operators": [
-            "gt", "gte", "lt", "lte", "eq", "ne", 
+            "gt", "gte", "lt", "lte", "eq", "ne",
             "between", "not_between", "in", "not_in"
         ],
         "last_updated": "2024-01-01"
     }
-} 
+}

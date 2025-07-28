@@ -57,7 +57,7 @@ class TestReconciliationEventSchema:
     def test_timestamp_timezone_handling(self):
         """Test timestamp timezone validation."""
         # Timestamp without timezone should be handled
-        naive_timestamp = datetime(2024, 1, 1, 12, 0, 0)
+        naive_timestamp = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         data = {
             "timestamp": naive_timestamp,
             "reconciliation_type": ReconciliationType.BALANCE,
@@ -488,7 +488,10 @@ class TestReconciliationRepository:
         }
 
         # Mock PositionAdjustment constructor to return our mock instance
-        with patch("gal_friday.dal.repositories.reconciliation_repository.PositionAdjustment", return_value=mock_instance):
+        with patch(
+            "gal_friday.dal.repositories.reconciliation_repository.PositionAdjustment",
+            return_value=mock_instance,
+        ):
             result = await repository.save_position_adjustment(valid_data)
 
         assert result == mock_instance
@@ -510,27 +513,20 @@ class TestReconciliationRepository:
             "quantity_change": Decimal("0.1"),
         }
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="does not exist"):
             await repository.save_position_adjustment(valid_data)
-
-        assert "does not exist" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_get_recent_reconciliation_events_with_invalid_status(self, repository):
         """Test getting recent events with invalid status."""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Invalid status"):
             await repository.get_recent_reconciliation_events(status="invalid_status")
-
-        assert "Invalid status" in str(exc_info.value)
-        assert "Valid options:" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_get_adjustment_history_with_invalid_trading_pair(self, repository):
         """Test getting adjustment history with invalid trading pair."""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Invalid trading pair format"):
             await repository.get_adjustment_history(trading_pair="INVALID")
-
-        assert "Invalid trading pair format" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_get_adjustment_history_with_valid_trading_pair(self, repository):

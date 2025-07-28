@@ -13,17 +13,11 @@ import pytest
 from gal_friday.dal.models.order import Order
 from gal_friday.dal.repositories.order_repository import OrderRepository
 
-# Fixtures from tests/unit/dal/conftest.py will be automatically available
-# (db_session, db_setup, db_session_maker, db_engine)
-# Fixture from tests/conftest.py for mock_logger (ensure this path is correct)
-# Assuming a top-level conftest.py for mock_logger, or adjust path if it's elsewhere.
-# For this exercise, assuming mock_logger is available as described.
-# from tests.conftest import mock_logger # This is correct if tests/conftest.py exists
 
 # Helper to create sample order data
 def sample_order_data(override: dict | None = None) -> dict:
     data = {
-        "id": uuid.uuid4(), # Client-generated UUID for PK
+        "id": uuid.uuid4(),  # Client-generated UUID for PK
         "signal_id": uuid.uuid4(),
         "trading_pair": "BTC/USD",
         "exchange": "KRAKEN",
@@ -43,9 +37,10 @@ def sample_order_data(override: dict | None = None) -> dict:
         data.update(override)
     return data
 
+
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_create_order(db_session_maker, mock_logger, db_setup): # Use db_session_maker
+async def test_create_order(db_session_maker, mock_logger, db_setup):  # Use db_session_maker
     repo = OrderRepository(session_maker=db_session_maker, logger=mock_logger)
 
     order_data_dict = sample_order_data()
@@ -54,7 +49,7 @@ async def test_create_order(db_session_maker, mock_logger, db_setup): # Use db_s
     created_order_model = await repo.create(order_data_dict)
 
     assert created_order_model is not None
-    assert created_order_model.id == order_data_dict["id"] # ID was provided
+    assert created_order_model.id == order_data_dict["id"]  # ID was provided
     assert created_order_model.signal_id == order_data_dict["signal_id"]
     assert created_order_model.trading_pair == "BTC/USD"
 
@@ -63,6 +58,7 @@ async def test_create_order(db_session_maker, mock_logger, db_setup): # Use db_s
         fetched_order = await session.get(Order, created_order_model.id)
         assert fetched_order is not None
         assert fetched_order.signal_id == order_data_dict["signal_id"]
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio
@@ -85,6 +81,7 @@ async def test_get_order_by_id(db_session_maker, mock_logger, db_setup):
     not_found_order = await repo.get_by_id(non_existent_id)
     assert not_found_order is None
 
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_update_order_status_direct_repo_update(db_session_maker, mock_logger, db_setup):
@@ -105,13 +102,14 @@ async def test_update_order_status_direct_repo_update(db_session_maker, mock_log
     assert updated_order is not None
     assert updated_order.status == "FILLED"
     assert updated_order.filled_quantity == Decimal("1.0")
-    assert updated_order.updated_at is not None # BaseRepository.update sets this
+    assert updated_order.updated_at is not None  # BaseRepository.update sets this
 
     # Verify in DB
     async with db_session_maker() as session:
         refetched_order = await session.get(Order, order_instance.id)
         assert refetched_order is not None
         assert refetched_order.status == "FILLED"
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio
@@ -180,6 +178,7 @@ async def test_get_active_orders(db_session_maker, mock_logger, db_setup):
     assert active_orders[0].status == "ACTIVE"
     assert active_orders[0].signal_id == active_order_data["signal_id"]
 
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_get_recent_orders(db_session_maker, mock_logger, db_setup):
@@ -200,6 +199,7 @@ async def test_get_recent_orders(db_session_maker, mock_logger, db_setup):
     all_recent_orders = await repo.get_recent_orders(hours=72)
     assert len(all_recent_orders) == 2
 
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_get_orders_by_signal(db_session_maker, mock_logger, db_setup):
@@ -207,20 +207,25 @@ async def test_get_orders_by_signal(db_session_maker, mock_logger, db_setup):
     target_signal_id = uuid.uuid4()
     other_signal_id = uuid.uuid4()
 
-    order1_data = sample_order_data({"signal_id": target_signal_id, "created_at": datetime.now(UTC) - timedelta(minutes=2)})
-    order2_data = sample_order_data({"signal_id": target_signal_id, "created_at": datetime.now(UTC) - timedelta(minutes=1)})
+    order1_data = sample_order_data(
+        {"signal_id": target_signal_id, "created_at": datetime.now(UTC) - timedelta(minutes=2)},
+    )
+    order2_data = sample_order_data(
+        {"signal_id": target_signal_id, "created_at": datetime.now(UTC) - timedelta(minutes=1)},
+    )
     order3_data = sample_order_data({"signal_id": other_signal_id})
 
     async with db_session_maker() as session:
         session.add_all([Order(**order1_data), Order(**order2_data), Order(**order3_data)])
         await session.commit()
 
-    signal_orders = await repo.get_orders_by_signal(str(target_signal_id)) # Pass ID as string if needed by repo method
+    signal_orders = await repo.get_orders_by_signal(str(target_signal_id))  # Pass ID as string if needed by repo method
     assert len(signal_orders) == 2
-    assert signal_orders[0].id == order1_data["id"] # Check order (ASC by created_at)
+    assert signal_orders[0].id == order1_data["id"]  # Check order (ASC by created_at)
     assert signal_orders[1].id == order2_data["id"]
     for order in signal_orders:
         assert order.signal_id == target_signal_id
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio
@@ -242,6 +247,7 @@ async def test_find_by_exchange_id(db_session_maker, mock_logger, db_setup):
 
     not_found_order = await repo.find_by_exchange_id("NON_EXISTENT_EXCH_ID")
     assert not_found_order is None
+
 
 # It's good practice to also test edge cases, like empty results for finders,
 # or trying to update/delete non-existent orders, some of which are covered.

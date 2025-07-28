@@ -1,3 +1,9 @@
+"""Feature repository for caching computed features.
+
+This module provides functionality for storing and retrieving
+recently computed features for trading pairs.
+"""
+
 from collections import defaultdict
 
 import pandas as pd

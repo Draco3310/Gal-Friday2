@@ -160,4 +160,4 @@ volumes:
 
 networks:
   gal-friday-net:
-    driver: bridge 
+    driver: bridge

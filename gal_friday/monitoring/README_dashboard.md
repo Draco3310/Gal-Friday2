@@ -77,7 +77,7 @@ Portfolio Manager → Dashboard Service → Real-Time Dashboard → WebSocket �
 ### Widget Types
 
 - `portfolio_value`: Portfolio overview and positions
-- `trading_metrics`: Performance statistics  
+- `trading_metrics`: Performance statistics
 - `system_metrics`: System health and resources
 - `alert_panel`: Alerts and notifications
 
@@ -284,4 +284,4 @@ wscat -c ws://localhost:8000/ws
 
 ## 📝 License
 
-This dashboard is part of the Gal Friday trading system and follows the same license terms. 
+This dashboard is part of the Gal Friday trading system and follows the same license terms.

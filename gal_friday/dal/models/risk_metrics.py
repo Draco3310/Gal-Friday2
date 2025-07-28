@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
-from uuid import UUID as PythonUUID
+from uuid import UUID as UUID_TYPE
 
 from sqlalchemy import DateTime, Index, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -17,8 +17,7 @@ class RiskMetrics(Base):
 
     __tablename__ = "risk_metrics"
 
-    id: Mapped[PythonUUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    id: Mapped[UUID_TYPE] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
 
     # Risk counters
     consecutive_losses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -46,11 +45,16 @@ class RiskMetrics(Base):
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.current_timestamp(),
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
     )
     last_updated: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.current_timestamp(),
-        onupdate=func.current_timestamp(), index=True,
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        index=True,
     )
 
     # Period tracking
@@ -60,9 +64,11 @@ class RiskMetrics(Base):
 
     __table_args__ = (
         Index("idx_risk_metrics_updated", "last_updated"),
-        Index("idx_risk_metrics_risk_level", "risk_level"))
+        Index("idx_risk_metrics_risk_level", "risk_level"),
+    )
 
     def __repr__(self) -> str:
+        """Return string representation of RiskMetrics."""
         return (
             f"<RiskMetrics(id={self.id}, consecutive_losses={self.consecutive_losses}, "
             f"current_drawdown_pct={self.current_drawdown_pct}, risk_level='{self.risk_level}')>"

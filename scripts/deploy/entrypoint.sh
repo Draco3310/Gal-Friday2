@@ -58,4 +58,4 @@ trap "kill $HEALTH_PID 2>/dev/null || true" EXIT
 
 # Start the main application
 echo "Starting main application..."
-exec "$@" 
+exec "$@"

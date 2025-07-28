@@ -155,9 +155,8 @@ class TestFeatureRegistry:
         spec2 = FeatureSpec(name="duplicate_feature")
 
         registry.register_feature(spec1)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="already registered"):
             registry.register_feature(spec2)
-        assert "already registered" in str(exc_info.value)
 
     def test_get_nonexistent_spec_returns_none(self):
         """Test getting nonexistent spec returns None."""
@@ -167,16 +166,20 @@ class TestFeatureRegistry:
     def test_validate_features_with_registered_specs(self):
         """Test validating features with registered specifications."""
         registry = FeatureRegistry()
-        registry.register_feature(FeatureSpec(
-            name="required_feature",
-            required=True,
-            validation_rules={"min_value": 0},
-        ))
-        registry.register_feature(FeatureSpec(
-            name="optional_feature",
-            required=False,
-            default_value=42.0,
-        ))
+        registry.register_feature(
+            FeatureSpec(
+                name="required_feature",
+                required=True,
+                validation_rules={"min_value": 0},
+            ),
+        )
+        registry.register_feature(
+            FeatureSpec(
+                name="optional_feature",
+                required=False,
+                default_value=42.0,
+            ),
+        )
 
         # Test with all features present
         features = {"required_feature": 10.0, "optional_feature": 20.0}
@@ -263,14 +266,12 @@ class TestPublishedFeaturesV1:
         assert features.rsi_14_default == 50.0
 
         # Invalid RSI (too high)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="RSI must be between 0 and 100"):
             PublishedFeaturesV1(rsi_14_default=150.0, **base_features)
-        assert "RSI must be between 0 and 100" in str(exc_info.value)
 
         # Invalid RSI (too low)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="RSI must be between 0 and 100"):
             PublishedFeaturesV1(rsi_14_default=-10.0, **base_features)
-        assert "RSI must be between 0 and 100" in str(exc_info.value)
 
     def test_percentage_spread_validation(self):
         """Test percentage spread validation (must be non-negative)."""
@@ -288,9 +289,8 @@ class TestPublishedFeaturesV1:
         assert features.l2_spread_basic_pct_spread == 0.001
 
         # Invalid percentage spread (negative)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Percentage spread must be non-negative"):
             PublishedFeaturesV1(l2_spread_basic_pct_spread=-0.001, **base_features)
-        assert "Percentage spread must be non-negative" in str(exc_info.value)
 
     def test_vwap_validation(self):
         """Test VWAP validation (must be positive)."""
@@ -308,14 +308,12 @@ class TestPublishedFeaturesV1:
         assert features.vwap_trades_60s == 30000.0
 
         # Invalid VWAP (zero)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="VWAP must be positive"):
             PublishedFeaturesV1(vwap_trades_60s=0.0, **base_features)
-        assert "VWAP must be positive" in str(exc_info.value)
 
         # Invalid VWAP (negative)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="VWAP must be positive"):
             PublishedFeaturesV1(vwap_trades_60s=-1000.0, **base_features)
-        assert "VWAP must be positive" in str(exc_info.value)
 
     def test_volatility_percentile_validation(self):
         """Test volatility percentile validation (0-100 range)."""
@@ -334,9 +332,8 @@ class TestPublishedFeaturesV1:
         assert features.volatility_percentile == 75.5
 
         # Invalid volatility percentile (too high)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Volatility percentile must be between 0 and 100"):
             PublishedFeaturesV1(volatility_percentile=150.0, **base_features)
-        assert "Volatility percentile must be between 0 and 100" in str(exc_info.value)
 
     def test_liquidity_score_validation(self):
         """Test liquidity score validation (0-10 range)."""
@@ -355,9 +352,8 @@ class TestPublishedFeaturesV1:
         assert features.liquidity_score == 8.5
 
         # Invalid liquidity score (too high)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Liquidity score must be between 0 and 10"):
             PublishedFeaturesV1(liquidity_score=15.0, **base_features)
-        assert "Liquidity score must be between 0 and 10" in str(exc_info.value)
 
     def test_market_regime_validation(self):
         """Test market regime indicator validation."""
@@ -377,9 +373,8 @@ class TestPublishedFeaturesV1:
             assert features.market_regime_indicator == regime
 
         # Invalid market regime
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Market regime must be one of"):
             PublishedFeaturesV1(market_regime_indicator="invalid", **base_features)
-        assert "Market regime must be one of" in str(exc_info.value)
 
     def test_get_feature_completeness(self):
         """Test feature completeness reporting."""
@@ -487,20 +482,24 @@ class TestFeatureModelIntegration:
         test_registry = FeatureRegistry()
 
         # Register some test specs
-        test_registry.register_feature(FeatureSpec(
-            name="price",
-            required=True,
-            validation_rules={"min_value": 0},
-            description="Asset price",
-        ))
+        test_registry.register_feature(
+            FeatureSpec(
+                name="price",
+                required=True,
+                validation_rules={"min_value": 0},
+                description="Asset price",
+            ),
+        )
 
-        test_registry.register_feature(FeatureSpec(
-            name="volume",
-            required=False,
-            default_value=0.0,
-            validation_rules={"min_value": 0},
-            description="Trading volume",
-        ))
+        test_registry.register_feature(
+            FeatureSpec(
+                name="volume",
+                required=False,
+                default_value=0.0,
+                validation_rules={"min_value": 0},
+                description="Trading volume",
+            ),
+        )
 
         # Test successful validation
         raw_features = {"price": "100.50"}  # String that should convert to float

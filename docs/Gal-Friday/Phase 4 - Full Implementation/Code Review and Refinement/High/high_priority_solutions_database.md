@@ -46,12 +46,12 @@ T = TypeVar('T')
 
 class BaseEntity(ABC):
     """Base class for all database entities."""
-    
+
     @abstractmethod
     def to_dict(self) -> Dict[str, Any]:
         """Convert entity to dictionary for database storage."""
         pass
-    
+
     @classmethod
     @abstractmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BaseEntity':
@@ -61,27 +61,27 @@ class BaseEntity(ABC):
 
 class BaseRepository(Generic[T], ABC):
     """Base repository with common database operations."""
-    
+
     def __init__(self, db_pool: asyncpg.Pool, logger: LoggerService, table_name: str):
         self.db_pool = db_pool
         self.logger = logger
         self.table_name = table_name
         self._source_module = self.__class__.__name__
-        
+
     async def insert(self, entity: T) -> str:
         """Insert entity and return ID."""
         data = entity.to_dict()
-        
+
         # Generate column names and placeholders
         columns = list(data.keys())
         placeholders = [f'${i+1}' for i in range(len(columns))]
-        
+
         query = f"""
             INSERT INTO {self.table_name} ({', '.join(columns)})
             VALUES ({', '.join(placeholders)})
             RETURNING id
         """
-        
+
         try:
             async with self.db_pool.acquire() as conn:
                 result = await conn.fetchval(query, *data.values())
@@ -92,18 +92,18 @@ class BaseRepository(Generic[T], ABC):
                 source_module=self._source_module
             )
             raise
-            
+
     async def update(self, id: str, updates: Dict[str, Any]) -> bool:
         """Update entity by ID."""
         # Generate SET clause
         set_clauses = [f"{col} = ${i+2}" for i, col in enumerate(updates.keys())]
-        
+
         query = f"""
             UPDATE {self.table_name}
             SET {', '.join(set_clauses)}, updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
         """
-        
+
         try:
             async with self.db_pool.acquire() as conn:
                 result = await conn.execute(query, id, *updates.values())
@@ -114,11 +114,11 @@ class BaseRepository(Generic[T], ABC):
                 source_module=self._source_module
             )
             raise
-            
+
     async def find_by_id(self, id: str) -> Optional[T]:
         """Find entity by ID."""
         query = f"SELECT * FROM {self.table_name} WHERE id = $1"
-        
+
         try:
             async with self.db_pool.acquire() as conn:
                 row = await conn.fetchrow(query, id)
@@ -131,8 +131,8 @@ class BaseRepository(Generic[T], ABC):
                 source_module=self._source_module
             )
             raise
-            
-    async def find_many(self, 
+
+    async def find_many(self,
                        filters: Optional[Dict[str, Any]] = None,
                        order_by: Optional[str] = None,
                        limit: int = 100,
@@ -141,7 +141,7 @@ class BaseRepository(Generic[T], ABC):
         query_parts = [f"SELECT * FROM {self.table_name}"]
         params = []
         param_count = 0
-        
+
         # Add WHERE clause if filters provided
         if filters:
             where_clauses = []
@@ -150,22 +150,22 @@ class BaseRepository(Generic[T], ABC):
                 where_clauses.append(f"{col} = ${param_count}")
                 params.append(value)
             query_parts.append(f"WHERE {' AND '.join(where_clauses)}")
-            
+
         # Add ORDER BY
         if order_by:
             query_parts.append(f"ORDER BY {order_by}")
-            
+
         # Add pagination
         param_count += 1
         query_parts.append(f"LIMIT ${param_count}")
         params.append(limit)
-        
+
         param_count += 1
         query_parts.append(f"OFFSET ${param_count}")
         params.append(offset)
-        
+
         query = ' '.join(query_parts)
-        
+
         try:
             async with self.db_pool.acquire() as conn:
                 rows = await conn.fetch(query, *params)
@@ -176,11 +176,11 @@ class BaseRepository(Generic[T], ABC):
                 source_module=self._source_module
             )
             raise
-            
+
     async def delete(self, id: str) -> bool:
         """Delete entity by ID."""
         query = f"DELETE FROM {self.table_name} WHERE id = $1"
-        
+
         try:
             async with self.db_pool.acquire() as conn:
                 result = await conn.execute(query, id)
@@ -191,14 +191,14 @@ class BaseRepository(Generic[T], ABC):
                 source_module=self._source_module
             )
             raise
-            
+
     async def execute_transaction(self, operations):
         """Execute multiple operations in a transaction."""
         async with self.db_pool.acquire() as conn:
             async with conn.transaction():
                 for operation in operations:
                     await operation(conn)
-                    
+
     @abstractmethod
     def _row_to_entity(self, row: Dict[str, Any]) -> T:
         """Convert database row to entity."""
@@ -221,15 +221,15 @@ from gal_friday.logger_service import LoggerService
 
 class DatabaseConnectionPool:
     """Manages database connection pools."""
-    
+
     def __init__(self, config: ConfigManager, logger: LoggerService):
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         self.postgres_pool: Optional[asyncpg.Pool] = None
         self._pool_lock = asyncio.Lock()
-        
+
     async def initialize(self):
         """Initialize connection pools."""
         async with self._pool_lock:
@@ -242,7 +242,7 @@ class DatabaseConnectionPool:
                         max_inactive_connection_lifetime=300,
                         command_timeout=10
                     )
-                    
+
                     self.logger.info(
                         "Database connection pool initialized",
                         source_module=self._source_module
@@ -253,27 +253,27 @@ class DatabaseConnectionPool:
                         source_module=self._source_module
                     )
                     raise
-                    
+
     async def close(self):
         """Close all connection pools."""
         if self.postgres_pool:
             await self.postgres_pool.close()
             self.postgres_pool = None
-            
+
     @asynccontextmanager
     async def acquire(self):
         """Acquire a database connection."""
         if not self.postgres_pool:
             await self.initialize()
-            
+
         async with self.postgres_pool.acquire() as conn:
             yield conn
-            
+
     async def execute_query(self, query: str, *args):
         """Execute a query and return results."""
         async with self.acquire() as conn:
             return await conn.fetch(query, *args)
-            
+
     async def execute_command(self, command: str, *args):
         """Execute a command (INSERT, UPDATE, DELETE)."""
         async with self.acquire() as conn:
@@ -299,7 +299,7 @@ from gal_friday.dal.base import BaseEntity
 @dataclass
 class OrderEntity(BaseEntity):
     """Database entity for orders."""
-    
+
     order_id: str
     signal_id: str
     trading_pair: str
@@ -315,7 +315,7 @@ class OrderEntity(BaseEntity):
     filled_quantity: Decimal = Decimal("0")
     average_fill_price: Optional[Decimal] = None
     commission: Optional[Decimal] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to database record."""
         return {
@@ -335,7 +335,7 @@ class OrderEntity(BaseEntity):
             "average_fill_price": float(self.average_fill_price) if self.average_fill_price else None,
             "commission": float(self.commission) if self.commission else None
         }
-        
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'OrderEntity':
         """Create from database record."""
@@ -371,54 +371,54 @@ from gal_friday.dal.entities.order import OrderEntity
 
 class OrderRepository(BaseRepository[OrderEntity]):
     """Repository for order data persistence."""
-    
+
     def __init__(self, db_pool, logger):
         super().__init__(db_pool, logger, "orders")
-        
+
     def _row_to_entity(self, row: Dict[str, Any]) -> OrderEntity:
         """Convert database row to order entity."""
         return OrderEntity.from_dict(row)
-        
+
     async def get_active_orders(self) -> List[OrderEntity]:
         """Get all active orders."""
         return await self.find_many(
             filters={"status": "ACTIVE"},
             order_by="created_at DESC"
         )
-        
+
     async def get_orders_by_signal(self, signal_id: str) -> List[OrderEntity]:
         """Get all orders for a signal."""
         return await self.find_many(
             filters={"signal_id": signal_id},
             order_by="created_at ASC"
         )
-        
-    async def update_order_status(self, 
+
+    async def update_order_status(self,
                                  order_id: str,
                                  status: str,
                                  filled_quantity: Optional[Decimal] = None,
                                  average_fill_price: Optional[Decimal] = None) -> bool:
         """Update order execution status."""
         updates = {"status": status}
-        
+
         if filled_quantity is not None:
             updates["filled_quantity"] = float(filled_quantity)
-            
+
         if average_fill_price is not None:
             updates["average_fill_price"] = float(average_fill_price)
-            
+
         return await self.update(order_id, updates)
-        
+
     async def get_recent_orders(self, hours: int = 24) -> List[OrderEntity]:
         """Get orders from the last N hours."""
         cutoff = datetime.now(UTC) - timedelta(hours=hours)
-        
+
         query = """
             SELECT * FROM orders
             WHERE created_at > $1
             ORDER BY created_at DESC
         """
-        
+
         async with self.db_pool.acquire() as conn:
             rows = await conn.fetch(query, cutoff)
             return [self._row_to_entity(dict(row)) for row in rows]
@@ -440,7 +440,7 @@ from gal_friday.dal.base import BaseEntity
 @dataclass
 class PositionEntity(BaseEntity):
     """Database entity for positions."""
-    
+
     position_id: str
     trading_pair: str
     side: str  # LONG/SHORT
@@ -452,7 +452,7 @@ class PositionEntity(BaseEntity):
     opened_at: datetime
     closed_at: Optional[datetime]
     is_active: bool
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to database record."""
         return {
@@ -468,7 +468,7 @@ class PositionEntity(BaseEntity):
             "closed_at": self.closed_at,
             "is_active": self.is_active
         }
-        
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PositionEntity':
         """Create from database record."""
@@ -499,21 +499,21 @@ from gal_friday.dal.entities.position import PositionEntity
 
 class PositionRepository(BaseRepository[PositionEntity]):
     """Repository for position data persistence."""
-    
+
     def __init__(self, db_pool, logger):
         super().__init__(db_pool, logger, "positions")
-        
+
     def _row_to_entity(self, row: Dict[str, Any]) -> PositionEntity:
         """Convert database row to position entity."""
         return PositionEntity.from_dict(row)
-        
+
     async def get_active_positions(self) -> List[PositionEntity]:
         """Get all active positions."""
         return await self.find_many(
             filters={"is_active": True},
             order_by="opened_at DESC"
         )
-        
+
     async def get_position_by_pair(self, trading_pair: str) -> Optional[PositionEntity]:
         """Get active position for a trading pair."""
         positions = await self.find_many(
@@ -521,8 +521,8 @@ class PositionRepository(BaseRepository[PositionEntity]):
             limit=1
         )
         return positions[0] if positions else None
-        
-    async def update_position_price(self, 
+
+    async def update_position_price(self,
                                    position_id: str,
                                    current_price: Decimal,
                                    unrealized_pnl: Decimal) -> bool:
@@ -531,7 +531,7 @@ class PositionRepository(BaseRepository[PositionEntity]):
             "current_price": float(current_price),
             "unrealized_pnl": float(unrealized_pnl)
         })
-        
+
     async def close_position(self,
                            position_id: str,
                            realized_pnl: Decimal) -> bool:
@@ -542,18 +542,18 @@ class PositionRepository(BaseRepository[PositionEntity]):
             "realized_pnl": float(realized_pnl),
             "unrealized_pnl": 0
         })
-        
+
     async def get_position_summary(self) -> Dict[str, Any]:
         """Get summary of all positions."""
         query = """
-            SELECT 
+            SELECT
                 COUNT(*) FILTER (WHERE is_active = true) as active_positions,
                 COUNT(*) FILTER (WHERE is_active = false) as closed_positions,
                 SUM(realized_pnl) as total_realized_pnl,
                 SUM(unrealized_pnl) FILTER (WHERE is_active = true) as total_unrealized_pnl
             FROM positions
         """
-        
+
         async with self.db_pool.acquire() as conn:
             row = await conn.fetchrow(query)
             return dict(row)
@@ -578,24 +578,24 @@ from gal_friday.logger_service import LoggerService
 
 class TimeSeriesDB:
     """InfluxDB client wrapper for time-series data."""
-    
+
     def __init__(self, config: ConfigManager, logger: LoggerService):
         self.config = config
         self.logger = logger
         self._source_module = self.__class__.__name__
-        
+
         # Initialize InfluxDB client
         self.client = InfluxDBClient(
             url=config.get("influxdb.url"),
             token=config.get("influxdb.token"),
             org=config.get("influxdb.org")
         )
-        
+
         self.write_api = self.client.write_api(write_options=SYNCHRONOUS)
         self.query_api = self.client.query_api()
         self.bucket = config.get("influxdb.bucket", "market-data")
-        
-    async def write_market_data(self, 
+
+    async def write_market_data(self,
                                trading_pair: str,
                                exchange: str,
                                data_type: str,  # 'ohlcv', 'tick', 'orderbook'
@@ -606,7 +606,7 @@ class TimeSeriesDB:
                 .tag("trading_pair", trading_pair) \
                 .tag("exchange", exchange) \
                 .tag("data_type", data_type)
-                
+
             # Add fields based on data type
             if data_type == "ohlcv":
                 point.field("open", float(data["open"])) \
@@ -614,32 +614,32 @@ class TimeSeriesDB:
                      .field("low", float(data["low"])) \
                      .field("close", float(data["close"])) \
                      .field("volume", float(data["volume"]))
-                     
+
             elif data_type == "tick":
                 point.field("price", float(data["price"])) \
                      .field("volume", float(data["volume"])) \
                      .field("side", data["side"])
-                     
+
             elif data_type == "orderbook":
                 point.field("bid", float(data["bid"])) \
                      .field("ask", float(data["ask"])) \
                      .field("bid_volume", float(data["bid_volume"])) \
                      .field("ask_volume", float(data["ask_volume"])) \
                      .field("spread", float(data["spread"]))
-                     
+
             # Set timestamp
             if "timestamp" in data:
                 point.time(data["timestamp"])
-                
+
             self.write_api.write(bucket=self.bucket, record=point)
-            
+
         except Exception:
             self.logger.exception(
                 "Error writing market data to InfluxDB",
                 source_module=self._source_module
             )
-            
-    async def write_metrics(self, 
+
+    async def write_metrics(self,
                           metric_name: str,
                           value: float,
                           tags: Dict[str, str] = None):
@@ -647,19 +647,19 @@ class TimeSeriesDB:
         try:
             point = Point("system_metrics") \
                 .field(metric_name, value)
-                
+
             if tags:
                 for key, val in tags.items():
                     point.tag(key, val)
-                    
+
             self.write_api.write(bucket=self.bucket, record=point)
-            
+
         except Exception:
             self.logger.exception(
                 "Error writing metrics to InfluxDB",
                 source_module=self._source_module
             )
-            
+
     async def query_ohlcv(self,
                          trading_pair: str,
                          timeframe: str,
@@ -676,10 +676,10 @@ class TimeSeriesDB:
             |> window(every: {timeframe})
             |> sort(columns: ["_time"])
         '''
-        
+
         try:
             result = self.query_api.query(query=query)
-            
+
             candles = []
             for table in result:
                 for record in table.records:
@@ -691,16 +691,16 @@ class TimeSeriesDB:
                         "close": record.values.get("close"),
                         "volume": record.values.get("volume")
                     })
-                    
+
             return candles
-            
+
         except Exception:
             self.logger.exception(
                 "Error querying OHLCV data from InfluxDB",
                 source_module=self._source_module
             )
             return []
-            
+
     def close(self):
         """Close InfluxDB client."""
         self.client.close()
@@ -724,13 +724,13 @@ from gal_friday.logger_service import LoggerService
 
 class MigrationManager:
     """Manages database schema migrations."""
-    
+
     def __init__(self, db_pool: asyncpg.Pool, logger: LoggerService):
         self.db_pool = db_pool
         self.logger = logger
         self._source_module = self.__class__.__name__
         self.migrations_dir = Path(__file__).parent / "scripts"
-        
+
     async def initialize(self):
         """Create migrations table if not exists."""
         query = """
@@ -740,62 +740,62 @@ class MigrationManager:
                 applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """
-        
+
         async with self.db_pool.acquire() as conn:
             await conn.execute(query)
-            
+
     async def get_current_version(self) -> int:
         """Get current schema version."""
         query = "SELECT MAX(version) FROM schema_migrations"
-        
+
         async with self.db_pool.acquire() as conn:
             result = await conn.fetchval(query)
             return result or 0
-            
+
     async def get_pending_migrations(self) -> List[tuple]:
         """Get list of pending migrations."""
         current_version = await self.get_current_version()
-        
+
         migrations = []
         for file in sorted(self.migrations_dir.glob("*.sql")):
             # File format: 001_create_tables.sql
             version = int(file.stem.split("_")[0])
             if version > current_version:
                 migrations.append((version, file))
-                
+
         return migrations
-        
+
     async def run_migration(self, version: int, migration_file: Path):
         """Execute a single migration."""
         self.logger.info(
             f"Running migration {version}: {migration_file.name}",
             source_module=self._source_module
         )
-        
+
         # Read migration SQL
         sql = migration_file.read_text()
-        
+
         async with self.db_pool.acquire() as conn:
             async with conn.transaction():
                 # Execute migration
                 await conn.execute(sql)
-                
+
                 # Record migration
                 await conn.execute(
                     "INSERT INTO schema_migrations (version, name) VALUES ($1, $2)",
                     version,
                     migration_file.stem
                 )
-                
+
         self.logger.info(
             f"Migration {version} completed successfully",
             source_module=self._source_module
         )
-        
+
     async def run_all_migrations(self):
         """Run all pending migrations."""
         await self.initialize()
-        
+
         pending = await self.get_pending_migrations()
         if not pending:
             self.logger.info(
@@ -803,26 +803,26 @@ class MigrationManager:
                 source_module=self._source_module
             )
             return
-            
+
         for version, file in pending:
             await self.run_migration(version, file)
-            
+
         self.logger.info(
             f"Completed {len(pending)} migrations",
             source_module=self._source_module
         )
-        
+
     async def rollback_migration(self, target_version: int):
         """Rollback to specific version."""
         current_version = await self.get_current_version()
-        
+
         if target_version >= current_version:
             self.logger.warning(
                 f"Target version {target_version} is not less than current {current_version}",
                 source_module=self._source_module
             )
             return
-            
+
         # Find rollback scripts
         for version in range(current_version, target_version, -1):
             rollback_file = self.migrations_dir / f"{version:03d}_rollback.sql"
@@ -834,11 +834,11 @@ class MigrationManager:
                     source_module=self._source_module
                 )
                 raise FileNotFoundError(f"Missing rollback script for version {version}")
-                
+
     async def _execute_rollback(self, version: int, rollback_file: Path):
         """Execute rollback script."""
         sql = rollback_file.read_text()
-        
+
         async with self.db_pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute(sql)
@@ -872,7 +872,7 @@ CREATE TABLE IF NOT EXISTS orders (
     commission DECIMAL(20, 8),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP,
-    
+
     INDEX idx_orders_signal_id (signal_id),
     INDEX idx_orders_status (status),
     INDEX idx_orders_created_at (created_at)
@@ -891,7 +891,7 @@ CREATE TABLE IF NOT EXISTS positions (
     opened_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     closed_at TIMESTAMP,
     is_active BOOLEAN DEFAULT true,
-    
+
     INDEX idx_positions_pair (trading_pair),
     INDEX idx_positions_active (is_active),
     INDEX idx_positions_opened_at (opened_at)
@@ -910,7 +910,7 @@ CREATE TABLE IF NOT EXISTS trade_signals (
     status VARCHAR(20) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     executed_at TIMESTAMP,
-    
+
     INDEX idx_signals_status (status),
     INDEX idx_signals_created_at (created_at)
 );
@@ -924,15 +924,15 @@ CREATE TABLE IF NOT EXISTS trade_signals (
 
 class PortfolioManager:
     """Portfolio management with database persistence."""
-    
+
     def __init__(self, config, pubsub, logger, db_pool):
         # ... existing init code ...
         self.position_repo = PositionRepository(db_pool, logger)
-        
+
     async def update_position(self, execution_report: ExecutionReportEvent):
         """Update position with database persistence."""
         # ... existing position calculation logic ...
-        
+
         # Persist to database
         if position_exists:
             await self.position_repo.update_position_price(
@@ -955,11 +955,11 @@ class PortfolioManager:
                 is_active=True
             )
             await self.position_repo.insert(new_position)
-            
+
     async def load_positions_from_db(self):
         """Load active positions from database on startup."""
         positions = await self.position_repo.get_active_positions()
-        
+
         for position in positions:
             self.positions[position.trading_pair] = {
                 "quantity": position.quantity,
@@ -1015,4 +1015,4 @@ class PortfolioManager:
 2. **Connection Pool**: Track pool utilization
 3. **Storage Growth**: Monitor disk usage
 4. **Backup Schedule**: Daily automated backups
-5. **Migration Alerts**: Notify on migration failures 
+5. **Migration Alerts**: Notify on migration failures

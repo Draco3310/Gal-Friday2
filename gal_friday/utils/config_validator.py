@@ -21,6 +21,7 @@ from typing import Any, ClassVar
 
 class ValidationSeverity(str, Enum):
     """Severity levels for validation issues."""
+
     CRITICAL = "critical"
     ERROR = "error"
     WARNING = "warning"
@@ -30,6 +31,7 @@ class ValidationSeverity(str, Enum):
 
 class ValidationCategory(str, Enum):
     """Categories of validation issues."""
+
     SYNTAX = "syntax"
     SCHEMA = "schema"
     DEPENDENCY = "dependency"
@@ -42,6 +44,7 @@ class ValidationCategory(str, Enum):
 @dataclass
 class ValidationError:
     """Structured validation error with guidance."""
+
     code: str
     severity: ValidationSeverity
     category: ValidationCategory
@@ -59,6 +62,7 @@ class ValidationError:
 @dataclass
 class ValidationResult:
     """Result of configuration validation."""
+
     is_valid: bool = False
     errors: list[ValidationError] = field(default_factory=list[Any])
     warnings: list[ValidationError] = field(default_factory=list[Any])
@@ -119,8 +123,7 @@ class ConfigurationGuidance:
                 "title": "Placeholder Credentials Detected",
                 "description": "Configuration contains placeholder credentials that must be replaced",
                 "remediation_template": (
-                    "Replace placeholder value for '{field}' with actual credentials "
-                    "or environment variable reference"
+                    "Replace placeholder value for '{field}' with actual credentials or environment variable reference"
                 ),
                 "examples": [
                     {"field": "api_key", "placeholder": "YOUR_API_KEY", "correct": "${API_KEY}"},
@@ -128,7 +131,6 @@ class ConfigurationGuidance:
                 ],
                 "documentation_url": "https://docs.gal-friday.com/config/credentials",
             },
-
             ConfigValidationErrorCodes.EXPOSED_SECRETS: {
                 "title": "Hardcoded Secrets Detected",
                 "description": "Sensitive values appear to be hardcoded instead of using environment variables",
@@ -139,7 +141,6 @@ class ConfigurationGuidance:
                 ],
                 "documentation_url": "https://docs.gal-friday.com/security/environment-variables",
             },
-
             ConfigValidationErrorCodes.INVALID_URL_FORMAT: {
                 "title": "Invalid URL Format",
                 "description": "The URL format is incorrect or malformed",
@@ -150,7 +151,6 @@ class ConfigurationGuidance:
                 ],
                 "documentation_url": "https://docs.gal-friday.com/config/url-format",
             },
-
             ConfigValidationErrorCodes.MISSING_REQUIRED_FIELD: {
                 "title": "Missing Required Configuration Field",
                 "description": "A required configuration field is missing",
@@ -173,7 +173,6 @@ class ConfigurationGuidance:
                 "env_var": "KRAKEN_API_KEY",
                 "examples": ["${KRAKEN_API_KEY}"],
             },
-
             "kraken.api_secret": {
                 "description": "Kraken API secret for authentication",
                 "type": "string",
@@ -181,7 +180,6 @@ class ConfigurationGuidance:
                 "env_var": "KRAKEN_API_SECRET",
                 "examples": ["${KRAKEN_API_SECRET}"],
             },
-
             "database.password": {
                 "description": "Database connection password",
                 "type": "string",
@@ -271,6 +269,7 @@ class ConfigValidator:
 
     def validate_with_formal_errors(self) -> ValidationResult:
         """Enhanced validation with formal error reporting and guidance.
+
         Replaces placeholder warnings with structured validation.
         """
         start_time = time.time()
@@ -303,8 +302,9 @@ class ConfigValidator:
 
                 # Track error frequencies
                 for error in result.errors:
-                    self.validation_stats["error_counts"][error.code] = \
+                    self.validation_stats["error_counts"][error.code] = (
                         self.validation_stats["error_counts"].get(error.code, 0) + 1
+                    )
 
             self.logger.info(f"Configuration validation completed in {result.validation_time:.3f}s")
 
@@ -346,21 +346,18 @@ class ConfigValidator:
                 final_key = sections[-1]
 
                 if final_key not in current:
-                    self.warnings.append(
-                        f"URL not configured for '{key_path}', will use default: {default_url}")
+                    self.warnings.append(f"URL not configured for '{key_path}', will use default: {default_url}")
                 else:
                     configured_url = current[final_key]
                     if not isinstance(configured_url, str):
-                        self.errors.append(
-                            f"URL configuration '{key_path}' must be a string")
+                        self.errors.append(f"URL configuration '{key_path}' must be a string")
                     elif not self._is_valid_url(configured_url):
-                        self.errors.append(
-                            f"Invalid URL format for '{key_path}': {configured_url}")
+                        self.errors.append(f"Invalid URL format for '{key_path}': {configured_url}")
 
             except KeyError:
                 self.warnings.append(
-                    f"Section missing for URL configuration '{key_path}', "
-                    f"will use default: {default_url}")
+                    f"Section missing for URL configuration '{key_path}', will use default: {default_url}",
+                )
 
     def _validate_sensitive_values(self) -> None:
         """Validate that sensitive values are properly handled."""
@@ -389,11 +386,36 @@ class ConfigValidator:
                         if env_var not in os.environ:
                             self.warnings.append(
                                 f"[CV203] Sensitive value '{key_path}' appears to be hardcoded. "
-                                f"Move to environment variable ${env_var}")
+                                f"Move to environment variable ${env_var}",
+                            )
 
             except KeyError:
                 # Sensitive value not configured - this might be OK for some deployments
-                pass
+                self.logger.debug(f"Sensitive key '{key_path}' not found in configuration - may be optional")
+
+    def _validate_percentage_parameter(self, key: str, value: Any) -> None:
+        """Validate a single percentage parameter."""
+        try:
+            max_risk_percent = 100
+            decimal_value = Decimal(str(value))
+            if decimal_value < 0:
+                self.errors.append(f"Risk parameter '{key}' cannot be negative: {decimal_value}")
+            elif decimal_value > max_risk_percent:
+                self.warnings.append(f"Risk parameter '{key}' is very high: {decimal_value}%")
+        except (ValueError, TypeError):
+            self.errors.append(f"Risk parameter '{key}' must be a valid number")
+
+    def _validate_consecutive_losses(self, limits: dict[str, Any]) -> None:
+        """Validate consecutive losses parameter."""
+        if "max_consecutive_losses" not in limits:
+            return
+
+        try:
+            consecutive_losses_value = int(limits["max_consecutive_losses"])
+            if consecutive_losses_value < 1:
+                self.errors.append("max_consecutive_losses must be at least 1")
+        except (ValueError, TypeError):
+            self.errors.append("max_consecutive_losses must be a valid integer")
 
     def _validate_risk_parameters(self) -> None:
         """Validate risk management parameters."""
@@ -401,42 +423,27 @@ class ConfigValidator:
             return
 
         risk_config = self.config["risk"]
+        if "limits" not in risk_config:
+            return
 
-        if "limits" in risk_config:
-            limits = risk_config["limits"]
+        limits = risk_config["limits"]
 
-            # Validate percentage values
-            percentage_keys = [
-                "max_total_drawdown_pct",
-                "max_daily_drawdown_pct",
-                "max_weekly_drawdown_pct",
-                "risk_per_trade_pct",
-                "max_position_size_pct_equity",
-                "max_total_exposure_pct_equity",
-            ]
+        # Validate percentage values
+        percentage_keys = [
+            "max_total_drawdown_pct",
+            "max_daily_drawdown_pct",
+            "max_weekly_drawdown_pct",
+            "risk_per_trade_pct",
+            "max_position_size_pct_equity",
+            "max_total_exposure_pct_equity",
+        ]
 
-            for key in percentage_keys:
-                if key in limits:
-                    try:
-                        max_risk_percent = 100
-                        value = Decimal(str(limits[key]))
-                        if value < 0:
-                            self.errors.append(
-                                f"Risk parameter '{key}' cannot be negative: {value}")
-                        elif value > max_risk_percent:
-                            self.warnings.append(
-                                f"Risk parameter '{key}' is very high: {value}%")
-                    except (ValueError, TypeError):
-                        self.errors.append(f"Risk parameter '{key}' must be a valid number")
+        for key in percentage_keys:
+            if key in limits:
+                self._validate_percentage_parameter(key, limits[key])
 
-            # Validate consecutive losses
-            if "max_consecutive_losses" in limits:
-                try:
-                    consecutive_losses_value = int(limits["max_consecutive_losses"])
-                    if consecutive_losses_value < 1:
-                        self.errors.append("max_consecutive_losses must be at least 1")
-                except (ValueError, TypeError):
-                    self.errors.append("max_consecutive_losses must be a valid integer")
+        # Validate consecutive losses
+        self._validate_consecutive_losses(limits)
 
     def _validate_trading_parameters(self) -> None:
         """Validate trading configuration parameters."""
@@ -455,12 +462,9 @@ class ConfigValidator:
             else:
                 for pair in pairs:
                     if not isinstance(pair, str):
-                        self.errors.append(
-                            f"Trading pair must be a string: {pair}")
+                        self.errors.append(f"Trading pair must be a string: {pair}")
                     elif "/" not in pair:
-                        self.errors.append(
-                            f"Invalid trading pair format: {pair} "
-                            "(expected format: BASE/QUOTE)")
+                        self.errors.append(f"Invalid trading pair format: {pair} (expected format: BASE/QUOTE)")
 
     def _validate_logging_configuration(self) -> None:
         """Validate logging configuration."""
@@ -484,7 +488,8 @@ class ConfigValidator:
                 if "YOUR_DB_PASSWORD" in conn_str:
                     self.warnings.append(
                         "Database connection string contains placeholder password. "
-                        "Update with actual credentials or use environment variables.")
+                        "Update with actual credentials or use environment variables.",
+                    )
 
     def _validate_prediction_service_config(self) -> None:
         """Validate prediction service configuration."""
@@ -498,8 +503,7 @@ class ConfigValidator:
             valid_strategies = {"none", "average", "weighted_average"}
             strategy = pred_config["ensemble_strategy"]
             if strategy not in valid_strategies:
-                self.errors.append(
-                    f"Invalid ensemble strategy: {strategy}. Must be one of {valid_strategies}")
+                self.errors.append(f"Invalid ensemble strategy: {strategy}. Must be one of {valid_strategies}")
 
         # Validate model configurations
         if "models" in pred_config:
@@ -514,29 +518,25 @@ class ConfigValidator:
         """Validate individual model configuration."""
         required_fields = ["model_id", "predictor_type", "model_path", "prediction_target"]
 
-        for field in required_fields:
-            if field not in model:
-                self.errors.append(f"Model {index}: Missing required field '{field}'")
+        for field_name in required_fields:
+            if field_name not in model:
+                self.errors.append(f"Model {index}: Missing required field '{field_name}'")
 
         # Validate predictor type
         if "predictor_type" in model:
             valid_types = {"xgboost", "sklearn", "lstm"}
             pred_type = model["predictor_type"]
             if pred_type not in valid_types:
-                self.errors.append(
-                    f"Model {index}: Invalid predictor type '{pred_type}'. "
-                    f"Must be one of {valid_types}")
+                self.errors.append(f"Model {index}: Invalid predictor type '{pred_type}'. Must be one of {valid_types}")
 
         # Validate LSTM-specific config
         if model.get("predictor_type") == "lstm":
             if "framework" not in model:
-                self.errors.append(
-                    f"Model {index}: LSTM models must specify 'framework' "
-                    "(tensorflow or pytorch)")
+                self.errors.append(f"Model {index}: LSTM models must specify 'framework' (tensorflow or pytorch)")
             elif model["framework"] not in {"tensorflow", "pytorch"}:
                 self.errors.append(
-                    f"Model {index}: Invalid LSTM framework '{model['framework']}'. "
-                    "Must be 'tensorflow' or 'pytorch'")
+                    f"Model {index}: Invalid LSTM framework '{model['framework']}'. Must be 'tensorflow' or 'pytorch'",
+                )
 
             if "sequence_length" not in model:
                 self.errors.append(f"Model {index}: LSTM models must specify 'sequence_length'")
@@ -551,7 +551,9 @@ class ConfigValidator:
             r"localhost|"  # localhost...
             r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"  # ...or ip
             r"(?::\d+)?"  # optional port
-            r"(?:/?|[/?]\S+)$", re.IGNORECASE)
+            r"(?:/?|[/?]\S+)$",
+            re.IGNORECASE,
+        )
         return bool(url_pattern.match(url))
 
     # Enhanced validation methods with formal error reporting
@@ -597,7 +599,7 @@ class ConfigValidator:
 
             except KeyError:
                 # Sensitive value not configured - this might be OK for some deployments
-                pass
+                self.logger.debug(f"Sensitive key '{key_path}' not found in configuration - may be optional")
 
     def _validate_required_fields_enhanced(self, result: ValidationResult) -> None:
         """Enhanced validation of required fields with structured errors."""
@@ -805,9 +807,15 @@ class ConfigValidator:
                 )
                 result.errors.append(error)
 
-    def _create_validation_error(self, code: str, severity: ValidationSeverity,
-                               category: ValidationCategory, field_path: str,
-                               current_value: Any, expected_value: Any) -> ValidationError:
+    def _create_validation_error(
+        self,
+        code: str,
+        severity: ValidationSeverity,
+        category: ValidationCategory,
+        field_path: str,
+        current_value: Any,
+        expected_value: Any,
+    ) -> ValidationError:
         """Create structured validation error with guidance."""
         # Get guidance for this error code
         guidance = self.guidance.get_error_guidance(code)
@@ -857,11 +865,11 @@ class ConfigValidator:
             remediation="Check configuration syntax and structure",
         )
 
-    def generate_validation_report(self, result: ValidationResult, format: str = "text") -> str:
+    def generate_validation_report(self, result: ValidationResult, output_format: str = "text") -> str:
         """Generate formatted validation report."""
-        if format == "json":
+        if output_format == "json":
             return self._generate_json_report(result)
-        if format == "markdown":
+        if output_format == "markdown":
             return self._generate_markdown_report(result)
         return self._generate_text_report(result)
 

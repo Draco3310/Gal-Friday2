@@ -1,3 +1,9 @@
+"""Trade model for completed trading positions.
+
+This module defines the database model for storing completed trades
+(round-trip transactions) with entry and exit information.
+"""
+
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING  # For relationship type hints
@@ -21,14 +27,23 @@ if TYPE_CHECKING:
 
 
 class Trade(Base):
+    """Database model for completed round-trip trades."""
+
     __tablename__ = "trades"
 
     trade_pk: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     trade_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4, index=True,
+        PG_UUID(as_uuid=True),
+        unique=True,
+        nullable=False,
+        default=uuid.uuid4,
+        index=True,
     )
     signal_id: Mapped[uuid.UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("signals.signal_id"), index=True, nullable=True,
+        PG_UUID(as_uuid=True),
+        ForeignKey("signals.signal_id"),
+        index=True,
+        nullable=True,
     )
 
     trading_pair: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
@@ -45,8 +60,8 @@ class Trade(Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
     average_entry_price: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
     average_exit_price: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
-    total_commission: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False) # Should be in quote currency
-    realized_pnl: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False) # Quote currency
+    total_commission: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)  # Should be in quote currency
+    realized_pnl: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)  # Quote currency
     realized_pnl_pct: Mapped[float] = mapped_column(Float, nullable=False)
     exit_reason: Mapped[str] = mapped_column(String(32), nullable=False)
 
@@ -56,31 +71,31 @@ class Trade(Base):
     entry_order: Mapped["Order | None"] = relationship(
         "Order",
         foreign_keys=[entry_order_pk],
-        backref="trade_as_entry", # Use backref to avoid conflict if Order directly relates to Trade
+        backref="trade_as_entry",  # Use backref to avoid conflict if Order directly relates to Trade
         # Or ensure Order.trade_entry uses a specific foreign_keys if defined there
     )
-    exit_order: Mapped["Order | None"] = relationship(
-        "Order",
-        foreign_keys=[exit_order_pk],
-        backref="trade_as_exit")
+    exit_order: Mapped["Order | None"] = relationship("Order", foreign_keys=[exit_order_pk], backref="trade_as_exit")
 
-    def __repr__(self) -> str: # Added -> str
+    def __repr__(self) -> str:  # Added -> str
+        """Return string representation of Trade.
+
+        Returns:
+            String representation showing key trade attributes.
+        """
         return (
             f"<Trade(trade_id={self.trade_id}, trading_pair='{self.trading_pair}', "
             f"strategy_id='{self.strategy_id}', realized_pnl={self.realized_pnl})>"
         )
 
-    def to_event(self) -> "MarketDataTradeEvent": # Added to_event with type hints
-        """Converts the Trade object to a MarketDataTradeEvent.
+    def to_event(self) -> "MarketDataTradeEvent":  # Added to_event with type hints
+        """Convert the Trade object to a MarketDataTradeEvent.
+
         This represents the entry part of the trade as a market event.
         Exit would be a separate event if needed.
-        """
-        # Assuming MarketDataTradeEvent is importable from gal_friday.core.events
-        # import uuid # Already imported
-        # from datetime import datetime # Already imported
-        # from decimal import Decimal # For type conversion if necessary, sqlalchemy handles it
-        # from gal_friday.core.events import MarketDataTradeEvent
 
+        Returns:
+            MarketDataTradeEvent representing the trade entry.
+        """
         # The Trade model represents a completed round-trip trade (entry and exit).
         # A MarketDataTradeEvent typically represents a single execution (fill).
         # Here, we can represent the entry fill as an example.
@@ -89,26 +104,26 @@ class Trade(Base):
 
         {
             "source_module": self.__class__.__name__,
-            "event_id": uuid.uuid4(), # New event ID for this specific event
-            "timestamp": datetime.now(UTC), # Event creation time
+            "event_id": uuid.uuid4(),  # New event ID for this specific event
+            "timestamp": datetime.now(UTC),  # Event creation time
             "trading_pair": self.trading_pair,
             "exchange": self.exchange,
-            "timestamp_exchange": self.entry_timestamp, # Timestamp of the entry
+            "timestamp_exchange": self.entry_timestamp,  # Timestamp of the entry
             "price": self.average_entry_price,
             "volume": self.quantity,
-            "side": self.side, # Side of the entry trade
-            "trade_id": str(self.trade_id), # Use the Trade's own ID or a fill ID if available
+            "side": self.side,  # Side of the entry trade
+            "trade_id": str(self.trade_id),  # Use the Trade's own ID or a fill ID if available
         }
         # Return the properly typed MarketDataTradeEvent
         return MarketDataTradeEvent(
             source_module=self.__class__.__name__,
-            event_id=uuid.uuid4(), # New event ID for this specific event
-            timestamp=datetime.now(UTC), # Event creation time
+            event_id=uuid.uuid4(),  # New event ID for this specific event
+            timestamp=datetime.now(UTC),  # Event creation time
             trading_pair=self.trading_pair,
             exchange=self.exchange,
-            timestamp_exchange=self.entry_timestamp, # Timestamp of the entry
-            price=self.average_entry_price, # Ensure this is Decimal
-            volume=self.quantity, # Ensure this is Decimal
-            side=self.side, # Side of the entry trade
-            trade_id=str(self.trade_id), # self.trade_id is non-nullable
+            timestamp_exchange=self.entry_timestamp,  # Timestamp of the entry
+            price=self.average_entry_price,  # Ensure this is Decimal
+            volume=self.quantity,  # Ensure this is Decimal
+            side=self.side,  # Side of the entry trade
+            trade_id=str(self.trade_id),  # self.trade_id is non-nullable
         )

@@ -1,0 +1,117 @@
+MYPY ERROR DEPENDENCY ANALYSIS
+===============================
+
+CRITICAL BLOCKING ERRORS (Must fix first - affect multiple files/modules):
+===========================================================================
+
+1. **HistoricalDataPoint Type Conflict** [BLOCKING 6+ files]
+   LOCATIONS: providers/*.py (3 files), backtesting_engine.py (2 instances)
+   ROOT CAUSE: Type mismatch between:
+   - gal_friday.core.data_request.HistoricalDataPoint
+   - gal_friday.simulated_market_price_service.HistoricalDataPoint
+   IMPACT: Blocks all data provider implementations, backtesting adapters
+   PRIORITY: CRITICAL - fix in core/data_request.py first
+
+2. **DataRequest Type Conflict** [BLOCKING 3+ files]
+   LOCATIONS: providers/*.py (3 files)
+   ROOT CAUSE: Interface expectation mismatch between modules
+   IMPACT: Breaks all data provider protocols
+   PRIORITY: CRITICAL - fix in interfaces/ first
+
+3. **HistoricalDataProviderProtocol Missing Methods** [BLOCKING 2+ files]
+   LOCATIONS: backtesting_engine.py (4 instances)
+   ROOT CAUSE: Protocol missing initialize() and cleanup() methods
+   IMPACT: All protocol implementers will fail
+   PRIORITY: HIGH - fix in interfaces/ first
+
+4. **PredictorProtocol Constructor Mismatch** [BLOCKING 1+ files]
+   LOCATIONS: prediction_service.py (3 instances)
+   ROOT CAUSE: Protocol doesn't define required constructor arguments
+   IMPACT: All predictor implementations will fail
+   PRIORITY: HIGH - fix in interfaces/ first
+
+FOUNDATIONAL ERRORS (Fix before business logic):
+==============================================
+
+5. **Service Registration Type Issues** [FOUNDATION]
+   LOCATIONS: core/service_registration.py
+   ROOT CAUSE: Incompatible return type list[FunctionType] vs list[Callable[..., Any]]
+   IMPACT: Affects service discovery and dependency injection
+   PRIORITY: HIGH - core module
+
+6. **Component Registry Iteration Error** [FOUNDATION]
+   LOCATIONS: core/registry.py
+   ROOT CAUSE: "Callable[..., Any]" object is not iterable
+   IMPACT: Breaks lazy component loading
+   PRIORITY: HIGH - core module
+
+7. **ExperimentInfo Missing Attributes** [FOUNDATION]
+   LOCATIONS: model_lifecycle/experiment_manager.py (3 instances)
+   ROOT CAUSE: ExperimentInfo missing 'name' and 'confidence_level' attributes
+   IMPACT: Breaks ML experiment management
+   PRIORITY: MEDIUM - model lifecycle
+
+INHERITANCE/BASE CLASS ERRORS (Fix after interfaces):
+====================================================
+
+8. **KrakenExecutionHandler Constructor Issues** [INHERITANCE]
+   LOCATIONS: execution/kraken.py (3 instances)
+   ROOT CAUSE: Invalid super().__init__() call and property override issues
+   IMPACT: Breaks Kraken exchange integration
+   PRIORITY: MEDIUM - after interface fixes
+
+9. **Missing Error Handler Methods** [PATTERN]
+   LOCATIONS: Multiple files (8+ instances)
+   METHODS: _raise_*_error patterns
+   ROOT CAUSE: Missing implementation of error handling methods
+   IMPACT: Runtime failures on error conditions
+   PRIORITY: LOW - add missing methods systematically
+
+ISOLATED/INDEPENDENT ERRORS (Can fix anytime):
+=============================================
+
+10. **Unused Type Ignores** [CLEANUP]
+    COUNT: 6 instances
+    IMPACT: None - just cleanup
+    PRIORITY: LOW - remove after other fixes
+
+11. **Unreachable Code** [CLEANUP]
+    COUNT: 12 instances
+    IMPACT: None - just cleanup
+    PRIORITY: LOW - validate after logic fixes
+
+12. **Redundant Casts** [CLEANUP]
+    COUNT: 3 instances
+    IMPACT: None - just cleanup
+    PRIORITY: LOW - remove unnecessary casts
+
+13. **Type Annotation Issues** [ISOLATED]
+    LOCATIONS: Various files
+    IMPACT: Local to each file
+    PRIORITY: MEDIUM - fix individually
+
+CASCADING DEPENDENCY CHAIN:
+===========================
+
+1. Fix core/data_request.py and core/types.py (HistoricalDataPoint)
+2. Fix interfaces/ protocols (HistoricalDataProviderProtocol, PredictorProtocol)
+3. Fix core/service_registration.py and core/registry.py
+4. Fix providers/*.py (will resolve after steps 1-2)
+5. Fix backtesting_engine.py (will resolve after steps 1-2)
+6. Fix model_lifecycle/experiment_manager.py
+7. Fix execution/kraken.py
+8. Fix remaining isolated errors
+9. Cleanup unused ignores and unreachable code
+
+ESTIMATED IMPACT OF FIXES:
+==========================
+- Fixing Steps 1-3: Will resolve ~18 errors (23% of total)
+- Fixing Steps 4-5: Will resolve ~12 more errors (38% total resolved)
+- Fixing Steps 6-7: Will resolve ~6 more errors (46% total resolved)
+- Remaining steps: ~42 errors remain for individual fixing
+
+RISK ASSESSMENT:
+===============
+- HIGH RISK: Core type changes (Steps 1-3) - could introduce new errors
+- MEDIUM RISK: Interface changes (Step 2) - coordinated implementation updates needed
+- LOW RISK: Isolated fixes (Steps 8+) - minimal cascade potential

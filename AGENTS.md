@@ -93,14 +93,14 @@ def calculate_position_size(
     risk_percentage: Decimal
 ) -> Decimal:
     """Calculate position size based on risk parameters.
-    
+
     Args:
         account_balance: Current account balance in base currency.
         risk_percentage: Risk percentage (0.01 = 1%).
-        
+
     Returns:
         Calculated position size in base currency.
-        
+
     Raises:
         ValueError: If risk_percentage is negative or > 1.
     """

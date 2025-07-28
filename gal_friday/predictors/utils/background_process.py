@@ -1,4 +1,5 @@
 """Module for managing background processes using ProcessPoolExecutor."""
+
 from collections.abc import Callable
 from enum import Enum
 import logging
@@ -162,14 +163,11 @@ class BackgroundProcess(Generic[T]):
         if self._status == ProcessStatus.FAILED:
             exc = self._future.exception()
             if exc:
-                logger.exception(
-                    "Process %s raised an exception (async)",
-                    self._target_name)
+                logger.exception("Process %s raised an exception (async)", self._target_name)
                 raise exc
             # This part is reached if status is FAILED but future had no exception
             # (e.g. pre-run fail)
-            raise BackgroundProcessError(
-                MSG_PROCESS_FAILED_NO_SPECIFIC_EXCEPTION % self._target_name)
+            raise BackgroundProcessError(MSG_PROCESS_FAILED_NO_SPECIFIC_EXCEPTION % self._target_name)
 
         return cast("T", self._future.result())
 
@@ -192,7 +190,8 @@ class BackgroundProcess(Generic[T]):
             logger.warning(
                 "Failed to cancel process %s (may be running/completed/cancelled). Status: %s",
                 self._target_name,
-                self.status.value)
+                self.status.value,
+            )
         return was_cancelled
 
     def __repr__(self) -> str:
@@ -222,23 +221,15 @@ class BackgroundProcessManager:
         if not hasattr(self, "_initialized"):  # Ensure __init__ logic runs once per instance
             if BackgroundProcessManager._executor is None:
                 # Store max_workers from the first instantiation call at class level for reuse
-                if (
-                    BackgroundProcessManager._max_workers_at_init is None
-                    and max_workers is not None
-                ):
+                if BackgroundProcessManager._max_workers_at_init is None and max_workers is not None:
                     BackgroundProcessManager._max_workers_at_init = max_workers
 
                 resolved_max_workers = (
-                    max_workers
-                    if max_workers is not None
-                    else BackgroundProcessManager._max_workers_at_init
+                    max_workers if max_workers is not None else BackgroundProcessManager._max_workers_at_init
                 )
 
-                BackgroundProcessManager._executor = ProcessPoolExecutor(
-                    max_workers=resolved_max_workers)
-                logger.info(
-                    "ProcessPoolExecutor initialized with max_workers=%s",
-                    resolved_max_workers or "default")
+                BackgroundProcessManager._executor = ProcessPoolExecutor(max_workers=resolved_max_workers)
+                logger.info("ProcessPoolExecutor initialized with max_workers=%s", resolved_max_workers or "default")
             else:
                 logger.info("ProcessPoolExecutor already initialized.")
             self._initialized = True
@@ -249,15 +240,10 @@ class BackgroundProcessManager:
         if cls._instance is None:
             cls._instance = cls(max_workers=max_workers)
         elif cls._executor is None:
-            logger.warning(
-                "BackgroundProcessManager instance exists but executor is None. "
-                "Reinitializing executor.")
+            logger.warning("BackgroundProcessManager instance exists but executor is None. Reinitializing executor.")
             # Use max_workers if provided, else the class-stored initial value
-            resolved_max_workers = (
-                max_workers if max_workers is not None else cls._max_workers_at_init
-            )
-            BackgroundProcessManager._executor = ProcessPoolExecutor(
-                max_workers=resolved_max_workers)
+            resolved_max_workers = max_workers if max_workers is not None else cls._max_workers_at_init
+            BackgroundProcessManager._executor = ProcessPoolExecutor(max_workers=resolved_max_workers)
             if cls._max_workers_at_init is None and resolved_max_workers is not None:
                 cls._max_workers_at_init = resolved_max_workers
         elif max_workers is not None and cls._max_workers_at_init is None:
@@ -268,11 +254,7 @@ class BackgroundProcessManager:
 
         return cls._instance
 
-    def submit(
-        self,
-        func: Callable[..., Any],
-        *args: object,
-        **kwargs: object) -> BackgroundProcess[T]:
+    def submit(self, func: Callable[..., Any], *args: object, **kwargs: object) -> BackgroundProcess[T]:
         """Submit a function to be executed in the background process pool.
 
         Args:
@@ -301,8 +283,7 @@ class BackgroundProcessManager:
             return BackgroundProcess(future, target_name=target_name)
         except Exception as e:
             logger.exception("Failed to submit task '%s' to process pool.", target_name)
-            raise BackgroundProcessError(
-                MSG_TASK_SUBMISSION_FAILED % target_name) from e
+            raise BackgroundProcessError(MSG_TASK_SUBMISSION_FAILED % target_name) from e
 
     def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
         """Shutdown the ProcessPoolExecutor.
@@ -313,10 +294,7 @@ class BackgroundProcessManager:
                             This is only effective if 'wait' is also True. (Python 3.9+)
         """
         if self._executor is not None:
-            logger.info(
-                "Shutting down ProcessPoolExecutor (wait=%s, cancel_futures=%s)...",
-                wait,
-                cancel_futures)
+            logger.info("Shutting down ProcessPoolExecutor (wait=%s, cancel_futures=%s)...", wait, cancel_futures)
             if hasattr(self._executor, "shutdown"):  # Python 3.9+ for cancel_futures
                 self._executor.shutdown(wait=wait, cancel_futures=cancel_futures)
             else:  # Older Python versions
@@ -332,14 +310,14 @@ class BackgroundProcessManager:
             logger.info("Initializing executor via BackgroundProcessManager context entry.")
             # Use class-stored _max_workers_at_init or None if not set
             resolved_max_workers = BackgroundProcessManager._max_workers_at_init
-            BackgroundProcessManager._executor = ProcessPoolExecutor(
-                max_workers=resolved_max_workers)
+            BackgroundProcessManager._executor = ProcessPoolExecutor(max_workers=resolved_max_workers)
         return self
 
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: TracebackType | None) -> None:
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Exit the runtime context, shutting down the pool."""
         self.shutdown(wait=True)

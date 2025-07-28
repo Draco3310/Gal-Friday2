@@ -224,11 +224,11 @@ async def test_example():
     config = MockConfigManager()
     logger = MockLoggerService(config, None, capture_logs=True)
     monitoring = MockMonitoringService()
-    
+
     # Test operations
     await monitoring.trigger_halt("Test halt", "TestModule")
     assert monitoring.is_halted()
-    
+
     # Verify logged messages
     logs = logger.get_captured_logs(level="INFO")
     assert len(logs) > 0
@@ -242,11 +242,11 @@ async def test_portfolio_simulation():
     portfolio = MockPortfolioManager(
         initial_state={"total_value": Decimal("100000")}
     )
-    
+
     # Simulate trading
     portfolio.simulate_trade_result(Decimal("5000"), "BTC/USD")
     portfolio.simulate_trade_result(Decimal("-2000"), "ETH/USD")
-    
+
     # Verify state changes
     state = portfolio.get_current_state()
     assert state["total_trades"] == 2
@@ -290,11 +290,11 @@ class LoggerService:
 class LoggerService:
     def __init__(self, *, log_level: str = "INFO", capture_logs: bool = True):
         # Comprehensive initialization with configuration
-        
-    def info(self, message: str, *args, source_module: str | None = None, 
+
+    def info(self, message: str, *args, source_module: str | None = None,
              context: dict | None = None) -> None:
         self._log("INFO", message, *args, source_module=source_module, context=context)
-        
+
     def get_captured_logs(self, level: str | None = None) -> list[dict]:
         # Enhanced testing capabilities
 ```
@@ -335,4 +335,4 @@ async def concurrent_test():
 
 ## Conclusion
 
-The enhanced mock classes provide a robust foundation for testing the CLI service and related components. They offer realistic behavior while maintaining the simplicity needed for effective testing. The comprehensive state tracking and configuration options enable thorough testing of complex scenarios while ensuring thread safety and proper error handling. 
+The enhanced mock classes provide a robust foundation for testing the CLI service and related components. They offer realistic behavior while maintaining the simplicity needed for effective testing. The comprehensive state tracking and configuration options enable thorough testing of complex scenarios while ensuring thread safety and proper error handling.

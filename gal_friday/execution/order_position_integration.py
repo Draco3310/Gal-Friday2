@@ -28,7 +28,8 @@ class OrderPositionIntegrationService:
         order_repository: OrderRepository,
         position_repository: PositionRepository,
         position_manager: PositionManager,
-        logger: LoggerService) -> None:
+        logger: LoggerService,
+    ) -> None:
         """Initialize the integration service.
 
         Args:
@@ -61,68 +62,92 @@ class OrderPositionIntegrationService:
                 self.logger.debug(
                     f"Skipping execution report for order {execution_report.client_order_id} "
                     f"with status {execution_report.order_status}",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 return True
+
+            # Validate required fields
+            validation_errors = self._validate_execution_report(execution_report)
+            if validation_errors:
+                for error in validation_errors:
+                    self.logger.error(error, source_module=self._source_module)
+                return False
 
             self.logger.info(
                 f"Processing execution report for order {execution_report.client_order_id} "
                 f"({execution_report.trading_pair}, {execution_report.side}, "
                 f"{execution_report.quantity_filled} @ {execution_report.average_fill_price})",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
-            # Extract order information
+            # Extract validated fields
             order_id = execution_report.client_order_id or execution_report.exchange_order_id
-            if not order_id:
-                self.logger.error(
-                    "Execution report missing order ID - cannot establish position relationship",
-                    source_module=self._source_module)
-                return False
-
-            # Update position and establish relationship
-            # Ensure price is not None
-            if execution_report.average_fill_price is None:
-                self.logger.error(
-                    f"Execution report for order {order_id} missing average fill price",
-                    source_module=self._source_module)
-                return False
-
-            # Ensure trade_id is not None
             trade_id = execution_report.exchange_order_id or execution_report.client_order_id
             if not trade_id:
                 self.logger.error(
-                    f"Execution report for order {order_id} missing trade ID",
-                    source_module=self._source_module)
+                    "No trade ID available for execution report - both exchange_order_id and client_order_id are None",
+                    source_module=self._source_module,
+                )
                 return False
 
-            realized_pnl, updated_position = await self.position_manager.update_position_for_trade(
-                trading_pair=execution_report.trading_pair,
-                side=execution_report.side,
-                quantity=execution_report.quantity_filled,
-                price=execution_report.average_fill_price,
-                timestamp=execution_report.timestamp,
-                trade_id=trade_id,
-                order_id=order_id,  # This establishes the relationship
-                commission=execution_report.commission or Decimal(0),
-                commission_asset=execution_report.commission_asset)
+            # Update position
+            return await self._update_position_from_execution(execution_report, order_id, trade_id)
 
-            if updated_position:
-                self.logger.info(
-                    f"Successfully processed execution report - Order {order_id} linked to "
-                    f"position {updated_position.id}, realized PnL: {realized_pnl}",
-                    source_module=self._source_module)
-                return True
-            self.logger.error(
-                f"Failed to update position for order {order_id}",
-                source_module=self._source_module)
-
-        except Exception as e:
+        except Exception:
             self.logger.exception(
                 f"Error processing execution report for order "
-                f"{getattr(execution_report, 'client_order_id', 'unknown')}: {e}",
-                source_module=self._source_module)
+                f"{getattr(execution_report, 'client_order_id', 'unknown')}",
+                source_module=self._source_module,
+            )
             return False
-        else:
-            return False
+
+    def _validate_execution_report(self, execution_report: ExecutionReportEvent) -> list[str]:
+        """Validate execution report has required fields."""
+        errors = []
+
+        order_id = execution_report.client_order_id or execution_report.exchange_order_id
+        if not order_id:
+            errors.append("Execution report missing order ID - cannot establish position relationship")
+        elif execution_report.average_fill_price is None:
+            errors.append(f"Execution report for order {order_id} missing average fill price")
+
+        trade_id = execution_report.exchange_order_id or execution_report.client_order_id
+        if not trade_id:
+            errors.append(f"Execution report for order {order_id} missing trade ID")
+
+        return errors
+
+    async def _update_position_from_execution(
+        self,
+        execution_report: ExecutionReportEvent,
+        order_id: str,
+        trade_id: str,
+    ) -> bool:
+        """Update position from execution report."""
+        if execution_report.average_fill_price is None:
+            raise ValueError("Average fill price cannot be None for executed trade")
+        realized_pnl, updated_position = await self.position_manager.update_position_for_trade(
+            trading_pair=execution_report.trading_pair,
+            side=execution_report.side,
+            quantity=execution_report.quantity_filled,
+            price=execution_report.average_fill_price,
+            timestamp=execution_report.timestamp,
+            trade_id=trade_id,
+            order_id=order_id,  # This establishes the relationship
+            commission=execution_report.commission or Decimal(0),
+            commission_asset=execution_report.commission_asset,
+        )
+
+        if updated_position:
+            self.logger.info(
+                f"Successfully processed execution report - Order {order_id} linked to "
+                f"position {updated_position.id}, realized PnL: {realized_pnl}",
+                source_module=self._source_module,
+            )
+            return True
+
+        self.logger.error(f"Failed to update position for order {order_id}", source_module=self._source_module)
+        return False
 
     async def link_existing_order_to_position(
         self,
@@ -147,28 +172,31 @@ class OrderPositionIntegrationService:
             position_id_str = str(position_id)
 
             # Verify entities exist if requested
-            if verify_consistency:
-                if not await self._verify_order_position_consistency(order_id_str, position_id_str):
-                    return False
+            if verify_consistency and not await self._verify_order_position_consistency(order_id_str, position_id_str):
+                return False
 
             # Establish the link
             updated_order = await self.order_repository.link_order_to_position(
-                order_id_str, position_id_str,
+                order_id_str,
+                position_id_str,
             )
 
             if updated_order:
                 self.logger.info(
                     f"Successfully linked order {order_id_str} to position {position_id_str}",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 return True
             self.logger.error(
                 f"Failed to link order {order_id_str} to position {position_id_str}",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
         except Exception:
             self.logger.exception(
                 f"Error linking order {order_id} to position {position_id}: ",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             return False
         else:
             return False
@@ -190,16 +218,19 @@ class OrderPositionIntegrationService:
             if updated_order:
                 self.logger.info(
                     f"Successfully unlinked order {order_id_str} from position",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 return True
             self.logger.warning(
                 f"Order {order_id_str} not found or already unlinked",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
         except Exception:
             self.logger.exception(
                 f"Error unlinking order {order_id} from position: ",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             return False
         else:
             return False
@@ -224,7 +255,8 @@ class OrderPositionIntegrationService:
         try:
             self.logger.info(
                 f"Starting order-position relationship reconciliation (last {hours_back} hours)",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
             results: dict[str, Any] = {
                 "reconciliation_timestamp": datetime.now(UTC),
@@ -250,10 +282,13 @@ class OrderPositionIntegrationService:
                 results["issues_found"].append(issue)
 
                 # Auto-fix if requested and it's safe
-                if auto_fix and await self._can_auto_fix_unlinked_order(order):
-                    if await self._auto_fix_unlinked_order(order):
-                        issue["auto_fixed"] = "true"
-                        results["issues_fixed"] += 1
+                if (
+                    auto_fix
+                    and await self._can_auto_fix_unlinked_order(order)
+                    and await self._auto_fix_unlinked_order(order)
+                ):
+                    issue["auto_fixed"] = "true"
+                    results["issues_fixed"] += 1
 
             # Check for orphaned position references
             orphaned_count = await self._check_orphaned_position_references(results, auto_fix)
@@ -262,12 +297,11 @@ class OrderPositionIntegrationService:
             self.logger.info(
                 f"Reconciliation completed - Found {len(results['issues_found'])} issues, "
                 f"fixed {results['issues_fixed']}",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
         except Exception as e:
-            self.logger.exception(
-                "Error during order-position reconciliation: ",
-                source_module=self._source_module)
+            self.logger.exception("Error during order-position reconciliation: ", source_module=self._source_module)
             return {"error": str(e)}
         else:
             return results
@@ -308,7 +342,7 @@ class OrderPositionIntegrationService:
 
             # Add order details
             total_order_quantity = Decimal(0)
-            for order in sorted(orders, key=lambda x: x.created_at or datetime.min):
+            for order in sorted(orders, key=lambda x: x.created_at or datetime.min.replace(tzinfo=UTC)):
                 order_info = {
                     "order_id": str(order.id),
                     "side": order.side,
@@ -333,7 +367,8 @@ class OrderPositionIntegrationService:
         except Exception as e:
             self.logger.exception(
                 f"Error generating audit trail for position {position_id}: ",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
             return {"error": str(e)}
         else:
             return audit_trail
@@ -348,26 +383,27 @@ class OrderPositionIntegrationService:
             if not order or not position:
                 self.logger.error(
                     f"Order {order_id} or position {position_id} not found for consistency check",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 return False
 
             # Check trading pair consistency
             if order.trading_pair != position.trading_pair:
                 self.logger.error(
                     f"Trading pair mismatch - Order: {order.trading_pair}, Position: {position.trading_pair}",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
                 return False
 
             # Check if order is in a filled state
             if order.status not in ["FILLED", "PARTIALLY_FILLED"]:
                 self.logger.warning(
                     f"Order {order_id} status is {order.status} - may not affect position",
-                    source_module=self._source_module)
+                    source_module=self._source_module,
+                )
 
         except Exception:
-            self.logger.exception(
-                "Error verifying order-position consistency: ",
-                source_module=self._source_module)
+            self.logger.exception("Error verifying order-position consistency: ", source_module=self._source_module)
             return False
         else:
             return True
@@ -398,25 +434,26 @@ class OrderPositionIntegrationService:
             if position:
                 # Link to existing position
                 updated_order = await self.order_repository.link_order_to_position(
-                    str(order.id), str(position.id),
+                    str(order.id),
+                    str(position.id),
                 )
 
                 if updated_order:
                     self.logger.info(
                         f"Auto-fixed: Linked order {order.id} to existing position {position.id}",
-                        source_module=self._source_module)
+                        source_module=self._source_module,
+                    )
                     return True
 
             # If no position exists, we could create one, but that's more complex
             # For now, just log that manual intervention is needed
             self.logger.warning(
                 f"Cannot auto-fix order {order.id} - no suitable position found",
-                source_module=self._source_module)
+                source_module=self._source_module,
+            )
 
         except Exception:
-            self.logger.exception(
-                f"Error auto-fixing unlinked order {order.id}: ",
-                source_module=self._source_module)
+            self.logger.exception(f"Error auto-fixing unlinked order {order.id}: ", source_module=self._source_module)
             return False
         else:
             return False
@@ -434,8 +471,6 @@ class OrderPositionIntegrationService:
             # and auto-fix them if requested
 
         except Exception:
-            self.logger.exception(
-                "Error checking orphaned position references: ",
-                source_module=self._source_module)
+            self.logger.exception("Error checking orphaned position references: ", source_module=self._source_module)
 
         return fixed_count

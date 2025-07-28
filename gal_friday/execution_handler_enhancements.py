@@ -11,16 +11,19 @@ from enum import Enum
 import re
 import statistics
 import time
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import asyncio
 
 from gal_friday.config_manager import ConfigManager
-from gal_friday.logger_service import LoggerService
+
+if TYPE_CHECKING:
+    from gal_friday.logger_service import LoggerService
 
 
 class MarketSession(str, Enum):
     """Market trading session types."""
+
     PRE_MARKET = "pre_market"
     REGULAR = "regular"
     AFTER_MARKET = "after_market"
@@ -30,6 +33,7 @@ class MarketSession(str, Enum):
 
 class ExchangeRegion(str, Enum):
     """Exchange geographical regions."""
+
     US = "us"
     EUROPE = "europe"
     ASIA = "asia"
@@ -39,6 +43,7 @@ class ExchangeRegion(str, Enum):
 @dataclass
 class MarketHours:
     """Market hours configuration for an exchange."""
+
     exchange: str
     region: ExchangeRegion
     timezone_name: str
@@ -61,6 +66,7 @@ class MarketHours:
 @dataclass
 class PriceData:
     """Market price information."""
+
     symbol: str
     price: float
     bid: float | None
@@ -87,6 +93,7 @@ class PriceData:
 @dataclass
 class VolatilityData:
     """Volatility measurements."""
+
     symbol: str
     realized_vol_1d: float
     realized_vol_7d: float
@@ -115,7 +122,7 @@ class MarketDataProvider(ABC):
 class KrakenMarketDataProvider(MarketDataProvider):
     """Kraken-specific market data provider."""
 
-    def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
+    def __init__(self, config: ConfigManager, logger: "LoggerService") -> None:
         """Initialize the instance."""
         self.config = config
         self.logger = logger
@@ -148,12 +155,8 @@ class KrakenMarketDataProvider(MarketDataProvider):
                 # Update price history for volatility calculations
                 await self._update_price_history(symbol, price_data.price)
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get price for {symbol}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get price for {symbol}", source_module=self._source_module)
             return None
         else:
             return price_data
@@ -170,9 +173,7 @@ class KrakenMarketDataProvider(MarketDataProvider):
 
             # Calculate returns
             prices = [p[0] for p in history[-100:]]  # Last 100 points
-            returns = []
-            for i in range(1, len(prices)):
-                returns.append((prices[i] - prices[i-1]) / prices[i-1])
+            returns = [(prices[i] - prices[i - 1]) / prices[i - 1] for i in range(1, len(prices))]
 
             if len(returns) < 5:
                 return None
@@ -180,16 +181,15 @@ class KrakenMarketDataProvider(MarketDataProvider):
             # Calculate volatilities for different periods
             vol_1d = statistics.stdev(returns[-24:]) if len(returns) >= 24 else statistics.stdev(returns)
             vol_7d = statistics.stdev(returns[-168:]) if len(returns) >= 168 else statistics.stdev(returns)
-            vol_30d = statistics.stdev(returns) if len(returns) >= 720 else statistics.stdev(returns)
+            vol_30d = statistics.stdev(returns)
 
-            # Annualize (approximate)
+            # Annualize volatility (approximate)
             vol_1d *= (24 * 365) ** 0.5
             vol_7d *= (24 * 365) ** 0.5
             vol_30d *= (24 * 365) ** 0.5
 
             # Calculate percentile (simplified)
-            all_vols = [statistics.stdev(returns[max(0, i-24):i+1])
-                       for i in range(24, len(returns))]
+            all_vols = [statistics.stdev(returns[max(0, i - 24) : i + 1]) for i in range(24, len(returns))]
             if all_vols:
                 current_vol = vol_1d / ((24 * 365) ** 0.5)
                 vol_percentile = sum(1 for v in all_vols if v < current_vol) / len(all_vols) * 100
@@ -206,12 +206,8 @@ class KrakenMarketDataProvider(MarketDataProvider):
                 timestamp=datetime.now(UTC),
             )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to calculate volatility for {symbol}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to calculate volatility for {symbol}", source_module=self._source_module)
             return None
 
     async def is_connected(self) -> bool:
@@ -251,10 +247,7 @@ class KrakenMarketDataProvider(MarketDataProvider):
             )
 
         except Exception:
-            self.logger.exception(
-                f"Kraken API error for {symbol}: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception(f"Kraken API error for {symbol}: ", source_module=self._source_module)
             return None
 
     async def _update_price_history(self, symbol: str, price: float) -> None:
@@ -267,13 +260,13 @@ class KrakenMarketDataProvider(MarketDataProvider):
 
         # Limit history size
         if len(history) > self._max_history_points:
-            history[:] = history[-self._max_history_points:]
+            history[:] = history[-self._max_history_points :]
 
 
 class ExchangeCalendarManager:
     """Manages exchange trading calendars and market hours."""
 
-    def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
+    def __init__(self, config: ConfigManager, logger: "LoggerService") -> None:
         """Initialize the instance."""
         self.config = config
         self.logger = logger
@@ -317,12 +310,8 @@ class ExchangeCalendarManager:
             # Update cache
             self._status_cache[cache_key] = (session, time.time())
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get market session for {exchange}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get market session for {exchange}", source_module=self._source_module)
             return MarketSession.CLOSED
         else:
             return session
@@ -374,9 +363,11 @@ class ExchangeCalendarManager:
         market_hours = self._market_hours[exchange]
 
         # For 24/7 markets (like crypto)
-        if (market_hours.market_open == "00:00" and
-            market_hours.market_close == "23:59" and
-            len(market_hours.trading_days) == 7):
+        if (
+            market_hours.market_open == "00:00"
+            and market_hours.market_close == "23:59"
+            and len(market_hours.trading_days) == 7
+        ):
             return MarketSession.REGULAR
 
         # For traditional markets - would implement time zone logic
@@ -386,7 +377,7 @@ class ExchangeCalendarManager:
 class EnhancedMarketDataService:
     """Production-grade market data service replacing MinimalMarketDataService."""
 
-    def __init__(self, config: ConfigManager, logger: LoggerService) -> None:
+    def __init__(self, config: ConfigManager, logger: "LoggerService") -> None:
         """Initialize the instance."""
         self.config = config
         self.logger = logger
@@ -427,12 +418,8 @@ class EnhancedMarketDataService:
                 return price_data.price
             self._connection_failures += 1
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get current price for {symbol}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get current price for {symbol}", source_module=self._source_module)
             self._connection_failures += 1
             return None
         else:
@@ -455,12 +442,8 @@ class EnhancedMarketDataService:
             if exchange.lower() == "kraken":
                 return True
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to check market status for {symbol}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to check market status for {symbol}", source_module=self._source_module)
             return True  # Default to open on error
         else:
             return session in [MarketSession.REGULAR, MarketSession.PRE_MARKET, MarketSession.AFTER_MARKET]
@@ -474,12 +457,8 @@ class EnhancedMarketDataService:
                 # Return 30-day realized volatility as primary measure
                 return vol_data.realized_vol_30d
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get volatility for {symbol}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get volatility for {symbol}", source_module=self._source_module)
             return None
         else:
             return None
@@ -501,12 +480,8 @@ class EnhancedMarketDataService:
                 "connection_failures": self._connection_failures,
             }
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get market status for {symbol}: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to get market status for {symbol}", source_module=self._source_module)
             return {}
 
     async def health_check(self) -> dict[str, Any]:
@@ -529,8 +504,7 @@ class EnhancedMarketDataService:
                 "recent_successful_fetch": recent_success,
                 "cached_symbols": list[Any](self._last_successful_fetch.keys()),
                 "last_fetch_times": {
-                    symbol: fetch_time.isoformat()
-                    for symbol, fetch_time in self._last_successful_fetch.items()
+                    symbol: fetch_time.isoformat() for symbol, fetch_time in self._last_successful_fetch.items()
                 },
             }
 
@@ -541,11 +515,7 @@ class EnhancedMarketDataService:
                 )
 
         except Exception as e:
-            self.logger.error(
-                f"Health check failed: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+            self.logger.exception("Health check failed", source_module=self._source_module)
             return {"healthy": False, "error": str(e)}
         else:
             return health_status
@@ -559,8 +529,10 @@ class EnhancedMarketDataService:
 
 # Error Management Classes
 
+
 class ErrorSeverity(str, Enum):
     """Error severity levels."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -569,6 +541,7 @@ class ErrorSeverity(str, Enum):
 
 class ErrorCategory(str, Enum):
     """Error category classifications."""
+
     NETWORK = "network"
     AUTH = "authentication"
     RATE_LIMIT = "rate_limit"
@@ -582,6 +555,7 @@ class ErrorCategory(str, Enum):
 
 class RetryStrategy(str, Enum):
     """Retry strategy types."""
+
     NONE = "none"
     IMMEDIATE = "immediate"
     LINEAR_BACKOFF = "linear_backoff"
@@ -593,6 +567,7 @@ class RetryStrategy(str, Enum):
 @dataclass
 class ErrorPattern:
     """Error pattern matching configuration."""
+
     pattern: str  # Regex pattern
     category: ErrorCategory
     severity: ErrorSeverity
@@ -609,6 +584,7 @@ class ErrorPattern:
 @dataclass
 class ErrorInstance:
     """Individual error occurrence."""
+
     message: str
     category: ErrorCategory
     severity: ErrorSeverity
@@ -621,7 +597,7 @@ class ErrorInstance:
 class KrakenErrorClassifier:
     """Intelligent error classification system for Kraken exchange."""
 
-    def __init__(self, logger: LoggerService) -> None:
+    def __init__(self, logger: "LoggerService") -> None:
         """Initialize the instance."""
         self.logger = logger
         self._source_module = self.__class__.__name__
@@ -647,7 +623,6 @@ class KrakenErrorClassifier:
                 base_delay=1.0,
                 description="Network connectivity issues",
             ),
-
             # Rate limiting
             ErrorPattern(
                 pattern=r"(rate.?limit|too.?many.?requests|429|EAPI:Rate limit)",
@@ -658,7 +633,6 @@ class KrakenErrorClassifier:
                 base_delay=5.0,
                 description="API rate limit exceeded",
             ),
-
             # Authentication errors
             ErrorPattern(
                 pattern=r"(invalid.?key|invalid.?signature|unauthorized|401|403|EAPI:Invalid key)",
@@ -669,7 +643,6 @@ class KrakenErrorClassifier:
                 base_delay=0.0,
                 description="Authentication failure",
             ),
-
             # Insufficient funds
             ErrorPattern(
                 pattern=r"(insufficient|not.?enough|balance|EOrder:Insufficient)",
@@ -680,7 +653,6 @@ class KrakenErrorClassifier:
                 base_delay=0.0,
                 description="Insufficient account balance",
             ),
-
             # Market closed
             ErrorPattern(
                 pattern=r"(market.?closed|trading.?halt|EOrder:Trading agreement required)",
@@ -691,7 +663,6 @@ class KrakenErrorClassifier:
                 base_delay=60.0,
                 description="Market is closed or trading halted",
             ),
-
             # Temporary service issues
             ErrorPattern(
                 pattern=r"(temporary|service.?unavailable|busy|EGeneral:Temporary|EService:Unavailable|EService:Busy)",
@@ -702,7 +673,6 @@ class KrakenErrorClassifier:
                 base_delay=2.0,
                 description="Temporary service issues",
             ),
-
             # Order validation errors
             ErrorPattern(
                 pattern=r"(invalid.?order|invalid.?amount|invalid.?price|EOrder:Invalid|EGeneral:Invalid arguments)",
@@ -713,7 +683,6 @@ class KrakenErrorClassifier:
                 base_delay=0.0,
                 description="Order validation failed",
             ),
-
             # Permanent errors
             ErrorPattern(
                 pattern=r"(not.?found|does.?not.?exist|invalid.?symbol|EQuery:Unknown asset)",
@@ -753,12 +722,8 @@ class KrakenErrorClassifier:
 
                     return error_instance
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to classify error: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to classify error", source_module=self._source_module)
 
             # Return safe default
             return ErrorInstance(
@@ -819,7 +784,7 @@ class KrakenErrorClassifier:
         if strategy_type == RetryStrategy.LINEAR_BACKOFF.value:
             return float(base_delay * (retry_count + 1))
         if strategy_type == RetryStrategy.EXPONENTIAL_BACKOFF.value:
-            return float(base_delay * (2 ** retry_count))
+            return float(base_delay * (2**retry_count))
         if strategy_type == RetryStrategy.FIXED_INTERVAL.value:
             return float(base_delay)
         return float(base_delay)
@@ -854,10 +819,7 @@ class KrakenErrorClassifier:
         recent_threshold = 300  # 5 minutes
         cutoff_time = time.time() - recent_threshold
 
-        recent_errors = [
-            e for e in self._error_history
-            if e.category == category and e.timestamp > cutoff_time
-        ]
+        recent_errors = [e for e in self._error_history if e.category == category and e.timestamp > cutoff_time]
 
         # Trigger circuit breaker if too many errors
         if len(recent_errors) >= 10:
@@ -904,12 +866,8 @@ class KrakenErrorClassifier:
                 "most_common_errors": self._get_most_common_errors(recent_errors),
             }
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to generate error statistics: {e}",
-                source_module=self._source_module,
-                exc_info=True,
-            )
+        except Exception:
+            self.logger.exception("Failed to generate error statistics", source_module=self._source_module)
             return {}
 
     def _get_most_common_errors(self, errors: list[ErrorInstance], limit: int = 5) -> list[dict[str, Any]]:
@@ -921,16 +879,15 @@ class KrakenErrorClassifier:
         # Sort by frequency
         sorted_errors = sorted(error_counts.items(), key=lambda x: x[1], reverse=True)
 
-        return [
-            {"message": message, "count": count}
-            for message, count in sorted_errors[:limit]
-        ]
+        return [{"message": message, "count": count} for message, count in sorted_errors[:limit]]
 
 
 # Batch Processing Classes
 
+
 class BatchStrategy(str, Enum):
     """Batch processing strategies."""
+
     PARALLEL = "parallel"
     SEQUENTIAL = "sequential"
     SMART_ROUTING = "smart_routing"
@@ -940,6 +897,7 @@ class BatchStrategy(str, Enum):
 @dataclass
 class BatchExecutionResult:
     """Result of batch order execution."""
+
     successful_orders: list[dict[str, Any]]
     failed_orders: list[dict[str, Any]]
     partial_executions: list[dict[str, Any]]
@@ -967,7 +925,7 @@ class BatchExecutionResult:
 class OptimizedBatchProcessor:
     """Production-grade batch order processing system."""
 
-    def __init__(self, adapter: Any, logger: LoggerService, config: ConfigManager) -> None:
+    def __init__(self, adapter: Any, logger: "LoggerService", config: ConfigManager) -> None:
         """Initialize the instance."""
         self.adapter = adapter
         self.logger = logger
@@ -1028,10 +986,9 @@ class OptimizedBatchProcessor:
 
         except Exception as e:
             execution_time = time.time() - start_time
-            self.logger.error(
-                f"Batch execution failed after {execution_time:.2f}s: {e}",
+            self.logger.exception(
+                "Batch execution failed after {execution_time:.2f}s",
                 source_module=self._source_module,
-                exc_info=True,
             )
 
             # Return failure result
@@ -1068,7 +1025,7 @@ class OptimizedBatchProcessor:
 
         # Split into batches to respect concurrency limits
         for i in range(0, len(orders), self._parallel_limit):
-            batch = orders[i:i + self._parallel_limit]
+            batch = orders[i : i + self._parallel_limit]
 
             # Execute batch in parallel
             tasks = [self._execute_single_order(order) for order in batch]
@@ -1082,22 +1039,28 @@ class OptimizedBatchProcessor:
                 # Handle results and exceptions
                 for j, result in enumerate(batch_results):
                     if isinstance(result, Exception):
-                        results.append({
-                            "success": False,
-                            "order": batch[j],
-                            "error": str(result),
-                        })
+                        results.append(
+                            {
+                                "success": False,
+                                "order": batch[j],
+                                "error": str(result),
+                            },
+                        )
                     else:
                         results.append(cast("dict[str, Any]", result))
 
             except TimeoutError:
                 # Handle timeout
-                for order in batch:
-                    results.append({
-                        "success": False,
-                        "order": order,
-                        "error": "Batch execution timeout",
-                    })
+                results.extend(
+                    [
+                        {
+                            "success": False,
+                            "order": order,
+                            "error": "Batch execution timeout",
+                        }
+                        for order in batch
+                    ],
+                )
 
         return results
 
@@ -1114,11 +1077,13 @@ class OptimizedBatchProcessor:
                 await asyncio.sleep(0.1)
 
             except Exception as e:
-                results.append({
-                    "success": False,
-                    "order": order,
-                    "error": str(e),
-                })
+                results.append(
+                    {
+                        "success": False,
+                        "order": order,
+                        "error": str(e),
+                    },
+                )
 
         return results
 
@@ -1177,11 +1142,13 @@ class OptimizedBatchProcessor:
             order_exposure = abs(getattr(order, "quantity", 0) * getattr(order, "price", 0))
 
             if total_exposure + order_exposure > max_exposure:
-                results.append({
-                    "success": False,
-                    "order": order,
-                    "error": "Batch exposure limit exceeded",
-                })
+                results.append(
+                    {
+                        "success": False,
+                        "order": order,
+                        "error": "Batch exposure limit exceeded",
+                    },
+                )
                 continue
 
             try:
@@ -1192,11 +1159,13 @@ class OptimizedBatchProcessor:
                     total_exposure += order_exposure
 
             except Exception as e:
-                results.append({
-                    "success": False,
-                    "order": order,
-                    "error": str(e),
-                })
+                results.append(
+                    {
+                        "success": False,
+                        "order": order,
+                        "error": str(e),
+                    },
+                )
 
         return results
 
@@ -1262,10 +1231,7 @@ class OptimizedBatchProcessor:
                 self._batch_metrics = self._batch_metrics[-500:]
 
         except Exception:
-            self.logger.exception(
-                "Failed to record batch metrics: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to record batch metrics: ", source_module=self._source_module)
 
     def get_performance_statistics(self) -> dict[str, Any]:
         """Get batch processing performance statistics."""
@@ -1288,10 +1254,7 @@ class OptimizedBatchProcessor:
             }
 
         except Exception:
-            self.logger.exception(
-                "Failed to generate performance statistics: ",
-                source_module=self._source_module,
-            )
+            self.logger.exception("Failed to generate performance statistics: ", source_module=self._source_module)
             return {}
 
     def _analyze_strategy_performance(self) -> dict[str, dict[str, float]]:

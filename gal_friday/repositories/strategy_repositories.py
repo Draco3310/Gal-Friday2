@@ -12,7 +12,7 @@ from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from gal_friday.dal.repositories.base import BaseRepository
+from gal_friday.dal.repositories.base import SimpleBaseRepository
 from gal_friday.models.strategy_models import (
     StrategyBacktestResult,
     StrategyConfig,
@@ -21,7 +21,7 @@ from gal_friday.models.strategy_models import (
 )
 
 
-class StrategyRepository(BaseRepository[StrategyConfig]):
+class StrategyRepository(SimpleBaseRepository[StrategyConfig]):
     """Repository for strategy configuration management."""
 
     def __init__(self, session: AsyncSession) -> None:
@@ -107,7 +107,7 @@ class StrategyRepository(BaseRepository[StrategyConfig]):
         return list[Any](result.scalars().all())
 
 
-class PerformanceMetricsRepository(BaseRepository[StrategyPerformanceSnapshot]):
+class PerformanceMetricsRepository(SimpleBaseRepository[StrategyPerformanceSnapshot]):
     """Repository for strategy performance metrics."""
 
     def __init__(self, session: AsyncSession) -> None:
@@ -136,9 +136,8 @@ class PerformanceMetricsRepository(BaseRepository[StrategyPerformanceSnapshot]):
         limit: int = 100,
     ) -> list[StrategyPerformanceSnapshot]:
         """Get performance history for strategy."""
-        stmt = (
-            select(StrategyPerformanceSnapshot)
-            .where(StrategyPerformanceSnapshot.strategy_config_id == strategy_config_id)
+        stmt = select(StrategyPerformanceSnapshot).where(
+            StrategyPerformanceSnapshot.strategy_config_id == strategy_config_id,
         )
 
         if start_date:
@@ -146,10 +145,7 @@ class PerformanceMetricsRepository(BaseRepository[StrategyPerformanceSnapshot]):
         if end_date:
             stmt = stmt.where(StrategyPerformanceSnapshot.snapshot_date <= end_date)
 
-        stmt = (
-            stmt.order_by(StrategyPerformanceSnapshot.snapshot_date.desc())
-            .limit(limit)
-        )
+        stmt = stmt.order_by(StrategyPerformanceSnapshot.snapshot_date.desc()).limit(limit)
 
         result = await self.session.execute(stmt)
         return list[Any](result.scalars().all())
@@ -220,7 +216,7 @@ class PerformanceMetricsRepository(BaseRepository[StrategyPerformanceSnapshot]):
         return comparison
 
 
-class SelectionHistoryRepository(BaseRepository[StrategySelectionEvent]):
+class SelectionHistoryRepository(SimpleBaseRepository[StrategySelectionEvent]):
     """Repository for strategy selection history."""
 
     def __init__(self, session: AsyncSession) -> None:
@@ -299,7 +295,7 @@ class SelectionHistoryRepository(BaseRepository[StrategySelectionEvent]):
         ]
 
 
-class StrategyBacktestRepository(BaseRepository[StrategyBacktestResult]):
+class StrategyBacktestRepository(SimpleBaseRepository[StrategyBacktestResult]):
     """Repository for strategy backtest results."""
 
     def __init__(self, session: AsyncSession) -> None:
