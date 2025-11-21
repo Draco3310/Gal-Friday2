@@ -14,3 +14,7 @@ pydantic
 python-json-logger
 typer
 uvicorn
+tensorflow-cpu
+xgboost
+scikit-learn
+joblib

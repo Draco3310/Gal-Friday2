@@ -10,6 +10,14 @@ strategy:
   symbol: BTC/USD
   lower_length: 20
   upper_length: 20
+  ml_buy_threshold: 0.7
+
+predictor:
+  enabled: false
+  module: src.predictors.random_forest
+  class: RandomForestPredictor
+  model_path: "models/rf_model.joblib"
+  feature_names: ["rsi_14", "macd_12_26_9", "atr_14"]
 
 database:
   path: gal_friday.db
