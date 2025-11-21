@@ -1,0 +1,20 @@
+exchange:
+  exchange_id: kraken
+  api_key: "YOUR_API_KEY"
+  api_secret: "YOUR_API_SECRET"
+  sandbox_mode: true
+
+strategy:
+  module: src.strategies.donchian_volatility
+  class: DonchianStrategy
+  symbol: BTC/USD
+  lower_length: 20
+  upper_length: 20
+
+database:
+  path: gal_friday.db
+
+trading:
+  timeframe: 1m
+  quantity: 0.001
+  loop_interval_seconds: 60
